@@ -44,6 +44,12 @@ type SessionBranchCacheEntry = {
 const sessionBranchCache = new Map<string, SessionBranchCacheEntry>();
 const pendingSessionBranchRequests = new Map<string, Promise<string | null>>();
 
+const WORKTREE_ACTION_LABELS = {
+  move: 'Moving into a new worktree…',
+  apply: 'Squash-merging changes back…',
+  discard: 'Removing worktree…',
+} as const;
+
 function getProjectLabel(fullPath: string | null): string {
   return fullPath
     ? fullPath.split('/').filter(Boolean).pop() || fullPath
@@ -549,8 +555,9 @@ function SessionItem({
     loading: boolean;
     expiresAt: number;
   } | null>(null);
-  // 中文标题会等 LLM 起分支名（数秒），期间行上要有 pending 反馈并禁掉重复触发
-  const [movingToWorktree, setMovingToWorktree] = useState(false);
+  // worktree 生命周期动作（挪入/收下/扔掉）都有秒级耗时：期间行上要有
+  // pending 反馈，并禁掉重复触发
+  const [worktreeAction, setWorktreeAction] = useState<'move' | 'apply' | 'discard' | null>(null);
   const inWorktree = session.envMode === 'worktree' && Boolean(session.worktreePath);
   const projectPath = getSessionProjectPath(session);
   const projectLabel = getProjectLabel(projectPath);
@@ -623,7 +630,8 @@ function SessionItem({
           label: forkLabel,
           enabled: canFork,
         },
-        // worktree 内外互斥的两个动作：在外可以搬进去，在内可以再开一条
+        // worktree 内外互斥的动作：在外可以搬进去；在内可以再开一条，
+        // 或走 Environment 卡片同款的收尾动作（收下 / 扔掉）
         ...(inWorktree
           ? [
               {
@@ -632,17 +640,34 @@ function SessionItem({
                   session.associatedWorktreeBranch ? ` (${session.associatedWorktreeBranch})` : ''
                 }`,
               },
+              {
+                id: 'apply-worktree',
+                label:
+                  session.status === 'running'
+                    ? 'Squash-merge back into project (agent is running)'
+                    : 'Squash-merge back into project',
+                enabled: session.status !== 'running' && worktreeAction === null,
+              },
+              {
+                id: 'discard-worktree',
+                label:
+                  session.status === 'running'
+                    ? 'Discard worktree… (agent is running)'
+                    : 'Discard worktree…',
+                enabled: session.status !== 'running' && worktreeAction === null,
+              },
             ]
           : [
               {
                 id: 'move-worktree',
                 // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
-                label: movingToWorktree
-                  ? 'Move into a new worktree (moving…)'
-                  : canMoveToWorktree
-                    ? 'Move into a new worktree'
-                    : 'Move into a new worktree (agent is running)',
-                enabled: canMoveToWorktree && !movingToWorktree,
+                label:
+                  worktreeAction === 'move'
+                    ? 'Move into a new worktree (moving…)'
+                    : canMoveToWorktree
+                      ? 'Move into a new worktree'
+                      : 'Move into a new worktree (agent is running)',
+                enabled: canMoveToWorktree && worktreeAction === null,
               },
             ]),
         { id: 'sep', type: 'separator' },
@@ -668,7 +693,7 @@ function SessionItem({
       }
     } else if (result.id === 'move-worktree') {
       void (async () => {
-        setMovingToWorktree(true);
+        setWorktreeAction('move');
         const toastId = toast.loading('Moving thread into a new worktree…');
         try {
           const result = await window.electron.moveSessionToWorktree(session.id);
@@ -682,7 +707,46 @@ function SessionItem({
             });
           }
         } finally {
-          setMovingToWorktree(false);
+          setWorktreeAction(null);
+        }
+      })();
+    } else if (result.id === 'apply-worktree') {
+      void (async () => {
+        setWorktreeAction('apply');
+        const toastId = toast.loading('Squash-merging worktree changes into the project…');
+        try {
+          const applied = await window.electron.applyWorktreeChanges(session.id);
+          if (applied.ok) {
+            toast.success('Squash-merged — changes are staged in your project for review.', {
+              id: toastId,
+            });
+          } else {
+            toast.error(applied.message || 'Squash-merge failed.', { id: toastId });
+          }
+        } finally {
+          setWorktreeAction(null);
+        }
+      })();
+    } else if (result.id === 'discard-worktree') {
+      const branchName = session.associatedWorktreeBranch;
+      if (
+        !window.confirm(
+          `Remove this worktree${branchName ? ` and delete branch ${branchName}` : ''}? All uncommitted changes in it are lost. The conversation stays.`
+        )
+      ) {
+        return;
+      }
+      void (async () => {
+        setWorktreeAction('discard');
+        try {
+          const discarded = await window.electron.discardWorktreeChanges(session.id);
+          if (discarded.ok) {
+            toast.success('Worktree removed — thread is back on the project.');
+          } else {
+            toast.error(discarded.message || 'Could not remove the worktree.');
+          }
+        } finally {
+          setWorktreeAction(null);
         }
       })();
     } else if (result.id === 'pin') {
@@ -741,11 +805,11 @@ function SessionItem({
             <div className="flex min-h-[22px] items-center gap-2">
               <ProviderGlyph provider={session.provider} />
               <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
-              {movingToWorktree ? (
-                <span className="flex-shrink-0" title="Moving into a new worktree…">
+              {worktreeAction ? (
+                <span className="flex-shrink-0" title={WORKTREE_ACTION_LABELS[worktreeAction]}>
                   <Loader2
                     className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]"
-                    aria-label="Moving into a new worktree"
+                    aria-label={WORKTREE_ACTION_LABELS[worktreeAction]}
                   />
                 </span>
               ) : null}
