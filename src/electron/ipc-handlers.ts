@@ -72,6 +72,7 @@ import { recycleSessionWorktree } from './libs/worktree-hygiene';
 import {
   applyIsolatedWorkspace,
   assignIsolatedWorkspace,
+  branchSlugFromHint,
   discardIsolatedWorkspace,
   provisionIsolatedWorkspace,
   type IsolatedWorkspaceProvision,
@@ -5131,6 +5132,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   // 把现有 thread 本身挪进新 worktree（不 fork 对话，provider 无关）：
   // 同一个会话继续聊，只是 cwd 换成隔离检出。
+  const movesInFlight = new Set<string>();
   ipcMainHandle('move-session-to-worktree', async (_event, sessionId: string) => {
     const row = sessions.getSession(sessionId);
     if (!row) return { ok: false, message: 'Session not found.' };
@@ -5142,20 +5144,33 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (row.env_mode === 'worktree' && row.worktree_path) {
       return { ok: false, message: 'This thread is already in a worktree.' };
     }
-    // Moving the thread changes its cwd; retire any kept-alive runner (any
-    // provider) that captured the old directory at spawn.
-    retireSessionRunner(sessionId);
-    // 用该 thread 的 provider 给分支起英文名（标题/末条提示词做素材），失败退回本地命名
-    const llmSlug = await generateWorktreeBranchSlug({
-      prompt: row.title || row.last_prompt || 'worktree',
-      cwd: row.project_cwd || row.cwd || undefined,
-      provider: (row.provider || 'claude') as AgentProvider,
-      model: row.model || undefined,
-      compatibleProviderId: row.compatible_provider_id || undefined,
-    });
-    const result = await assignIsolatedWorkspace(sessionId, llmSlug);
-    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
-    return result;
+    // 起名期间重复触发会各建一个 worktree，后写的赢、先建的成孤儿——在源头拒绝
+    if (movesInFlight.has(sessionId)) {
+      return { ok: false, message: 'This thread is already being moved.' };
+    }
+    movesInFlight.add(sessionId);
+    try {
+      // Moving the thread changes its cwd; retire any kept-alive runner (any
+      // provider) that captured the old directory at spawn.
+      retireSessionRunner(sessionId);
+      // 标题能产出合法分支名就直接用（标题通常已是 LLM 起的），move 保持秒级；
+      // slug 化失败（如中文标题）才请该 thread 的 provider 起英文名，失败退回本地命名
+      const labelHint = row.title || row.last_prompt || 'worktree';
+      const nameHint = branchSlugFromHint(labelHint)
+        ? labelHint
+        : await generateWorktreeBranchSlug({
+            prompt: labelHint,
+            cwd: row.project_cwd || row.cwd || undefined,
+            provider: (row.provider || 'claude') as AgentProvider,
+            model: row.model || undefined,
+            compatibleProviderId: row.compatible_provider_id || undefined,
+          });
+      const result = await assignIsolatedWorkspace(sessionId, nameHint);
+      if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+      return result;
+    } finally {
+      movesInFlight.delete(sessionId);
+    }
   });
 
   ipcMainHandle('apply-worktree-changes', async (_event, sessionId: string) => {
@@ -7797,16 +7812,20 @@ async function handleSessionStart(
   let isolated: IsolatedWorkspaceProvision | null = null;
   if (createIsolatedWorkspace && sessionCwd) {
     try {
-      // 先让选定的 provider 用英文概括任务当分支名（超时/失败静默退回本地 slug/哈希）
-      const llmSlug = await generateWorktreeBranchSlug({
-        prompt,
-        cwd: sessionCwd,
-        provider: chosenProvider,
-        model: normalizeModel(model) || undefined,
-        compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
-        betas: chosenProvider === 'claude' ? normalizeBetas(betas) : undefined,
-      });
-      isolated = await provisionIsolatedWorkspace(sessionCwd, llmSlug || prompt.slice(0, 80));
+      // 提示词本地能 slug 化就直接用，起跑不等 LLM；slug 化失败（如中文提示词）
+      // 才让选定的 provider 用英文概括任务当分支名（超时/失败静默退回本地 slug/哈希）
+      const promptHint = prompt.slice(0, 80);
+      const llmSlug = branchSlugFromHint(promptHint)
+        ? null
+        : await generateWorktreeBranchSlug({
+            prompt,
+            cwd: sessionCwd,
+            provider: chosenProvider,
+            model: normalizeModel(model) || undefined,
+            compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
+            betas: chosenProvider === 'claude' ? normalizeBetas(betas) : undefined,
+          });
+      isolated = await provisionIsolatedWorkspace(sessionCwd, llmSlug || promptHint);
     } catch (error) {
       broadcast(mainWindow, {
         type: 'runner.error',

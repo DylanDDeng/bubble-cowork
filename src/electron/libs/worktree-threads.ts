@@ -30,7 +30,9 @@ export interface IsolatedWorkspaceActionResult {
 
 // 分支第三级尽量像 session title 一样可读：从提示词/标题提取 ascii slug。
 // 中日韩等非 ascii 内容进不了安全的分支名，退回短哈希（侧栏显示层会再兜底）。
-function branchSlugFromHint(hint?: string | null): string | null {
+// 导出给调用方做"本地能起名就不必请 LLM"的前置判断（必须与这里同一实现，
+// 否则两边对"能否 slug 化"的判定会漂移）。
+export function branchSlugFromHint(hint?: string | null): string | null {
   if (!hint) return null;
   const slug = hint
     .normalize('NFKD')

@@ -5,6 +5,7 @@ import {
   FolderClosed,
   FolderOpen,
   GitBranch,
+  Loader2,
   MoreHorizontal,
   Pin,
   Plus,
@@ -548,6 +549,8 @@ function SessionItem({
     loading: boolean;
     expiresAt: number;
   } | null>(null);
+  // 中文标题会等 LLM 起分支名（数秒），期间行上要有 pending 反馈并禁掉重复触发
+  const [movingToWorktree, setMovingToWorktree] = useState(false);
   const inWorktree = session.envMode === 'worktree' && Boolean(session.worktreePath);
   const projectPath = getSessionProjectPath(session);
   const projectLabel = getProjectLabel(projectPath);
@@ -634,10 +637,12 @@ function SessionItem({
               {
                 id: 'move-worktree',
                 // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
-                label: canMoveToWorktree
-                  ? 'Move into a new worktree'
-                  : 'Move into a new worktree (agent is running)',
-                enabled: canMoveToWorktree,
+                label: movingToWorktree
+                  ? 'Move into a new worktree (moving…)'
+                  : canMoveToWorktree
+                    ? 'Move into a new worktree'
+                    : 'Move into a new worktree (agent is running)',
+                enabled: canMoveToWorktree && !movingToWorktree,
               },
             ]),
         { id: 'sep', type: 'separator' },
@@ -663,11 +668,21 @@ function SessionItem({
       }
     } else if (result.id === 'move-worktree') {
       void (async () => {
-        const result = await window.electron.moveSessionToWorktree(session.id);
-        if (result.ok) {
-          toast.success('Thread moved into a new worktree — changes stay on its own branch.');
-        } else {
-          toast.error(result.message || 'Could not move the thread into a worktree.');
+        setMovingToWorktree(true);
+        const toastId = toast.loading('Moving thread into a new worktree…');
+        try {
+          const result = await window.electron.moveSessionToWorktree(session.id);
+          if (result.ok) {
+            toast.success('Thread moved into a new worktree — changes stay on its own branch.', {
+              id: toastId,
+            });
+          } else {
+            toast.error(result.message || 'Could not move the thread into a worktree.', {
+              id: toastId,
+            });
+          }
+        } finally {
+          setMovingToWorktree(false);
         }
       })();
     } else if (result.id === 'pin') {
@@ -726,6 +741,14 @@ function SessionItem({
             <div className="flex min-h-[22px] items-center gap-2">
               <ProviderGlyph provider={session.provider} />
               <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
+              {movingToWorktree ? (
+                <span className="flex-shrink-0" title="Moving into a new worktree…">
+                  <Loader2
+                    className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]"
+                    aria-label="Moving into a new worktree"
+                  />
+                </span>
+              ) : null}
               {showWorktreeBadge && session.envMode === 'worktree' && session.worktreePath ? (
                 <span
                   className="flex-shrink-0"

@@ -206,7 +206,8 @@ function generateSessionTitleLocally(prompt: string): string {
 // LLM 起分支名：让选定的 provider 用英文概括这次任务（kebab-case），
 // 中文提示词也能得到可读的分支第三级。失败/超时静默返回 null，
 // 调用方退回本地 slug/哈希——起名绝不能挡住任务启动。
-const BRANCH_SLUG_TIMEOUT_MS = 8_000;
+// 调用方等在用户可见的操作上，兜底只是名字丑一点，超时宁短勿长。
+const BRANCH_SLUG_TIMEOUT_MS = 4_000;
 
 function sanitizeBranchSlug(text: string): string | null {
   const slug = text
