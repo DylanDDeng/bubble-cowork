@@ -35,6 +35,8 @@ interface MDContentProps {
 interface ProjectFileLink {
   path: string;
   line?: number;
+  /** 不在任何已知项目根下的真实绝对路径：面板按外部文件打开 */
+  external?: boolean;
 }
 
 interface ExternalLinkApp {
@@ -153,8 +155,14 @@ function parseLineSuffix(path: string): ProjectFileLink {
   };
 }
 
-function getProjectFileLink(href: string | undefined, cwd: string | null): ProjectFileLink | null {
-  if (!href || !cwd) return null;
+function getProjectFileLink(
+  href: string | undefined,
+  roots: Array<string | null | undefined>
+): ProjectFileLink | null {
+  const cwds = roots
+    .map((root) => (root ? normalizeSlashPath(root).replace(/\/$/, '') : ''))
+    .filter(Boolean);
+  if (!href || cwds.length === 0) return null;
 
   const raw = href.trim();
   if (!raw || raw.startsWith('#')) return null;
@@ -184,16 +192,28 @@ function getProjectFileLink(href: string | undefined, cwd: string | null): Proje
   path = parsed.path;
   if (!path || path.includes('\0')) return null;
 
-  const normalizedCwd = normalizeSlashPath(cwd).replace(/\/$/, '');
-  if (path === normalizedCwd) return null;
-  if (path.startsWith(`${normalizedCwd}/`)) {
-    path = path.slice(normalizedCwd.length + 1);
-  } else if (path.startsWith('/')) {
-    return null;
+  const line = parsed.line ?? lineHint;
+  if (path.startsWith('/')) {
+    // 依次对齐已知根（session cwd、项目根）：worktree 会话里模型常引用
+    // 主工作区的绝对路径，相对化后在 worktree 检出里打开同一文件。
+    let relative: string | null = null;
+    for (const normalizedCwd of cwds) {
+      if (path === normalizedCwd) return null;
+      if (path.startsWith(`${normalizedCwd}/`)) {
+        relative = path.slice(normalizedCwd.length + 1);
+        break;
+      }
+    }
+    if (relative === null) {
+      // 不属于任何根、但确实像本机文件的绝对路径 → 面板按外部文件打开，
+      // 而不是丢给系统浏览器；网页式的 /pricing 之类保持原有外链行为。
+      return looksLikeRevealablePath(path) ? { path, line, external: true } : null;
+    }
+    path = relative;
   }
 
   path = path.replace(/^\.\//, '');
-  return path && path !== '.' ? { path, line: parsed.line ?? lineHint } : null;
+  return path && path !== '.' ? { path, line } : null;
 }
 
 function matchesHost(host: string, domain: string): boolean {
@@ -292,10 +312,14 @@ function useProjectFileNavigation() {
     projectCwd,
     openRightUtilityTab,
   } = useAppStore();
-  const cwd = (activeSessionId ? sessions[activeSessionId]?.cwd : null) || projectCwd || null;
+  const session = activeSessionId ? sessions[activeSessionId] : null;
+  const cwd = session?.cwd || projectCwd || null;
+  // worktree 会话的 cwd 指向隔离检出，但模型引用常用主工作区（项目根）的
+  // 绝对路径——两个根都参与相对化
+  const roots = [cwd, session?.projectCwd || null];
 
   const openProjectFile = (projectFile: ProjectFileLink) => {
-    if (!cwd) return;
+    if (!cwd && !projectFile.external) return;
 
     // HTML chips open in the file panel showing source, like every other
     // file; the panel's open handler resolves partial paths via
@@ -306,13 +330,15 @@ function useProjectFileNavigation() {
     window.setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent('aegis:open-project-file', {
-          detail: { cwd, path: projectFile.path, lineStart: projectFile.line },
+          detail: projectFile.external
+            ? { path: projectFile.path, external: true, lineStart: projectFile.line }
+            : { cwd, path: projectFile.path, lineStart: projectFile.line },
         })
       );
     }, 0);
   };
 
-  return { cwd, openProjectFile };
+  return { cwd, roots, openProjectFile };
 }
 
 function MarkdownAnchor({
@@ -322,12 +348,12 @@ function MarkdownAnchor({
   href?: string;
   children: ReactNode;
 }) {
-  const { cwd, openProjectFile } = useProjectFileNavigation();
-  const projectFile = getProjectFileLink(href, cwd);
+  const { cwd, roots, openProjectFile } = useProjectFileNavigation();
+  const projectFile = getProjectFileLink(href, roots);
   const externalLinkApp = projectFile ? null : getExternalLinkApp(href);
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!projectFile || !cwd) return;
+    if (!projectFile || (!cwd && !projectFile.external)) return;
 
     event.preventDefault();
     event.stopPropagation();
