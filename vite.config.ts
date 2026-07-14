@@ -12,7 +12,9 @@ export default defineConfig({
     watch: {
       // Design mode writes into dev-fixtures at runtime; Aegis's own dev
       // server must not react to those files (they have their own server).
-      ignored: ['**/dev-fixtures/**'],
+      // Isolated-copy threads check a full worktree out under .worktrees/ —
+      // its tsconfig.json alone makes Vite force a full-reload of the app.
+      ignored: ['**/dev-fixtures/**', '**/.worktrees/**'],
     },
   },
   optimizeDeps: {
