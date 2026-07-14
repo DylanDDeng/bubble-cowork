@@ -123,7 +123,23 @@ export type ProviderSessionStatus = 'connecting' | 'running' | 'completed' | 'er
 export type ProviderRuntimeEvent =
   | { type: 'message'; threadId: string; message: StreamMessage }
   | { type: 'permission_request'; threadId: string; requestId: string; toolName: string; input: unknown }
+  // The provider resolved/abandoned a pending permission request itself
+  // (process death, stop, serverRequest/resolved) — UI should drop the card.
+  | { type: 'permission_dismissed'; threadId: string; requestId: string }
   | { type: 'status_change'; threadId: string; status: ProviderSessionStatus }
+  // Two-phase stop settled (codex): confirmed=false means the provider never
+  // acknowledged the interrupt within the timeout.
+  | {
+      type: 'stop_settled';
+      threadId: string;
+      providerThreadId: string;
+      generation: number;
+      confirmed: boolean;
+      noTurn?: boolean;
+    }
+  // Provider-authoritative model catalog refresh. Process-scoped: threadId is
+  // always null (present so per-thread event filters type-check and skip it).
+  | { type: 'model_catalog_updated'; threadId: null; models: unknown[] }
   | { type: 'error'; threadId: string; error: Error }
   | { type: 'system_init'; threadId: string; sessionId: string; model?: string };
 

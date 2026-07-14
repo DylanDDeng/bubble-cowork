@@ -1035,6 +1035,13 @@ function getStatusMeta(status?: McpServerStatus) {
   }
 
   if (status.status === 'failed') {
+    if (status.failureReason === 'reauthenticationRequired') {
+      return {
+        label: 'Reauthentication required',
+        tone: 'error' as const,
+        description: 'This server needs a fresh sign-in before it can be used.',
+      };
+    }
     return {
       label: 'Failed',
       tone: 'error' as const,

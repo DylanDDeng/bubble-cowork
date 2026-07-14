@@ -89,6 +89,8 @@ export interface McpServerStatus {
   name: string;
   status: 'connected' | 'failed' | 'pending';
   error?: string;
+  /** Codex: the server needs a fresh OAuth login (mcpServer/oauth/login). */
+  failureReason?: 'reauthenticationRequired';
   /** Which agent reported this status. Used to avoid cross-agent name collisions. */
   tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
 }
@@ -738,7 +740,13 @@ export type ServerEvent =
     }
   | { type: 'stream.message'; payload: { sessionId: string; message: StreamMessage } }
   | { type: 'permission.request'; payload: PermissionRequestPayload }
+  // The provider resolved/abandoned a pending permission request (process
+  // death, stop, server-side resolution) — the card must be dropped.
+  | { type: 'permission.dismissed'; payload: { sessionId: string; toolUseId: string } }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
+  // Codex app-server pushed a fresh authoritative model catalog — renderers
+  // should refetch codex model config (fast-mode eligibility may change).
+  | { type: 'codex.modelCatalogUpdated'; payload: Record<string, never> }
   | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode | null } }
   | {
       type: 'project.file';
@@ -1111,7 +1119,13 @@ export interface SessionInfo {
   updatedAt: number;
 }
 
-export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
+/**
+ * `stopping` is BROADCAST-ONLY (codex two-phase stop): it is never persisted
+ * to the sessions table — the DB stays `running` until the stop settles and
+ * writes `idle`. Persisting it would open the git/workspace gates mid-turn
+ * and strand sessions after a crash (the boot sweep only resets `running`).
+ */
+export type SessionStatus = 'idle' | 'running' | 'stopping' | 'completed' | 'error';
 
 export interface SessionStatusPayload {
   sessionId: string;

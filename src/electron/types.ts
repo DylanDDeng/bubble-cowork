@@ -136,6 +136,11 @@ export interface RunnerOptions {
     toolName: string,
     input: unknown
   ) => Promise<import('../shared/types').PermissionResult>;
+  /**
+   * The provider resolved/abandoned a pending permission request itself
+   * (process death, stop, server-side resolution) — clear the pending UI.
+   */
+  onPermissionDismissed?: (toolUseId: string) => void;
   onClaudeExecutionModeChange?: (
     mode: import('../shared/types').ClaudeExecutionMode,
     permissionMode: import('../shared/types').ClaudePermissionMode
@@ -159,6 +164,14 @@ export interface RunnerHandle {
    * streaming-input mode); absent on other providers.
    */
   interrupt?: () => Promise<void>;
+  /**
+   * Two-phase stop (codex): request `turn/interrupt` and resolve once the
+   * provider confirms the turn terminal (`turn/completed(interrupted)`) or
+   * the confirmation window times out. `confirmed: false` means the stop was
+   * never acknowledged — the turn may still be finishing server-side. Keeps
+   * the event subscription alive for the duration; absent on other providers.
+   */
+  interruptAndSettle?: () => Promise<{ confirmed: boolean }>;
   /**
    * Drop every prompt handed to send() that has not reached the input queue
    * yet (preparing a prompt is async — attachments are read from disk).

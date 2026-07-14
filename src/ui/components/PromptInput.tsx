@@ -433,7 +433,11 @@ export function PromptInput({
     [activeSession?.messages, isPiContextVisible, piContextModel]
   );
   const isRunning = activeSession?.status === 'running';
-  const isBusy = isRunning || pendingStart || approvalPending;
+  // Codex two-phase stop: 'stopping' is a broadcast-only transient while the
+  // interrupt awaits confirmation. The stop button is gone (no double-stop);
+  // sends stay allowed — the main process holds them until the stop settles.
+  const isStopping = activeSession?.status === 'stopping';
+  const isBusy = isRunning || isStopping || pendingStart || approvalPending;
   // Codex app-server supports turn/steer: a message sent while a turn is
   // streaming is injected into that turn instead of waiting for it to finish,
   // so the composer stays live for codex sessions while they run.
@@ -1321,6 +1325,8 @@ export function PromptInput({
             placeholder={
               approvalPending
                 ? 'Resolve this approval request to continue'
+                : isStopping
+                ? 'Stopping…'
                 : canSteerWhileRunning
                 ? 'Ask for follow-up changes'
                 : isRunning

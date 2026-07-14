@@ -30,9 +30,12 @@ import { isDev } from '../../util';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+// Codex app-server RequestId is `string | number` (generated schema, 0.144.3).
+type JsonRpcId = number | string;
+
 interface JsonRpcRequest {
   jsonrpc: '2.0';
-  id: number;
+  id: JsonRpcId;
   method: string;
   params?: Record<string, unknown>;
 }
@@ -45,23 +48,68 @@ interface JsonRpcNotification {
 
 interface JsonRpcResponse {
   jsonrpc: '2.0';
-  id: number;
+  id: JsonRpcId;
   result?: unknown;
   error?: { code?: number; message?: string; data?: unknown };
+}
+
+/** JSON-RPC error response from the codex app-server, with code/data preserved. */
+export class CodexRpcError extends Error {
+  constructor(
+    readonly method: string,
+    readonly code: number | undefined,
+    readonly data: unknown,
+    message: string
+  ) {
+    super(`${method}: ${message}`);
+    this.name = 'CodexRpcError';
+  }
+}
+
+export type CodexTransportFailureReason =
+  | 'process_exit'
+  | 'process_error'
+  | 'spawn_failed'
+  | 'stopped'
+  | 'timeout'
+  | 'stale_generation';
+
+/** Transport-level failure (process death, timeout, stale generation). */
+export class CodexRpcTransportError extends Error {
+  constructor(readonly reason: CodexTransportFailureReason, readonly method?: string) {
+    super(
+      reason === 'timeout' && method
+        ? `Timed out waiting for ${method}`
+        : `Codex app-server transport failure (${reason})${method ? ` during ${method}` : ''}`
+    );
+    this.name = 'CodexRpcTransportError';
+  }
+}
+
+/** The provider thread is already bound to another Aegis session. */
+export class CodexThreadBindingError extends Error {
+  constructor(readonly providerThreadId: string, readonly boundThreadId: string) {
+    super('This Codex thread is already attached to another session');
+    this.name = 'CodexThreadBindingError';
+  }
 }
 
 interface CodexSession {
   threadId: string;
   providerThreadId: string;
+  /** Process generation this session was created on (stale ops are rejected). */
+  generation: number;
   cwd: string;
   activeTurnId?: string;
-  status: 'connecting' | 'ready' | 'running' | 'error';
+  status: 'connecting' | 'ready' | 'running' | 'interrupting' | 'error';
   lastError?: string;
   model?: string;
   codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  /** Session+model keys that already produced a fast-unavailable notice. */
+  fastModeNoticeKeys?: Set<string>;
 }
 
 interface PendingRequest {
@@ -72,10 +120,48 @@ interface PendingRequest {
 }
 
 interface PendingApproval {
-  jsonRpcId: number;
+  jsonRpcId: JsonRpcId;
   method: string;
   threadId: string;
   params?: Record<string, unknown>;
+}
+
+/** In-flight stop confirmation, keyed by providerThreadId (P0-6). */
+interface PendingInterrupt {
+  turnId: string;
+  aegisThreadId: string;
+  generation: number;
+  timer: NodeJS.Timeout;
+}
+
+export interface CodexModelServiceTier {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface CodexModelCatalogEntry {
+  id: string;
+  model: string;
+  displayName: string;
+  hidden: boolean;
+  serviceTiers: CodexModelServiceTier[];
+  defaultServiceTier: string | null;
+  supportedReasoningEfforts: string[];
+  defaultReasoningEffort: string | null;
+}
+
+/**
+ * Resolve the service tier a "fast mode" toggle maps to: exactly one
+ * non-default tier → that tier; zero or multiple → null (fast unavailable).
+ * Provisional heuristic — `ModelServiceTier` carries no speed semantics in
+ * the 0.144.3 protocol, so surface the resolved tier's name in logs/UI.
+ */
+export function resolveFastTier(
+  entry: Pick<CodexModelCatalogEntry, 'serviceTiers' | 'defaultServiceTier'>
+): CodexModelServiceTier | null {
+  const nonDefault = entry.serviceTiers.filter((tier) => tier.id !== entry.defaultServiceTier);
+  return nonDefault.length === 1 ? nonDefault[0] : null;
 }
 
 interface CodexRunOptions {
@@ -88,9 +174,19 @@ interface CodexRunOptions {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const INITIALIZE_TIMEOUT_MS = 20_000;
-const REQUEST_TIMEOUT_MS = 30_000;
-const TURN_TIMEOUT_MS = 300_000;
+// Env overrides exist for the test harness only (verify:codex-app-server) —
+// production always runs the defaults.
+function envTimeout(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+const INITIALIZE_TIMEOUT_MS = envTimeout('AEGIS_CODEX_INITIALIZE_TIMEOUT_MS', 20_000);
+const REQUEST_TIMEOUT_MS = envTimeout('AEGIS_CODEX_REQUEST_TIMEOUT_MS', 30_000);
+const TURN_TIMEOUT_MS = envTimeout('AEGIS_CODEX_TURN_TIMEOUT_MS', 300_000);
+// How long a stop waits for `turn/completed(interrupted)` before settling
+// unconfirmed (P0-6).
+const STOP_CONFIRM_TIMEOUT_MS = envTimeout('AEGIS_CODEX_STOP_CONFIRM_TIMEOUT_MS', 10_000);
 
 function resolveSkillsDiscoveryCwd(cwd: string | undefined): string {
   const trimmed = cwd?.trim();
@@ -120,10 +216,23 @@ export class CodexAppServerManager extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | null = null;
   private rl: readline.Interface | null = null;
   private nextRequestId = 1;
-  private pending = new Map<number, PendingRequest>();
+  // Keyed by String(id): JSON-RPC ids may be string or number on the wire.
+  private pending = new Map<string, PendingRequest>();
   private sessions = new Map<string, CodexSession>();
   private pendingApprovals = new Map<string, PendingApproval>();
   private initialized = false;
+  // Single-flight spawn barrier: concurrent ensureSpawned() calls await the
+  // same in-flight promise; nothing proceeds before initialize completes.
+  private spawnPromise: Promise<void> | null = null;
+  // Monotonic process generation. Sessions/handlers capture it so events from
+  // a dead child and operations on stale sessions can be rejected.
+  private generation = 0;
+  // Stop confirmations awaiting the interrupted turn's terminal (P0-6).
+  private pendingInterrupts = new Map<string, PendingInterrupt>();
+  // providerThreadId of a sub-agent thread → root Aegis threadId (P0-7).
+  private descendantThreadMap = new Map<string, string>();
+  private modelCatalog: { generation: number; models: CodexModelCatalogEntry[] } | null = null;
+  private modelCatalogPromise: Promise<CodexModelCatalogEntry[]> | null = null;
   private skillsCache = new Map<string, ProviderListSkillsResult>();
   private pluginsCache = new Map<string, ProviderListPluginsResult>();
   private pluginDetailCache = new Map<string, ProviderReadPluginResult>();
@@ -133,16 +242,26 @@ export class CodexAppServerManager extends EventEmitter {
   private static readonly COMPACTION_DEDUPE_MS = 5000;
   private lastCompactionEmitAt = new Map<string, number>();
 
-  constructor(private readonly binaryPath = 'codex') {
+  constructor(
+    private readonly binaryPath = 'codex',
+    private readonly clientVersion = '0.0.0'
+  ) {
     super();
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   async spawn(cwd: string): Promise<void> {
+    return this.ensureSpawned(cwd);
+  }
+
+  private async doSpawn(cwd: string): Promise<void> {
     if (this.child) {
       return;
     }
+
+    this.generation += 1;
+    const gen = this.generation;
 
     const child = spawn(this.binaryPath, ['app-server'], {
       cwd,
@@ -159,16 +278,20 @@ export class CodexAppServerManager extends EventEmitter {
     rl.on('line', (line) => this.handleStdoutLine(line));
 
     child.on('exit', (code, signal) => {
+      // Stale exit from a replaced child must not tear down the new one.
+      if (this.child !== child) return;
       if (isDev()) {
         console.log('[Codex AppServer] process exited', { code, signal });
       }
       this.emit('process_exit', { code, signal });
-      this.cleanup();
+      this.cleanupGeneration(gen, 'process_exit');
     });
 
     child.on('error', (error) => {
       console.error('[Codex AppServer] process error', error);
       this.emit('process_error', error);
+      if (this.child !== child) return;
+      this.cleanupGeneration(gen, 'process_error');
     });
 
     child.stderr?.on('data', (chunk) => {
@@ -191,17 +314,24 @@ export class CodexAppServerManager extends EventEmitter {
       }
     });
 
-    // Initialize handshake
-    await this.sendRequest('initialize', {
-      clientInfo: {
-        name: 'aegis',
-        title: 'Aegis',
-        version: '0.0.20',
-      },
-      capabilities: {
-        experimentalApi: true,
-      },
-    }, INITIALIZE_TIMEOUT_MS);
+    // Initialize handshake. On failure, tear the child down completely so the
+    // next ensureSpawned() retries with a fresh process instead of short-
+    // circuiting on a half-initialized child.
+    try {
+      await this.sendRequest('initialize', {
+        clientInfo: {
+          name: 'aegis',
+          title: 'Aegis',
+          version: this.clientVersion,
+        },
+        capabilities: {
+          experimentalApi: true,
+        },
+      }, INITIALIZE_TIMEOUT_MS);
+    } catch (error) {
+      this.cleanupGeneration(gen, 'spawn_failed');
+      throw error;
+    }
 
     this.writeMessage({ method: 'initialized' });
     this.initialized = true;
@@ -212,17 +342,43 @@ export class CodexAppServerManager extends EventEmitter {
   }
 
   async stop(): Promise<void> {
-    // Cancel all pending requests
+    this.cleanupGeneration(this.generation, 'stopped');
+  }
+
+  /**
+   * Tear down the given generation: reject in-flight RPCs, settle pending
+   * stop confirmations, dismiss pending approvals, kill the child. No-ops on
+   * stale generations so a late exit can't clobber a replacement process.
+   */
+  private cleanupGeneration(gen: number, reason: CodexTransportFailureReason): void {
+    if (gen !== this.generation) return;
+
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timeout);
-      pending.reject(new Error('App server stopped'));
+      pending.reject(new CodexRpcTransportError(reason, pending.method));
     }
     this.pending.clear();
 
-    this.cleanup();
-  }
+    // Settle stop confirmations immediately — the UI shouldn't sit in
+    // "stopping" for the remaining timeout after the process is gone.
+    for (const [providerThreadId, interrupt] of this.pendingInterrupts) {
+      clearTimeout(interrupt.timer);
+      this.emit('stop_settled', {
+        aegisThreadId: interrupt.aegisThreadId,
+        providerThreadId,
+        generation: interrupt.generation,
+        confirmed: false,
+      });
+    }
+    this.pendingInterrupts.clear();
 
-  private cleanup(): void {
+    // The JSON-RPC ids of these approvals can never be answered now; tell the
+    // UI to drop the cards instead of leaving them pointing at dead requests.
+    for (const [requestId, approval] of this.pendingApprovals) {
+      this.emit('approval_dismissed', { requestId, threadId: approval.threadId });
+    }
+    this.pendingApprovals.clear();
+
     if (this.rl) {
       this.rl.close();
       this.rl = null;
@@ -237,7 +393,9 @@ export class CodexAppServerManager extends EventEmitter {
     }
     this.initialized = false;
     this.sessions.clear();
-    this.pendingApprovals.clear();
+    this.descendantThreadMap.clear();
+    this.modelCatalog = null;
+    this.modelCatalogPromise = null;
     this.lastActiveThreadId = null;
   }
 
@@ -346,6 +504,144 @@ export class CodexAppServerManager extends EventEmitter {
     return this.parseRateLimitReport(response);
   }
 
+  /**
+   * Authoritative model catalog from `model/list` (cursor-drained), cached
+   * per process generation. Never spawns the app-server on its own — callers
+   * on the send/resume path are guaranteed a live process; UI enrichment
+   * simply stays empty until one exists.
+   */
+  async listModels(forceReload = false): Promise<CodexModelCatalogEntry[]> {
+    if (!this.initialized) return [];
+    if (!forceReload && this.modelCatalog && this.modelCatalog.generation === this.generation) {
+      return this.modelCatalog.models;
+    }
+    if (!this.modelCatalogPromise) {
+      this.modelCatalogPromise = this.drainModelList()
+        .then((models) => {
+          this.modelCatalog = { generation: this.generation, models };
+          this.emit('model_catalog_updated', { models });
+          return models;
+        })
+        .finally(() => {
+          this.modelCatalogPromise = null;
+        });
+    }
+    return this.modelCatalogPromise;
+  }
+
+  private async drainModelList(): Promise<CodexModelCatalogEntry[]> {
+    const models: CodexModelCatalogEntry[] = [];
+    let cursor: string | null = null;
+    // Bounded page drain — defensive cap so a server bug can't loop forever.
+    for (let page = 0; page < 20; page++) {
+      const response = (await this.sendRequest<Record<string, unknown>>(
+        'model/list',
+        cursor ? { cursor } : {},
+        REQUEST_TIMEOUT_MS
+      )) as Record<string, unknown>;
+      const items = this.readArray(response, 'items') ?? this.readArray(response, 'models') ?? [];
+      for (const raw of items) {
+        const obj = this.asObject(raw);
+        if (!obj) continue;
+        const id = this.readString(obj, 'id') || this.readString(obj, 'model');
+        const model = this.readString(obj, 'model') || id;
+        if (!id || !model) continue;
+        const tiers = (this.readArray(obj, 'serviceTiers') ?? [])
+          .map((tier) => {
+            const tierObj = this.asObject(tier);
+            const tierId = this.readString(tierObj, 'id');
+            if (!tierId) return null;
+            return {
+              id: tierId,
+              name: this.readString(tierObj, 'name') || tierId,
+              description: this.readString(tierObj, 'description') || '',
+            };
+          })
+          .filter((tier): tier is CodexModelServiceTier => tier !== null);
+        models.push({
+          id,
+          model,
+          displayName: this.readString(obj, 'displayName') || model,
+          hidden: obj.hidden === true,
+          serviceTiers: tiers,
+          defaultServiceTier: this.readString(obj, 'defaultServiceTier'),
+          supportedReasoningEfforts: (this.readArray(obj, 'supportedReasoningEfforts') ?? [])
+            .map((effort) => {
+              const effortObj = this.asObject(effort);
+              return (
+                this.readString(effortObj, 'effort') ??
+                this.readString(effortObj, 'id') ??
+                (typeof effort === 'string' ? effort : null)
+              );
+            })
+            .filter((effort): effort is string => Boolean(effort)),
+          defaultReasoningEffort: this.readString(obj, 'defaultReasoningEffort'),
+        });
+      }
+      cursor = this.readString(response, 'nextCursor');
+      if (!cursor) break;
+    }
+    return models;
+  }
+
+  /**
+   * Fast-mode → serviceTier param (P0-3). serviceTier is a STICKY double-
+   * Option override: omitted = inherit current, explicit null = clear back to
+   * the default tier. So fast-off must SEND `serviceTier: null` on
+   * turn/start and thread/resume, otherwise a previously-fast thread keeps
+   * running on the fast tier. thread/start callers simply don't call this.
+   */
+  private async resolveServiceTierParam(
+    threadId: string,
+    model: string | undefined,
+    fastMode: boolean | undefined
+  ): Promise<Record<string, unknown>> {
+    if (!fastMode) {
+      return { serviceTier: null };
+    }
+
+    let tier: CodexModelServiceTier | null = null;
+    let entry: CodexModelCatalogEntry | undefined;
+    try {
+      const catalog = await this.listModels();
+      const target = model?.trim();
+      entry = target
+        ? catalog.find((candidate) => candidate.model === target || candidate.id === target)
+        : catalog.find((candidate) => !candidate.hidden);
+      tier = entry ? resolveFastTier(entry) : null;
+    } catch (error) {
+      if (isDev()) {
+        console.log('[Codex AppServer] model/list failed while resolving fast tier', error);
+      }
+    }
+
+    if (!tier) {
+      this.emitFastModeUnavailable(threadId, model);
+      return {};
+    }
+
+    if (isDev()) {
+      console.log('[Codex AppServer] fast mode resolved to tier', {
+        model: entry?.model,
+        tier: tier.id,
+        tierName: tier.name,
+      });
+    }
+    return { serviceTier: tier.id };
+  }
+
+  /** Once per session+model: tell the user fast mode has no resolvable tier. */
+  private emitFastModeUnavailable(threadId: string, model: string | undefined): void {
+    const session = this.sessions.get(threadId);
+    const key = model?.trim() || '(default)';
+    if (session) {
+      session.fastModeNoticeKeys = session.fastModeNoticeKeys ?? new Set();
+      if (session.fastModeNoticeKeys.has(key)) return;
+      session.fastModeNoticeKeys.add(key);
+    }
+    this.emit('fast_mode_unavailable', { threadId, model: key });
+  }
+
   private invalidateDiscoveryCaches(kind: 'skills' | 'plugins' | 'all'): void {
     if (kind === 'skills' || kind === 'all') {
       this.skillsCache.clear();
@@ -363,32 +659,52 @@ export class CodexAppServerManager extends EventEmitter {
     cwd: string,
     resumeCursor?: string,
     options: CodexRunOptions = {}
-  ): Promise<{ providerThreadId: string; model?: string }> {
+  ): Promise<{
+    providerThreadId: string;
+    model?: string;
+    generation: number;
+    resumeFallback?: { reason: string };
+  }> {
     await this.ensureSpawned(cwd);
 
     let response: Record<string, unknown>;
+    let resumeFallback: { reason: string } | undefined;
 
     if (resumeCursor) {
-      // Current codex app-server exposes thread/resume; older builds used
-      // thread/load. Try both before giving up and creating a fresh thread —
-      // the old load-only path silently dropped the conversation context.
+      // Double-binding guard: a provider thread may be attached to at most
+      // one Aegis session — silently sharing it would interleave contexts.
+      const boundThreadId = this.findThreadByProviderThreadId(resumeCursor);
+      if (boundThreadId && boundThreadId !== threadId) {
+        throw new CodexThreadBindingError(resumeCursor, boundThreadId);
+      }
+
+      // `thread/load` does not exist in 0.144.x — resume is the only path.
+      // On failure we do NOT silently continue: the caller surfaces a
+      // persistent notice before we fall back to a fresh thread, so the user
+      // sees the context break instead of an agent that quietly forgot
+      // everything. Auth errors are rethrown (auth recovery owns them).
       try {
         response = (await this.sendRequest(
           'thread/resume',
-          { threadId: resumeCursor },
+          {
+            threadId: resumeCursor,
+            cwd,
+            ...(options.model ? { model: options.model } : {}),
+            ...this.buildThreadPermissionOptions(cwd, options.codexPermissionMode, options.codexExecutionMode),
+            ...(await this.resolveServiceTierParam(threadId, options.model, options.codexFastMode)),
+          },
           REQUEST_TIMEOUT_MS
         )) as Record<string, unknown>;
-      } catch {
-        try {
-          response = (await this.sendRequest(
-            'thread/load',
-            { threadId: resumeCursor },
-            REQUEST_TIMEOUT_MS
-          )) as Record<string, unknown>;
-        } catch {
-          // Fall through to create new
-          response = await this.createNewThread(cwd, options);
+      } catch (error) {
+        if (!this.isResumeFallbackEligible(error)) {
+          throw error;
         }
+        const reason = error instanceof Error ? error.message : String(error);
+        if (isDev()) {
+          console.log('[Codex AppServer] thread/resume failed, starting fresh thread:', reason);
+        }
+        resumeFallback = { reason };
+        response = await this.createNewThread(cwd, options);
       }
     } else {
       response = await this.createNewThread(cwd, options);
@@ -405,12 +721,29 @@ export class CodexAppServerManager extends EventEmitter {
       throw new Error('thread/start did not return a thread id');
     }
 
+    // Guard the fresh binding too (covers fresh-start collisions).
+    const existingOwner = this.findThreadByProviderThreadId(providerThreadId);
+    if (existingOwner && existingOwner !== threadId) {
+      throw new CodexThreadBindingError(providerThreadId, existingOwner);
+    }
+
     const model = String((response.thread as Record<string, unknown>)?.model || response.model || '');
+
+    // The server's effective cwd wins — sandbox writableRoots must match the
+    // directory codex actually executes in (worktree moves, resume rejoins).
+    const effectiveCwd = this.readString(response, 'cwd') || cwd;
+    if (effectiveCwd !== cwd) {
+      console.warn('[Codex AppServer] effective cwd differs from requested', {
+        requested: cwd,
+        effective: effectiveCwd,
+      });
+    }
 
     this.sessions.set(threadId, {
       threadId,
       providerThreadId,
-      cwd,
+      generation: this.generation,
+      cwd: effectiveCwd,
       status: 'ready',
       model: model || options.model,
       codexExecutionMode: options.codexExecutionMode,
@@ -420,7 +753,26 @@ export class CodexAppServerManager extends EventEmitter {
     });
     this.lastActiveThreadId = threadId;
 
-    return { providerThreadId, model: model || undefined };
+    return {
+      providerThreadId,
+      model: model || undefined,
+      generation: this.generation,
+      ...(resumeFallback ? { resumeFallback } : {}),
+    };
+  }
+
+  /**
+   * Resume failures that fall back to a fresh thread: RPC-level errors (thread
+   * gone, method missing) and timeouts. Auth failures and binding conflicts
+   * are rethrown — they need their own handling, not a silent new thread.
+   */
+  private isResumeFallbackEligible(error: unknown): boolean {
+    if (error instanceof CodexThreadBindingError) return false;
+    const message = error instanceof Error ? error.message : '';
+    if (/refresh_token_reused|refresh token has already been used|sign in again|401|unauthorized/i.test(message)) {
+      return false;
+    }
+    return error instanceof CodexRpcError || error instanceof CodexRpcTransportError;
   }
 
   /**
@@ -476,8 +828,13 @@ export class CodexAppServerManager extends EventEmitter {
     if (!session) {
       throw new Error(`No session found for thread "${threadId}"`);
     }
+    if (session.generation !== this.generation) {
+      throw new CodexRpcTransportError('stale_generation', 'turn/start');
+    }
     // Captured before the status mutation below: a send that lands while a
     // turn is still streaming becomes a `turn/steer` into that turn.
+    // `interrupting` intentionally does NOT satisfy this gate — steering into
+    // a turn that is being killed loses the message (P0-6).
     const steerTurnId =
       session.status === 'running' && session.activeTurnId ? session.activeTurnId : null;
     this.lastActiveThreadId = threadId;
@@ -570,6 +927,9 @@ export class CodexAppServerManager extends EventEmitter {
       {
         threadId: session.providerThreadId,
         input: content,
+        // Sticky cwd override: keeps codex executing in the session's current
+        // checkout after worktree moves (runner replacement updates cwd).
+        cwd: session.cwd,
         ...(options.model || session.model ? { model: options.model || session.model } : {}),
         ...(options.codexReasoningEffort || session.codexReasoningEffort
           ? { effort: options.codexReasoningEffort || session.codexReasoningEffort }
@@ -584,6 +944,11 @@ export class CodexAppServerManager extends EventEmitter {
           options.codexPermissionMode || session.codexPermissionMode,
           options.codexExecutionMode || session.codexExecutionMode
         ),
+        ...(await this.resolveServiceTierParam(
+          threadId,
+          options.model || session.model,
+          options.codexFastMode ?? session.codexFastMode
+        )),
       },
       TURN_TIMEOUT_MS
     )) as Record<string, unknown>;
@@ -595,34 +960,143 @@ export class CodexAppServerManager extends EventEmitter {
     }
   }
 
+  /**
+   * Two-phase stop (P0-6). `turn/interrupt` is ack-only — the real terminal
+   * is `turn/completed(status=interrupted)`. The session is retained in
+   * `interrupting` state until that terminal (or timeout) so late events can
+   * still be attributed; `stop_settled` fires on every branch.
+   */
   async stopSession(threadId: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) {
+      // Nothing to stop, but the settle event still fires so waiters (two-
+      // phase stop) resolve immediately instead of timing out.
+      this.emit('stop_settled', {
+        aegisThreadId: threadId,
+        providerThreadId: '',
+        generation: this.generation,
+        confirmed: true,
+        noTurn: true,
+      });
       return;
     }
 
-    // Interrupt the active turn. (`turn/abort` was the pre-0.144 name and is
-    // no longer in the protocol — sending it is a no-op error, which left the
-    // server-side turn running after the user pressed stop.)
-    if (session.activeTurnId) {
-      try {
-        await this.sendRequest(
-          'turn/interrupt',
-          {
-            threadId: session.providerThreadId,
-            turnId: session.activeTurnId,
-          },
-          REQUEST_TIMEOUT_MS
-        );
-      } catch {
-        // ignore
+    // No live turn → nothing to confirm; clean up and settle immediately so
+    // adapter-side state is always released by the same signal.
+    if (!session.activeTurnId || session.generation !== this.generation) {
+      const { providerThreadId, generation } = session;
+      this.sessions.delete(threadId);
+      if (this.lastActiveThreadId === threadId) {
+        this.lastActiveThreadId = this.findMostRecentFallbackThreadId();
       }
+      this.declineApprovalsForThread(threadId);
+      this.emit('stop_settled', {
+        aegisThreadId: threadId,
+        providerThreadId,
+        generation,
+        confirmed: true,
+        noTurn: true,
+      });
+      return;
     }
 
-    this.sessions.delete(threadId);
-    if (this.lastActiveThreadId === threadId) {
-      this.lastActiveThreadId = this.findMostRecentFallbackThreadId();
+    const turnId = session.activeTurnId;
+    session.status = 'interrupting';
+
+    if (!this.pendingInterrupts.has(session.providerThreadId)) {
+      const timer = setTimeout(() => {
+        const pendingInterrupt = this.pendingInterrupts.get(session.providerThreadId);
+        if (pendingInterrupt) {
+          this.pendingInterrupts.delete(session.providerThreadId);
+          this.finishPendingInterrupt(
+            { providerThreadId: session.providerThreadId, ...pendingInterrupt },
+            false
+          );
+        }
+      }, STOP_CONFIRM_TIMEOUT_MS);
+      this.pendingInterrupts.set(session.providerThreadId, {
+        turnId,
+        aegisThreadId: threadId,
+        generation: session.generation,
+        timer,
+      });
     }
+
+    try {
+      await this.sendRequest(
+        'turn/interrupt',
+        {
+          threadId: session.providerThreadId,
+          turnId,
+        },
+        REQUEST_TIMEOUT_MS
+      );
+    } catch (error) {
+      // RPC rejected (stale turnId, transport death): treat as confirmation
+      // failure right away instead of waiting out the timer.
+      if (isDev()) {
+        console.log('[Codex AppServer] turn/interrupt failed', error);
+      }
+      const pendingInterrupt = this.pendingInterrupts.get(session.providerThreadId);
+      if (pendingInterrupt) {
+        clearTimeout(pendingInterrupt.timer);
+        this.pendingInterrupts.delete(session.providerThreadId);
+        this.finishPendingInterrupt(
+          { providerThreadId: session.providerThreadId, ...pendingInterrupt },
+          false
+        );
+      }
+    }
+  }
+
+  /**
+   * Claim the pending interrupt for a terminal `turn/completed`, clearing its
+   * timer. Returns null when there is nothing to settle or the terminal
+   * belongs to a different turn.
+   */
+  private takePendingInterrupt(
+    providerThreadId: string | null,
+    turnId: string | null
+  ): (PendingInterrupt & { providerThreadId: string }) | null {
+    if (!providerThreadId) return null;
+    const pendingInterrupt = this.pendingInterrupts.get(providerThreadId);
+    if (!pendingInterrupt) return null;
+    if (pendingInterrupt.turnId && turnId && pendingInterrupt.turnId !== turnId) {
+      return null;
+    }
+    clearTimeout(pendingInterrupt.timer);
+    this.pendingInterrupts.delete(providerThreadId);
+    return { providerThreadId, ...pendingInterrupt };
+  }
+
+  /**
+   * Deferred stop-flow session deletion + settle event. The deletion is
+   * staleness-guarded: a replacement runner may have rebuilt the same Aegis
+   * threadId on a new provider thread/generation — never delete that.
+   */
+  private finishPendingInterrupt(
+    settle: PendingInterrupt & { providerThreadId: string },
+    confirmed: boolean
+  ): void {
+    const session = this.sessions.get(settle.aegisThreadId);
+    if (
+      session &&
+      session.providerThreadId === settle.providerThreadId &&
+      session.generation === settle.generation &&
+      (!session.activeTurnId || session.activeTurnId === settle.turnId)
+    ) {
+      this.sessions.delete(settle.aegisThreadId);
+      if (this.lastActiveThreadId === settle.aegisThreadId) {
+        this.lastActiveThreadId = this.findMostRecentFallbackThreadId();
+      }
+      this.declineApprovalsForThread(settle.aegisThreadId);
+    }
+    this.emit('stop_settled', {
+      aegisThreadId: settle.aegisThreadId,
+      providerThreadId: settle.providerThreadId,
+      generation: settle.generation,
+      confirmed,
+    });
   }
 
   private normalizeCodexPermissionMode(
@@ -661,10 +1135,13 @@ export class CodexAppServerManager extends EventEmitter {
     }
 
     if (this.normalizeCodexPermissionMode(mode) === 'auto') {
+      // Protocol-correct Auto: approvals are reviewed by codex's auto reviewer
+      // (may approve or deny). `permissionMode` does not exist in the
+      // protocol, and `approvalPolicy: 'never'` would hard-fail escalations
+      // instead of routing them to the reviewer.
       return {
-        permissionMode: 'auto',
         approvalPolicy: 'on-request',
-        approvalsReviewer: 'user',
+        approvalsReviewer: 'auto_review',
         sandbox: 'workspace-write',
       };
     }
@@ -703,9 +1180,8 @@ export class CodexAppServerManager extends EventEmitter {
 
     if (this.normalizeCodexPermissionMode(mode) === 'auto') {
       return {
-        permissionMode: 'auto',
         approvalPolicy: 'on-request',
-        approvalsReviewer: 'user',
+        approvalsReviewer: 'auto_review',
         sandboxPolicy: {
           type: 'workspaceWrite',
           writableRoots: [cwd || process.cwd()],
@@ -766,10 +1242,21 @@ export class CodexAppServerManager extends EventEmitter {
 
   async respondToApproval(
     requestId: string,
-    result: PermissionResult
+    result: PermissionResult,
+    expectedThreadId?: string
   ): Promise<void> {
     const pending = this.pendingApprovals.get(requestId);
     if (!pending) {
+      return;
+    }
+
+    // A decision may only be written back by the session the request belongs
+    // to — defends against UI-level misattribution (P0-7).
+    if (expectedThreadId && pending.threadId && pending.threadId !== expectedThreadId) {
+      console.warn(
+        '[Codex AppServer] rejected approval response from wrong session',
+        { requestId, owner: pending.threadId, caller: expectedThreadId }
+      );
       return;
     }
 
@@ -780,6 +1267,20 @@ export class CodexAppServerManager extends EventEmitter {
     });
 
     this.pendingApprovals.delete(requestId);
+  }
+
+  /** Decline + dismiss every pending approval owned by the given session. */
+  private declineApprovalsForThread(threadId: string): void {
+    for (const [requestId, pending] of this.pendingApprovals) {
+      if (pending.threadId !== threadId) continue;
+      this.writeMessage({
+        jsonrpc: '2.0',
+        id: pending.jsonRpcId,
+        result: this.buildApprovalResponse(pending, { behavior: 'deny' }),
+      });
+      this.pendingApprovals.delete(requestId);
+      this.emit('approval_dismissed', { requestId, threadId });
+    }
   }
 
   private buildApprovalResponse(
@@ -823,6 +1324,19 @@ export class CodexAppServerManager extends EventEmitter {
               ? 'approved_for_session'
               : 'approved'
             : 'denied',
+      };
+    }
+
+    // MCP elicitation: decline/cancel responses carry no content.
+    if (lower.includes('elicitation')) {
+      if (result.behavior !== 'allow') {
+        return { action: 'decline', content: null, _meta: null };
+      }
+      const updatedInput = this.asObject(result.updatedInput);
+      return {
+        action: 'accept',
+        content: updatedInput ?? {},
+        _meta: null,
       };
     }
 
@@ -933,14 +1447,15 @@ export class CodexAppServerManager extends EventEmitter {
     }
 
     const id = this.nextRequestId++;
+    const pendingKey = String(id);
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Timed out waiting for ${method}`));
+        this.pending.delete(pendingKey);
+        reject(new CodexRpcTransportError('timeout', method));
       }, timeoutMs);
 
-      this.pending.set(id, {
+      this.pending.set(pendingKey, {
         method,
         timeout,
         resolve: resolve as (value: unknown) => void,
@@ -988,14 +1503,17 @@ export class CodexAppServerManager extends EventEmitter {
 
     const msg = parsed as Record<string, unknown>;
 
+    // JSON-RPC ids are `string | number` on the wire; accept both.
+    const hasId = typeof msg.id === 'number' || typeof msg.id === 'string';
+
     // Response (has id + result/error)
-    if (typeof msg.id === 'number' && (msg.result !== undefined || msg.error !== undefined)) {
+    if (hasId && (msg.result !== undefined || msg.error !== undefined)) {
       this.handleResponse(msg as unknown as JsonRpcResponse);
       return;
     }
 
     // Request from server (has id + method)
-    if (typeof msg.id === 'number' && typeof msg.method === 'string') {
+    if (hasId && typeof msg.method === 'string') {
       this.handleServerRequest(msg as unknown as JsonRpcRequest);
       return;
     }
@@ -1010,17 +1528,22 @@ export class CodexAppServerManager extends EventEmitter {
   }
 
   private handleResponse(response: JsonRpcResponse): void {
-    const pending = this.pending.get(response.id);
+    const pendingKey = String(response.id);
+    const pending = this.pending.get(pendingKey);
     if (!pending) {
       return;
     }
 
     clearTimeout(pending.timeout);
-    this.pending.delete(response.id);
+    this.pending.delete(pendingKey);
 
     if (response.error) {
       const message = response.error.message || 'JSON-RPC error';
-      pending.reject(new Error(`${pending.method}: ${message}`));
+      // Preserve code/data so callers can classify (-32601 = method missing)
+      // instead of regexing the message text.
+      pending.reject(
+        new CodexRpcError(pending.method, response.error.code, response.error.data, message)
+      );
     } else {
       pending.resolve(response.result);
     }
@@ -1029,49 +1552,78 @@ export class CodexAppServerManager extends EventEmitter {
   private handleServerRequest(request: JsonRpcRequest): void {
     const method = request.method.toLowerCase();
 
-    // Approval requests
-    if (
+    // Process-scoped time request: answering is harmless regardless of
+    // routing, and erroring it can stall the requesting turn.
+    if (method === 'currenttime/read') {
+      this.writeMessage({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { currentTimeAt: Math.floor(Date.now() / 1000) },
+      });
+      return;
+    }
+
+    const isApproval =
       method.includes('approval') ||
       method.includes('requestpermission') ||
-      method.includes('confirm')
-    ) {
+      method.includes('confirm');
+    const isUserInput = method.includes('requestuserinput') || method.includes('askuser');
+    const isElicitation = method.includes('elicitation');
+
+    if (isApproval || isUserInput || isElicitation) {
+      // Fail-closed routing (P0-7): resolve the owner by exact provider
+      // threadId (modern) or conversationId (legacy), then the descendant map
+      // for sub-agent threads. NO most-recent/first-session fallback — an
+      // unroutable request is auto-answered with the protocol-legal minimal
+      // response instead of being shown in the wrong session.
+      const providerThreadId =
+        this.readString(request.params, 'threadId') ||
+        this.readString(request.params, 'conversationId');
+      const threadId = this.resolveOwnerThreadId(providerThreadId);
+
+      if (!threadId) {
+        console.warn(
+          '[Codex AppServer] declining unroutable server request',
+          request.method,
+          isDev() ? JSON.stringify(request.params) : `providerThreadId=${providerThreadId}`
+        );
+        this.writeMessage({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: this.buildApprovalResponse(
+            { jsonRpcId: request.id, method: request.method, threadId: '', params: request.params },
+            { behavior: 'deny' }
+          ),
+        });
+        return;
+      }
+
       const requestId = uuidv4();
       this.pendingApprovals.set(requestId, {
         jsonRpcId: request.id,
         method: request.method,
-        threadId: this.inferThreadId(request.params),
+        threadId,
         params: request.params,
       });
 
-      this.emit('approval_request', {
+      this.emit(isApproval ? 'approval_request' : 'user_input_request', {
         requestId,
         jsonRpcId: request.id,
         method: request.method,
+        threadId,
         params: request.params,
       });
       return;
     }
 
-    // User input requests
-    if (method.includes('requestuserinput') || method.includes('askuser')) {
-      const requestId = uuidv4();
-      this.pendingApprovals.set(requestId, {
-        jsonRpcId: request.id,
-        method: request.method,
-        threadId: this.inferThreadId(request.params),
-        params: request.params,
-      });
-
-      this.emit('user_input_request', {
-        requestId,
-        jsonRpcId: request.id,
-        method: request.method,
-        params: request.params,
-      });
-      return;
+    // Everything else (account/chatgptAuthTokens/refresh, attestation/generate,
+    // item/tool/call, unknown methods): a -32601 error response also resolves
+    // the server-side pending request, so nothing hangs. Token refresh gets a
+    // distinct log because failing it can break in-flight turns for
+    // ChatGPT-auth users — wiring it up is a tracked follow-up.
+    if (method === 'account/chatgptauthtokens/refresh') {
+      console.warn('[Codex AppServer] rejecting chatgptAuthTokens/refresh (not implemented)');
     }
-
-    // Unsupported request
     this.writeMessage({
       jsonrpc: '2.0',
       id: request.id,
@@ -1104,27 +1656,40 @@ export class CodexAppServerManager extends EventEmitter {
       }
 
       case 'turn/completed': {
-        const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
-        if (threadId) {
-          const session = this.sessions.get(threadId);
-          if (session) {
-            session.status = 'ready';
-            session.activeTurnId = undefined;
-          }
-          this.emit('turn_completed', { threadId, params });
-        }
-        break;
-      }
+        // 0.144.3 has no `turn/aborted` notification — every terminal arrives
+        // here with turn.status ∈ completed | interrupted | failed.
+        const providerThreadId = this.readString(params, 'threadId');
+        const turn = this.asObject(params.turn);
+        const status = this.readString(turn, 'status');
+        // Stop confirmations settle by providerThreadId BEFORE the aegis
+        // mapping guard: a replacement runner may have rebuilt this aegis
+        // thread on a new provider thread, in which case the old thread has
+        // no mapping but the pending stop must still settle (P0-6). Session
+        // deletion is deferred until after the turn_completed emit so the
+        // adapter still finalizes the interrupted turn's partial output.
+        const pendingSettle =
+          status === 'completed' || status === 'interrupted' || status === 'failed'
+            ? this.takePendingInterrupt(providerThreadId, this.readString(turn, 'id'))
+            : null;
 
-      case 'turn/aborted': {
-        const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
-        if (threadId) {
+        const threadId = this.findThreadByProviderThreadId(providerThreadId);
+        if (threadId && status !== 'inProgress') {
           const session = this.sessions.get(threadId);
           if (session) {
             session.status = 'ready';
             session.activeTurnId = undefined;
           }
-          this.emit('turn_aborted', { threadId });
+          this.emit('turn_completed', {
+            threadId,
+            turnId: this.readString(turn, 'id'),
+            status: status === 'failed' || status === 'interrupted' ? status : 'completed',
+            error: status === 'failed' ? this.parseTurnError(this.asObject(turn?.error)) : undefined,
+            params,
+          });
+        }
+
+        if (pendingSettle) {
+          this.finishPendingInterrupt(pendingSettle, true);
         }
         break;
       }
@@ -1270,6 +1835,7 @@ export class CodexAppServerManager extends EventEmitter {
         const providerThreadId = this.readString(params, 'threadId');
         const threadId = this.findThreadByProviderThreadId(providerThreadId);
         if (!threadId) break;
+        this.registerDescendantsFromItem(threadId, item);
 
         switch (itemType) {
           case 'agentMessage': {
@@ -1297,6 +1863,7 @@ export class CodexAppServerManager extends EventEmitter {
         if (!threadId) break;
 
         const item = (params.item as Record<string, unknown>) || params;
+        this.registerDescendantsFromItem(threadId, item);
         const itemType = this.normalizeItemType(item);
         switch (itemType) {
           case 'agentMessage': {
@@ -1332,6 +1899,7 @@ export class CodexAppServerManager extends EventEmitter {
 
       case 'error': {
         const message = this.readString(this.readObject(params, 'error'), 'message');
+        const willRetry = params.willRetry === true;
         const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
         if (threadId && message) {
           if (isTransientConnectionMessage(message)) {
@@ -1339,11 +1907,19 @@ export class CodexAppServerManager extends EventEmitter {
             break;
           }
           const session = this.sessions.get(threadId);
-          if (session) {
+          // willRetry means codex is retrying the same turn itself — the
+          // session must stay `running` (flipping to error would break the
+          // steer gate and fork the retried turn on the next send).
+          if (session && !willRetry) {
             session.status = 'error';
             session.lastError = message;
           }
-          this.emit('error_notification', { threadId, message });
+          this.emit('error_notification', {
+            threadId,
+            message,
+            willRetry,
+            turnId: this.readString(params, 'turnId'),
+          });
         }
         break;
       }
@@ -1369,7 +1945,38 @@ export class CodexAppServerManager extends EventEmitter {
             'decoded=', JSON.stringify(servers)
           );
         }
-        this.emit('mcp_status_updated', { servers });
+        if (servers.length === 0) break;
+        // Per-thread routing: exact match → descendant map → drop.
+        // threadId === null means process-scoped → broadcast (threadId: null).
+        const providerThreadId = this.readString(params, 'threadId');
+        if (providerThreadId) {
+          const threadId = this.resolveOwnerThreadId(providerThreadId);
+          if (!threadId) {
+            if (isDev()) {
+              console.log('[Codex AppServer] dropping MCP status for unknown thread', providerThreadId);
+            }
+            break;
+          }
+          this.emit('mcp_status_updated', { servers, threadId });
+        } else {
+          this.emit('mcp_status_updated', { servers, threadId: null });
+        }
+        break;
+      }
+
+      case 'serverRequest/resolved': {
+        // The server resolved one of its own requests (autoResolution timeout,
+        // another client, etc.) — drop the matching pending approval card.
+        const resolvedId = params.requestId;
+        if (typeof resolvedId === 'number' || typeof resolvedId === 'string') {
+          for (const [requestId, approval] of this.pendingApprovals) {
+            if (String(approval.jsonRpcId) === String(resolvedId)) {
+              this.pendingApprovals.delete(requestId);
+              this.emit('approval_dismissed', { requestId, threadId: approval.threadId });
+              break;
+            }
+          }
+        }
         break;
       }
 
@@ -1392,14 +1999,20 @@ export class CodexAppServerManager extends EventEmitter {
   }
 
   /**
-   * Decode the `mcpServer/startupStatus/updated` notification params into
-   * McpServerStatus[]. The Codex app-server protocol payload is not documented
-   * in the codebase, so this decodes defensively against the most likely
-   * shapes (params.servers / params.mcpServers / params.mcp_servers / params
-   * itself being an array). The raw payload is logged in dev mode above so the
-   * decoder can be tightened once a real sample is captured.
+   * Decode the `mcpServer/startupStatus/updated` notification params.
+   * 0.144.3 sends a FLAT SINGLE OBJECT (generated schema):
+   *   { threadId: string | null, name, status: "starting"|"ready"|"failed"|"cancelled",
+   *     error: string | null, failureReason: "reauthenticationRequired" | null }
+   * The array shapes are kept as a fallback for older binaries.
    */
   private parseMcpStartupStatus(params: Record<string, unknown>): McpServerStatus[] {
+    // Flat single-object shape (0.144.3): top-level string `name` is the marker.
+    const flatName = this.readString(params, 'name');
+    if (flatName) {
+      const entry = this.parseMcpStatusEntry(params, flatName);
+      return entry ? [entry] : [];
+    }
+
     const candidates: unknown[] =
       this.readArray(params, 'servers') ??
       this.readArray(params, 'mcpServers') ??
@@ -1415,43 +2028,76 @@ export class CodexAppServerManager extends EventEmitter {
         this.readString(obj, 'serverName') ??
         this.readString(obj, 'id');
       if (!name) continue;
-      const rawStatus = (
-        this.readString(obj, 'status') ??
-        this.readString(obj, 'state') ??
-        ''
-      ).toLowerCase();
-      const status: McpServerStatus['status'] =
-        rawStatus === 'connected' ||
-        rawStatus === 'ready' ||
-        rawStatus === 'running' ||
-        rawStatus === 'started' ||
-        rawStatus === 'ok'
-          ? 'connected'
-          : rawStatus === 'failed' ||
-              rawStatus === 'error' ||
-              rawStatus === 'crashed'
-            ? 'failed'
-            : 'pending';
-      const errorStr = this.readString(obj, 'error');
-      const errorObj = this.asObject(obj.error);
-      const error =
-        errorStr ?? this.readString(errorObj, 'message') ?? undefined;
-      result.push({ name, status, ...(error ? { error } : {}) });
+      const parsed = this.parseMcpStatusEntry(obj, name);
+      if (parsed) result.push(parsed);
     }
     return result;
+  }
+
+  private parseMcpStatusEntry(
+    obj: Record<string, unknown>,
+    name: string
+  ): McpServerStatus | null {
+    const rawStatus = (
+      this.readString(obj, 'status') ??
+      this.readString(obj, 'state') ??
+      ''
+    ).toLowerCase();
+    const status: McpServerStatus['status'] =
+      rawStatus === 'connected' ||
+      rawStatus === 'ready' ||
+      rawStatus === 'running' ||
+      rawStatus === 'started' ||
+      rawStatus === 'ok'
+        ? 'connected'
+        : rawStatus === 'failed' ||
+            rawStatus === 'error' ||
+            rawStatus === 'crashed' ||
+            rawStatus === 'cancelled'
+          ? 'failed'
+          : 'pending';
+    const errorStr = this.readString(obj, 'error');
+    const errorObj = this.asObject(obj.error);
+    const error = errorStr ?? this.readString(errorObj, 'message') ?? undefined;
+    const failureReason = this.readString(obj, 'failureReason');
+    return {
+      name,
+      status,
+      ...(error ? { error } : {}),
+      ...(failureReason === 'reauthenticationRequired'
+        ? { failureReason: 'reauthenticationRequired' as const }
+        : {}),
+    };
+  }
+
+  /** Extract a displayable message from a protocol TurnError. */
+  private parseTurnError(error: Record<string, unknown> | undefined): string {
+    const message = this.readString(error, 'message');
+    const details = this.readString(error, 'additionalDetails');
+    if (message && details) return `${message} (${details})`;
+    return message || details || 'Codex turn failed';
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   private async ensureSpawned(cwd: string): Promise<void> {
-    if (!this.initialized) {
-      await this.spawn(cwd);
+    if (this.initialized) return;
+    if (!this.spawnPromise) {
+      this.spawnPromise = this.doSpawn(cwd).finally(() => {
+        this.spawnPromise = null;
+      });
     }
+    return this.spawnPromise;
   }
 
+  /**
+   * Exact-match routing only (P0-7): an event without a resolvable
+   * providerThreadId is dropped by the caller, never attributed to the
+   * most-recent/first session.
+   */
   private findThreadByProviderThreadId(providerThreadId: string | null): string | null {
     if (!providerThreadId) {
-      return this.findMostRecentFallbackThreadId();
+      return null;
     }
     for (const [threadId, session] of this.sessions) {
       if (session.providerThreadId === providerThreadId) {
@@ -1461,6 +2107,45 @@ export class CodexAppServerManager extends EventEmitter {
     return null;
   }
 
+  /** Exact match, then the sub-agent descendant map (P0-7). */
+  private resolveOwnerThreadId(providerThreadId: string | null): string | null {
+    if (!providerThreadId) return null;
+    return (
+      this.findThreadByProviderThreadId(providerThreadId) ||
+      this.descendantThreadMap.get(providerThreadId) ||
+      null
+    );
+  }
+
+  /**
+   * Register sub-agent provider threads spawned by this session's items so
+   * their approvals/notifications route to the root session
+   * (collabAgentToolCall.receiverThreadIds / subAgentActivity.agentThreadId).
+   */
+  private registerDescendantsFromItem(
+    rootThreadId: string,
+    item: Record<string, unknown> | undefined
+  ): void {
+    if (!item) return;
+    const collab = this.asObject(item.collabAgentToolCall) ?? this.asObject(item);
+    const receivers = this.readArray(collab, 'receiverThreadIds');
+    if (receivers) {
+      for (const receiver of receivers) {
+        if (typeof receiver === 'string' && receiver) {
+          this.descendantThreadMap.set(receiver, rootThreadId);
+        }
+      }
+    }
+    const subAgent = this.asObject(item.subAgentActivity);
+    const agentThreadId =
+      this.readString(subAgent, 'agentThreadId') ?? this.readString(item, 'agentThreadId');
+    if (agentThreadId) {
+      this.descendantThreadMap.set(agentThreadId, rootThreadId);
+    }
+  }
+
+  // Non-routing internal use only (stop-time cursor reset); never used to
+  // attribute events, approvals, or notifications to a session.
   private findMostRecentFallbackThreadId(): string | null {
     if (this.lastActiveThreadId && this.sessions.has(this.lastActiveThreadId)) {
       return this.lastActiveThreadId;
@@ -1473,11 +2158,6 @@ export class CodexAppServerManager extends EventEmitter {
     }
 
     return Array.from(this.sessions.keys()).pop() || null;
-  }
-
-  private inferThreadId(params?: Record<string, unknown>): string {
-    const providerThreadId = this.readString(params, 'threadId');
-    return this.findThreadByProviderThreadId(providerThreadId) || 'unknown';
   }
 
   private readObject(

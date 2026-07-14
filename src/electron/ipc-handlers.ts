@@ -56,7 +56,11 @@ import {
 } from './libs/font-settings';
 import { getUserProfile, saveUserProfile } from './libs/user-profile';
 import { getAgentRuntimeDirectory } from './libs/agent-runtime-directory';
-import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-settings';
+import {
+  getCodexModelConfig,
+  saveCodexModelVisibility,
+  setCodexRuntimeModelCatalog,
+} from './libs/codex-settings';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getClaudePlanUsage } from './libs/claude-plan-usage';
 import { getGrokPlanUsage } from './libs/grok-plan-usage';
@@ -421,9 +425,11 @@ function normalizeShellPath(filePath: string): string {
 function normalizeCodexPermissionMode(
   value?: string | null
 ): import('../shared/types').CodexPermissionMode {
-  return value === 'fullAccess' || value === 'fullAuto'
-    ? 'fullAccess'
-    : 'defaultPermissions';
+  if (value === 'fullAccess' || value === 'fullAuto') return 'fullAccess';
+  // 'auto' is a real protocol mode (approvalsReviewer: auto_review) — this
+  // normalizer used to silently downgrade it to defaultPermissions (P0-2).
+  if (value === 'auto' || value === 'autoReview') return 'auto';
+  return 'defaultPermissions';
 }
 
 function normalizeCodexExecutionMode(
@@ -3395,6 +3401,15 @@ type RunnerEntry = NonNullable<ReturnType<typeof runnerHandles.get>>;
  */
 const userStoppedRunnerHandles = new WeakSet<object>();
 
+// Codex two-phase stop windows (P0-6): sessionId → the stop-initiating handle
+// and the settle promise. While present: streaming deltas freeze, the
+// interrupted turn's result writes no status, and follow-up sends hold until
+// settle. Never persisted — 'stopping' is a broadcast-only status.
+const stoppingCodexSessions = new Map<
+  string,
+  { handle: RunnerHandle; settlePromise: Promise<{ confirmed: boolean }> }
+>();
+
 /** The entry's stop bookkeeping as the pure reconcile policy consumes it. */
 function stopStateOf(entry: RunnerEntry): StopStateSnapshot {
   return {
@@ -4663,9 +4678,6 @@ function scheduleSessionEnvironmentRecapRefresh(
   session: SessionRow,
   mainWindow: BrowserWindow
 ): void {
-  // Auto-generation only fills missing recaps; refreshing an existing one is
-  // reserved for the manual Refresh action.
-  if (sessions.getSessionEnvironmentRecap(session.id).summary.trim()) return;
   void refreshSessionEnvironmentRecapDeduped(session, mainWindow).catch(() => {});
 }
 
@@ -4696,6 +4708,20 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   if (sweptSessions > 0) {
     console.log(`[Sessions] swept ${sweptSessions} orphan running session(s) on boot`);
   }
+
+  // Process-scoped provider events have no per-runner owner, so they ride a
+  // DIRECT service.events subscription (the per-runner forwarder filters by
+  // threadId and dies with abort). Currently: the codex model catalog push —
+  // it feeds fast-mode eligibility enrichment (P0-3).
+  ensureProviderService();
+  getProviderService().events.on('event', (event) => {
+    if (event.type === 'model_catalog_updated') {
+      setCodexRuntimeModelCatalog(event.models);
+      if (!mainWindow.isDestroyed()) {
+        broadcast(mainWindow, { type: 'codex.modelCatalogUpdated', payload: {} });
+      }
+    }
+  });
 
   configureNotifications({
     isWindowFocused: () =>
@@ -8143,6 +8169,19 @@ async function handleSessionContinue(
       : { messages: sessions.getSessionHistory(sessionId), hadInvalidThinking: false };
   const historyBeforeContinue = sanitizedHistoryResult.messages;
 
+  // Codex two-phase stop hold (P0-6): a send landing inside the stopping
+  // window waits for the stop to settle (≤10s + safety margin), then runs as
+  // a fresh turn/start — never a steer into the turn being killed. The
+  // runner entry is snapshotted AFTER the hold: settle retires the stopped
+  // entry, so the flow below naturally falls into the fresh-spawn path (the
+  // handle-identity re-check downstream stays as backstop).
+  {
+    const stoppingEntry = stoppingCodexSessions.get(sessionId);
+    if (stoppingEntry && (provider || session.provider) === 'codex') {
+      await stoppingEntry.settlePromise.catch(() => undefined);
+    }
+  }
+
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
@@ -8969,10 +9008,18 @@ function startRunner(
       const entryForStop = runnerHandles.get(session.id);
       const stopStateForMessage =
         entryForStop?.handle === handle ? stopStateOf(entryForStop) : null;
+      // Codex two-phase stop window (P0-6): while stopping, the interrupted
+      // turn's result must not write/broadcast a status (the settle path owns
+      // the final 'idle'), and its terminal result stays out of the
+      // transcript — same semantics as Claude's stopped turns.
+      const codexStopping =
+        provider === 'codex' && stoppingCodexSessions.get(session.id)?.handle === handle;
       const stopClassification =
-        message.type === 'result' && stopStateForMessage
-          ? classifyResultForStop(stopStateForMessage)
-          : { stoppedByUser: false, suppressStatusBroadcast: false };
+        codexStopping && message.type === 'result'
+          ? { stoppedByUser: true, suppressStatusBroadcast: true }
+          : message.type === 'result' && stopStateForMessage
+            ? classifyResultForStop(stopStateForMessage)
+            : { stoppedByUser: false, suppressStatusBroadcast: false };
       // The SDK keeps draining the interrupted turn (truncated assistant
       // output, tool results, stream events) between interrupt() and its
       // result. That drain is canceled work and — after a follow-up dispatch
@@ -9024,7 +9071,12 @@ function startRunner(
         // assistant/user messages still flow (nested traces need them).
         const isSubagentStreamEvent =
           attributedMessage.type === 'stream_event' && Boolean(attributedMessage.parentToolUseId);
-        if (!isSubagentStreamEvent) {
+        // Freeze the UI at the stop click: streaming deltas of a codex turn
+        // being interrupted are not broadcast (they're never persisted, so
+        // nothing is lost — the finalize message still lands below).
+        const isCodexStoppingDelta =
+          codexStopping && attributedMessage.type === 'stream_event';
+        if (!isSubagentStreamEvent && !isCodexStoppingDelta) {
           // 广播消息
           broadcast(mainWindow, {
             type: 'stream.message',
@@ -9436,6 +9488,20 @@ function startRunner(
         sessionState.pendingPermissions.set(toolUseId, { resolve, reject });
       });
     },
+    onPermissionDismissed: (toolUseId) => {
+      // The provider resolved/abandoned the request itself (process death,
+      // stop, serverRequest/resolved): settle the pending promise quietly and
+      // drop the renderer card (P0-7).
+      const pending = sessionState.pendingPermissions.get(toolUseId);
+      if (pending) {
+        pending.resolve({ behavior: 'deny', message: 'The request is no longer pending.' });
+        sessionState.pendingPermissions.delete(toolUseId);
+      }
+      broadcast(mainWindow, {
+        type: 'permission.dismissed',
+        payload: { sessionId: session.id, toolUseId },
+      });
+    },
   });
 
   runnerHandles.set(session.id, {
@@ -9776,6 +9842,80 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
     // replaced; remember it so its late onError noise stays silent.
     userStoppedRunnerHandles.add(entry.handle);
     softStopped = canSoftInterrupt;
+
+    // Codex two-phase stop (P0-6): request the interrupt and settle on the
+    // provider's confirmation ('turn/completed(interrupted)') instead of
+    // pretending the turn stopped the moment the button was clicked.
+    const canCodexTwoPhase =
+      entry.provider === 'codex' &&
+      typeof entry.handle.interruptAndSettle === 'function' &&
+      !stoppingCodexSessions.has(sessionId);
+    if (canCodexTwoPhase) {
+      const stopHandle = entry.handle;
+      const settlePromise = stopHandle.interruptAndSettle!();
+      stoppingCodexSessions.set(sessionId, { handle: stopHandle, settlePromise });
+
+      // Pending permission promises resolve as a clean deny (the provider
+      // declines+dismisses its own pending approvals at settle).
+      const codexState = sessionStates.get(sessionId);
+      if (codexState) {
+        for (const [, pending] of codexState.pendingPermissions) {
+          pending.resolve({ behavior: 'deny', message: 'The user stopped this turn.' });
+        }
+        codexState.pendingPermissions.clear();
+      }
+
+      // Broadcast-only 'stopping' — the DB stays 'running' until settle
+      // (persisting it would open git/workspace gates mid-turn and strand
+      // the session after a crash; the boot sweep only resets 'running').
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: {
+          sessionId,
+          status: 'stopping',
+          hiddenFromThreads: session?.hidden_from_threads === 1,
+        },
+      });
+
+      void settlePromise.then(({ confirmed }) => {
+        stoppingCodexSessions.delete(sessionId);
+        // Retire the runner entry (staleness-guarded: a replacement runner
+        // may already own this session key).
+        const currentEntry = runnerHandles.get(sessionId);
+        const isStopInitiator = currentEntry?.handle === stopHandle;
+        if (isStopInitiator) {
+          clearStopFallbackTimer(currentEntry);
+          runnerHandles.delete(sessionId);
+        } else if (currentEntry) {
+          // A replacement is live — do not touch its status. The stop of the
+          // old turn is complete as far as this session is concerned.
+          return;
+        }
+
+        sessions.updateSessionStatus(sessionId, 'idle');
+        broadcast(mainWindow, {
+          type: 'session.status',
+          payload: {
+            sessionId,
+            status: 'idle',
+            hiddenFromThreads: sessions.getSession(sessionId)?.hidden_from_threads === 1,
+          },
+        });
+
+        if (!confirmed) {
+          const warning = buildLocalAssistantMessage(
+            'Codex did not confirm the stop within 10s; the turn may still be finishing server-side.'
+          );
+          sessions.addMessage(sessionId, warning);
+          broadcast(mainWindow, {
+            type: 'stream.message',
+            payload: { sessionId, message: warning },
+          });
+        }
+      });
+      return;
+    }
+
     if (canSoftInterrupt) {
       // A prompt still being prepared (async attachment reads) must never
       // start a turn after the stop: drop it before it reaches the input

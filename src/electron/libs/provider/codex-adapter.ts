@@ -33,6 +33,22 @@ import type {
   CodexRateLimitReport,
 } from '../../../shared/types';
 
+/**
+ * Real app version for the initialize clientInfo (was hardcoded '0.0.20').
+ * Falls back to npm's env in non-Electron contexts (tests, harness).
+ */
+function resolveClientVersion(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { app } = require('electron') as typeof import('electron');
+    const version = app?.getVersion?.();
+    if (version) return version;
+  } catch {
+    // not running under electron
+  }
+  return process.env.npm_package_version || '0.0.0';
+}
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
@@ -141,6 +157,8 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
 interface ActiveSession {
   threadId: string;
   providerThreadId: string;
+  /** Manager process generation this session was created on (P0-6 staleness). */
+  generation: number;
   status: ProviderSessionStatus;
   model?: string;
 }
@@ -190,9 +208,13 @@ export class CodexAdapter implements ProviderAdapter {
   // the user can resend in the same chat without manually starting a new one.
   private lastStartInput = new Map<string, ProviderSessionStartInput>();
   private authRecoveryInFlight: Promise<void> | null = null;
+  // Per-thread key of the last turn failure already surfaced as an error
+  // event, so `error(willRetry=false)` + `turn/completed(failed)` for the
+  // same turn report once (P0-1 dedupe).
+  private reportedErrorTurnKeys = new Map<string, string>();
 
   constructor(binaryPath?: string) {
-    this.manager = new CodexAppServerManager(binaryPath);
+    this.manager = new CodexAppServerManager(binaryPath, resolveClientVersion());
     this.setupEventForwarding();
   }
 
@@ -334,9 +356,43 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    this.manager.on('turn_completed', ({ threadId }) => {
+    // 0.144.3 delivers every turn terminal via `turn/completed` with
+    // turn.status ∈ completed | interrupted | failed (there is no
+    // `turn/aborted` notification). Failed turns must surface as errors —
+    // never as a success result (P0-1).
+    this.manager.on('turn_completed', ({ threadId, turnId, status, error }) => {
       this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
+
+      if (status === 'failed') {
+        this.updateSessionStatus(threadId, 'error');
+        const errorText = typeof error === 'string' && error ? error : 'Codex turn failed';
+        // The error event must precede the result: runOneShot settles on the
+        // first result message and classifies by what arrived before it.
+        // Dedupe: a willRetry=false error notification for the same turn has
+        // usually reported this failure already.
+        const errorKey = typeof turnId === 'string' && turnId ? turnId : errorText;
+        if (this.reportedErrorTurnKeys.get(threadId) !== errorKey) {
+          this.reportedErrorTurnKeys.set(threadId, errorKey);
+          if (isAuthRefreshError(errorText)) {
+            void this.handleAuthFailure(errorText);
+          } else {
+            this.emit({ type: 'error', threadId, error: new Error(errorText) });
+          }
+        }
+        const message: StreamMessage = {
+          type: 'result',
+          subtype: 'error',
+          duration_ms: 0,
+          total_cost_usd: 0,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        };
+        this.emit({ type: 'message', threadId, message });
+        return;
+      }
+
+      // completed & interrupted both end as a success result; the interrupted
+      // case is the stop-confirmation terminal (settled manager-side).
       this.updateSessionStatus(threadId, 'completed');
       const message: StreamMessage = {
         type: 'result',
@@ -348,29 +404,72 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    this.manager.on('turn_aborted', ({ threadId }) => {
-      this.finalizeStreamingAssistant(threadId);
-      this.clearStreamingState(threadId);
-      this.updateSessionStatus(threadId, 'completed');
-      const message: StreamMessage = {
-        type: 'result',
-        subtype: 'success',
-        duration_ms: 0,
-        total_cost_usd: 0,
-        usage: { input_tokens: 0, output_tokens: 0 },
-      };
-      this.emit({ type: 'message', threadId, message });
-    });
+    this.manager.on('error_notification', ({ threadId, message, willRetry, turnId }) => {
+      // willRetry: codex is retrying the same turn itself. Keep the stream
+      // and session state intact — finalizing here would corrupt the
+      // continuation, and marking error would kill the steer gate (P0-1).
+      if (willRetry) {
+        this.emitLocalNotice(threadId, `Codex is retrying after a transient error: ${message}`);
+        return;
+      }
 
-    this.manager.on('error_notification', ({ threadId, message }) => {
       this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
       this.updateSessionStatus(threadId, 'error');
+      if (typeof turnId === 'string' && turnId) {
+        this.reportedErrorTurnKeys.set(threadId, turnId);
+      }
       if (isAuthRefreshError(message)) {
         void this.handleAuthFailure(message);
         return;
       }
       this.emit({ type: 'error', threadId, error: new Error(message) });
+    });
+
+    // Two-phase stop settle (P0-6). Cleanup is staleness-guarded: a
+    // replacement runner may have rebuilt this aegis threadId on a new
+    // provider thread/generation — a late settle must not wipe its state.
+    this.manager.on('stop_settled', ({ aegisThreadId, providerThreadId, generation, confirmed, noTurn }) => {
+      const session = this.sessions.get(aegisThreadId);
+      // Staleness guard, with one exception: a noTurn settle with an empty
+      // providerThreadId means the manager had no session at all (e.g. after
+      // a crash cleared it) — the adapter-side leftovers must go regardless.
+      const orphanCleanup = noTurn === true && providerThreadId === '';
+      if (
+        session &&
+        (orphanCleanup ||
+          (session.providerThreadId === providerThreadId && session.generation === generation))
+      ) {
+        this.clearStreamingState(aegisThreadId);
+        this.sessions.delete(aegisThreadId);
+        this.lastStartInput.delete(aegisThreadId);
+        this.lastKnownContextTokens.delete(aegisThreadId);
+        this.reportedErrorTurnKeys.delete(aegisThreadId);
+      }
+      this.emit({
+        type: 'stop_settled',
+        threadId: aegisThreadId,
+        providerThreadId,
+        generation,
+        confirmed: confirmed === true,
+        ...(noTurn === true ? { noTurn: true } : {}),
+      });
+    });
+
+    this.manager.on('approval_dismissed', ({ requestId, threadId }) => {
+      this.permissionResolvers.delete(requestId);
+      this.emit({ type: 'permission_dismissed', threadId, requestId });
+    });
+
+    this.manager.on('fast_mode_unavailable', ({ threadId, model }) => {
+      this.emitLocalNotice(
+        threadId,
+        `Fast mode is not available for model ${model}; running on the default service tier.`
+      );
+    });
+
+    this.manager.on('model_catalog_updated', ({ models }) => {
+      this.emit({ type: 'model_catalog_updated', threadId: null, models });
     });
 
     this.manager.on('process_exit', ({ code, signal }) => {
@@ -400,8 +499,10 @@ export class CodexAdapter implements ProviderAdapter {
       void this.handleAuthFailure(error.message);
     });
 
-    this.manager.on('approval_request', ({ requestId, method, params }) => {
-      const threadId = this.inferThreadIdFromParams(params);
+    // Routing happened once in the manager (exact match / descendant map,
+    // fail-closed) — the event carries the resolved Aegis threadId. No
+    // re-inference here (P0-7).
+    this.manager.on('approval_request', ({ requestId, method, threadId, params }) => {
       const { toolName, input } = this.buildCodexApprovalInput(method, params);
 
       if (
@@ -425,8 +526,7 @@ export class CodexAdapter implements ProviderAdapter {
       });
     });
 
-    this.manager.on('user_input_request', ({ requestId, params }) => {
-      const threadId = this.inferThreadIdFromParams(params);
+    this.manager.on('user_input_request', ({ requestId, threadId, params }) => {
       this.emit({
         type: 'permission_request',
         threadId,
@@ -443,19 +543,13 @@ export class CodexAdapter implements ProviderAdapter {
       }
     });
 
-    this.manager.on('thread_status_changed', ({ threadId, status }) => {
-      if (status === 'ready') {
-        this.updateSessionStatus(threadId, 'completed');
-        const message: StreamMessage = {
-          type: 'result',
-          subtype: 'success',
-          duration_ms: 0,
-          total_cost_usd: 0,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        };
-        this.emit({ type: 'message', threadId, message });
-      }
-    });
+    // `thread/status/changed` is bookkeeping only. It must NOT emit a result:
+    // it was a second success channel that overwrote failed-turn errors with
+    // "completed" right after the real terminal (P0-1). Turn terminality has
+    // exactly one source: `turn/completed`. (Wire status is a tagged union —
+    // notLoaded | idle | systemError | active — "ready"/"running" are legacy
+    // internal values kept only for older binaries.)
+    this.manager.on('thread_status_changed', () => {});
 
     this.manager.on('plan_updated', ({ threadId, params }) => {
       const p = params as Record<string, unknown>;
@@ -505,20 +599,39 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    // MCP server startup status is global to the codex app-server (not
-    // per-thread). Forward it as an mcp_status StreamMessage on every active
-    // thread so the renderer can update the per-agent MCP status panel.
-    this.manager.on('mcp_status_updated', ({ servers }) => {
+    // MCP startup status routing (P0-4): the 0.144.3 notification is per-
+    // thread ({threadId} non-null → the manager resolved the owning session)
+    // or process-scoped (threadId null → broadcast to every session).
+    this.manager.on('mcp_status_updated', ({ servers, threadId }) => {
       if (!Array.isArray(servers) || servers.length === 0) return;
       const message: StreamMessage = { type: 'mcp_status', servers };
-      for (const threadId of this.sessions.keys()) {
+      if (typeof threadId === 'string' && threadId) {
         this.emit({ type: 'message', threadId, message });
+        return;
+      }
+      for (const sessionThreadId of this.sessions.keys()) {
+        this.emit({ type: 'message', threadId: sessionThreadId, message });
       }
     });
   }
 
   private emit(event: ProviderRuntimeEvent): void {
     this.events.emit('event', event);
+  }
+
+  /**
+   * Persistent, user-visible notice in the transcript (assistant text shape —
+   * the reliable render/persist path for provider-side notices).
+   */
+  private emitLocalNotice(threadId: string, text: string): void {
+    const message: StreamMessage = {
+      type: 'assistant',
+      uuid: uuidv4(),
+      message: {
+        content: [{ type: 'text', text }],
+      },
+    };
+    this.emit({ type: 'message', threadId, message });
   }
 
   private finalizeStreamingAssistant(threadId: string, fallbackText = ''): void {
@@ -767,22 +880,24 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
-    const { providerThreadId, model } = await this.manager.createSession(
-      input.threadId,
-      input.cwd,
-      input.resumeSessionId,
-      {
-        model: input.model,
-        codexExecutionMode: input.codexExecutionMode,
-        codexPermissionMode: input.codexPermissionMode,
-        codexReasoningEffort: input.codexReasoningEffort,
-        codexFastMode: input.codexFastMode,
-      }
-    );
+    const { providerThreadId, model, generation, resumeFallback } =
+      await this.manager.createSession(
+        input.threadId,
+        input.cwd,
+        input.resumeSessionId,
+        {
+          model: input.model,
+          codexExecutionMode: input.codexExecutionMode,
+          codexPermissionMode: input.codexPermissionMode,
+          codexReasoningEffort: input.codexReasoningEffort,
+          codexFastMode: input.codexFastMode,
+        }
+      );
 
     const session: ActiveSession = {
       threadId: input.threadId,
       providerThreadId,
+      generation,
       status: 'running',
       model,
     };
@@ -796,6 +911,17 @@ export class CodexAdapter implements ProviderAdapter {
       sessionId: providerThreadId,
       model,
     });
+
+    // Resume degraded to a fresh thread: make the context break visible
+    // instead of silently continuing without history (P0-5). The new
+    // providerThreadId flows back via system_init, so the stale cursor is
+    // replaced and later sends don't re-fail.
+    if (resumeFallback) {
+      this.emitLocalNotice(
+        input.threadId,
+        `Could not restore the previous Codex thread (${resumeFallback.reason}). Continuing in a new thread without prior context.`
+      );
+    }
 
     // Send initial prompt if provided. A Codex skill/plugin-only turn may have
     // an empty text prompt but still needs a structured input item.
@@ -885,11 +1011,11 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   async stopSession(threadId: string): Promise<void> {
+    // Two-phase stop (P0-6): this only requests the interrupt. Adapter-side
+    // state is released by the guarded `stop_settled` handler — deleting it
+    // here would orphan the confirmation window and can wipe a replacement
+    // session's state.
     await this.manager.stopSession(threadId);
-    this.clearStreamingState(threadId);
-    this.sessions.delete(threadId);
-    this.lastStartInput.delete(threadId);
-    this.lastKnownContextTokens.delete(threadId);
   }
 
   async stopAll(): Promise<void> {
@@ -921,7 +1047,8 @@ export class CodexAdapter implements ProviderAdapter {
     requestId: string,
     decision: PermissionResult
   ): Promise<void> {
-    await this.manager.respondToApproval(requestId, decision);
+    // threadId asserts the decision comes from the owning session (P0-7).
+    await this.manager.respondToApproval(requestId, decision, threadId);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -935,24 +1062,6 @@ export class CodexAdapter implements ProviderAdapter {
       session.status = status;
     }
     this.emit({ type: 'status_change', threadId, status });
-  }
-
-  private inferThreadIdFromParams(params: unknown): string {
-    if (params && typeof params === 'object') {
-      const p = params as Record<string, unknown>;
-      const threadId = p.threadId;
-      if (typeof threadId === 'string') {
-        // Try to find session by provider thread id
-        for (const [id, session] of this.sessions) {
-          if (session.providerThreadId === threadId) {
-            return id;
-          }
-        }
-      }
-    }
-    // Fallback to first session
-    const first = this.sessions.keys().next().value;
-    return first || 'unknown';
   }
 
   private inferToolNameFromApproval(params: unknown): string {

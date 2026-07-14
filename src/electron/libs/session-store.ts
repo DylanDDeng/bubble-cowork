@@ -1654,21 +1654,42 @@ export function setClaudeSessionId(sessionId: string, claudeSessionId: string | 
   stmt.run(claudeSessionId, now, sessionId);
 }
 
+/**
+ * Shared writer for `codex_session_id` with reverse-uniqueness enforcement:
+ * one codex provider thread may be bound to at most one Aegis session.
+ * Binding a thread already held by another row clears the old row's cursor
+ * (that session loses resume but never shares context). Null/clear writes
+ * skip the reverse check.
+ */
+function writeCodexSessionId(sessionId: string, codexSessionId: string | null): void {
+  const now = Date.now();
+  const db = getDb();
+
+  if (codexSessionId) {
+    const holders = db
+      .prepare(`SELECT id FROM sessions WHERE codex_session_id = ? AND id != ?`)
+      .all(codexSessionId, sessionId) as Array<{ id: string }>;
+    if (holders.length > 0) {
+      console.warn(
+        '[session-store] codex thread rebinding: clearing stale codex_session_id rows',
+        { codexSessionId, newOwner: sessionId, previousOwners: holders.map((h) => h.id) }
+      );
+      db.prepare(`UPDATE sessions SET codex_session_id = NULL, updated_at = ? WHERE codex_session_id = ? AND id != ?`)
+        .run(now, codexSessionId, sessionId);
+    }
+  }
+
+  db.prepare(`UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?`)
+    .run(codexSessionId, now, sessionId);
+}
+
 // 更新 Codex Session ID
 export function updateCodexSessionId(sessionId: string, codexSessionId: string): void {
-  const now = Date.now();
-  const stmt = getDb().prepare(`
-    UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?
-  `);
-  stmt.run(codexSessionId, now, sessionId);
+  writeCodexSessionId(sessionId, codexSessionId);
 }
 
 export function setCodexSessionId(sessionId: string, codexSessionId: string | null): void {
-  const now = Date.now();
-  const stmt = getDb().prepare(`
-    UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?
-  `);
-  stmt.run(codexSessionId, now, sessionId);
+  writeCodexSessionId(sessionId, codexSessionId);
 }
 
 // 更新 OpenCode Session ID

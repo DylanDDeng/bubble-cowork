@@ -16,6 +16,47 @@ import {
 
 const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 const CODEX_MODELS_CACHE_PATH = join(homedir(), '.codex', 'models_cache.json');
+
+// Authoritative model catalog pushed by the codex app-server (model/list),
+// keyed by model slug. Empty until a live process exists — getCodexModelConfig
+// falls back to the models_cache heuristic for the first frame (P0-3).
+const runtimeModelCatalog = new Map<string, { supportsFastMode: boolean; fastTierName?: string }>();
+
+/**
+ * Ingest a `model_catalog_updated` push. Fast eligibility: exactly one
+ * non-default serviceTier (provisional heuristic — the protocol carries no
+ * speed semantics on tiers, so we surface the tier name for transparency).
+ */
+export function setCodexRuntimeModelCatalog(models: unknown[]): void {
+  runtimeModelCatalog.clear();
+  for (const raw of models) {
+    if (!raw || typeof raw !== 'object') continue;
+    const entry = raw as {
+      model?: unknown;
+      id?: unknown;
+      serviceTiers?: unknown;
+      defaultServiceTier?: unknown;
+    };
+    const slug =
+      (typeof entry.model === 'string' && entry.model) ||
+      (typeof entry.id === 'string' && entry.id) ||
+      '';
+    if (!slug) continue;
+    const tiers = Array.isArray(entry.serviceTiers) ? entry.serviceTiers : [];
+    const defaultTier = typeof entry.defaultServiceTier === 'string' ? entry.defaultServiceTier : null;
+    const nonDefault = tiers.filter(
+      (tier): tier is { id: string; name?: string } =>
+        !!tier && typeof tier === 'object' && typeof (tier as { id?: unknown }).id === 'string' &&
+        (tier as { id: string }).id !== defaultTier
+    );
+    runtimeModelCatalog.set(slug, {
+      supportsFastMode: nonDefault.length === 1,
+      ...(nonDefault.length === 1 && typeof nonDefault[0].name === 'string'
+        ? { fastTierName: nonDefault[0].name }
+        : {}),
+    });
+  }
+}
 const CODEX_MODEL_VISIBILITY_PATH = () => join(app.getPath('userData'), 'codex-model-visibility.json');
 /** Sticky union of catalog models so incomplete online refreshes cannot shrink the picker. */
 const CODEX_MODEL_CATALOG_MEMORY_PATH = () =>
@@ -279,11 +320,18 @@ export function getCodexModelConfig(): CodexModelConfig {
       (typeof cached?.priority === 'number' ? cached.priority : null) ??
       (typeof remembered?.priority === 'number' ? remembered.priority : null) ??
       seedPriorityForCodexModel(name);
-    const supportsFastMode =
-      cached?.supported_in_api === true &&
-      typeof cached?.priority === 'number' &&
-      cached.priority === 1 &&
-      !cached?.upgrade
+    // Fast-mode eligibility: the app-server `model/list` catalog is
+    // authoritative (a model is fast-eligible iff it has exactly one
+    // non-default serviceTier — P0-3). The models_cache priority heuristic
+    // below is only the first-frame fallback until a live process pushes the
+    // real catalog.
+    const runtimeEntry = runtimeModelCatalog.get(name);
+    const supportsFastMode = runtimeEntry
+      ? runtimeEntry.supportsFastMode
+      : cached?.supported_in_api === true &&
+          typeof cached?.priority === 'number' &&
+          cached.priority === 1 &&
+          !cached?.upgrade
         ? true
         : remembered?.supportsFastMode === true;
 

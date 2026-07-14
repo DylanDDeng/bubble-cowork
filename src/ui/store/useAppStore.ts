@@ -973,8 +973,34 @@ export const useAppStore = create<Store>()(
         handlePermissionRequest(event.payload, set);
         break;
 
+      case 'permission.dismissed':
+        set((state) => {
+          const session = state.sessions[event.payload.sessionId];
+          if (!session) return state;
+          const remaining = session.permissionRequests.filter(
+            (request) => request.toolUseId !== event.payload.toolUseId
+          );
+          if (remaining.length === session.permissionRequests.length) return state;
+          return {
+            ...state,
+            sessions: {
+              ...state.sessions,
+              [event.payload.sessionId]: { ...session, permissionRequests: remaining },
+            },
+          };
+        });
+        break;
+
       case 'runner.error':
         set({ globalError: event.payload.message, pendingStart: false, pendingDraftSessionId: null });
+        break;
+
+      case 'codex.modelCatalogUpdated':
+        // The app-server pushed the authoritative model catalog; the codex
+        // model-config hook re-fetches (fast-mode eligibility may change).
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('codex-model-config-updated'));
+        }
         break;
 
       case 'project.tree':

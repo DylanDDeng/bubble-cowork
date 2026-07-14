@@ -77,6 +77,10 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         void handlePermissionRequest(event.requestId, event.toolName, event.input);
         break;
       }
+      case 'permission_dismissed': {
+        options.onPermissionDismissed?.(event.requestId);
+        break;
+      }
       case 'system_init': {
         const initMessage: import('../../shared/types').StreamMessage = {
           type: 'system',
@@ -155,6 +159,34 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
   });
 
   return {
+    // Two-phase stop (codex, P0-6): request the interrupt and wait for the
+    // provider's stop_settled on a DIRECT service.events subscription — the
+    // per-runner forwarder above dies with abort() and can't carry it.
+    interruptAndSettle: () => {
+      return new Promise<{ confirmed: boolean }>((resolve) => {
+        let done = false;
+        const finish = (confirmed: boolean) => {
+          if (done) return;
+          done = true;
+          clearTimeout(safetyTimer);
+          service.events.off('event', onSettleEvent);
+          resolve({ confirmed });
+        };
+        const onSettleEvent = (event: import('./provider/types').ProviderRuntimeEvent) => {
+          if (event.type === 'stop_settled' && event.threadId === threadId) {
+            finish(event.confirmed);
+          }
+        };
+        service.events.on('event', onSettleEvent);
+        // Safety net above the provider's own confirmation window: if the
+        // provider never settles (non-codex adapter, bug), don't hang the UI.
+        const safetyTimer = setTimeout(() => finish(false), 15_000);
+        service.stopSession(threadId).catch((error) => {
+          console.error('[ProviderService] interruptAndSettle stop failed:', error);
+          finish(false);
+        });
+      });
+    },
     abort: () => {
       abortController.abort();
       const stopPromise = service.stopSession(threadId).catch((error) => {

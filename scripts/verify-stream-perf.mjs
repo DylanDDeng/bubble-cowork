@@ -24,8 +24,10 @@ assert.equal(
   true,
   'P0a: subagent stream_event broadcast filter missing'
 );
+// The gate may carry additional conjuncts (e.g. the codex stop-window delta
+// freeze) as long as the subagent filter still guards the broadcast.
 assert.equal(
-  ipcSource.includes('if (!isSubagentStreamEvent) {'),
+  /if \(!isSubagentStreamEvent(?: && ![A-Za-z]+)*\) \{/.test(ipcSource),
   true,
   'P0a: broadcast must be gated on the subagent stream_event check'
 );
