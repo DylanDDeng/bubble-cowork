@@ -8,7 +8,7 @@ import {
   Loader2,
   MoreHorizontal,
   Pin,
-  Plus,
+  SquarePen,
   Trash2,
 } from './icons';
 import {
@@ -348,10 +348,11 @@ export function FolderTreeView({
           group.sessions.length > DEFAULT_VISIBLE_SESSIONS_PER_PROJECT;
         return (
           <div key={group.key} className="mb-3">
-            <div className="group/project flex items-center gap-1 px-1">
+            {/* 整行一个 hover 高亮：标题/加号/更多按钮共用行背景，图标只做颜色反馈 */}
+            <div className="group/project mx-1 flex items-center gap-1 rounded-lg pr-1 transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] has-[button[data-popup-open]]:bg-[var(--sidebar-item-hover)]">
               <button
                 type="button"
-                className="flex min-w-0 flex-1 select-none items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                className="flex min-w-0 flex-1 select-none items-center gap-2 px-2 py-1.5 text-left text-[var(--text-secondary)] transition-colors duration-150 group-hover/project:text-[var(--text-primary)]"
                 onClick={() => toggleGroupExpanded(group.key)}
                 title={group.fullPath || 'Sessions without a project folder'}
                 aria-expanded={expanded}
@@ -360,26 +361,11 @@ export function FolderTreeView({
                 <span className="text-[13px] font-normal truncate flex-1">{group.label}</span>
               </button>
 
-              {group.fullPath && (
-                <button
-                  type="button"
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover/project:opacity-100"
-                  title={`New thread in ${group.label}`}
-                  aria-label={`New thread in ${group.label}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNewSessionForProject(group.fullPath!, DEFAULT_WORKSPACE_CHANNEL_ID);
-                  }}
-                >
-                  <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
-                </button>
-              )}
-
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus:opacity-100 group-hover/project:opacity-100 data-[popup-open]:bg-[var(--sidebar-item-hover)] data-[popup-open]:text-[var(--text-primary)] data-[popup-open]:opacity-100"
+                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:text-[var(--text-primary)] focus:opacity-100 group-hover/project:opacity-100 data-[popup-open]:text-[var(--text-primary)] data-[popup-open]:opacity-100"
                     title={`Options for ${group.label}`}
                     aria-label={`Options for ${group.label}`}
                     onClick={(event) => event.stopPropagation()}
@@ -409,6 +395,21 @@ export function FolderTreeView({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              {group.fullPath && (
+                <button
+                  type="button"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:text-[var(--text-primary)] group-hover/project:opacity-100"
+                  title={`New thread in ${group.label}`}
+                  aria-label={`New thread in ${group.label}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onNewSessionForProject(group.fullPath!, DEFAULT_WORKSPACE_CHANNEL_ID);
+                  }}
+                >
+                  <SquarePen className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </button>
+              )}
             </div>
 
             {expanded && (
@@ -473,7 +474,7 @@ export function FolderTreeView({
                           return (
                             <div key={worktreePath}>
                               <div
-                                className="group/worktree ml-4 flex h-6 min-w-0 items-center gap-1.5 px-2 text-[var(--text-muted)]"
+                                className="group/worktree ml-4 flex h-6 min-w-0 items-center gap-1.5 rounded-md px-2 text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
                                 title={`${branch} · ${worktreePath}`}
                               >
                                 <ArrowsSplit className="h-3 w-3 flex-shrink-0" />
@@ -482,7 +483,7 @@ export function FolderTreeView({
                                 </span>
                                 <button
                                   type="button"
-                                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus:opacity-100 group-hover/worktree:opacity-100"
+                                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center opacity-0 transition-all duration-150 hover:text-[var(--text-primary)] focus:opacity-100 group-hover/worktree:opacity-100"
                                   title={`New thread in ${branch}`}
                                   aria-label={`New thread in worktree ${branch}`}
                                   onClick={(event) => {
@@ -490,7 +491,7 @@ export function FolderTreeView({
                                     createDraftSessionInWorktree(worktreePath, branch, sample);
                                   }}
                                 >
-                                  <Plus className="h-3 w-3" strokeWidth={1.9} />
+                                  <SquarePen className="h-3 w-3" strokeWidth={1.9} />
                                 </button>
                               </div>
                               {worktreeSessions.map((session) => renderSession(session, 2))}

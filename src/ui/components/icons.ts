@@ -53,6 +53,7 @@ import {
   IconDots,
   IconDotsVertical,
   IconDownload,
+  IconEdit,
   IconExternalLink,
   IconEye,
   IconEyeOff,
@@ -256,7 +257,8 @@ export {
   IconAdjustmentsHorizontal as SlidersHorizontal,
   IconSparkles as Sparkles,
   IconSquare as Square,
-  IconPencil as SquarePen,
+  // 参考 Codex "New task"：方框内铅笔，用于所有"新建 task/thread"入口
+  IconEdit as SquarePen,
   IconTerminal2 as SquareTerminal,
   IconLayoutSidebarRight as PanelRight,
   IconStrikethrough as Strikethrough,

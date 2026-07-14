@@ -296,9 +296,9 @@ export function Sidebar() {
     () => [
       {
         id: 'new-thread',
-        label: 'New Thread',
+        label: 'New Task',
         description: 'Start a new conversation',
-        keywords: ['create', 'conversation', 'chat', 'session'],
+        keywords: ['create', 'conversation', 'chat', 'session', 'thread', 'task'],
         shortcutLabel: '⌘N',
       },
       {
@@ -525,7 +525,7 @@ export function Sidebar() {
               <div className="px-2 pt-1">
                 <SidebarNavRow
                   icon={<SquarePen className="h-[15px] w-[15px]" />}
-                  label="New Thread"
+                  label="New Task"
                   onClick={() => {
                     setShowSettings(false);
                     setActiveWorkspace('chat');
@@ -542,8 +542,8 @@ export function Sidebar() {
                   data-sidebar-scroll-region
                   onScroll={updateSidebarScrollbar}
                 >
-                  <div className="pb-3 pt-1">
-                    <div className="space-y-1">
+                  <div className="pb-2 pt-0.5">
+                    <div className="space-y-0.5">
                       <SidebarNavRow
                         icon={<Clock className="h-[15px] w-[15px]" />}
                         label="Automations"
@@ -675,7 +675,7 @@ function SidebarNavRow({
         onClick();
         (e.currentTarget as HTMLButtonElement).blur();
       }}
-      className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left no-drag transition-colors duration-150 ${
+      className={`flex h-7 w-full items-center gap-2 rounded-md px-2 text-left no-drag transition-colors duration-150 ${
         active
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
