@@ -865,6 +865,7 @@ export const useAppStore = create<Store>()(
       rightUtilityTabs: initialRightUtilityTab ? [initialRightUtilityTab] : [],
       activeRightUtilityTab: initialRightUtilityTab,
       rightUtilityPanelHidden: false,
+      rightUtilityInstantRevealPending: false,
       reviewDiffSelection: null,
       terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
@@ -1570,6 +1571,16 @@ export const useAppStore = create<Store>()(
         rightUtilityPanelHidden: false,
       };
 
+      // Only a reveal has a width tween to skip: the panel is currently
+      // hidden, or not mounted at all (no tabs / no active tab).
+      const isReveal =
+        state.rightUtilityPanelHidden ||
+        state.rightUtilityTabs.length === 0 ||
+        !state.activeRightUtilityTab;
+      if (options?.instantReveal && isReveal) {
+        patch.rightUtilityInstantRevealPending = true;
+      }
+
       if (activeKind === 'files' || activeKind === 'review') {
         patch.projectPanelView = activeKind === 'review' ? 'changes' : 'files';
         patch.projectTreeCollapsed = false;
@@ -1593,6 +1604,14 @@ export const useAppStore = create<Store>()(
 
       return patch;
     });
+  },
+
+  clearRightUtilityInstantReveal: () => {
+    set((state) =>
+      state.rightUtilityInstantRevealPending
+        ? { rightUtilityInstantRevealPending: false }
+        : state
+    );
   },
 
   setReviewDiffSelection: (selection) => {

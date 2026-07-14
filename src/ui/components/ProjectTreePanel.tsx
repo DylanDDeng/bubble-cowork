@@ -701,32 +701,14 @@ export function ProjectTreePanel({
     }
     setDraftText(next);
   }, []);
-  const mirrorProjectEditorDraftSync = useCallback(
-    (next: string) => {
-      const preview = selectedEditableTextPreviewRef.current;
-      if (
-        selectedFileCwd &&
-        selectedFilePath &&
-        preview &&
-        (preview.kind === 'markdown' || preview.kind === 'text') &&
-        preview.editable &&
-        next !== preview.text
-      ) {
-        window.electron.commitProjectEditorDraftSync?.({
-          cwd: selectedFileCwd,
-          filePath: selectedFilePath,
-          content: next,
-        });
-        return;
-      }
-      window.electron.commitProjectEditorDraftSync?.(null);
-    },
-    [selectedFileCwd, selectedFilePath]
-  );
   const handleDraftTextChange = useCallback(
     (next: string) => {
       setDraftTextSynced(next);
-      mirrorProjectEditorDraftSync(next);
+      // NOTE: no commitProjectEditorDraftSync here. That is a renderer-
+      // BLOCKING sendSync carrying the full document — per keystroke it froze
+      // typing in large files. The async updateProjectEditorDraft effect
+      // mirrors the same content for the quit fallback; the sync commit stays
+      // only at real save/transition boundaries.
       if (selectedFileCwd && selectedFilePath) {
         const tabId = getProjectFileTabId(selectedFileCwd, selectedFilePath);
         updateOpenFileTabs((current) =>
@@ -738,7 +720,7 @@ export function ProjectTreePanel({
         );
       }
     },
-    [mirrorProjectEditorDraftSync, selectedFileCwd, selectedFilePath, setDraftTextSynced, updateOpenFileTabs]
+    [selectedFileCwd, selectedFilePath, setDraftTextSynced, updateOpenFileTabs]
   );
   const setSaveStateSynced = useCallback((next: 'idle' | 'saving' | 'saved' | 'error') => {
     saveStateRef.current = next;
@@ -3261,6 +3243,7 @@ export function ProjectTreePanel({
                         value={draftText}
                         onChange={handleDraftTextChange}
                         onSave={() => handleSaveText()}
+                        fileName={selectedPreview.name}
                       />
                     ) : selectedPreview.name?.toLowerCase().endsWith('.txt') ? (
                       <TextFileReader

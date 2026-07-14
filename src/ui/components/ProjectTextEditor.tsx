@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { EditorState, EditorSelection, Transaction } from '@codemirror/state';
+import { Compartment, EditorState, EditorSelection, Transaction } from '@codemirror/state';
 import {
   EditorView,
   keymap,
@@ -13,7 +13,9 @@ import {
   defaultHighlightStyle,
   bracketMatching,
   indentOnInput,
+  LanguageDescription,
 } from '@codemirror/language';
+import { history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 
@@ -23,6 +25,12 @@ interface ProjectTextEditorProps {
   onSave?: () => void;
   className?: string;
   revealTarget?: { line: number; token: number } | null;
+  /**
+   * File name used to pick the syntax language by extension. Without it the
+   * editor falls back to Markdown (the historical default, correct for the
+   * MDX call sites) — code files MUST pass it or they get Markdown parsing.
+   */
+  fileName?: string;
 }
 
 export interface ProjectTextEditorHandle {
@@ -42,45 +50,16 @@ export interface ProjectTextEditorViewState {
   scrollTop: number;
 }
 
-// Minimal undo/redo stack since @codemirror/commands is not a dependency
-class UndoManager {
-  private stack: string[] = [];
-  private index = -1;
-  private maxSize = 200;
-
-  push(state: string) {
-    // Trim future redo entries
-    this.stack = this.stack.slice(0, this.index + 1);
-    this.stack.push(state);
-    this.index = this.stack.length - 1;
-    if (this.stack.length > this.maxSize) {
-      this.stack.shift();
-      this.index--;
-    }
-  }
-
-  undo(current: string): string | null {
-    if (this.index <= 0) return null;
-    // If the current document doesn't match the top of stack, push it first
-    if (this.stack[this.index] !== current) {
-      this.push(current);
-      this.index--; // skip the newly pushed entry
-    } else {
-      this.index--;
-    }
-    return this.stack[this.index];
-  }
-
-  redo(): string | null {
-    if (this.index >= this.stack.length - 1) return null;
-    this.index++;
-    return this.stack[this.index];
-  }
-
-  clear() {
-    this.stack = [];
-    this.index = -1;
-  }
+/**
+ * Pick the syntax language for a file name. Markdown stays the default (the
+ * MDX call sites rely on it); everything else resolves through
+ * @codemirror/language-data by extension. Returns null when the file should
+ * be plain text (unknown extension).
+ */
+function resolveLanguageDescription(fileName: string | undefined): LanguageDescription | null {
+  const name = fileName?.trim();
+  if (!name) return null;
+  return LanguageDescription.matchFilename(languages, name);
 }
 
 export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectTextEditorProps>(function ProjectTextEditor({
@@ -89,6 +68,7 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
   onSave,
   className,
   revealTarget,
+  fileName,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -126,7 +106,10 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
       });
     },
   }), []);
-  const undoManagerRef = useRef(new UndoManager());
+  // History lives in a compartment so external disk reloads can reset the
+  // undo stack (reconfiguring the compartment recreates the history field).
+  const historyCompartmentRef = useRef(new Compartment());
+  const languageCompartmentRef = useRef(new Compartment());
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -138,17 +121,11 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const um = undoManagerRef.current;
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         isInternalChangeRef.current = true;
-        const newValue = update.state.doc.toString();
-        // Push to undo stack (debounce: only for user-initiated changes)
-        if (!update.transactions.some((tr) => tr.annotation(Transaction.userEvent) === 'undo-redo')) {
-          um.push(newValue);
-        }
-        onChangeRef.current?.(newValue);
+        onChangeRef.current?.(update.state.doc.toString());
         isInternalChangeRef.current = false;
       }
     });
@@ -158,49 +135,6 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
         key: 'Mod-s',
         run: () => {
           onSaveRef.current?.();
-          return true;
-        },
-        preventDefault: true,
-      },
-      {
-        key: 'Mod-z',
-        run: (view: EditorView) => {
-          const current = view.state.doc.toString();
-          const prev = um.undo(current);
-          if (prev !== null) {
-            view.dispatch({
-              changes: { from: 0, to: current.length, insert: prev },
-              annotations: Transaction.userEvent.of('undo-redo'),
-            });
-          }
-          return true;
-        },
-        preventDefault: true,
-      },
-      {
-        key: 'Mod-Shift-z',
-        run: (view: EditorView) => {
-          const next = um.redo();
-          if (next !== null) {
-            view.dispatch({
-              changes: { from: 0, to: view.state.doc.toString().length, insert: next },
-              annotations: Transaction.userEvent.of('undo-redo'),
-            });
-          }
-          return true;
-        },
-        preventDefault: true,
-      },
-      {
-        key: 'Mod-y',
-        run: (view: EditorView) => {
-          const next = um.redo();
-          if (next !== null) {
-            view.dispatch({
-              changes: { from: 0, to: view.state.doc.toString().length, insert: next },
-              annotations: Transaction.userEvent.of('undo-redo'),
-            });
-          }
           return true;
         },
         preventDefault: true,
@@ -266,13 +200,13 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
       bracketMatching(),
       indentOnInput(),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-      keymap.of(customKeymap),
+      historyCompartmentRef.current.of(history()),
+      keymap.of([...customKeymap, ...historyKeymap]),
       updateListener,
       EditorView.lineWrapping,
-      markdown({
-        base: markdownLanguage,
-        codeLanguages: languages,
-      }),
+      // Language is applied by the fileName effect below (the editor instance
+      // is reused across file switches, so it can't be fixed at mount).
+      languageCompartmentRef.current.of([]),
       EditorView.theme({
         '&': {
           height: '100%',
@@ -312,7 +246,6 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
     });
 
     viewRef.current = view;
-    um.push(value); // initial state
 
     return () => {
       view.destroy();
@@ -320,6 +253,38 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Apply the language for the current file. Runs on mount and whenever the
+  // same editor instance is pointed at a different file. Matched languages
+  // load their module async (mounting plain in the meantime); unmatched files
+  // keep the historical Markdown default (MDX call sites rely on it).
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    let cancelled = false;
+    const description = resolveLanguageDescription(fileName);
+    if (!description) {
+      view.dispatch({
+        effects: languageCompartmentRef.current.reconfigure(
+          markdown({ base: markdownLanguage, codeLanguages: languages })
+        ),
+      });
+      return;
+    }
+    view.dispatch({ effects: languageCompartmentRef.current.reconfigure([]) });
+    void description
+      .load()
+      .then((support) => {
+        if (cancelled || viewRef.current !== view) return;
+        view.dispatch({ effects: languageCompartmentRef.current.reconfigure(support) });
+      })
+      .catch(() => {
+        // Language module failed to load: stay plain text.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileName]);
 
   // Sync external value changes (e.g., file reload from disk)
   useEffect(() => {
@@ -333,9 +298,12 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
           to: currentValue.length,
           insert: value,
         },
+        annotations: Transaction.addToHistory.of(false),
       });
-      undoManagerRef.current.clear();
-      undoManagerRef.current.push(value);
+      // A disk reload starts a fresh undo timeline: reconfiguring the
+      // history compartment recreates its state field, dropping the stack.
+      view.dispatch({ effects: historyCompartmentRef.current.reconfigure([]) });
+      view.dispatch({ effects: historyCompartmentRef.current.reconfigure(history()) });
     }
   }, [value]);
 

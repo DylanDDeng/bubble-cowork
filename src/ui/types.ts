@@ -291,6 +291,12 @@ export interface AppState {
   rightUtilityTabs: ProjectUtilityPanelTarget[];
   activeRightUtilityTab: ProjectUtilityPanelTarget | null;
   rightUtilityPanelHidden: boolean;
+  /**
+   * True while a content-driven reveal (file-link click) should skip the
+   * panel width tween; cleared by App after the reveal commits.
+   */
+  rightUtilityInstantRevealPending: boolean;
+  clearRightUtilityInstantReveal: () => void;
   reviewDiffSelection: ReviewDiffSelection | null;
   terminalDrawerOpen: boolean;
   terminalDrawerHeight: number;
@@ -405,7 +411,15 @@ export interface AppActions {
   setActiveRightUtilityTab: (target: ProjectUtilityPanelTarget | null) => void;
   openRightUtilityTab: (
     target: ProjectUtilityPanelKind,
-    options?: { newTab?: boolean }
+    options?: {
+      newTab?: boolean;
+      /**
+       * Content-driven opens (e.g. clicking a file link in the transcript)
+       * reveal the panel WITHOUT the width tween: animating layout width
+       * reflows the chat pane every frame, which janks on heavy transcripts.
+       */
+      instantReveal?: boolean;
+    }
   ) => void;
   setReviewDiffSelection: (selection: ReviewDiffSelectionInput | null) => void;
   openReviewDiff: (selection: ReviewDiffSelectionInput) => void;

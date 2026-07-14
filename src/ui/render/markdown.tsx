@@ -325,7 +325,9 @@ function useProjectFileNavigation() {
     // file; the panel's open handler resolves partial paths via
     // resolveProjectTreeFile, and the rendered page is reachable from the
     // preview header's Open-with dropdown (browsers are in that list).
-    openRightUtilityTab('files');
+    // instantReveal: content-driven opens skip the width tween — animating
+    // layout width reflows the whole transcript every frame (jank).
+    openRightUtilityTab('files', { instantReveal: true });
 
     window.setTimeout(() => {
       window.dispatchEvent(

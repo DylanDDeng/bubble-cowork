@@ -217,6 +217,7 @@ export function App() {
     rightUtilityTabs,
     activeRightUtilityTab,
     rightUtilityPanelHidden,
+    rightUtilityInstantRevealPending,
     rightPanelFullscreen,
     sessionsLoaded,
     setProjectTreeCollapsed,
@@ -262,6 +263,7 @@ export function App() {
       rightUtilityTabs: s.rightUtilityTabs,
       activeRightUtilityTab: s.activeRightUtilityTab,
       rightUtilityPanelHidden: s.rightUtilityPanelHidden,
+      rightUtilityInstantRevealPending: s.rightUtilityInstantRevealPending,
       rightPanelFullscreen: s.rightPanelFullscreen,
       sessionsLoaded: s.sessionsLoaded,
       setProjectTreeCollapsed: s.setProjectTreeCollapsed,
@@ -1061,6 +1063,7 @@ export function App() {
         <RightUtilityWorkspace
           key="right-utility-workspace"
           hidden={activeUtilityPanel === null}
+          instantReveal={rightUtilityInstantRevealPending}
           activePanel={activeUtilityPanel}
           tabs={rightUtilityTabDescriptors}
           activeTab={
@@ -1192,6 +1195,7 @@ function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
 
 function RightUtilityWorkspace({
   hidden,
+  instantReveal,
   activePanel,
   tabs,
   activeTab,
@@ -1207,6 +1211,12 @@ function RightUtilityWorkspace({
   children,
 }: {
   hidden: boolean;
+  /**
+   * Skip the width tween for this reveal. Content-driven opens (file links)
+   * lay out in one step: animating layout width reflows the chat pane every
+   * frame, which janks on heavy transcripts.
+   */
+  instantReveal: boolean;
   activePanel: PanelLauncherKind | null;
   tabs: ProjectUtilityTabDescriptor[];
   activeTab: ProjectUtilityPanelTarget | null;
@@ -1228,10 +1238,19 @@ function RightUtilityWorkspace({
   // Fullscreen swaps to flex-1/auto sizing while the chat pane hides instantly,
   // so animating width across that toggle would lag behind the layout change.
   const wasFullscreenRef = useRef(fullscreen);
-  const skipWidthAnimation = isResizing || fullscreen || wasFullscreenRef.current;
+  const skipWidthAnimation = isResizing || fullscreen || wasFullscreenRef.current || instantReveal;
   useEffect(() => {
     wasFullscreenRef.current = fullscreen;
   }, [fullscreen]);
+  // Consume the instant-reveal flag once the reveal has painted; later
+  // opens/closes animate normally again.
+  useEffect(() => {
+    if (!instantReveal) return;
+    const raf = window.requestAnimationFrame(() => {
+      useAppStore.getState().clearRightUtilityInstantReveal();
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [instantReveal]);
 
   const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
     if (fullscreen) return;

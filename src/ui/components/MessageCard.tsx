@@ -754,7 +754,7 @@ function MemoryCitationsBlock({
 
   const openCitation = (citation: (ContentBlock & { type: 'memory_citations' })['citations'][number]) => {
     if (!citation.source.trim()) return;
-    openRightUtilityTab('files');
+    openRightUtilityTab('files', { instantReveal: true });
     window.setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent('aegis:open-project-file', {
