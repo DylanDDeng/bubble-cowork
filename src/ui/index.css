@@ -316,7 +316,8 @@
 }
 
 .composer-inline-chip--skill,
-.composer-inline-chip--plugin {
+.composer-inline-chip--plugin,
+.composer-inline-chip--command {
   --composer-inline-chip-bg: var(--composer-skill-chip-bg);
   --composer-inline-chip-text: var(--composer-skill-chip-text);
 }
@@ -340,6 +341,18 @@
   min-height: 24px;
   padding-inline: 8px;
   gap: 5px;
+}
+
+/* Skill, plugin, and command chips read as styled text (icon + semibold
+   accent-colored label), not a highlighted pill — matching the codex
+   composer. Placed after --large so the padding reset wins there too. */
+.composer-inline-chip--skill,
+.composer-inline-chip--plugin,
+.composer-inline-chip--command {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  font-weight: 600;
 }
 
 .composer-inline-chip--message {

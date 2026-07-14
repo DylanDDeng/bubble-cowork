@@ -1,4 +1,4 @@
-import { Brain, Plug, X } from './icons';
+import { Plug, SkillStack, X } from './icons';
 import type { ClaudeSkillSummary } from '../types';
 
 function formatSkillChipLabel(skill: ClaudeSkillSummary): string {
@@ -19,7 +19,7 @@ export function SelectedClaudeSkillChip({
   compact?: boolean;
 }) {
   const label = formatSkillChipLabel(skill) || skill.name.replace(/^[/$]/, '');
-  const Icon = skill.source === 'plugin' ? Plug : Brain;
+  const Icon = skill.source === 'plugin' ? Plug : SkillStack;
 
   return (
     <div

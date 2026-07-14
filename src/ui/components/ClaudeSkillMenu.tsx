@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Plug,
   RotateCcw,
+  SkillStack,
   Terminal,
   Trash2,
   Workflow,
@@ -288,7 +289,7 @@ export function ClaudeSkillMenu({
                 : isSkill
                 ? suggestion.skill.source === 'plugin'
                   ? Plug
-                  : Brain
+                  : SkillStack
                 : commandIcon(suggestion.command);
               const title =
                 suggestion.kind === 'prompt'

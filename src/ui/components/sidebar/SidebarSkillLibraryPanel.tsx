@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Brain,
   ExternalLink,
   FolderOpen,
   LoaderCircle,
   RefreshCw,
   Search,
+  SkillStack,
   X,
 } from '../icons';
 import { sendEvent } from '../../hooks/useIPC';
@@ -217,7 +217,7 @@ function SkillListItem({
     <article className="group rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-3">
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-          <Brain className="h-4 w-4" />
+          <SkillStack className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-normal text-[var(--text-primary)]">

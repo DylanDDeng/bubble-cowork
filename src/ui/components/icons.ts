@@ -1,3 +1,4 @@
+import { createElement } from 'react';
 import type { ComponentType, SVGProps } from 'react';
 
 import {
@@ -313,3 +314,30 @@ export {
   IconFilePlus as FileAddIcon,
   IconFolderPlus as FolderAddIcon,
 };
+
+/**
+ * Skills glyph matching the Codex app: a tall outlined isometric box with a
+ * mid-body slice (two stacked layers). No Tabler equivalent, so it is
+ * hand-drawn on the same 24px grid; the finer default stroke matches the
+ * reference glyph's line weight.
+ */
+export const SkillStack: IconComponent = ({ size = 24, stroke = 1.5, ...props }) =>
+  createElement(
+    'svg',
+    {
+      xmlns: 'http://www.w3.org/2000/svg',
+      width: size,
+      height: size,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: stroke,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      ...props,
+    },
+    createElement('path', { key: 'top', d: 'M12 2.5 L19 5.5 L12 8.5 L5 5.5 Z' }),
+    createElement('path', { key: 'body', d: 'M5 5.5 V18.5 L12 21.5 L19 18.5 V5.5' }),
+    createElement('path', { key: 'slice', d: 'M5 12 L12 15 L19 12' }),
+    createElement('path', { key: 'seam', d: 'M12 8.5 V21.5' })
+  );

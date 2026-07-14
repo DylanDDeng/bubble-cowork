@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Copy, Check, History, Pencil, Plug, RotateCcw, Terminal } from './icons';
+import { ChevronRight, Copy, Check, History, Pencil, Plug, RotateCcw, SkillStack, Terminal } from './icons';
 import { cn } from '@/ui/lib/utils';
 import { useAppStore } from '../store/useAppStore';
 import { AttachmentChips } from './AttachmentChips';
@@ -563,14 +563,21 @@ function GenericSlashChip({
   prefix?: '/' | '$';
   compact?: boolean;
 }) {
+  const isPlugin = /^plugin:/i.test(name);
   const cleanedName = name.replace(/^plugin:/i, '').replace(/^\//, '');
   const label = prefix === '$' || compact ? cleanedName : `/${cleanedName}`;
-  const Icon = prefix === '$' ? Plug : Terminal;
+  // `$` mentions are skills unless explicitly plugin-prefixed — match the
+  // composer chip's SkillStack icon so sent messages look the same.
+  const Icon = prefix === '$' ? (isPlugin ? Plug : SkillStack) : Terminal;
 
   return (
     <div
       className={`composer-inline-chip composer-inline-chip--message ${
-        prefix === '$' ? 'composer-inline-chip--plugin' : 'composer-inline-chip--command'
+        prefix === '$'
+          ? isPlugin
+            ? 'composer-inline-chip--plugin'
+            : 'composer-inline-chip--skill'
+          : 'composer-inline-chip--command'
       } ${compact ? '' : 'composer-inline-chip--large'}`}
       title={`${prefix}${name}`}
     >
