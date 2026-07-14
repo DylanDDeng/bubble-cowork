@@ -106,7 +106,7 @@ function skillMentionPrefix(provider: AgentProvider): '/' | '$' {
 }
 
 function normalizeCapabilityName(value: string): string {
-  return value.replace(/^[/$]/, '').trim().toLowerCase();
+  return value.replace(/^[/$]/, '').trim().toLowerCase().replace(/\s+/g, '-');
 }
 
 function formatCapabilityDisplayName(skill: ClaudeSkillSummary): string {
@@ -141,7 +141,11 @@ function replaceComposerTriggerOrLeadingToken(input: {
   fallbackPrefix: '/' | '$';
   name: string;
 }): { prompt: string; cursorIndex: number } {
-  const replacement = `${input.fallbackPrefix}${input.name.replace(/^[/$\s]+/, '')} `;
+  // Tokens end at whitespace, so spaced skill names insert hyphenated; chip
+  // matching normalizes the same way (normalizeSkillToken).
+  const replacement = `${input.fallbackPrefix}${input.name
+    .replace(/^[/$\s]+/, '')
+    .replace(/\s+/g, '-')} `;
   if (input.trigger) {
     return replaceComposerTriggerText(input.prompt, input.trigger, replacement);
   }
@@ -331,18 +335,31 @@ export function useComposerCapabilityMenu({
     [availableCommands, sessionSlashCommands]
   );
 
-  const selectedSkillState = useMemo(
-    () =>
-      enabled && enableSkills
-        ? parseSelectedSkillPrompt(prompt, recognitionSkills, provider === 'claude' ? ['/', '$'] : ['$'])
-        : null,
-    [enableSkills, enabled, prompt, provider, recognitionSkills]
-  );
-
   const selectedCommandState = useMemo(
     () => (enabled ? parseSelectedSlashCommandPrompt(prompt, recognitionCommands) : null),
     [enabled, prompt, recognitionCommands]
   );
+
+  const selectedSkillState = useMemo(() => {
+    if (!enabled || !enableSkills) {
+      return null;
+    }
+    // Codex matches the codex app: `/` can summon skills too, `$` stays the
+    // canonical mention prefix.
+    const state = parseSelectedSkillPrompt(
+      prompt,
+      recognitionSkills,
+      provider === 'claude' || provider === 'codex' ? ['/', '$'] : ['$']
+    );
+    // Codex builtin commands win over same-named skills on `/` tokens: the
+    // skill path strips the token into a reference, which would bypass the
+    // adapter's command routing (`/review` must run a review, not activate a
+    // "review" skill).
+    if (state && provider === 'codex' && state.prefix === '/' && selectedCommandState) {
+      return null;
+    }
+    return state;
+  }, [enableSkills, enabled, prompt, provider, recognitionSkills, selectedCommandState]);
 
   const suggestions = useMemo(() => {
     return buildComposerCapabilitySuggestions({
@@ -353,8 +370,13 @@ export function useComposerCapabilityMenu({
       availableSkills,
       promptLibraryItems,
       includeCommands: triggerKind !== 'skill',
-      includeSkills: triggerKind === 'skill' || (triggerKind === 'slash-command' && provider === 'claude'),
+      includeSkills:
+        triggerKind === 'skill' ||
+        (triggerKind === 'slash-command' && (provider === 'claude' || provider === 'codex')),
       includePrompts: triggerKind === 'slash-command',
+      // Codex matches the codex app: `/` reaches the full skill catalog, same
+      // budget as the `$` menu (Claude keeps the compact 8-slot mix).
+      skillLimit: provider === 'codex' ? 80 : undefined,
     });
   }, [availableCommands, availableSkills, enabled, promptLibraryItems, provider, query, triggerKind]);
 
@@ -457,7 +479,7 @@ export function useComposerCapabilityMenu({
         ? 'Skills'
         : triggerKind === 'slash-model'
           ? 'Models'
-          : provider === 'claude'
+          : provider === 'claude' || provider === 'codex'
             ? 'Commands, Skills & Prompts'
             : 'Commands & Prompts',
     emptyMessage:
@@ -465,7 +487,7 @@ export function useComposerCapabilityMenu({
         ? 'No matching skills.'
         : triggerKind === 'slash-model'
           ? 'No matching models.'
-          : provider === 'claude'
+          : provider === 'claude' || provider === 'codex'
             ? 'No matching commands, skills, or prompts.'
             : 'No matching commands or prompts.',
     suggestions,

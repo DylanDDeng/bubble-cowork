@@ -4,8 +4,11 @@ import {
   type ComposerCapabilityPrefix,
 } from './composer-capability-token';
 
+// Composer tokens end at whitespace, but Codex skill names can contain spaces
+// ("Brand Guidelines Generator") — they are inserted hyphenated, so both sides
+// normalize spaces to hyphens before comparing.
 function normalizeSkillToken(value: string): string {
-  return value.replace(/^[/$]/, '').trim().toLowerCase();
+  return value.replace(/^[/$]/, '').trim().toLowerCase().replace(/\s+/g, '-');
 }
 
 export function getSlashSkillQuery(prompt: string): string | null {
@@ -67,10 +70,12 @@ function rankSkill(skill: ClaudeSkillSummary, query: string): number {
   return 5;
 }
 
+// Project overrides first, then the user's own skills; plugin entries last so
+// a large installed-plugin set can't bury the skill catalog in the menus.
 function rankSkillSource(source: ClaudeSkillSummary['source']): number {
   if (source === 'project') return 0;
-  if (source === 'plugin') return 1;
-  return 2;
+  if (source === 'plugin') return 2;
+  return 1;
 }
 
 export function mergeClaudeSkills(
@@ -119,7 +124,13 @@ export function filterClaudeSkills(
       if (!query) return true;
       const lowerName = skill.name.toLowerCase();
       const lowerTitle = skill.title.toLowerCase();
-      return lowerName.includes(query) || lowerTitle.includes(query);
+      // Hyphenated variant keeps spaced skill names matching while the user
+      // continues typing a hyphenated token ("$brand-gui…").
+      return (
+        lowerName.includes(query) ||
+        lowerTitle.includes(query) ||
+        lowerName.replace(/\s+/g, '-').includes(query)
+      );
     })
     .sort((left, right) => {
       const rankDifference = rankSkill(left, query) - rankSkill(right, query);

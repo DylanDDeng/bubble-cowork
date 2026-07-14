@@ -10,7 +10,7 @@ import type {
   ProviderSessionStartInput,
   ProviderSessionStatus,
 } from './types';
-import { CodexAppServerManager } from './codex-app-server-manager';
+import { CodexAppServerManager, type CodexReviewTarget } from './codex-app-server-manager';
 import { isDev } from '../../util';
 import {
   AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
@@ -150,9 +150,41 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
   mcpServers: true,
   imageAttachments: true,
   forkThread: true,
-  compactThread: false,
+  compactThread: true,
   planMode: true,
 };
+
+export type CodexSlashCommand =
+  | { name: 'compact' }
+  | { name: 'review'; target: CodexReviewTarget };
+
+/**
+ * Codex has no server-side slash-command passthrough: the app-server treats
+ * turn text literally, and builtins are separate RPCs. Recognize the builtins
+ * Aegis advertises in the composer and route them to their RPCs.
+ * `/review` maps its argument like the Codex CLI picker: bare → uncommitted
+ * changes, `branch <name>` / `commit <sha>` → those targets, anything else →
+ * custom review instructions.
+ */
+export function parseCodexSlashCommand(prompt: string): CodexSlashCommand | null {
+  const match = /^\/(\S+)(?:\s+([\s\S]+))?$/.exec(prompt.trim());
+  if (!match) return null;
+
+  const name = match[1].toLowerCase();
+  const args = (match[2] || '').trim();
+  if (name === 'compact' && !args) {
+    return { name: 'compact' };
+  }
+  if (name === 'review') {
+    if (!args) return { name: 'review', target: { type: 'uncommittedChanges' } };
+    const branch = /^branch\s+(\S+)$/i.exec(args);
+    if (branch) return { name: 'review', target: { type: 'baseBranch', branch: branch[1] } };
+    const commit = /^commit\s+(\S+)$/i.exec(args);
+    if (commit) return { name: 'review', target: { type: 'commit', sha: commit[1] } };
+    return { name: 'review', target: { type: 'custom', instructions: args } };
+  }
+  return null;
+}
 
 interface ActiveSession {
   threadId: string;
@@ -196,6 +228,8 @@ export class CodexAdapter implements ProviderAdapter {
   // report roughly how many tokens it reclaimed.
   private lastKnownContextTokens = new Map<string, number>();
   private finalizedStreamingText = new Map<string, string>();
+  /** Threads with an in-flight /compact — labels the next compact_boundary as manual. */
+  private pendingManualCompacts = new Set<string>();
   private emittedToolCalls = new Map<string, Set<string>>();
   private emittedToolResults = new Map<string, Set<string>>();
   private pendingToolCallIds = new Map<string, string[]>();
@@ -265,16 +299,17 @@ export class CodexAdapter implements ProviderAdapter {
     });
 
     this.manager.on('context_compacted', ({ threadId }) => {
-      // Codex reports neither trigger nor pre-compaction size; Aegis never
-      // issues manual compacts, so this can only be an auto compaction, and
-      // the latest token_usage snapshot is the best preTokens approximation.
+      // Codex reports neither trigger nor pre-compaction size: a compaction is
+      // manual iff this thread has a pending /compact command, and the latest
+      // token_usage snapshot is the best preTokens approximation.
+      const manual = this.pendingManualCompacts.delete(threadId);
       const message: StreamMessage = {
         type: 'system',
         subtype: 'compact_boundary',
         uuid: uuidv4(),
         session_id: threadId,
         compactMetadata: {
-          trigger: 'auto',
+          trigger: manual ? 'manual' : 'auto',
           preTokens: this.lastKnownContextTokens.get(threadId) || 0,
         },
       };
@@ -363,6 +398,9 @@ export class CodexAdapter implements ProviderAdapter {
     this.manager.on('turn_completed', ({ threadId, turnId, status, error }) => {
       this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
+      // A /compact whose turn ended without a context_compacted notification
+      // (failure, interrupt) must not mislabel a later auto compaction.
+      this.pendingManualCompacts.delete(threadId);
 
       if (status === 'failed') {
         this.updateSessionStatus(threadId, 'error');
@@ -994,6 +1032,28 @@ export class CodexAdapter implements ProviderAdapter {
       status: 'running',
     });
 
+    // Built-in slash commands route to their dedicated RPCs instead of a
+    // turn/start. The RPC acks immediately and the server runs a normal turn,
+    // so streaming/lifecycle events flow through the usual handlers.
+    const slashCommand =
+      input.attachments?.length || input.codexSkills?.length || input.codexMentions?.length
+        ? null
+        : parseCodexSlashCommand(input.prompt);
+    if (slashCommand) {
+      if (slashCommand.name === 'compact') {
+        this.pendingManualCompacts.add(input.threadId);
+        try {
+          await this.manager.compactThread(input.threadId);
+        } catch (error) {
+          this.pendingManualCompacts.delete(input.threadId);
+          throw error;
+        }
+      } else {
+        await this.manager.startReview(input.threadId, slashCommand.target);
+      }
+      return;
+    }
+
     await this.manager.sendTurn(
       input.threadId,
       input.prompt,
@@ -1026,6 +1086,7 @@ export class CodexAdapter implements ProviderAdapter {
     this.sessions.clear();
     this.lastStartInput.clear();
     this.lastKnownContextTokens.clear();
+    this.pendingManualCompacts.clear();
   }
 
   listSessions(): ProviderSession[] {

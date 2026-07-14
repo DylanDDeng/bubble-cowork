@@ -120,6 +120,26 @@ const OPENCODE_COMMAND_DEFINITIONS: Record<string, { title: string; description:
   unshare: { title: '/unshare', description: 'Unshare the current session' },
 };
 
+// Codex builtins Aegis executes itself: the app-server has no slash-command
+// passthrough (turn text is literal), so only commands the codex adapter
+// intercepts and routes to dedicated RPCs (thread/compact/start,
+// review/start) are advertised here.
+const CODEX_COMMAND_DEFINITIONS: Record<
+  string,
+  { title: string; description: string; submitOnSelect?: boolean; inputHint?: string }
+> = {
+  compact: {
+    title: '/compact',
+    description: 'Summarize the conversation to free up context',
+    submitOnSelect: true,
+  },
+  review: {
+    title: '/review',
+    description: 'Review uncommitted changes, or a branch/commit/custom target',
+    inputHint: 'optional: branch <name> | commit <sha> | custom instructions',
+  },
+};
+
 // Grok Build shell builtins advertised over ACP (plus a few documented agent
 // commands users expect). Skills also arrive at runtime via
 // available_commands_update and are merged on top of this catalog.
@@ -542,6 +562,10 @@ export function buildProviderSlashCommands(
 
   if (provider === 'grok') {
     return buildDefaultCommandList(GROK_COMMAND_DEFINITIONS);
+  }
+
+  if (provider === 'codex') {
+    return buildDefaultCommandList(CODEX_COMMAND_DEFINITIONS);
   }
 
   return [];

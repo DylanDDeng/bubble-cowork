@@ -699,6 +699,90 @@ async function testProcessLifecycle() {
   }
 }
 
+// ── Builtin slash commands (/compact, /review) ────────────────────────────
+async function testSlashCommands() {
+  console.log('builtin slash commands');
+
+  const { parseCodexSlashCommand } = require('../dist-electron/electron/libs/provider/codex-adapter.js');
+
+  // parser: recognized shapes
+  {
+    assert.deepEqual(parseCodexSlashCommand('/compact'), { name: 'compact' });
+    assert.deepEqual(parseCodexSlashCommand('  /compact  '), { name: 'compact' });
+    assert.deepEqual(parseCodexSlashCommand('/review'), {
+      name: 'review',
+      target: { type: 'uncommittedChanges' },
+    });
+    assert.deepEqual(parseCodexSlashCommand('/review branch main'), {
+      name: 'review',
+      target: { type: 'baseBranch', branch: 'main' },
+    });
+    assert.deepEqual(parseCodexSlashCommand('/review commit abc123'), {
+      name: 'review',
+      target: { type: 'commit', sha: 'abc123' },
+    });
+    assert.deepEqual(parseCodexSlashCommand('/review focus on error handling'), {
+      name: 'review',
+      target: { type: 'custom', instructions: 'focus on error handling' },
+    });
+    // not commands: args after /compact, unknown names, plain prompts
+    assert.equal(parseCodexSlashCommand('/compact everything'), null);
+    assert.equal(parseCodexSlashCommand('/model'), null);
+    assert.equal(parseCodexSlashCommand('hello /compact'), null);
+    assert.equal(parseCodexSlashCommand('compact'), null);
+    ok('parseCodexSlashCommand recognizes builtins and rejects the rest');
+  }
+
+  const seedSession = () => {
+    const harness = createCapturingAdapter();
+    harness.manager.sessions.set('t1', {
+      threadId: 't1', providerThreadId: 'p1', generation: 1, cwd: '/tmp', status: 'ready',
+    });
+    harness.adapter.sessions.set('t1', {
+      threadId: 't1', providerThreadId: 'p1', generation: 1, status: 'ready',
+    });
+    harness.responders.set('thread/compact/start', () => ({ result: {} }));
+    harness.responders.set('review/start', () => ({ result: {} }));
+    harness.responders.set('turn/start', () => ({ result: { turn: { id: 'turn-1' } } }));
+    return harness;
+  };
+
+  // /compact routes to thread/compact/start, not turn/start
+  {
+    const { adapter, outbound } = seedSession();
+    await adapter.sendTurn({ threadId: 't1', prompt: '/compact' });
+    const compactReq = outbound.find((m) => m.method === 'thread/compact/start');
+    assert.ok(compactReq, '/compact must send thread/compact/start');
+    assert.equal(compactReq.params.threadId, 'p1');
+    assert.ok(!outbound.some((m) => m.method === 'turn/start'), 'no literal turn for /compact');
+    ok('/compact → thread/compact/start RPC');
+  }
+
+  // /review with custom instructions routes to review/start
+  {
+    const { adapter, outbound } = seedSession();
+    await adapter.sendTurn({ threadId: 't1', prompt: '/review check the auth flow' });
+    const reviewReq = outbound.find((m) => m.method === 'review/start');
+    assert.ok(reviewReq, '/review must send review/start');
+    assert.deepEqual(reviewReq.params.target, { type: 'custom', instructions: 'check the auth flow' });
+    assert.ok(!outbound.some((m) => m.method === 'turn/start'), 'no literal turn for /review');
+    ok('/review <args> → review/start custom target');
+  }
+
+  // command-shaped text with structured input still goes as a normal turn
+  {
+    const { adapter, outbound } = seedSession();
+    await adapter.sendTurn({
+      threadId: 't1',
+      prompt: '/compact',
+      codexSkills: [{ name: 'compact', path: '/skills/compact/SKILL.md' }],
+    });
+    assert.ok(!outbound.some((m) => m.method === 'thread/compact/start'), 'skill turn must not compact');
+    assert.ok(outbound.some((m) => m.method === 'turn/start'), 'skill turn must dispatch normally');
+    ok('slash text with a skill reference stays a normal turn');
+  }
+}
+
 // ── Source-level pins for electron-bound modules ──────────────────────────
 function testSourcePins() {
   console.log('source pins (electron-bound modules)');
@@ -726,6 +810,7 @@ async function main() {
   await testTwoPhaseStop();
   await testApprovalRouting();
   await testProcessLifecycle();
+  await testSlashCommands();
   testSourcePins();
   console.log(`\nverify:codex-app-server OK (${passed} checks)`);
   process.exit(0);

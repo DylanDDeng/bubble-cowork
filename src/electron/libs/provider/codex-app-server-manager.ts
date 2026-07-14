@@ -140,6 +140,13 @@ export interface CodexModelServiceTier {
   description: string;
 }
 
+/** `review/start` target — internally tagged enum in the 0.144 protocol. */
+export type CodexReviewTarget =
+  | { type: 'uncommittedChanges' }
+  | { type: 'baseBranch'; branch: string }
+  | { type: 'commit'; sha: string }
+  | { type: 'custom'; instructions: string };
+
 export interface CodexModelCatalogEntry {
   id: string;
   model: string;
@@ -958,6 +965,46 @@ export class CodexAppServerManager extends EventEmitter {
       session.activeTurnId = turnId;
       session.status = 'running';
     }
+  }
+
+  /**
+   * Built-in slash commands (`/compact`, `/review`) map to dedicated RPCs
+   * rather than `turn/start`. The RPC acks immediately and the server then
+   * runs a regular turn — `turn/started`/`turn/completed` notifications flow
+   * through the normal lifecycle handlers, so no extra turn registration is
+   * needed here.
+   */
+  async compactThread(threadId: string): Promise<void> {
+    const session = this.requireCommandSession(threadId, 'thread/compact/start');
+    this.lastActiveThreadId = threadId;
+    session.status = 'running';
+    await this.sendRequest(
+      'thread/compact/start',
+      { threadId: session.providerThreadId },
+      REQUEST_TIMEOUT_MS
+    );
+  }
+
+  async startReview(threadId: string, target: CodexReviewTarget): Promise<void> {
+    const session = this.requireCommandSession(threadId, 'review/start');
+    this.lastActiveThreadId = threadId;
+    session.status = 'running';
+    await this.sendRequest(
+      'review/start',
+      { threadId: session.providerThreadId, target },
+      REQUEST_TIMEOUT_MS
+    );
+  }
+
+  private requireCommandSession(threadId: string, method: string): CodexSession {
+    const session = this.sessions.get(threadId);
+    if (!session) {
+      throw new Error(`No session found for thread "${threadId}"`);
+    }
+    if (session.generation !== this.generation) {
+      throw new CodexRpcTransportError('stale_generation', method);
+    }
+    return session;
   }
 
   /**

@@ -64,6 +64,7 @@ export function buildComposerCapabilitySuggestions(input: {
   includeCommands?: boolean;
   includeSkills?: boolean;
   includePrompts?: boolean;
+  skillLimit?: number;
 }): ClaudeSlashSuggestion[] {
   if (!input.enabled || input.query === null || input.triggerKind === null) {
     return [];
@@ -76,7 +77,7 @@ export function buildComposerCapabilitySuggestions(input: {
   const commandSuggestions = includeCommands
     ? filterClaudeSlashCommands(input.availableCommands, input.query)
     : [];
-  const skillLimit = input.triggerKind === 'skill' ? 80 : 8;
+  const skillLimit = input.skillLimit ?? (input.triggerKind === 'skill' ? 80 : 8);
   const skillSuggestions = includeSkills
     ? filterClaudeSkills(input.availableSkills, input.query, skillLimit)
     : [];

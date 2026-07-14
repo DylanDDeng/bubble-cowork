@@ -33,8 +33,10 @@ export type PromptSegment =
       end: number;
     };
 
+// Spaces collapse to hyphens so spaced Codex skill names match their
+// hyphenated composer tokens (see normalizeSkillToken in claude-skills.ts).
 function normalizeSlashName(value: string): string {
-  return value.replace(/^[/$]/, '').trim().toLowerCase();
+  return value.replace(/^[/$]/, '').trim().toLowerCase().replace(/\s+/g, '-');
 }
 
 export function createSlashTokenContext(
