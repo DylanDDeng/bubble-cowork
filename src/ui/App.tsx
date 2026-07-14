@@ -1462,10 +1462,10 @@ function RightUtilityTabStrip({
   onTogglePanel: () => void;
 }) {
   const items = [
-    { id: 'files' as const, label: 'Files', shortcut: '⌘P', disabled: false },
-    { id: 'browser' as const, label: 'Browser', shortcut: '⌘T', disabled: !browserAvailable },
-    { id: 'review' as const, label: 'Review', shortcut: '⌃⌘G', disabled: false },
-    { id: 'terminal' as const, label: 'Terminal', shortcut: '⌃`', disabled: false },
+    { id: 'files' as const, label: 'Files', icon: FolderClosed, shortcut: '⌘P', disabled: false },
+    { id: 'browser' as const, label: 'Browser', icon: Globe, shortcut: '⌘T', disabled: !browserAvailable },
+    { id: 'review' as const, label: 'Review', icon: FileDiff, shortcut: '⌃⌘G', disabled: false },
+    { id: 'terminal' as const, label: 'Terminal', icon: SquareTerminal, shortcut: '⌃`', disabled: false },
   ];
 
   return (
@@ -1559,11 +1559,15 @@ function RightUtilityTabStrip({
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content align="start" sideOffset={6} className="min-w-[190px]">
+            <DropdownMenu.Content align="start" sideOffset={6} className="min-w-[224px] p-1">
               {items.map((item) => (
                 <DropdownMenu.Item
                   key={item.id}
                   disabled={item.disabled}
+                  // Compact rows matching the panel-launcher reference: icon +
+                  // tighter vertical rhythm on a wider card (defaults are
+                  // px-3 py-2 text-sm, visibly taller/narrower).
+                  className="gap-2 px-2.5 py-1.5 text-[13px]"
                   onSelect={() =>
                     onOpenTab(
                       item.id,
@@ -1571,6 +1575,7 @@ function RightUtilityTabStrip({
                     )
                   }
                 >
+                  <item.icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
                   {item.label}
                   <DropdownMenu.Shortcut>{item.shortcut}</DropdownMenu.Shortcut>
                 </DropdownMenu.Item>
