@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
 import {
   BrandGithub,
+  Check,
   ChevronRight,
   Globe,
   LoaderCircle,
@@ -723,11 +724,15 @@ function PluginSection({
   );
 }
 
-function formatSeeMoreLabel(hidden: PluginEntry[]): string {
-  const names = hidden.slice(0, 2).map((entry) => pluginTitle(entry.plugin));
-  const rest = hidden.length - names.length;
+function formatSeeMoreNames(hiddenNames: string[]): string {
+  const names = hiddenNames.slice(0, 2);
+  const rest = hiddenNames.length - names.length;
   if (rest <= 0) return `See ${names.join(' and ')}`;
   return `See ${names.join(', ')}, and ${rest} more`;
+}
+
+function formatSeeMoreLabel(hidden: PluginEntry[]): string {
+  return formatSeeMoreNames(hidden.map((entry) => pluginTitle(entry.plugin)));
 }
 
 function PluginRowGrid({
@@ -1109,6 +1114,17 @@ function ExternalLinkGlobe({ url }: { url: string }) {
   );
 }
 
+function skillScopeSectionLabel(scope: string | undefined): string {
+  const normalized = (scope || '').toLowerCase();
+  if (!normalized || normalized === 'user' || normalized === 'personal') return 'Personal';
+  if (normalized === 'repo' || normalized === 'project' || normalized === 'workspace') {
+    return 'Project';
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+const SKILL_SCOPE_SECTION_ORDER = ['Personal', 'Project', 'System'];
+
 function SkillListPane({
   skills,
   loading,
@@ -1122,21 +1138,34 @@ function SkillListPane({
   discoveryCwd?: string;
   onSelect: (skill: ProviderSkillDescriptor) => void;
 }) {
+  const sections = useMemo(() => {
+    const buckets = new Map<string, ProviderSkillDescriptor[]>();
+    for (const skill of skills) {
+      const label = skillScopeSectionLabel(skill.scope);
+      const bucket = buckets.get(label);
+      if (bucket) bucket.push(skill);
+      else buckets.set(label, [skill]);
+    }
+    return Array.from(buckets.entries()).sort((left, right) => {
+      const leftIndex = SKILL_SCOPE_SECTION_ORDER.indexOf(left[0]);
+      const rightIndex = SKILL_SCOPE_SECTION_ORDER.indexOf(right[0]);
+      return (
+        (leftIndex === -1 ? SKILL_SCOPE_SECTION_ORDER.length : leftIndex) -
+        (rightIndex === -1 ? SKILL_SCOPE_SECTION_ORDER.length : rightIndex)
+      );
+    });
+  }, [skills]);
+
   return (
-    <section className="mx-auto min-h-[calc(100vh-240px)] w-full max-w-[820px] space-y-4">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-4">
-          <h4 className="text-lg font-semibold text-[var(--text-primary)]">Codex skills</h4>
-          <span className="text-xs text-[var(--text-muted)]">
-            {skills.length} {skills.length === 1 ? 'skill' : 'skills'}
-          </span>
-        </div>
-        <p className="text-sm text-[var(--text-secondary)]">
-          {discoveryCwd || 'No active workspace'}
+    <section className="mx-auto min-h-[calc(100vh-240px)] w-full max-w-[820px] space-y-6">
+      <div className="space-y-1.5">
+        <h2 className="text-[30px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+          Skills
+        </h2>
+        <p className="text-sm text-[var(--text-secondary)]" title={discoveryCwd}>
+          Extend Codex with task-specific skills
         </p>
       </div>
-
-      <div className="h-px bg-[var(--border)]" />
 
       {error && <InlineNotice>{error}</InlineNotice>}
       {loading && skills.length === 0 ? (
@@ -1144,17 +1173,104 @@ function SkillListPane({
       ) : skills.length === 0 ? (
         <EmptyPanel>No Codex skills found.</EmptyPanel>
       ) : (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {skills.map((skill) => (
-            <SkillMiniCard
-              key={`${skill.path}:${skill.name}`}
-              skill={skill}
-              onSelect={() => onSelect(skill)}
-            />
-          ))}
-        </div>
+        sections.map(([label, sectionSkills]) => (
+          <SkillSection
+            key={label}
+            title={label}
+            skills={sectionSkills}
+            onSelect={onSelect}
+          />
+        ))
       )}
     </section>
+  );
+}
+
+function SkillSection({
+  title,
+  skills,
+  onSelect,
+}: {
+  title: string;
+  skills: ProviderSkillDescriptor[];
+  onSelect: (skill: ProviderSkillDescriptor) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? skills : skills.slice(0, COLLAPSED_SECTION_ROWS);
+  const hidden = skills.slice(visible.length);
+
+  return (
+    <div className="space-y-3">
+      <SectionHeading>{title}</SectionHeading>
+      <div className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2">
+        {visible.map((skill) => (
+          <SkillRow
+            key={`${skill.path}:${skill.name}`}
+            skill={skill}
+            onSelect={() => onSelect(skill)}
+          />
+        ))}
+      </div>
+      {hidden.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="rounded-full py-1 text-[13px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+        >
+          {formatSeeMoreNames(
+            hidden.map((skill) => skill.interface?.displayName || skill.name),
+          )}
+        </button>
+      )}
+      {expanded && skills.length > COLLAPSED_SECTION_ROWS && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="rounded-full py-1 text-[13px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+        >
+          Show less
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SkillRow({
+  skill,
+  onSelect,
+}: {
+  skill: ProviderSkillDescriptor;
+  onSelect: () => void;
+}) {
+  const title = skill.interface?.displayName || skill.name;
+  const description = skill.interface?.shortDescription || skill.description || skill.path;
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      className="group flex cursor-pointer items-center gap-3 rounded-[14px] px-2 py-2 transition-colors hover:bg-[var(--bg-secondary)]"
+      aria-label={`Open ${title} skill detail`}
+    >
+      <SkillAvatar skill={skill} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[14px] font-medium text-[var(--text-primary)]">{title}</div>
+        <div className="truncate text-[13px] text-[var(--text-muted)]">{description}</div>
+      </div>
+      {skill.enabled && (
+        <Check
+          className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
+          aria-label="Enabled"
+        />
+      )}
+    </div>
   );
 }
 
@@ -1221,54 +1337,6 @@ function SkillAvatar({ skill }: { skill: ProviderSkillDescriptor }) {
         <Glyph className="h-[18px] w-[18px]" />
       )}
     </span>
-  );
-}
-
-function SkillMiniCard({
-  skill,
-  onSelect,
-}: {
-  skill: ProviderSkillDescriptor;
-  onSelect?: () => void;
-}) {
-  const title = skill.interface?.displayName || skill.name;
-  const description = skill.interface?.shortDescription || skill.description || skill.path;
-
-  return (
-    <article
-      role={onSelect ? 'button' : undefined}
-      tabIndex={onSelect ? 0 : undefined}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (!onSelect) return;
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
-      className={`rounded-[var(--radius-2xl)] border border-[var(--border)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)] ${
-        onSelect
-          ? 'cursor-pointer bg-[var(--bg-secondary)] transition-colors hover:bg-[var(--bg-tertiary)]'
-          : 'bg-[var(--bg-primary)]'
-      }`}
-      aria-label={onSelect ? `Open ${title} skill detail` : undefined}
-    >
-      <div className="flex items-start gap-3">
-        <SkillAvatar skill={skill} />
-        <div className="min-w-0 flex-1 space-y-2">
-          <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
-            {title}
-          </h5>
-          <p className="line-clamp-2 text-sm leading-6 text-[var(--text-secondary)]">
-            {description}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {skill.scope && <SmallBadge>{skill.scope}</SmallBadge>}
-            {skill.enabled && <SmallBadge>enabled</SmallBadge>}
-          </div>
-        </div>
-      </div>
-    </article>
   );
 }
 
