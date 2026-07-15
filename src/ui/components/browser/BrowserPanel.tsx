@@ -31,12 +31,9 @@ import {
   Copy,
   FileText,
   Loader2,
-  Maximize2,
-  Minimize2,
   MoreHorizontal,
   Palette,
   RefreshCw,
-  X,
 } from '../icons';
 import { toast } from 'sonner';
 import type {
@@ -73,7 +70,6 @@ interface BrowserPanelProps {
   browserSessionId?: string;
   collapsed: boolean;
   width: number;
-  onClose: () => void;
   onWidthChange: (width: number) => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
@@ -123,7 +119,6 @@ export function BrowserPanel({
   browserSessionId: browserSessionIdProp,
   collapsed,
   width,
-  onClose,
   onWidthChange,
   isFullscreen,
   onToggleFullscreen,
@@ -485,23 +480,6 @@ export function BrowserPanel({
     }
   };
 
-  const handleCloseBrowser = useCallback(() => {
-    window.electron.browser
-      .close({ sessionId: browserSessionId })
-      .then((nextState) => {
-        setSessionState(nextState);
-        removeSessionState(browserSessionId);
-        setAddressDrafts({});
-        setLocalError(null);
-        onClose();
-      })
-      .catch((error) => {
-        const message = String(error);
-        setLocalError(message);
-        toast.error(`Failed to close browser: ${message}`);
-      });
-  }, [browserSessionId, onClose, removeSessionState]);
-
   const handleBack = () => {
     if (!activeTab) return;
     window.electron.browser.goBack({ sessionId: browserSessionId, tabId: activeTab.id }).catch(() => {});
@@ -814,28 +792,6 @@ export function BrowserPanel({
             aria-label="Open DevTools"
           >
             <MoreHorizontal className="h-[13px] w-[13px]" />
-          </button>
-          <button
-            type="button"
-            onClick={onToggleFullscreen}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-          >
-            {isFullscreen ? (
-              <Minimize2 className="h-[13px] w-[13px]" />
-            ) : (
-              <Maximize2 className="h-[13px] w-[13px]" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={handleCloseBrowser}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-            title="Close browser"
-            aria-label="Close browser"
-          >
-            <X className="h-[13px] w-[13px]" />
           </button>
         </div>
 

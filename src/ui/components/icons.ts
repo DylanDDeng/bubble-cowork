@@ -321,6 +321,49 @@ export {
  * hand-drawn on the same 24px grid; the finer default stroke matches the
  * reference glyph's line weight.
  */
+/**
+ * Fullscreen toggles matching the codex app: two bare diagonal corner
+ * brackets (no arrow shafts) — outward corners to expand, inward corners to
+ * collapse. No Tabler equivalent (IconArrowsDiagonal draws full arrows).
+ */
+export const ExpandDiagonal: IconComponent = ({ size = 24, stroke = 1.75, ...props }) =>
+  createElement(
+    'svg',
+    {
+      xmlns: 'http://www.w3.org/2000/svg',
+      width: size,
+      height: size,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: stroke,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      ...props,
+    },
+    createElement('path', { key: 'ne', d: 'M15 5 H19 V9' }),
+    createElement('path', { key: 'sw', d: 'M9 19 H5 V15' })
+  );
+
+export const CollapseDiagonal: IconComponent = ({ size = 24, stroke = 1.75, ...props }) =>
+  createElement(
+    'svg',
+    {
+      xmlns: 'http://www.w3.org/2000/svg',
+      width: size,
+      height: size,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: stroke,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      ...props,
+    },
+    createElement('path', { key: 'ne', d: 'M18 10 H14 V6' }),
+    createElement('path', { key: 'sw', d: 'M6 14 H10 V18' })
+  );
+
 export const SkillStack: IconComponent = ({ size = 24, stroke = 1.5, ...props }) =>
   createElement(
     'svg',

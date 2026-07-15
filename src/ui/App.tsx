@@ -16,6 +16,8 @@ import {
   GitBranch,
   GitCommit,
   GitPullRequest,
+  CollapseDiagonal,
+  ExpandDiagonal,
   Globe,
   MessageCircle,
   Plus,
@@ -652,6 +654,10 @@ export function App() {
     setRightPanelFullscreen(rightPanelFullscreen === 'review' ? null : 'review');
   }, [rightPanelFullscreen, setRightPanelFullscreen]);
 
+  const toggleBrowserPanelFullscreen = useCallback(() => {
+    setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser');
+  }, [rightPanelFullscreen, setRightPanelFullscreen]);
+
   const fileUtilityTabs = useMemo(
     () => rightUtilityTabs.filter(isProjectUtilityFileTab),
     [rightUtilityTabs]
@@ -1079,6 +1085,16 @@ export function App() {
           onCloseTab={closeRightUtilityTab}
           onOpenTab={openRightUtilityTab}
           onTogglePanel={toggleRightUtilityPanel}
+          onToggleFullscreen={(() => {
+            const target =
+              activeRightUtilityTab ??
+              (activeUtilityPanel !== 'launcher' ? activeUtilityPanel : null);
+            const kind = rightUtilityTabDescriptors.find((tab) => tab.id === target)?.kind;
+            if (kind === 'files') return toggleFilesPanelFullscreen;
+            if (kind === 'review') return toggleReviewPanelFullscreen;
+            if (kind === 'browser') return toggleBrowserPanelFullscreen;
+            return null;
+          })()}
         >
           <RightPanelLauncherContent
             hidden={activeUtilityPanel !== 'launcher'}
@@ -1126,7 +1142,6 @@ export function App() {
               browserSessionId={getBrowserUtilitySessionId(activeSessionId, tabId)}
               collapsed={activeUtilityPanel !== 'browser' || activeRightUtilityTab !== tabId}
               width={rightUtilityPanelWidth}
-              onClose={() => closeRightUtilityTab(tabId)}
               onWidthChange={setRightUtilityPanelWidth}
               isFullscreen={rightPanelFullscreen === 'browser'}
               onToggleFullscreen={() =>
@@ -1208,6 +1223,7 @@ function RightUtilityWorkspace({
   onCloseTab,
   onOpenTab,
   onTogglePanel,
+  onToggleFullscreen,
   children,
 }: {
   hidden: boolean;
@@ -1229,6 +1245,8 @@ function RightUtilityWorkspace({
   onCloseTab: (target: ProjectUtilityPanelTarget) => void;
   onOpenTab: (target: ProjectUtilityPanelKind, options?: { newTab?: boolean }) => void;
   onTogglePanel: () => void;
+  /** Fullscreen toggle for the active tab; null when it has no fullscreen. */
+  onToggleFullscreen: (() => void) | null;
   children: ReactNode;
 }) {
   const [isResizing, setIsResizing] = useState(false);
@@ -1326,10 +1344,12 @@ function RightUtilityWorkspace({
           activePanel={activePanel}
           browserAvailable={browserAvailable}
           windowControlsInset={windowControlsInset}
+          fullscreen={fullscreen}
           onSelectTab={onSelectTab}
           onCloseTab={onCloseTab}
           onOpenTab={onOpenTab}
           onTogglePanel={onTogglePanel}
+          onToggleFullscreen={onToggleFullscreen}
         />
 
         <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -1446,20 +1466,24 @@ function RightUtilityTabStrip({
   activePanel,
   browserAvailable,
   windowControlsInset,
+  fullscreen,
   onSelectTab,
   onCloseTab,
   onOpenTab,
   onTogglePanel,
+  onToggleFullscreen,
 }: {
   tabs: ProjectUtilityTabDescriptor[];
   activeTab: ProjectUtilityPanelTarget | null;
   activePanel: PanelLauncherKind | null;
   browserAvailable: boolean;
   windowControlsInset: boolean;
+  fullscreen: boolean;
   onSelectTab: (target: ProjectUtilityPanelTarget) => void;
   onCloseTab: (target: ProjectUtilityPanelTarget) => void;
   onOpenTab: (target: ProjectUtilityPanelKind, options?: { newTab?: boolean }) => void;
   onTogglePanel: () => void;
+  onToggleFullscreen: (() => void) | null;
 }) {
   const items = [
     { id: 'files' as const, label: 'Files', icon: FolderClosed, shortcut: '⌘P', disabled: false },
@@ -1586,7 +1610,23 @@ function RightUtilityTabStrip({
       </div>
       <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 
-      <div className="no-drag ml-1 flex h-full shrink-0 items-center">
+      <div className="no-drag ml-1 flex h-full shrink-0 items-center gap-0.5">
+        {onToggleFullscreen ? (
+          <button
+            type="button"
+            onClick={onToggleFullscreen}
+            className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+            aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            aria-pressed={fullscreen}
+          >
+            {fullscreen ? (
+              <CollapseDiagonal className="h-[14px] w-[14px]" />
+            ) : (
+              <ExpandDiagonal className="h-[14px] w-[14px]" />
+            )}
+          </button>
+        ) : null}
         <PanelLauncher activePanel={activePanel} onToggle={onTogglePanel} />
       </div>
     </div>
