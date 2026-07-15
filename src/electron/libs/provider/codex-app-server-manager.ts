@@ -190,6 +190,8 @@ function envTimeout(name: string, fallback: number): number {
 
 const INITIALIZE_TIMEOUT_MS = envTimeout('AEGIS_CODEX_INITIALIZE_TIMEOUT_MS', 20_000);
 const REQUEST_TIMEOUT_MS = envTimeout('AEGIS_CODEX_REQUEST_TIMEOUT_MS', 30_000);
+// plugin/install may download plugin content (git clone / remote fetch).
+const PLUGIN_INSTALL_TIMEOUT_MS = envTimeout('AEGIS_CODEX_PLUGIN_INSTALL_TIMEOUT_MS', 120_000);
 const TURN_TIMEOUT_MS = envTimeout('AEGIS_CODEX_TURN_TIMEOUT_MS', 300_000);
 // How long a stop waits for `turn/completed(interrupted)` before settling
 // unconfirmed (P0-6).
@@ -498,6 +500,42 @@ export class CodexAppServerManager extends EventEmitter {
     };
     this.pluginDetailCache.set(cacheKey, result);
     return result;
+  }
+
+  async installPlugin(input: {
+    marketplacePath?: string | null;
+    remoteMarketplaceName?: string | null;
+    pluginName: string;
+  }): Promise<void> {
+    const marketplacePath = input.marketplacePath?.trim() || null;
+    const remoteMarketplaceName = input.remoteMarketplaceName?.trim() || null;
+    await this.ensureSpawned(process.cwd());
+    await this.sendRequest(
+      'plugin/install',
+      {
+        ...(marketplacePath ? { marketplacePath } : {}),
+        ...(remoteMarketplaceName ? { remoteMarketplaceName } : {}),
+        pluginName: input.pluginName.trim(),
+      },
+      PLUGIN_INSTALL_TIMEOUT_MS
+    );
+    this.invalidatePluginCaches();
+  }
+
+  async uninstallPlugin(input: { pluginId: string }): Promise<void> {
+    await this.ensureSpawned(process.cwd());
+    await this.sendRequest(
+      'plugin/uninstall',
+      { pluginId: input.pluginId.trim() },
+      REQUEST_TIMEOUT_MS
+    );
+    this.invalidatePluginCaches();
+  }
+
+  /** Install state changed — cached plugin lists/details are stale. */
+  private invalidatePluginCaches(): void {
+    this.pluginsCache.clear();
+    this.pluginDetailCache.clear();
   }
 
   async readAccountRateLimits(cwd = process.cwd()): Promise<CodexRateLimitReport> {
@@ -2388,10 +2426,18 @@ export class CodexAppServerManager extends EventEmitter {
     if (!value) return undefined;
     const displayName = this.optionalString(value.displayName);
     const shortDescription = this.optionalString(value.shortDescription);
-    if (!displayName && !shortDescription) return undefined;
+    const iconSmall = this.optionalString(value.iconSmall);
+    const iconLarge = this.optionalString(value.iconLarge);
+    const brandColor = this.optionalString(value.brandColor);
+    const defaultPrompt = this.optionalString(value.defaultPrompt);
+    if (!displayName && !shortDescription && !iconSmall && !iconLarge) return undefined;
     return {
       ...(displayName ? { displayName } : {}),
       ...(shortDescription ? { shortDescription } : {}),
+      ...(iconSmall ? { iconSmall } : {}),
+      ...(iconLarge ? { iconLarge } : {}),
+      ...(brandColor ? { brandColor } : {}),
+      ...(defaultPrompt ? { defaultPrompt } : {}),
     };
   }
 
@@ -2475,6 +2521,8 @@ export class CodexAppServerManager extends EventEmitter {
     return {
       id,
       name,
+      remotePluginId: this.optionalString(record.remotePluginId) ?? null,
+      version: this.optionalString(record.version) ?? null,
       source: this.parsePluginSource(record.source),
       installed: record.installed === true,
       enabled: record.enabled === true,

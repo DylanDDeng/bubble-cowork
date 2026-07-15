@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
@@ -167,7 +167,11 @@ import type {
   SessionTeamMode,
   ProviderListPluginsInput,
   ProviderListSkillsInput,
+  ProviderInstallPluginInput,
+  ProviderPluginDescriptor,
   ProviderReadPluginInput,
+  ProviderSkillDescriptor,
+  ProviderUninstallPluginInput,
   GitCheckoutBranchInput,
   GitCreateBranchInput,
   GitCreateWorktreeInput,
@@ -5533,34 +5537,165 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getProviderService().getComposerCapabilities('codex');
   });
 
+  // Local marketplaces (bundled runtimes, personal plugins) ship logos as
+  // absolute file paths, which the renderer cannot load under its CSP —
+  // inline the image files as data URLs into `logoUrl` instead. Oversized
+  // raster logos (bundled app icons ship at ~1MB) are downscaled first so
+  // list payloads stay small.
+  const PLUGIN_LOGO_INLINE_MAX_BYTES = 512 * 1024;
+  const PLUGIN_LOGO_SOURCE_MAX_BYTES = 4 * 1024 * 1024;
+  const PLUGIN_LOGO_RESIZE_PX = 128;
+  const PLUGIN_LOGO_MIME: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+  };
+  const pluginLogoDataUrls = new Map<string, string | null>();
+
+  const localPluginImageToDataUrl = (filePath: string | undefined): string | null => {
+    if (!filePath || !isAbsolute(filePath)) return null;
+    const mime = PLUGIN_LOGO_MIME[extname(filePath).toLowerCase()];
+    if (!mime) return null;
+    try {
+      const stat = statSync(filePath);
+      if (!stat.isFile() || stat.size > PLUGIN_LOGO_SOURCE_MAX_BYTES) return null;
+      const cacheKey = `${filePath}:${stat.mtimeMs}`;
+      const cached = pluginLogoDataUrls.get(cacheKey);
+      if (cached !== undefined) return cached;
+
+      let dataUrl: string | null = null;
+      if (stat.size <= PLUGIN_LOGO_INLINE_MAX_BYTES) {
+        dataUrl = `data:${mime};base64,${readFileSync(filePath).toString('base64')}`;
+      } else if (mime === 'image/png' || mime === 'image/jpeg') {
+        const image = nativeImage.createFromPath(filePath);
+        if (!image.isEmpty()) {
+          const resized = image.resize({
+            width: PLUGIN_LOGO_RESIZE_PX,
+            height: PLUGIN_LOGO_RESIZE_PX,
+          });
+          dataUrl = `data:image/png;base64,${resized.toPNG().toString('base64')}`;
+        }
+      }
+      pluginLogoDataUrls.set(cacheKey, dataUrl);
+      return dataUrl;
+    } catch {
+      return null;
+    }
+  };
+
+  const inlineLocalPluginLogo = (plugin: ProviderPluginDescriptor): ProviderPluginDescriptor => {
+    const pluginInterface = plugin.interface;
+    if (!pluginInterface || pluginInterface.logoUrl) return plugin;
+    const dataUrl =
+      localPluginImageToDataUrl(pluginInterface.logo) ??
+      localPluginImageToDataUrl(pluginInterface.composerIcon);
+    if (!dataUrl) return plugin;
+    return { ...plugin, interface: { ...pluginInterface, logoUrl: dataUrl } };
+  };
+
+  // Skills discover icons by convention from their assets/ directory; the
+  // descriptor carries them as local file paths, inlined here the same way.
+  const inlineLocalSkillIcons = (skill: ProviderSkillDescriptor): ProviderSkillDescriptor => {
+    const skillInterface = skill.interface;
+    if (!skillInterface || (!skillInterface.iconSmall && !skillInterface.iconLarge)) return skill;
+    const iconLarge = localPluginImageToDataUrl(skillInterface.iconLarge ?? undefined);
+    const iconSmall = localPluginImageToDataUrl(skillInterface.iconSmall ?? undefined);
+    if (!iconLarge && !iconSmall) return skill;
+    return {
+      ...skill,
+      interface: {
+        ...skillInterface,
+        ...(iconLarge ? { iconLarge } : {}),
+        ...(iconSmall ? { iconSmall } : {}),
+      },
+    };
+  };
+
+  // Skill detail renders the SKILL.md body; paths come from skills/list.
+  ipcMainHandle('codex-read-skill-content', async (_event, skillPath: string) => {
+    if (!isAbsolute(skillPath) || extname(skillPath).toLowerCase() !== '.md') {
+      return { ok: false as const, message: 'Not a skill markdown file.' };
+    }
+    try {
+      const stat = statSync(skillPath);
+      if (!stat.isFile() || stat.size > 1024 * 1024) {
+        return { ok: false as const, message: 'Skill file is missing or too large.' };
+      }
+      return { ok: true as const, content: readFileSync(skillPath, 'utf8') };
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Failed to read skill file.',
+      };
+    }
+  });
+
   ipcMainHandle('codex-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
     ensureProviderService();
-    return getProviderService().listSkills({
+    const result = await getProviderService().listSkills({
       provider: 'codex',
       cwd: input?.cwd,
       threadId: input?.threadId,
       forceReload: input?.forceReload,
     });
+    return {
+      ...result,
+      skills: result.skills.map(inlineLocalSkillIcons),
+    };
   });
 
   ipcMainHandle('codex-list-plugins', async (_event, input?: Omit<ProviderListPluginsInput, 'provider'>) => {
     ensureProviderService();
-    return getProviderService().listPlugins({
+    const result = await getProviderService().listPlugins({
       provider: 'codex',
       cwd: input?.cwd,
       threadId: input?.threadId,
       forceReload: input?.forceReload,
       forceRemoteSync: input?.forceRemoteSync,
     });
+    return {
+      ...result,
+      marketplaces: result.marketplaces.map((marketplace) => ({
+        ...marketplace,
+        plugins: marketplace.plugins.map(inlineLocalPluginLogo),
+      })),
+    };
   });
 
   ipcMainHandle('codex-read-plugin', async (_event, input: Omit<ProviderReadPluginInput, 'provider'>) => {
     ensureProviderService();
-    return getProviderService().readPlugin({
+    const result = await getProviderService().readPlugin({
       provider: 'codex',
       marketplacePath: input.marketplacePath,
       remoteMarketplaceName: input.remoteMarketplaceName,
       pluginName: input.pluginName,
+    });
+    return {
+      ...result,
+      plugin: {
+        ...result.plugin,
+        summary: inlineLocalPluginLogo(result.plugin.summary),
+      },
+    };
+  });
+
+  ipcMainHandle('codex-install-plugin', async (_event, input: Omit<ProviderInstallPluginInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().installPlugin({
+      provider: 'codex',
+      marketplacePath: input.marketplacePath,
+      remoteMarketplaceName: input.remoteMarketplaceName,
+      pluginName: input.pluginName,
+    });
+  });
+
+  ipcMainHandle('codex-uninstall-plugin', async (_event, input: Omit<ProviderUninstallPluginInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().uninstallPlugin({
+      provider: 'codex',
+      pluginId: input.pluginId,
     });
   });
 

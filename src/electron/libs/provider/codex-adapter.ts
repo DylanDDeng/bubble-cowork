@@ -27,8 +27,10 @@ import type {
   ProviderListPluginsResult,
   ProviderListSkillsInput,
   ProviderListSkillsResult,
+  ProviderInstallPluginInput,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
+  ProviderUninstallPluginInput,
   StreamMessage,
   CodexRateLimitReport,
 } from '../../../shared/types';
@@ -915,6 +917,18 @@ export class CodexAdapter implements ProviderAdapter {
       remoteMarketplaceName: input.remoteMarketplaceName,
       pluginName: input.pluginName,
     });
+  }
+
+  async installPlugin(input: ProviderInstallPluginInput): Promise<void> {
+    await this.manager.installPlugin({
+      marketplacePath: input.marketplacePath,
+      remoteMarketplaceName: input.remoteMarketplaceName,
+      pluginName: input.pluginName,
+    });
+  }
+
+  async uninstallPlugin(input: ProviderUninstallPluginInput): Promise<void> {
+    await this.manager.uninstallPlugin({ pluginId: input.pluginId });
   }
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {

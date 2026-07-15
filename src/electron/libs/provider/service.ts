@@ -19,7 +19,9 @@ import type {
   ProviderListPluginsResult,
   ProviderListSkillsInput,
   ProviderListSkillsResult,
+  ProviderInstallPluginInput,
   ProviderReadPluginInput,
+  ProviderUninstallPluginInput,
   ProviderReadPluginResult,
 } from '../../../shared/types';
 
@@ -229,6 +231,30 @@ class ProviderServiceImpl implements ProviderService {
     }
 
     return adapter.readPlugin(input);
+  }
+
+  async installPlugin(input: ProviderInstallPluginInput): Promise<void> {
+    if (!isProviderKind(input.provider)) {
+      throw new Error(`Provider "${input.provider}" does not support plugin installation.`);
+    }
+    const adapter = registry.getAdapter(input.provider);
+    if (!adapter?.installPlugin) {
+      throw new Error(`Provider "${input.provider}" does not support plugin installation.`);
+    }
+
+    return adapter.installPlugin(input);
+  }
+
+  async uninstallPlugin(input: ProviderUninstallPluginInput): Promise<void> {
+    if (!isProviderKind(input.provider)) {
+      throw new Error(`Provider "${input.provider}" does not support plugin removal.`);
+    }
+    const adapter = registry.getAdapter(input.provider);
+    if (!adapter?.uninstallPlugin) {
+      throw new Error(`Provider "${input.provider}" does not support plugin removal.`);
+    }
+
+    return adapter.uninstallPlugin(input);
   }
 
   /**

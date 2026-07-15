@@ -24,7 +24,9 @@ import type {
   ProviderListPluginsResult,
   ProviderListSkillsInput,
   ProviderListSkillsResult,
+  ProviderInstallPluginInput,
   ProviderReadPluginInput,
+  ProviderUninstallPluginInput,
   ProviderReadPluginResult,
   WechatClipboardHtmlWriteInput,
   WechatClipboardHtmlWriteResult,
@@ -528,6 +530,21 @@ contextBridge.exposeInMainWorld('electron', {
     input: Omit<ProviderReadPluginInput, 'provider'>
   ): Promise<ProviderReadPluginResult> => {
     return ipcRenderer.invoke('codex-read-plugin', input);
+  },
+  readCodexSkillContent: (
+    skillPath: string
+  ): Promise<{ ok: boolean; content?: string; message?: string }> => {
+    return ipcRenderer.invoke('codex-read-skill-content', skillPath);
+  },
+  installCodexPlugin: (
+    input: Omit<ProviderInstallPluginInput, 'provider'>
+  ): Promise<void> => {
+    return ipcRenderer.invoke('codex-install-plugin', input);
+  },
+  uninstallCodexPlugin: (
+    input: Omit<ProviderUninstallPluginInput, 'provider'>
+  ): Promise<void> => {
+    return ipcRenderer.invoke('codex-uninstall-plugin', input);
   },
 
   getOpencodeModelConfig: () => {

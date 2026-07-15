@@ -34,7 +34,9 @@ import type {
   ProviderListPluginsResult,
   ProviderListSkillsInput,
   ProviderListSkillsResult,
+  ProviderInstallPluginInput,
   ProviderReadPluginInput,
+  ProviderUninstallPluginInput,
   ProviderReadPluginResult,
 } from '../../../shared/types';
 import type { SessionRow } from '../../types';
@@ -174,6 +176,8 @@ export interface ProviderAdapter {
   listSkills?(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
   listPlugins?(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
   readPlugin?(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;
+  installPlugin?(input: ProviderInstallPluginInput): Promise<void>;
+  uninstallPlugin?(input: ProviderUninstallPluginInput): Promise<void>;
 
   // Event stream (all events from this provider)
   readonly events: EventEmitter;
@@ -223,6 +227,8 @@ export interface ProviderService {
   listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
   listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
   readPlugin(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;
+  installPlugin(input: ProviderInstallPluginInput): Promise<void>;
+  uninstallPlugin(input: ProviderUninstallPluginInput): Promise<void>;
 
   // Events (merged from all adapters)
   readonly events: EventEmitter;

@@ -472,6 +472,15 @@ export interface ProviderComposerCapabilities {
 export interface ProviderSkillInterface {
   displayName?: string;
   shortDescription?: string;
+  /**
+   * Codex discovers these by convention from the skill's assets/ directory
+   * (`<name>-small.svg`, `<name>.png`). Local file paths are inlined as data
+   * URLs by the IPC layer before reaching the renderer.
+   */
+  iconSmall?: string | null;
+  iconLarge?: string | null;
+  brandColor?: string | null;
+  defaultPrompt?: string | null;
 }
 
 export interface ProviderSkillDescriptor {
@@ -536,6 +545,13 @@ export interface ProviderPluginInterface {
 export interface ProviderPluginDescriptor {
   id: string;
   name: string;
+  /**
+   * Remote catalog identifier (`plugin_connector_…`). plugin/read and
+   * plugin/install resolve remote-marketplace plugins by THIS id, not by
+   * `name` — the catalog endpoint 404s on names.
+   */
+  remotePluginId?: string | null;
+  version?: string | null;
   source: ProviderPluginSource;
   installed: boolean;
   enabled: boolean;
@@ -600,6 +616,18 @@ export interface ProviderReadPluginInput {
   marketplacePath?: string | null;
   remoteMarketplaceName?: string | null;
   pluginName: string;
+}
+
+export interface ProviderInstallPluginInput {
+  provider: AgentProvider;
+  marketplacePath?: string | null;
+  remoteMarketplaceName?: string | null;
+  pluginName: string;
+}
+
+export interface ProviderUninstallPluginInput {
+  provider: AgentProvider;
+  pluginId: string;
 }
 
 export interface ProviderReadPluginResult {
