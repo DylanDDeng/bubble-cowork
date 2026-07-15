@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
-import { CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from '../icons';
+import {
+  BrandGithub,
+  ChevronRight,
+  Globe,
+  LoaderCircle,
+  MoreHorizontal,
+  RefreshCw,
+  Search,
+  SkillStack,
+  X,
+} from '../icons';
 import { toast } from 'sonner';
+import { MDContent } from '../../render/markdown';
 import { useAppStore } from '../../store/useAppStore';
 import type {
   ProviderListPluginsResult,
@@ -12,6 +23,7 @@ import type {
 } from '../../types';
 
 type CodexTab = 'plugins' | 'skills';
+type PluginScope = 'public' | 'personal';
 
 type PluginEntry = {
   marketplaceName: string;
@@ -34,6 +46,9 @@ const EMPTY_SKILLS_RESULT: ProviderListSkillsResult = {
   cached: false,
 };
 
+const COLLAPSED_SECTION_ROWS = 6;
+const SEARCH_RESULT_LIMIT = 60;
+
 function normalizeRemoteErrorMessage(error: unknown, fallback: string): string {
   const rawMessage = error instanceof Error ? error.message : fallback;
   return rawMessage.replace(/^Error invoking remote method '[^']+':\s*/, '').trim();
@@ -49,6 +64,18 @@ function normalizeSearchText(value: string | undefined): string {
 
 function pluginKey(entry: PluginEntry): string {
   return `${entry.marketplacePath || entry.marketplaceName}::${entry.plugin.name}`;
+}
+
+function pluginTitle(plugin: ProviderPluginDescriptor): string {
+  return plugin.interface?.displayName || plugin.name;
+}
+
+// plugin/read and plugin/install resolve remote-marketplace plugins by their
+// remote catalog id (`plugin_connector_…`), not by name — names 404 there.
+// Local marketplaces resolve by name.
+function pluginRequestName(entry: PluginEntry): string {
+  if (entry.marketplacePath) return entry.plugin.name;
+  return entry.plugin.remotePluginId || entry.plugin.name;
 }
 
 function pluginSearchBlob(entry: PluginEntry): string {
@@ -91,10 +118,25 @@ function formatPluginSource(plugin: ProviderPluginDescriptor): string {
   return 'Remote catalog';
 }
 
+function entryScope(entry: PluginEntry): PluginScope {
+  return entry.plugin.source.type === 'remote' ? 'public' : 'personal';
+}
+
+// Title-cased so 'productivity' / 'Productivity' collapse into one section.
+function normalizeCategoryLabel(raw: string | undefined): string {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return 'Other';
+  return trimmed
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 export function CodexPluginLibraryContent() {
   const { activeSessionId, sessions, projectCwd } = useAppStore();
   const [tab, setTab] = useState<CodexTab>('plugins');
   const [query, setQuery] = useState('');
+  const [scope, setScope] = useState<PluginScope>('public');
   const [pluginsResult, setPluginsResult] = useState<ProviderListPluginsResult>(EMPTY_PLUGINS_RESULT);
   const [skillsResult, setSkillsResult] = useState<ProviderListSkillsResult>(EMPTY_SKILLS_RESULT);
   const [loadingPlugins, setLoadingPlugins] = useState(false);
@@ -107,6 +149,7 @@ export function CodexPluginLibraryContent() {
   const [skillDetailOpen, setSkillDetailOpen] = useState(false);
   const [detail, setDetail] = useState<ProviderPluginDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [busyPluginKeys, setBusyPluginKeys] = useState<ReadonlySet<string>>(new Set());
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const discoveryCwd = activeSession?.cwd || projectCwd || undefined;
@@ -122,11 +165,6 @@ export function CodexPluginLibraryContent() {
     );
   }, [pluginsResult.marketplaces]);
 
-  const filteredPlugins = useMemo(() => {
-    if (!normalizedQuery) return pluginEntries;
-    return pluginEntries.filter((entry) => pluginSearchBlob(entry).includes(normalizedQuery));
-  }, [normalizedQuery, pluginEntries]);
-
   const filteredSkills = useMemo(() => {
     if (!normalizedQuery) return skillsResult.skills;
     return skillsResult.skills.filter((skill) => skillSearchBlob(skill).includes(normalizedQuery));
@@ -134,8 +172,8 @@ export function CodexPluginLibraryContent() {
 
   const selectedPlugin = useMemo(() => {
     if (!selectedKey) return null;
-    return filteredPlugins.find((entry) => pluginKey(entry) === selectedKey) || null;
-  }, [filteredPlugins, selectedKey]);
+    return pluginEntries.find((entry) => pluginKey(entry) === selectedKey) || null;
+  }, [pluginEntries, selectedKey]);
   const selectedSkill = useMemo(() => {
     if (!selectedSkillPath) return null;
     return filteredSkills.find((skill) => skill.path === selectedSkillPath) || null;
@@ -209,7 +247,7 @@ export function CodexPluginLibraryContent() {
         const result = await window.electron.readCodexPlugin({
           marketplacePath: selectedPlugin.marketplacePath,
           remoteMarketplaceName: selectedPlugin.marketplacePath ? undefined : selectedPlugin.marketplaceName,
-          pluginName: selectedPlugin.plugin.name,
+          pluginName: pluginRequestName(selectedPlugin),
         });
         if (!cancelled) {
           setDetail(result.plugin);
@@ -247,76 +285,122 @@ export function CodexPluginLibraryContent() {
     setSkillDetailOpen(true);
   };
 
+  const setEntryBusy = (key: string, busy: boolean) => {
+    setBusyPluginKeys((current) => {
+      const next = new Set(current);
+      if (busy) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const installPlugin = async (entry: PluginEntry) => {
+    const key = pluginKey(entry);
+    if (busyPluginKeys.has(key)) return;
+    setEntryBusy(key, true);
+    try {
+      await window.electron.installCodexPlugin({
+        marketplacePath: entry.marketplacePath,
+        remoteMarketplaceName: entry.marketplacePath ? undefined : entry.marketplaceName,
+        pluginName: pluginRequestName(entry),
+      });
+      toast.success(`Installed ${pluginTitle(entry.plugin)}`);
+      await loadPlugins(false);
+    } catch (error) {
+      toast.error(normalizeRemoteErrorMessage(error, `Failed to install ${pluginTitle(entry.plugin)}.`));
+    } finally {
+      setEntryBusy(key, false);
+    }
+  };
+
+  const uninstallPlugin = async (entry: PluginEntry) => {
+    const key = pluginKey(entry);
+    if (busyPluginKeys.has(key)) return;
+    setEntryBusy(key, true);
+    try {
+      await window.electron.uninstallCodexPlugin({ pluginId: entry.plugin.id });
+      toast.success(`Uninstalled ${pluginTitle(entry.plugin)}`);
+      setPluginDetailOpen(false);
+      await loadPlugins(false);
+    } catch (error) {
+      toast.error(normalizeRemoteErrorMessage(error, `Failed to uninstall ${pluginTitle(entry.plugin)}.`));
+    } finally {
+      setEntryBusy(key, false);
+    }
+  };
+
+  // Plugin detail is a full page (breadcrumb back to the list), not a modal.
+  if (tab === 'plugins' && pluginDetailOpen && selectedPlugin) {
+    return (
+      <div className="space-y-4 pb-6">
+        <PluginDetailPage
+          entry={selectedPlugin}
+          detail={detail}
+          loading={detailLoading}
+          busy={busyPluginKeys.has(pluginKey(selectedPlugin))}
+          onBack={() => setPluginDetailOpen(false)}
+          onInstall={installPlugin}
+          onUninstall={uninstallPlugin}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 pb-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setTab('plugins')}
-            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
-              tab === 'plugins'
-                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
-                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
+          <ScopePill active={tab === 'plugins'} onClick={() => setTab('plugins')}>
             Plugins
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('skills')}
-            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
-              tab === 'skills'
-                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
-                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
+          </ScopePill>
+          <ScopePill active={tab === 'skills'} onClick={() => setTab('skills')}>
             Skills
-          </button>
+          </ScopePill>
         </div>
 
-        <div className="flex min-w-[260px] items-center gap-2">
-          <SearchBox value={query} onChange={setQuery} />
-          <button
-            type="button"
-            onClick={refresh}
-            disabled={loadingPlugins || loadingSkills}
-            className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loadingPlugins || loadingSkills ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            <span>Refresh</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={loadingPlugins || loadingSkills}
+          className="inline-flex h-8 items-center gap-2 rounded-full border border-[var(--border)] px-3 text-[13px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loadingPlugins || loadingSkills ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          <span>Refresh</span>
+        </button>
       </div>
 
       {tab === 'plugins' ? (
+        <PluginMarketplace
+          entries={pluginEntries}
+          featuredPluginIds={pluginsResult.featuredPluginIds}
+          loading={loadingPlugins}
+          error={pluginsError || pluginsResult.remoteSyncError}
+          query={query}
+          normalizedQuery={normalizedQuery}
+          scope={scope}
+          busyPluginKeys={busyPluginKeys}
+          onQueryChange={setQuery}
+          onScopeChange={setScope}
+          onSelect={openPluginDetail}
+          onInstall={installPlugin}
+        />
+      ) : (
         <>
-          <PluginCardGrid
-            entries={filteredPlugins}
-            loading={loadingPlugins}
-            error={pluginsError || pluginsResult.remoteSyncError}
-            onSelect={openPluginDetail}
-          />
-          <PluginDetailDialog
-            open={pluginDetailOpen}
-            onOpenChange={setPluginDetailOpen}
-            entry={selectedPlugin}
-            detail={detail}
-            loading={detailLoading}
+          <div className="mx-auto w-full max-w-[820px]">
+            <SearchBox value={query} onChange={setQuery} placeholder="Search skills" />
+          </div>
+          <SkillListPane
+            skills={filteredSkills}
+            loading={loadingSkills}
+            error={skillsError}
+            discoveryCwd={discoveryCwd}
+            onSelect={openSkillDetail}
           />
         </>
-      ) : (
-        <SkillListPane
-          skills={filteredSkills}
-          loading={loadingSkills}
-          error={skillsError}
-          discoveryCwd={discoveryCwd}
-          onSelect={openSkillDetail}
-        />
       )}
       <CodexSkillDetailDialog
         open={skillDetailOpen}
@@ -327,21 +411,47 @@ export function CodexPluginLibraryContent() {
   );
 }
 
+function ScopePill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-8 items-center rounded-full px-3.5 text-[13px] transition-colors ${
+        active
+          ? 'bg-[var(--bg-tertiary)] font-medium text-[var(--text-primary)]'
+          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function SearchBox({
   value,
   onChange,
+  placeholder = 'Search plugins',
 }: {
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
-    <div className="relative flex-1">
-      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
+    <div className="relative w-full">
+      <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Search Codex"
-        className="h-10 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+        placeholder={placeholder}
+        className="h-11 w-full rounded-full border border-[var(--border)] bg-[var(--bg-primary)] pl-11 pr-10 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)]"
       />
       {value.trim() && (
         <button
@@ -349,246 +459,653 @@ function SearchBox({
           onClick={() => onChange('')}
           aria-label="Clear search"
           title="Clear"
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
         >
-          <X className="h-3 w-3" />
+          <X className="h-3.5 w-3.5" />
         </button>
       )}
     </div>
   );
 }
 
-function PluginCardGrid({
+function PluginMarketplace({
   entries,
+  featuredPluginIds,
   loading,
   error,
+  query,
+  normalizedQuery,
+  scope,
+  busyPluginKeys,
+  onQueryChange,
+  onScopeChange,
   onSelect,
+  onInstall,
 }: {
   entries: PluginEntry[];
+  featuredPluginIds: string[];
   loading: boolean;
   error: string | null;
+  query: string;
+  normalizedQuery: string;
+  scope: PluginScope;
+  busyPluginKeys: ReadonlySet<string>;
+  onQueryChange: (value: string) => void;
+  onScopeChange: (scope: PluginScope) => void;
   onSelect: (entry: PluginEntry) => void;
+  onInstall: (entry: PluginEntry) => void;
 }) {
+  const installedEntries = useMemo(
+    () => entries.filter((entry) => isInstalledPlugin(entry.plugin)),
+    [entries]
+  );
+
+  const scopedEntries = useMemo(
+    () => entries.filter((entry) => entryScope(entry) === scope),
+    [entries, scope]
+  );
+
+  const searchResults = useMemo(() => {
+    if (!normalizedQuery) return [];
+    return entries.filter((entry) => pluginSearchBlob(entry).includes(normalizedQuery));
+  }, [entries, normalizedQuery]);
+
+  const featuredEntries = useMemo(() => {
+    if (featuredPluginIds.length === 0) return [];
+    const byId = new Map(scopedEntries.map((entry) => [entry.plugin.id, entry]));
+    return featuredPluginIds
+      .map((id) => byId.get(id))
+      .filter((entry): entry is PluginEntry => Boolean(entry));
+  }, [featuredPluginIds, scopedEntries]);
+
+  const categorySections = useMemo(() => {
+    const buckets = new Map<string, PluginEntry[]>();
+    for (const entry of scopedEntries) {
+      const label = normalizeCategoryLabel(entry.plugin.interface?.category);
+      const bucket = buckets.get(label);
+      if (bucket) bucket.push(entry);
+      else buckets.set(label, [entry]);
+    }
+    return Array.from(buckets.entries()).sort((left, right) => {
+      if (left[0] === 'Other') return 1;
+      if (right[0] === 'Other') return -1;
+      return right[1].length - left[1].length;
+    });
+  }, [scopedEntries]);
+
   return (
-    <section className="min-h-[calc(100vh-240px)] space-y-4">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-4">
-          <h4 className="text-lg font-semibold text-[var(--text-primary)]">Codex plugins</h4>
-          <span className="text-xs text-[var(--text-muted)]">
-            {entries.length} {entries.length === 1 ? 'plugin' : 'plugins'}
-          </span>
-        </div>
+    <section className="mx-auto min-h-[calc(100vh-240px)] w-full max-w-[820px] space-y-6">
+      <div className="space-y-1.5">
+        <h2 className="text-[30px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+          Plugins
+        </h2>
         <p className="text-sm text-[var(--text-secondary)]">
-          Plugins exposed by the Codex app-server.
+          Work with Codex across your favorite tools
         </p>
       </div>
 
-      <div className="h-px bg-[var(--border)]" />
+      <SearchBox value={query} onChange={onQueryChange} />
 
       {error && <InlineNotice>{error}</InlineNotice>}
+
       {loading && entries.length === 0 ? (
         <LoadingRows />
-      ) : entries.length === 0 ? (
-        <EmptyPanel>No Codex plugins found.</EmptyPanel>
+      ) : normalizedQuery ? (
+        <SearchResultsSection
+          results={searchResults}
+          busyPluginKeys={busyPluginKeys}
+          onSelect={onSelect}
+          onInstall={onInstall}
+        />
       ) : (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-          {entries.map((entry) => (
-            <PluginCard
-              key={pluginKey(entry)}
-              entry={entry}
-              onClick={() => onSelect(entry)}
-            />
-          ))}
-        </div>
+        <>
+          {installedEntries.length > 0 && (
+            <div className="space-y-3">
+              <SectionHeading>Installed</SectionHeading>
+              <div className="flex flex-wrap items-center gap-2.5">
+                {installedEntries.map((entry) => (
+                  <button
+                    key={pluginKey(entry)}
+                    type="button"
+                    onClick={() => onSelect(entry)}
+                    title={pluginTitle(entry.plugin)}
+                    aria-label={`Open ${pluginTitle(entry.plugin)} details`}
+                    className="rounded-[12px] transition-transform hover:scale-105"
+                  >
+                    <PluginAvatar plugin={entry.plugin} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <ScopePill active={scope === 'public'} onClick={() => onScopeChange('public')}>
+              Public
+            </ScopePill>
+            <ScopePill active={scope === 'personal'} onClick={() => onScopeChange('personal')}>
+              Personal
+            </ScopePill>
+          </div>
+
+          {scopedEntries.length === 0 ? (
+            <EmptyPanel>
+              {scope === 'public'
+                ? 'No public catalog plugins available.'
+                : 'No personal plugins found.'}
+            </EmptyPanel>
+          ) : (
+            <>
+              {featuredEntries.length > 0 && (
+                <PluginSection
+                  title="Featured"
+                  entries={featuredEntries}
+                  busyPluginKeys={busyPluginKeys}
+                  onSelect={onSelect}
+                  onInstall={onInstall}
+                />
+              )}
+              {categorySections.map(([label, sectionEntries]) => (
+                <PluginSection
+                  key={label}
+                  title={label}
+                  entries={sectionEntries}
+                  busyPluginKeys={busyPluginKeys}
+                  onSelect={onSelect}
+                  onInstall={onInstall}
+                />
+              ))}
+            </>
+          )}
+        </>
       )}
     </section>
   );
 }
 
-function PluginCard({
-  entry,
-  onClick,
+function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <div className="border-b border-[var(--border)] pb-2 text-[15px] font-medium text-[var(--text-primary)]">
+      {children}
+    </div>
+  );
+}
+
+function SearchResultsSection({
+  results,
+  busyPluginKeys,
+  onSelect,
+  onInstall,
 }: {
-  entry: PluginEntry;
-  onClick: () => void;
+  results: PluginEntry[];
+  busyPluginKeys: ReadonlySet<string>;
+  onSelect: (entry: PluginEntry) => void;
+  onInstall: (entry: PluginEntry) => void;
 }) {
-  const plugin = entry.plugin;
-  const title = plugin.interface?.displayName || plugin.name;
-  const description = plugin.interface?.shortDescription || formatPluginSource(plugin);
+  const visible = results.slice(0, SEARCH_RESULT_LIMIT);
 
   return (
-    <article
+    <div className="space-y-3">
+      <SectionHeading>Results</SectionHeading>
+      {results.length === 0 ? (
+        <EmptyPanel>No plugins match your search.</EmptyPanel>
+      ) : (
+        <>
+          <PluginRowGrid
+            entries={visible}
+            busyPluginKeys={busyPluginKeys}
+            onSelect={onSelect}
+            onInstall={onInstall}
+          />
+          {results.length > visible.length && (
+            <p className="text-xs text-[var(--text-muted)]">
+              Showing {visible.length} of {results.length} matches — keep typing to narrow down.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PluginSection({
+  title,
+  entries,
+  busyPluginKeys,
+  onSelect,
+  onInstall,
+}: {
+  title: string;
+  entries: PluginEntry[];
+  busyPluginKeys: ReadonlySet<string>;
+  onSelect: (entry: PluginEntry) => void;
+  onInstall: (entry: PluginEntry) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? entries : entries.slice(0, COLLAPSED_SECTION_ROWS);
+  const hidden = entries.slice(visible.length);
+
+  return (
+    <div className="space-y-3">
+      <SectionHeading>{title}</SectionHeading>
+      <PluginRowGrid
+        entries={visible}
+        busyPluginKeys={busyPluginKeys}
+        onSelect={onSelect}
+        onInstall={onInstall}
+      />
+      {hidden.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="group flex items-center gap-2.5 rounded-full py-1 pr-2 text-left text-[13px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+        >
+          <span className="flex -space-x-1.5">
+            {hidden.slice(0, 3).map((entry) => (
+              <span key={pluginKey(entry)} className="rounded-md ring-2 ring-[var(--bg-primary)]">
+                <PluginAvatar plugin={entry.plugin} size="sm" />
+              </span>
+            ))}
+          </span>
+          <span>{formatSeeMoreLabel(hidden)}</span>
+        </button>
+      )}
+      {expanded && entries.length > COLLAPSED_SECTION_ROWS && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="rounded-full py-1 text-[13px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+        >
+          Show less
+        </button>
+      )}
+    </div>
+  );
+}
+
+function formatSeeMoreLabel(hidden: PluginEntry[]): string {
+  const names = hidden.slice(0, 2).map((entry) => pluginTitle(entry.plugin));
+  const rest = hidden.length - names.length;
+  if (rest <= 0) return `See ${names.join(' and ')}`;
+  return `See ${names.join(', ')}, and ${rest} more`;
+}
+
+function PluginRowGrid({
+  entries,
+  busyPluginKeys,
+  onSelect,
+  onInstall,
+}: {
+  entries: PluginEntry[];
+  busyPluginKeys: ReadonlySet<string>;
+  onSelect: (entry: PluginEntry) => void;
+  onInstall: (entry: PluginEntry) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2">
+      {entries.map((entry) => (
+        <PluginRow
+          key={pluginKey(entry)}
+          entry={entry}
+          busy={busyPluginKeys.has(pluginKey(entry))}
+          onSelect={() => onSelect(entry)}
+          onInstall={() => onInstall(entry)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PluginRow({
+  entry,
+  busy,
+  onSelect,
+  onInstall,
+}: {
+  entry: PluginEntry;
+  busy: boolean;
+  onSelect: () => void;
+  onInstall: () => void;
+}) {
+  const plugin = entry.plugin;
+  const title = pluginTitle(plugin);
+  const description = plugin.interface?.shortDescription || formatPluginSource(plugin);
+  const installed = isInstalledPlugin(plugin);
+
+  return (
+    <div
       role="button"
       tabIndex={0}
-      onClick={onClick}
+      onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          onClick();
+          onSelect();
         }
       }}
-      className="cursor-pointer rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)] transition-colors hover:bg-[var(--bg-tertiary)]"
-      aria-label={`Open ${title} plugin detail`}
+      className="group flex cursor-pointer items-center gap-3 rounded-[14px] px-2 py-2 transition-colors hover:bg-[var(--bg-secondary)]"
+      aria-label={`Open ${title} details`}
     >
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-          <Plug className="h-4.5 w-4.5" />
-        </div>
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="flex items-center gap-2">
-            <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
-              {title}
-            </h5>
-            {isInstalledPlugin(plugin) && (
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
-            )}
-          </div>
-          <p className="line-clamp-2 text-sm leading-6 text-[var(--text-secondary)]">
-            {description}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <SmallBadge>{entry.marketplaceName}</SmallBadge>
-            <SmallBadge>{plugin.enabled ? 'enabled' : isInstalledPlugin(plugin) ? 'installed' : 'available'}</SmallBadge>
-          </div>
-        </div>
+      <PluginAvatar plugin={plugin} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[14px] font-medium text-[var(--text-primary)]">{title}</div>
+        <div className="truncate text-[13px] text-[var(--text-muted)]">{description}</div>
       </div>
-    </article>
+      {installed ? (
+        <span
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100"
+          aria-hidden="true"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </span>
+      ) : plugin.installPolicy === 'AVAILABLE' ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={(event) => {
+            event.stopPropagation();
+            onInstall();
+          }}
+          className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] px-3.5 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : 'Install'}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
-function PluginDetailDialog({
-  open,
-  onOpenChange,
-  entry,
-  detail,
-  loading,
+function PluginAvatar({
+  plugin,
+  size = 'md',
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  entry: PluginEntry | null;
-  detail: ProviderPluginDetail | null;
-  loading: boolean;
+  plugin: ProviderPluginDescriptor;
+  size?: 'sm' | 'md' | 'lg';
 }) {
-  return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(920px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-          <PluginDetailContent
-            entry={entry}
-            detail={detail}
-            loading={loading}
-            onClose={() => onOpenChange(false)}
-          />
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
+  const [failed, setFailed] = useState(false);
+  const logo = plugin.interface?.logoUrl || plugin.interface?.logo;
+  const title = pluginTitle(plugin);
+  const brandColor = plugin.interface?.brandColor;
+  const frame =
+    size === 'sm'
+      ? 'h-6 w-6 rounded-md text-[11px]'
+      : size === 'lg'
+        ? 'h-14 w-14 rounded-[16px] text-[22px]'
+        : 'h-10 w-10 rounded-[10px] text-[15px]';
 
-function PluginDetailContent({
-  entry,
-  detail,
-  loading,
-  onClose,
-}: {
-  entry: PluginEntry | null;
-  detail: ProviderPluginDetail | null;
-  loading: boolean;
-  onClose: () => void;
-}) {
-  if (!entry) {
+  if (logo && !failed) {
     return (
-      <div className="flex min-h-[320px] items-center justify-center p-6 text-sm text-[var(--text-muted)]">
-        Select a plugin to inspect its Codex capabilities.
-      </div>
+      <img
+        src={logo}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className={`${frame} shrink-0 border border-[color-mix(in_srgb,var(--border)_70%,transparent)] bg-white object-cover`}
+      />
     );
   }
 
+  return (
+    <span
+      className={`${frame} flex shrink-0 items-center justify-center border border-[color-mix(in_srgb,var(--border)_70%,transparent)] font-semibold ${
+        brandColor ? 'text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+      }`}
+      style={brandColor ? { backgroundColor: brandColor } : undefined}
+      aria-hidden="true"
+    >
+      {title.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+function PluginDetailPage({
+  entry,
+  detail,
+  loading,
+  busy,
+  onBack,
+  onInstall,
+  onUninstall,
+}: {
+  entry: PluginEntry;
+  detail: ProviderPluginDetail | null;
+  loading: boolean;
+  busy: boolean;
+  onBack: () => void;
+  onInstall: (entry: PluginEntry) => void;
+  onUninstall: (entry: PluginEntry) => void;
+}) {
   const plugin = detail?.summary || entry.plugin;
-  const title = plugin.interface?.displayName || plugin.name;
-  const description =
-    detail?.description ||
-    plugin.interface?.longDescription ||
-    plugin.interface?.shortDescription ||
-    'No plugin description available.';
+  const title = pluginTitle(plugin);
+  const installed = isInstalledPlugin(plugin);
+  const shortDescription = plugin.interface?.shortDescription;
+  const longDescription =
+    detail?.description || plugin.interface?.longDescription || null;
+  const heroPrompt = plugin.interface?.defaultPrompt?.[0];
+  const heroBase = plugin.interface?.brandColor || '#8B8BF0';
+
+  const infoRows: Array<[string, ReactNode]> = [
+    ...(plugin.interface?.capabilities?.length
+      ? [['Capabilities', plugin.interface.capabilities.join(', ')] as [string, ReactNode]]
+      : []),
+    ...(plugin.interface?.developerName
+      ? [['Developer', plugin.interface.developerName] as [string, ReactNode]]
+      : []),
+    ...(plugin.interface?.category
+      ? [['Category', plugin.interface.category] as [string, ReactNode]]
+      : []),
+    ...(plugin.version ? [['Version', plugin.version] as [string, ReactNode]] : []),
+    ['Source', formatPluginSource(plugin)],
+    ...(plugin.interface?.websiteUrl
+      ? [['Website', <ExternalLinkGlobe key="web" url={plugin.interface.websiteUrl} />] as [string, ReactNode]]
+      : []),
+    ...(plugin.interface?.privacyPolicyUrl
+      ? [['Privacy Policy', <ExternalLinkGlobe key="privacy" url={plugin.interface.privacyPolicyUrl} />] as [string, ReactNode]]
+      : []),
+    ...(plugin.interface?.termsOfServiceUrl
+      ? [['Terms of Service', <ExternalLinkGlobe key="tos" url={plugin.interface.termsOfServiceUrl} />] as [string, ReactNode]]
+      : []),
+  ];
 
   return (
-    <>
-      <div className="border-b border-[var(--border)] px-5 py-4">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-            <Plug className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="truncate text-lg font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
-                {title}
-              </h3>
-              <StatusBadge active={plugin.enabled} installed={isInstalledPlugin(plugin)} />
-            </div>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{entry.marketplaceName}</p>
-          </div>
-          {loading && <LoaderCircle className="h-4 w-4 animate-spin text-[var(--text-muted)]" />}
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-            aria-label="Close plugin detail"
-            title="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-[13px] text-[var(--text-muted)]">
+        <button
+          type="button"
+          onClick={onBack}
+          className="rounded px-0.5 transition-colors hover:text-[var(--text-primary)]"
+        >
+          Plugins
+        </button>
+        <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="text-[var(--text-primary)]">{title}</span>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
-        <p className="text-sm leading-6 text-[var(--text-secondary)]">{description}</p>
+      <div className="mx-auto w-full max-w-[680px] space-y-6 pt-5">
+        <PluginAvatar plugin={plugin} size="lg" />
 
-        <MetadataGrid
-          rows={[
-            ['Name', plugin.name],
-            ['Install', plugin.installPolicy],
-            ['Auth', plugin.authPolicy],
-            ['Source', formatPluginSource(plugin)],
-            ...(plugin.interface?.developerName ? [['Developer', plugin.interface.developerName] as [string, string]] : []),
-            ...(plugin.interface?.category ? [['Category', plugin.interface.category] as [string, string]] : []),
-          ]}
-        />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+              {title}
+            </h2>
+            {shortDescription && (
+              <p className="text-sm text-[var(--text-secondary)]">{shortDescription}</p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2 pt-1">
+            {loading && <LoaderCircle className="h-4 w-4 animate-spin text-[var(--text-muted)]" />}
+            {installed ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onUninstall(entry)}
+                className="inline-flex h-8 items-center justify-center rounded-full border border-[var(--border)] px-3.5 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : 'Uninstall'}
+              </button>
+            ) : plugin.installPolicy === 'AVAILABLE' ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onInstall(entry)}
+                className="inline-flex h-8 items-center justify-center rounded-full bg-[var(--accent)] px-4 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : 'Install'}
+              </button>
+            ) : null}
+          </div>
+        </div>
 
-        {plugin.interface?.capabilities?.length ? (
-          <DetailSection title="Capabilities">
-            <TagList items={plugin.interface.capabilities} />
-          </DetailSection>
+        {heroPrompt && (
+          <div
+            className="flex items-center justify-center rounded-[18px] px-6 py-9"
+            style={{
+              background: `linear-gradient(115deg, color-mix(in srgb, ${heroBase} 34%, #c7d2fe), color-mix(in srgb, ${heroBase} 14%, #ede9fe) 55%, color-mix(in srgb, ${heroBase} 26%, #ddd6fe))`,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(heroPrompt);
+                toast.success('Prompt copied');
+              }}
+              title="Copy prompt"
+              className="flex max-w-full items-center gap-2.5 rounded-full bg-white/95 py-2 pl-3.5 pr-2 text-left shadow-[0_8px_24px_rgba(15,23,42,0.14)] transition-transform hover:scale-[1.01]"
+            >
+              <PluginAvatar plugin={plugin} size="sm" />
+              <span className="min-w-0 text-[13px] leading-snug text-[#1f2937]">
+                <span className="font-semibold">{title}</span>{' '}
+                <span className="line-clamp-2">{heroPrompt}</span>
+              </span>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#f3f4f6] text-[#374151]">
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            </button>
+          </div>
+        )}
+
+        {longDescription && (
+          <p className="text-sm leading-7 text-[var(--text-secondary)]">{longDescription}</p>
+        )}
+
+        {detail?.apps.length ? (
+          <DetailListSection title="Apps" count={detail.apps.length}>
+            {detail.apps.map((app) => (
+              <div key={app.id} className="flex items-center gap-3 py-2.5">
+                <PluginAvatar plugin={plugin} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[14px] font-medium text-[var(--text-primary)]">
+                    {app.name}
+                  </div>
+                  {app.description && (
+                    <div className="truncate text-[13px] text-[var(--text-muted)]">
+                      {app.description}
+                    </div>
+                  )}
+                </div>
+                {app.needsAuth && <SmallBadge>auth</SmallBadge>}
+              </div>
+            ))}
+          </DetailListSection>
         ) : null}
 
         {detail?.skills.length ? (
-          <DetailSection title="Skills">
-            <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-              {detail.skills.map((skill) => (
-                <SkillMiniCard key={`${skill.path}:${skill.name}`} skill={skill} />
-              ))}
-            </div>
-          </DetailSection>
-        ) : null}
-
-        {detail?.apps.length ? (
-          <DetailSection title="Apps">
-            <TagList items={detail.apps.map((app) => `${app.name}${app.needsAuth ? ' · auth' : ''}`)} />
-          </DetailSection>
+          <DetailListSection title="Skills" count={detail.skills.length}>
+            {detail.skills.map((skill) => (
+              <div key={`${skill.path}:${skill.name}`} className="flex items-center gap-3 py-2.5">
+                <PluginAvatar plugin={plugin} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[14px] font-medium text-[var(--text-primary)]">
+                    {skill.interface?.displayName || skill.name}
+                  </div>
+                  {(skill.interface?.shortDescription || skill.description) && (
+                    <div className="truncate text-[13px] text-[var(--text-muted)]">
+                      {skill.interface?.shortDescription || skill.description}
+                    </div>
+                  )}
+                </div>
+                <SkillEnabledDot enabled={skill.enabled} />
+              </div>
+            ))}
+          </DetailListSection>
         ) : null}
 
         {detail?.mcpServers.length ? (
-          <DetailSection title="MCP servers">
-            <TagList items={detail.mcpServers} />
-          </DetailSection>
+          <DetailListSection title="MCP servers" count={detail.mcpServers.length}>
+            <div className="flex flex-wrap gap-2 py-2.5">
+              {detail.mcpServers.map((server) => (
+                <SmallBadge key={server}>{server}</SmallBadge>
+              ))}
+            </div>
+          </DetailListSection>
         ) : null}
 
-        <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 text-xs leading-5 text-[var(--text-muted)]">
-          Install, uninstall, OAuth, and dynamic tool execution are intentionally disabled in this first pass.
-        </div>
+        <DetailListSection title="Information">
+          <div className="space-y-0.5 py-2">
+            {infoRows.map(([label, value]) => (
+              <div key={label} className="flex items-center gap-6 py-1.5 text-[13px]">
+                <span className="w-32 shrink-0 text-[var(--text-muted)]">{label}</span>
+                <span className="min-w-0 break-words text-[var(--text-primary)]">{value}</span>
+              </div>
+            ))}
+          </div>
+        </DetailListSection>
       </div>
-    </>
+    </div>
+  );
+}
+
+function DetailListSection({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count?: number;
+  children: ReactNode;
+}) {
+  return (
+    <section>
+      <div className="flex items-baseline gap-2 border-b border-[var(--border)] pb-2">
+        <h3 className="text-[15px] font-medium text-[var(--text-primary)]">{title}</h3>
+        {typeof count === 'number' && (
+          <span className="text-[13px] text-[var(--text-muted)]">{count}</span>
+        )}
+      </div>
+      <div className="divide-y divide-[color-mix(in_srgb,var(--border)_55%,transparent)]">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/** Read-only enablement indicator — skill toggles are managed by Codex. */
+function SkillEnabledDot({ enabled }: { enabled: boolean }) {
+  return (
+    <span
+      title={enabled ? 'Enabled' : 'Disabled'}
+      aria-label={enabled ? 'Enabled' : 'Disabled'}
+      className={`inline-flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors ${
+        enabled ? 'justify-end bg-[var(--accent)]' : 'justify-start bg-[var(--bg-tertiary)]'
+      }`}
+    >
+      <span className="h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.2)]" />
+    </span>
+  );
+}
+
+function ExternalLinkGlobe({ url }: { url: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => void window.electron.openExternalUrl(url)}
+      title={url}
+      aria-label={`Open ${url}`}
+      className="inline-flex h-6 w-6 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+    >
+      <Globe className="h-3.5 w-3.5" />
+    </button>
   );
 }
 
@@ -606,7 +1123,7 @@ function SkillListPane({
   onSelect: (skill: ProviderSkillDescriptor) => void;
 }) {
   return (
-    <section className="min-h-[calc(100vh-240px)] space-y-4">
+    <section className="mx-auto min-h-[calc(100vh-240px)] w-full max-w-[820px] space-y-4">
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-4">
           <h4 className="text-lg font-semibold text-[var(--text-primary)]">Codex skills</h4>
@@ -627,7 +1144,7 @@ function SkillListPane({
       ) : skills.length === 0 ? (
         <EmptyPanel>No Codex skills found.</EmptyPanel>
       ) : (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           {skills.map((skill) => (
             <SkillMiniCard
               key={`${skill.path}:${skill.name}`}
@@ -638,6 +1155,72 @@ function SkillListPane({
         </div>
       )}
     </section>
+  );
+}
+
+// Skills without their own assets get a glyph inferred from the skill name
+// (matching the codex app), then the generic skill cube.
+function inferSkillGlyph(name: string): typeof SkillStack {
+  const tokens = name.toLowerCase().split(/[^a-z0-9]+/);
+  if (tokens.includes('github') || tokens.includes('git')) return BrandGithub;
+  if (tokens.includes('browser') || tokens.includes('chrome') || tokens.includes('web')) {
+    return Globe;
+  }
+  return SkillStack;
+}
+
+/**
+ * The unified default skill mark from the codex app: an isometric cube with
+ * amber / violet / orange faces on a neutral tile.
+ */
+function SkillCubeMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path d="M12 4 L18.8 7.9 L12 11.8 L5.2 7.9 Z" fill="#FFAD33" />
+      <path d="M5.2 7.9 L12 11.8 V19.6 L5.2 15.7 Z" fill="#8B5CF6" />
+      <path d="M18.8 7.9 L12 11.8 V19.6 L18.8 15.7 Z" fill="#FB7A2E" />
+    </svg>
+  );
+}
+
+function SkillAvatar({ skill }: { skill: ProviderSkillDescriptor }) {
+  const [failed, setFailed] = useState(false);
+  const icon = skill.interface?.iconLarge || skill.interface?.iconSmall;
+  const brandColor = skill.interface?.brandColor;
+
+  if (icon && !failed) {
+    return (
+      <img
+        src={icon}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="h-10 w-10 shrink-0 rounded-[10px] border border-[color-mix(in_srgb,var(--border)_70%,transparent)] bg-white object-cover"
+      />
+    );
+  }
+
+  const frame =
+    'flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[color-mix(in_srgb,var(--border)_55%,transparent)]';
+
+  if (brandColor) {
+    const Glyph = inferSkillGlyph(skill.name);
+    return (
+      <span className={`${frame} text-white`} style={{ backgroundColor: brandColor }} aria-hidden="true">
+        <Glyph className="h-[18px] w-[18px]" />
+      </span>
+    );
+  }
+
+  const Glyph = inferSkillGlyph(skill.name);
+  return (
+    <span className={`${frame} bg-[var(--bg-tertiary)] text-[var(--text-primary)]`} aria-hidden="true">
+      {Glyph === SkillStack ? (
+        <SkillCubeMark className="h-[22px] w-[22px]" />
+      ) : (
+        <Glyph className="h-[18px] w-[18px]" />
+      )}
+    </span>
   );
 }
 
@@ -671,6 +1254,7 @@ function SkillMiniCard({
       aria-label={onSelect ? `Open ${title} skill detail` : undefined}
     >
       <div className="flex items-start gap-3">
+        <SkillAvatar skill={skill} />
         <div className="min-w-0 flex-1 space-y-2">
           <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
             {title}
@@ -688,6 +1272,10 @@ function SkillMiniCard({
   );
 }
 
+function stripMarkdownFrontmatter(content: string): string {
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+}
+
 function CodexSkillDetailDialog({
   open,
   onOpenChange,
@@ -697,35 +1285,82 @@ function CodexSkillDetailDialog({
   onOpenChange: (open: boolean) => void;
   skill: ProviderSkillDescriptor | null;
 }) {
+  const { activeSessionId, setShowSettings } = useAppStore();
+  const [content, setContent] = useState<string | null>(null);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [contentLoading, setContentLoading] = useState(false);
+
   const title = skill?.interface?.displayName || skill?.name || 'Skill';
-  const description = skill?.interface?.shortDescription || skill?.description || 'No skill description available.';
+  const description = skill?.interface?.shortDescription || skill?.description || '';
+
+  useEffect(() => {
+    if (!open || !skill) {
+      setContent(null);
+      setContentError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setContentLoading(true);
+    void window.electron
+      .readCodexSkillContent(skill.path)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.ok && result.content) {
+          setContent(stripMarkdownFrontmatter(result.content));
+          setContentError(null);
+        } else {
+          setContent(null);
+          setContentError(result.message || 'Failed to read the skill file.');
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setContent(null);
+          setContentError(normalizeRemoteErrorMessage(error, 'Failed to read the skill file.'));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setContentLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, skill]);
+
+  const tryNow = () => {
+    if (!skill || !activeSessionId) return;
+    const mention = `$${skill.name.trim().replace(/\s+/g, '-')} `;
+    const text = skill.interface?.defaultPrompt || mention;
+    onOpenChange(false);
+    setShowSettings(false);
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent('aegis-composer-set-prompt', {
+          detail: { sessionId: activeSessionId, text },
+        })
+      );
+    });
+  };
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(760px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[86vh] w-[min(860px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
           {!skill ? (
             <div className="p-6 text-sm text-[var(--text-muted)]">Select a skill card to inspect its instructions.</div>
           ) : (
             <>
-              <div className="border-b border-[var(--border)] px-5 py-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-2">
-                    <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                      <span>Codex skill</span>
-                    </div>
-                    <h4 className="break-words text-[24px] font-semibold tracking-[-0.025em] text-[var(--text-primary)]">
-                      {title}
-                    </h4>
-                    <p className="break-words text-sm leading-6 text-[var(--text-secondary)]">
-                      {description}
-                    </p>
-                  </div>
+              <div className="flex items-start justify-between gap-3 px-7 pt-6">
+                <SkillAvatar skill={skill} />
+                <div className="flex items-center gap-2.5">
+                  <SkillEnabledDot enabled={skill.enabled} />
                   <Dialog.Close asChild>
                     <button
                       type="button"
-                      className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                       aria-label="Close skill detail"
                       title="Close"
                     >
@@ -733,23 +1368,51 @@ function CodexSkillDetailDialog({
                     </button>
                   </Dialog.Close>
                 </div>
-                <div className="mt-4 space-y-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-[12px] leading-5 text-[var(--text-muted)]">
-                  <div className="break-all"><span className="text-[var(--text-secondary)]">Name:</span> {skill.name}</div>
-                  <div className="break-all"><span className="text-[var(--text-secondary)]">Path:</span> {skill.path}</div>
-                  <div className="break-all"><span className="text-[var(--text-secondary)]">Enabled:</span> {skill.enabled ? 'Yes' : 'No'}</div>
-                  {skill.scope ? (
-                    <div className="break-all"><span className="text-[var(--text-secondary)]">Scope:</span> {skill.scope}</div>
-                  ) : null}
+              </div>
+
+              <div className="space-y-1 px-7 pb-5 pt-4">
+                <h4 className="break-words text-[22px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+                  {title} <span className="font-normal text-[var(--text-muted)]">Skill</span>
+                </h4>
+                {description && (
+                  <p className="break-words text-sm leading-6 text-[var(--text-secondary)]">
+                    {description}
+                  </p>
+                )}
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-7">
+                <div className="rounded-[16px] border border-[color-mix(in_srgb,var(--border)_75%,transparent)] bg-[var(--bg-primary)] px-6 py-5">
+                  {contentLoading ? (
+                    <div className="flex min-h-32 items-center justify-center">
+                      <LoaderCircle className="h-4 w-4 animate-spin text-[var(--text-muted)]" />
+                    </div>
+                  ) : contentError ? (
+                    <p className="text-sm text-[var(--text-muted)]">{contentError}</p>
+                  ) : content ? (
+                    <MDContent content={content} allowHtml={false} className="project-markdown-preview" />
+                  ) : (
+                    <p className="text-sm text-[var(--text-muted)]">This skill file is empty.</p>
+                  )}
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-5">
-                {skill.dependencies ? (
-                  <>
-                    <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">Dependencies</div>
-                    <pre className="max-h-[46vh] whitespace-pre-wrap break-words overflow-auto rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-[12px] leading-6 text-[var(--text-primary)]">
-                      {JSON.stringify(skill.dependencies, null, 2)}
-                    </pre>
-                  </>
+
+              <div className="flex items-center justify-between gap-3 px-7 py-5">
+                <button
+                  type="button"
+                  onClick={() => void window.electron.revealPath(skill.path)}
+                  className="inline-flex h-8 items-center rounded-full border border-[var(--border)] px-3.5 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                >
+                  Reveal in Finder
+                </button>
+                {activeSessionId ? (
+                  <button
+                    type="button"
+                    onClick={tryNow}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--text-primary)] px-4 text-[13px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90"
+                  >
+                    Try now
+                  </button>
                 ) : null}
               </div>
             </>
@@ -760,51 +1423,10 @@ function CodexSkillDetailDialog({
   );
 }
 
-function MetadataGrid({ rows }: { rows: Array<[string, string]> }) {
-  return (
-    <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-2">
-      {rows.map(([label, value]) => (
-        <div key={label} className="rounded-[var(--radius-xl)] bg-[var(--bg-primary)] px-3 py-2">
-          <div className="font-medium text-[var(--text-primary)]">{label}</div>
-          <div className="mt-1 break-words text-[var(--text-muted)]">{value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DetailSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="space-y-2">
-      <h4 className="text-sm font-medium text-[var(--text-primary)]">{title}</h4>
-      {children}
-    </section>
-  );
-}
-
-function TagList({ items }: { items: string[] }) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {items.map((item) => (
-        <SmallBadge key={item}>{item}</SmallBadge>
-      ))}
-    </div>
-  );
-}
-
 function SmallBadge({ children }: { children: ReactNode }) {
   return (
     <span className="inline-flex max-w-full items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-1 text-[11px] leading-4 text-[var(--text-muted)]">
       {children}
-    </span>
-  );
-}
-
-function StatusBadge({ active, installed }: { active: boolean; installed: boolean }) {
-  const label = active ? 'Enabled' : installed ? 'Installed' : 'Available';
-  return (
-    <span className="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-muted)]">
-      {label}
     </span>
   );
 }
@@ -829,7 +1451,7 @@ function LoadingRows() {
   return (
     <div className="space-y-2">
       {['a', 'b', 'c', 'd'].map((id) => (
-        <div key={id} className="h-[66px] animate-pulse rounded-[var(--radius-xl)] bg-[var(--bg-primary)]" />
+        <div key={id} className="h-[56px] animate-pulse rounded-[var(--radius-xl)] bg-[var(--bg-primary)]" />
       ))}
     </div>
   );
