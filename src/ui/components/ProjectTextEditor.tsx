@@ -222,8 +222,8 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
           caretColor: 'var(--text-primary)',
         },
         '.cm-gutters': {
-          borderRight: '1px solid var(--border)',
-          backgroundColor: 'var(--panel-bg)',
+          border: 'none',
+          backgroundColor: 'transparent',
           color: 'var(--text-muted)',
         },
         '.cm-activeLine': {

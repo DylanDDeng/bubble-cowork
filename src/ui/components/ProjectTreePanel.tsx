@@ -2405,7 +2405,9 @@ export function ProjectTreePanel({
     (
       (selectedPreview.kind === 'markdown' && viewMode === 'code') ||
       selectedPreview.kind === 'html' ||
-      (selectedPreview.kind === 'text' && !selectedPreview.editable && selectedPreview.ext !== '.mdx')
+      // Editable text (the inline editor) renders flat too — the rounded
+      // fallback card is only for non-document previews (image, pdf, notices).
+      (selectedPreview.kind === 'text' && selectedPreview.ext !== '.mdx')
     );
   const isMdxFilePreview =
     !previewLoading &&
