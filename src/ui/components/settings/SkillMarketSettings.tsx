@@ -13,8 +13,8 @@ import { toast } from 'sonner';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { SkillMarketDetail, SkillMarketItem } from '../../types';
-import { SkillsSettingsContentInner } from './SkillsSettings';
 import { CodexPluginLibraryContent } from './CodexPluginLibrary';
+import { ClaudeLibraryContent } from './ClaudePluginLibrary';
 
 const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
@@ -205,7 +205,7 @@ export function SkillMarketSettingsContent() {
               onClick={() => setView('skills')}
               className={getTopTabClassName('skills')}
             >
-              Claude Skills
+              Claude
             </button>
             <button
               type="button"
@@ -221,7 +221,7 @@ export function SkillMarketSettingsContent() {
       </div>
 
       {view === 'skills' ? (
-        <SkillsSettingsContentInner embedded />
+        <ClaudeLibraryContent />
       ) : view === 'codex' ? (
         <CodexPluginLibraryContent />
       ) : (

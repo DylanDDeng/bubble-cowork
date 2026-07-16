@@ -26,7 +26,7 @@ import type {
 type CodexTab = 'plugins' | 'skills';
 type PluginScope = 'public' | 'personal';
 
-type PluginEntry = {
+export type PluginEntry = {
   marketplaceName: string;
   marketplacePath: string | null;
   plugin: ProviderPluginDescriptor;
@@ -63,7 +63,7 @@ function normalizeSearchText(value: string | undefined): string {
     .trim();
 }
 
-function pluginKey(entry: PluginEntry): string {
+export function pluginKey(entry: PluginEntry): string {
   return `${entry.marketplacePath || entry.marketplaceName}::${entry.plugin.name}`;
 }
 
@@ -148,6 +148,12 @@ export function CodexPluginLibraryContent() {
   const [pluginDetailOpen, setPluginDetailOpen] = useState(false);
   const [selectedSkillPath, setSelectedSkillPath] = useState<string | null>(null);
   const [skillDetailOpen, setSkillDetailOpen] = useState(false);
+  // Keyed by path; loaded BEFORE the dialog opens (see openSkillDetail).
+  const [skillContent, setSkillContent] = useState<{
+    path: string;
+    content: string | null;
+    error: string | null;
+  } | null>(null);
   const [detail, setDetail] = useState<ProviderPluginDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [busyPluginKeys, setBusyPluginKeys] = useState<ReadonlySet<string>>(new Set());
@@ -281,8 +287,31 @@ export function CodexPluginLibraryContent() {
     setPluginDetailOpen(true);
   };
 
-  const openSkillDetail = (skill: ProviderSkillDescriptor) => {
-    setSelectedSkillPath(skill.path);
+  // Preload the SKILL.md body before opening: local reads settle in a few ms,
+  // so the dialog's first frame is already the full document — no
+  // spinner-to-content swap, no dialog height jump. Slow reads (>300ms) open
+  // with a spinner instead of blocking the click.
+  const openSkillDetail = async (skill: ProviderSkillDescriptor) => {
+    const path = skill.path;
+    setSelectedSkillPath(path);
+    const load = window.electron
+      .readCodexSkillContent(path)
+      .then((result) => {
+        setSkillContent({
+          path,
+          content:
+            result.ok && result.content ? stripMarkdownFrontmatter(result.content) : null,
+          error: result.ok ? null : result.message || 'Failed to read the skill file.',
+        });
+      })
+      .catch((error) => {
+        setSkillContent({
+          path,
+          content: null,
+          error: normalizeRemoteErrorMessage(error, 'Failed to read the skill file.'),
+        });
+      });
+    await Promise.race([load, new Promise((resolve) => setTimeout(resolve, 300))]);
     setSkillDetailOpen(true);
   };
 
@@ -390,29 +419,27 @@ export function CodexPluginLibraryContent() {
           onInstall={installPlugin}
         />
       ) : (
-        <>
-          <div className="mx-auto w-full max-w-[820px]">
-            <SearchBox value={query} onChange={setQuery} placeholder="Search skills" />
-          </div>
-          <SkillListPane
-            skills={filteredSkills}
-            loading={loadingSkills}
-            error={skillsError}
-            discoveryCwd={discoveryCwd}
-            onSelect={openSkillDetail}
-          />
-        </>
+        <SkillListPane
+          skills={filteredSkills}
+          loading={loadingSkills}
+          error={skillsError}
+          discoveryCwd={discoveryCwd}
+          query={query}
+          onQueryChange={setQuery}
+          onSelect={openSkillDetail}
+        />
       )}
       <CodexSkillDetailDialog
         open={skillDetailOpen}
         onOpenChange={setSkillDetailOpen}
         skill={selectedSkill}
+        content={skillContent}
       />
     </div>
   );
 }
 
-function ScopePill({
+export function ScopePill({
   active,
   onClick,
   children,
@@ -469,7 +496,7 @@ function SearchBox({
   );
 }
 
-function PluginMarketplace({
+export function PluginMarketplace({
   entries,
   featuredPluginIds,
   loading,
@@ -478,6 +505,8 @@ function PluginMarketplace({
   normalizedQuery,
   scope,
   busyPluginKeys,
+  subtitle = 'Work with Codex across your favorite tools',
+  showScopeFilter = true,
   onQueryChange,
   onScopeChange,
   onSelect,
@@ -491,6 +520,9 @@ function PluginMarketplace({
   normalizedQuery: string;
   scope: PluginScope;
   busyPluginKeys: ReadonlySet<string>;
+  subtitle?: string;
+  /** Claude's marketplaces are all local catalogs — no Public/Personal split. */
+  showScopeFilter?: boolean;
   onQueryChange: (value: string) => void;
   onScopeChange: (scope: PluginScope) => void;
   onSelect: (entry: PluginEntry) => void;
@@ -502,8 +534,8 @@ function PluginMarketplace({
   );
 
   const scopedEntries = useMemo(
-    () => entries.filter((entry) => entryScope(entry) === scope),
-    [entries, scope]
+    () => (showScopeFilter ? entries.filter((entry) => entryScope(entry) === scope) : entries),
+    [entries, scope, showScopeFilter]
   );
 
   const searchResults = useMemo(() => {
@@ -540,9 +572,7 @@ function PluginMarketplace({
         <h2 className="text-[30px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
           Plugins
         </h2>
-        <p className="text-sm text-[var(--text-secondary)]">
-          Work with Codex across your favorite tools
-        </p>
+        <p className="text-sm text-[var(--text-secondary)]">{subtitle}</p>
       </div>
 
       <SearchBox value={query} onChange={onQueryChange} />
@@ -580,20 +610,24 @@ function PluginMarketplace({
             </div>
           )}
 
-          <div className="flex items-center gap-1.5">
-            <ScopePill active={scope === 'public'} onClick={() => onScopeChange('public')}>
-              Public
-            </ScopePill>
-            <ScopePill active={scope === 'personal'} onClick={() => onScopeChange('personal')}>
-              Personal
-            </ScopePill>
-          </div>
+          {showScopeFilter && (
+            <div className="flex items-center gap-1.5">
+              <ScopePill active={scope === 'public'} onClick={() => onScopeChange('public')}>
+                Public
+              </ScopePill>
+              <ScopePill active={scope === 'personal'} onClick={() => onScopeChange('personal')}>
+                Personal
+              </ScopePill>
+            </div>
+          )}
 
           {scopedEntries.length === 0 ? (
             <EmptyPanel>
-              {scope === 'public'
-                ? 'No public catalog plugins available.'
-                : 'No personal plugins found.'}
+              {!showScopeFilter
+                ? 'No plugins found.'
+                : scope === 'public'
+                  ? 'No public catalog plugins available.'
+                  : 'No personal plugins found.'}
             </EmptyPanel>
           ) : (
             <>
@@ -724,7 +758,7 @@ function PluginSection({
   );
 }
 
-function formatSeeMoreNames(hiddenNames: string[]): string {
+export function formatSeeMoreNames(hiddenNames: string[]): string {
   const names = hiddenNames.slice(0, 2);
   const rest = hiddenNames.length - names.length;
   if (rest <= 0) return `See ${names.join(' and ')}`;
@@ -863,7 +897,7 @@ function PluginAvatar({
   );
 }
 
-function PluginDetailPage({
+export function PluginDetailPage({
   entry,
   detail,
   loading,
@@ -1130,12 +1164,16 @@ function SkillListPane({
   loading,
   error,
   discoveryCwd,
+  query,
+  onQueryChange,
   onSelect,
 }: {
   skills: ProviderSkillDescriptor[];
   loading: boolean;
   error: string | null;
   discoveryCwd?: string;
+  query: string;
+  onQueryChange: (value: string) => void;
   onSelect: (skill: ProviderSkillDescriptor) => void;
 }) {
   const sections = useMemo(() => {
@@ -1166,6 +1204,8 @@ function SkillListPane({
           Extend Codex with task-specific skills
         </p>
       </div>
+
+      <SearchBox value={query} onChange={onQueryChange} placeholder="Search skills" />
 
       {error && <InlineNotice>{error}</InlineNotice>}
       {loading && skills.length === 0 ? (
@@ -1276,7 +1316,7 @@ function SkillRow({
 
 // Skills without their own assets get a glyph inferred from the skill name
 // (matching the codex app), then the generic skill cube.
-function inferSkillGlyph(name: string): typeof SkillStack {
+export function inferSkillGlyph(name: string): typeof SkillStack {
   const tokens = name.toLowerCase().split(/[^a-z0-9]+/);
   if (tokens.includes('github') || tokens.includes('git')) return BrandGithub;
   if (tokens.includes('browser') || tokens.includes('chrome') || tokens.includes('web')) {
@@ -1289,7 +1329,7 @@ function inferSkillGlyph(name: string): typeof SkillStack {
  * The unified default skill mark from the codex app: an isometric cube with
  * amber / violet / orange faces on a neutral tile.
  */
-function SkillCubeMark({ className }: { className?: string }) {
+export function SkillCubeMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
       <path d="M12 4 L18.8 7.9 L12 11.8 L5.2 7.9 Z" fill="#FFAD33" />
@@ -1348,54 +1388,20 @@ function CodexSkillDetailDialog({
   open,
   onOpenChange,
   skill,
+  content,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   skill: ProviderSkillDescriptor | null;
+  /** Preloaded by openSkillDetail; only trusted when it matches skill.path. */
+  content: { path: string; content: string | null; error: string | null } | null;
 }) {
   const { activeSessionId, setShowSettings } = useAppStore();
-  const [content, setContent] = useState<string | null>(null);
-  const [contentError, setContentError] = useState<string | null>(null);
-  const [contentLoading, setContentLoading] = useState(false);
 
   const title = skill?.interface?.displayName || skill?.name || 'Skill';
   const description = skill?.interface?.shortDescription || skill?.description || '';
-
-  useEffect(() => {
-    if (!open || !skill) {
-      setContent(null);
-      setContentError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setContentLoading(true);
-    void window.electron
-      .readCodexSkillContent(skill.path)
-      .then((result) => {
-        if (cancelled) return;
-        if (result.ok && result.content) {
-          setContent(stripMarkdownFrontmatter(result.content));
-          setContentError(null);
-        } else {
-          setContent(null);
-          setContentError(result.message || 'Failed to read the skill file.');
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setContent(null);
-          setContentError(normalizeRemoteErrorMessage(error, 'Failed to read the skill file.'));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setContentLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, skill]);
+  const loaded = content;
+  const ready = Boolean(skill && loaded?.path === skill.path);
 
   const tryNow = () => {
     if (!skill || !activeSessionId) return;
@@ -1451,14 +1457,18 @@ function CodexSkillDetailDialog({
 
               <div className="min-h-0 flex-1 overflow-y-auto px-7">
                 <div className="rounded-[16px] border border-[color-mix(in_srgb,var(--border)_75%,transparent)] bg-[var(--bg-primary)] px-6 py-5">
-                  {contentLoading ? (
+                  {!ready ? (
                     <div className="flex min-h-32 items-center justify-center">
                       <LoaderCircle className="h-4 w-4 animate-spin text-[var(--text-muted)]" />
                     </div>
-                  ) : contentError ? (
-                    <p className="text-sm text-[var(--text-muted)]">{contentError}</p>
-                  ) : content ? (
-                    <MDContent content={content} allowHtml={false} className="project-markdown-preview" />
+                  ) : loaded?.error ? (
+                    <p className="text-sm text-[var(--text-muted)]">{loaded.error}</p>
+                  ) : loaded?.content ? (
+                    <MDContent
+                      content={loaded.content}
+                      allowHtml={false}
+                      className="project-markdown-preview"
+                    />
                   ) : (
                     <p className="text-sm text-[var(--text-muted)]">This skill file is empty.</p>
                   )}

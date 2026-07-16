@@ -19,6 +19,12 @@ import {
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
 import {
+  installClaudePlugin,
+  listClaudePlugins,
+  readClaudePlugin,
+  uninstallClaudePlugin,
+} from './libs/claude-plugins';
+import {
   isTextLikeForOpenWith,
   openWithDisplayName,
   rankOpenWithAppPaths,
@@ -5697,6 +5703,38 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       provider: 'codex',
       pluginId: input.pluginId,
     });
+  });
+
+  // Claude plugins are managed from local files (~/.claude/plugins) and the
+  // claude CLI — no provider adapter involved.
+  ipcMainHandle('claude-list-plugins', async () => {
+    const result = listClaudePlugins();
+    return {
+      ...result,
+      marketplaces: result.marketplaces.map((marketplace) => ({
+        ...marketplace,
+        plugins: marketplace.plugins.map(inlineLocalPluginLogo),
+      })),
+    };
+  });
+
+  ipcMainHandle('claude-read-plugin', async (_event, pluginId: string) => {
+    const result = readClaudePlugin(pluginId);
+    return {
+      ...result,
+      plugin: {
+        ...result.plugin,
+        summary: inlineLocalPluginLogo(result.plugin.summary),
+      },
+    };
+  });
+
+  ipcMainHandle('claude-install-plugin', async (_event, pluginId: string) => {
+    return installClaudePlugin(pluginId);
+  });
+
+  ipcMainHandle('claude-uninstall-plugin', async (_event, pluginId: string) => {
+    return uninstallClaudePlugin(pluginId);
   });
 
   ipcMainHandle('get-opencode-model-config', async () => {

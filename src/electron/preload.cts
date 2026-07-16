@@ -546,6 +546,18 @@ contextBridge.exposeInMainWorld('electron', {
   ): Promise<void> => {
     return ipcRenderer.invoke('codex-uninstall-plugin', input);
   },
+  listClaudePlugins: (): Promise<ProviderListPluginsResult> => {
+    return ipcRenderer.invoke('claude-list-plugins');
+  },
+  readClaudePlugin: (pluginId: string): Promise<ProviderReadPluginResult> => {
+    return ipcRenderer.invoke('claude-read-plugin', pluginId);
+  },
+  installClaudePlugin: (pluginId: string): Promise<void> => {
+    return ipcRenderer.invoke('claude-install-plugin', pluginId);
+  },
+  uninstallClaudePlugin: (pluginId: string): Promise<void> => {
+    return ipcRenderer.invoke('claude-uninstall-plugin', pluginId);
+  },
 
   getOpencodeModelConfig: () => {
     return ipcRenderer.invoke('get-opencode-model-config');
