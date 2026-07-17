@@ -22,6 +22,12 @@ type OpenCodeV2Client = {
     permission?: OpenCodePermissionReplyApi;
     question?: OpenCodeQuestionReplyApi;
   };
+  /** The v2 API namespace on the v2 SDK client (client.v2.v2.skill…). */
+  v2?: {
+    skill?: {
+      list(options?: unknown): Promise<unknown>;
+    };
+  };
 };
 
 export type OpenCodeClient = {

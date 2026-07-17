@@ -203,6 +203,7 @@ declare global {
     readCodexSkillContent: (skillPath: string) => Promise<{ ok: boolean; content?: string; message?: string }>;
     installCodexPlugin: (input: Omit<ProviderInstallPluginInput, 'provider'>) => Promise<void>;
     uninstallCodexPlugin: (input: Omit<ProviderUninstallPluginInput, 'provider'>) => Promise<void>;
+    listOpenCodeSkills: (input?: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listClaudePlugins: () => Promise<ProviderListPluginsResult>;
     readClaudePlugin: (pluginId: string) => Promise<ProviderReadPluginResult>;
     installClaudePlugin: (pluginId: string) => Promise<void>;

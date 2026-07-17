@@ -11,6 +11,9 @@ import type {
   McpServerStatus,
   OpenCodePermissionMode,
   PermissionResult,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
+  ProviderSkillDescriptor,
   StreamMessage,
   Usage,
 } from '../../../shared/types';
@@ -28,7 +31,7 @@ import { OpenCodeServeManager, type OpenCodeClient } from './opencode-serve-mana
 
 const CAPABILITIES: ProviderAdapterCapabilities = {
   sessionModelSwitch: false,
-  skillDiscovery: false,
+  skillDiscovery: true,
   pluginDiscovery: false,
   mcpServers: true,
   imageAttachments: true,
@@ -426,6 +429,42 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
 
   constructor(manager = new OpenCodeServeManager()) {
     this.manager = manager;
+  }
+
+  async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
+    const cwd = input.cwd?.trim() || process.cwd();
+    const client = await this.manager.getClient(cwd);
+    const skillApi = client.v2?.v2?.skill;
+    if (!skillApi?.list) {
+      throw new Error('This OpenCode runtime does not expose skill discovery.');
+    }
+
+    const response = unwrapOpenCodeResult<Record<string, unknown>>(
+      await skillApi.list({ query: { directory: cwd } })
+    );
+    const rawSkills = Array.isArray(response?.data) ? response.data : [];
+    const skills = rawSkills
+      .flatMap((raw): ProviderSkillDescriptor[] => {
+        const record = getRecord(raw);
+        const name = getString(record?.name);
+        if (!record || !name) return [];
+        const location = getString(record.location);
+        return [
+          {
+            name,
+            ...(getString(record.description)
+              ? { description: getString(record.description) }
+              : {}),
+            path: location || name,
+            enabled: true,
+            scope: location && location.startsWith(cwd) ? 'project' : 'user',
+            content: getString(record.content) || null,
+          },
+        ];
+      })
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    return { skills, source: 'opencode-sdk', cached: false };
   }
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {

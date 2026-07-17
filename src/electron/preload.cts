@@ -546,6 +546,11 @@ contextBridge.exposeInMainWorld('electron', {
   ): Promise<void> => {
     return ipcRenderer.invoke('codex-uninstall-plugin', input);
   },
+  listOpenCodeSkills: (
+    input?: Omit<ProviderListSkillsInput, 'provider'>
+  ): Promise<ProviderListSkillsResult> => {
+    return ipcRenderer.invoke('opencode-list-skills', input);
+  },
   listClaudePlugins: (): Promise<ProviderListPluginsResult> => {
     return ipcRenderer.invoke('claude-list-plugins');
   },

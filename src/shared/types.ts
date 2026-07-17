@@ -491,6 +491,8 @@ export interface ProviderSkillDescriptor {
   scope?: string;
   interface?: ProviderSkillInterface;
   dependencies?: unknown;
+  /** Inline SKILL.md body when the provider ships it in the listing (OpenCode). */
+  content?: string | null;
 }
 
 export interface ProviderInputReference {

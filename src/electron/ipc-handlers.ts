@@ -5707,6 +5707,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   // Claude plugins are managed from local files (~/.claude/plugins) and the
   // claude CLI — no provider adapter involved.
+  ipcMainHandle('opencode-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'opencode',
+      cwd: input?.cwd,
+      forceReload: input?.forceReload,
+    });
+  });
+
   ipcMainHandle('claude-list-plugins', async () => {
     const result = listClaudePlugins();
     return {

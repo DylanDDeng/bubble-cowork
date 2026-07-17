@@ -1159,12 +1159,13 @@ function skillScopeSectionLabel(scope: string | undefined): string {
 
 const SKILL_SCOPE_SECTION_ORDER = ['Personal', 'Project', 'System'];
 
-function SkillListPane({
+export function SkillListPane({
   skills,
   loading,
   error,
   discoveryCwd,
   query,
+  subtitle = 'Extend Codex with task-specific skills',
   onQueryChange,
   onSelect,
 }: {
@@ -1173,6 +1174,7 @@ function SkillListPane({
   error: string | null;
   discoveryCwd?: string;
   query: string;
+  subtitle?: string;
   onQueryChange: (value: string) => void;
   onSelect: (skill: ProviderSkillDescriptor) => void;
 }) {
@@ -1201,7 +1203,7 @@ function SkillListPane({
           Skills
         </h2>
         <p className="text-sm text-[var(--text-secondary)]" title={discoveryCwd}>
-          Extend Codex with task-specific skills
+          {subtitle}
         </p>
       </div>
 
@@ -1380,21 +1382,24 @@ function SkillAvatar({ skill }: { skill: ProviderSkillDescriptor }) {
   );
 }
 
-function stripMarkdownFrontmatter(content: string): string {
+export function stripMarkdownFrontmatter(content: string): string {
   return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
 }
 
-function CodexSkillDetailDialog({
+export function CodexSkillDetailDialog({
   open,
   onOpenChange,
   skill,
   content,
+  mentionPrefix = '$',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   skill: ProviderSkillDescriptor | null;
   /** Preloaded by openSkillDetail; only trusted when it matches skill.path. */
   content: { path: string; content: string | null; error: string | null } | null;
+  /** Composer token prefix used by Try now ('$' for codex, '/' for opencode). */
+  mentionPrefix?: '/' | '$';
 }) {
   const { activeSessionId, setShowSettings } = useAppStore();
 
@@ -1405,7 +1410,7 @@ function CodexSkillDetailDialog({
 
   const tryNow = () => {
     if (!skill || !activeSessionId) return;
-    const mention = `$${skill.name.trim().replace(/\s+/g, '-')} `;
+    const mention = `${mentionPrefix}${skill.name.trim().replace(/\s+/g, '-')} `;
     const text = skill.interface?.defaultPrompt || mention;
     onOpenChange(false);
     setShowSettings(false);

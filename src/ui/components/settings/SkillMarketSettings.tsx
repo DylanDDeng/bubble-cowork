@@ -15,6 +15,7 @@ import { useAppStore } from '../../store/useAppStore';
 import type { SkillMarketDetail, SkillMarketItem } from '../../types';
 import { CodexPluginLibraryContent } from './CodexPluginLibrary';
 import { ClaudeLibraryContent } from './ClaudePluginLibrary';
+import { OpenCodeSkillLibraryContent } from './OpenCodeSkillLibrary';
 
 const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
@@ -47,7 +48,7 @@ export function SkillMarketSettingsContent() {
     claudeUserSkills,
     claudeProjectSkills,
   } = useAppStore();
-  const [view, setView] = useState<'skills' | 'market' | 'codex'>('skills');
+  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode'>('skills');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SkillMarketItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -216,6 +217,15 @@ export function SkillMarketSettingsContent() {
             >
               Codex
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'opencode'}
+              onClick={() => setView('opencode')}
+              className={getTopTabClassName('opencode')}
+            >
+              OpenCode
+            </button>
           </div>
         </div>
       </div>
@@ -224,6 +234,8 @@ export function SkillMarketSettingsContent() {
         <ClaudeLibraryContent />
       ) : view === 'codex' ? (
         <CodexPluginLibraryContent />
+      ) : view === 'opencode' ? (
+        <OpenCodeSkillLibraryContent />
       ) : (
         <>
           <MarketCardGrid
