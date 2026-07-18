@@ -1007,6 +1007,14 @@ export const useAppStore = create<Store>()(
         }
         break;
 
+      case 'kimi.modelConfigUpdated':
+        // Background server-metadata enrichment finished (thinking tiers);
+        // the kimi model-config hook re-fetches and hits the warm cache.
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('kimi-model-config-updated'));
+        }
+        break;
+
       case 'project.tree':
         set({
           projectTreeCwd: event.payload.cwd,

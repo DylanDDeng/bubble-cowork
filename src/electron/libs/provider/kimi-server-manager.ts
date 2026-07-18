@@ -565,7 +565,8 @@ export class KimiServerManager extends EventEmitter {
     payload: {
       content: Array<Record<string, unknown>>;
       model: string;
-      thinking?: boolean;
+      /** Effort tier string ('off' | 'on' | …), validated per-model server-side. */
+      thinking?: string;
       permission_mode?: string;
       plan_mode?: boolean;
     }

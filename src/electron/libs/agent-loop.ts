@@ -144,6 +144,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       codexReasoningEffort: options.codexReasoningEffort,
       codexFastMode: options.codexFastMode,
       kimiPermissionMode: options.kimiPermissionMode,
+      kimiThinking: options.kimiThinking,
       grokPermissionMode: options.grokPermissionMode,
       grokReasoningEffort: options.grokReasoningEffort,
       opencodePermissionMode: options.opencodePermissionMode,
@@ -215,6 +216,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         codexReasoningEffort?: import('../../shared/types').CodexReasoningEffort;
         codexFastMode?: boolean;
         kimiPermissionMode?: import('../../shared/types').KimiPermissionMode;
+        kimiThinking?: import('../../shared/types').KimiThinking;
         grokPermissionMode?: import('../../shared/types').GrokPermissionMode;
         grokReasoningEffort?: import('../../shared/types').GrokReasoningEffort;
         opencodePermissionMode?: import('../../shared/types').OpenCodePermissionMode;
@@ -241,6 +243,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
             codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
             codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
             kimiPermissionMode: sendOptions?.kimiPermissionMode ?? options.kimiPermissionMode,
+            kimiThinking: sendOptions?.kimiThinking ?? options.kimiThinking,
             grokPermissionMode: sendOptions?.grokPermissionMode ?? options.grokPermissionMode,
             grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
             opencodePermissionMode:

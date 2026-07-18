@@ -122,6 +122,14 @@ export type ClaudeReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type CodexExecutionMode = 'execute' | 'plan';
 export type CodexPermissionMode = 'defaultPermissions' | 'auto' | 'fullAccess';
 export type KimiPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
+/**
+ * Kimi thinking effort for the server runtime's per-prompt `thinking` field.
+ * An OPEN per-model set validated server-side — k2.x models take on/off,
+ * k3-class models take effort tiers (e.g. off/low/high/max per the model's
+ * `support_efforts` metadata). Never whitelist tiers in code; the UI builds
+ * its options from model metadata. Unset = the server's per-model default.
+ */
+export type KimiThinking = string;
 export type GrokPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
@@ -188,6 +196,13 @@ export interface KimiModelConfig {
     isDefault: boolean;
     maxContextSize?: number | null;
     capabilities?: string[];
+    /**
+     * Thinking effort tiers from the server's model metadata
+     * (`support_efforts`); absent for on/off-style thinking models (k2.x).
+     */
+    supportEfforts?: string[];
+    /** Server-reported default tier (`default_effort`). */
+    defaultEffort?: string | null;
   }>;
 }
 
@@ -779,6 +794,7 @@ export type ServerEvent =
   // Codex app-server pushed a fresh authoritative model catalog — renderers
   // should refetch codex model config (fast-mode eligibility may change).
   | { type: 'codex.modelCatalogUpdated'; payload: Record<string, never> }
+  | { type: 'kimi.modelConfigUpdated'; payload: Record<string, never> }
   | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode | null } }
   | {
       type: 'project.file';
@@ -850,6 +866,7 @@ export interface SessionStartPayload {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   codexSkills?: ProviderInputReference[];
@@ -911,6 +928,7 @@ export interface SessionContinuePayload {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   codexSkills?: ProviderInputReference[];
@@ -1135,6 +1153,7 @@ export interface SessionInfo {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -1187,6 +1206,7 @@ export interface SessionStatusPayload {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;

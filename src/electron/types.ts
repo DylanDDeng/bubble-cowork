@@ -124,6 +124,7 @@ export interface RunnerOptions {
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+  kimiThinking?: import('../shared/types').KimiThinking;
   grokPermissionMode?: import('../shared/types').GrokPermissionMode;
   grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
   codexSkills?: import('../shared/types').ProviderInputReference[];
@@ -201,6 +202,7 @@ export interface RunnerHandle {
       codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
       codexFastMode?: boolean;
       kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+      kimiThinking?: import('../shared/types').KimiThinking;
       grokPermissionMode?: import('../shared/types').GrokPermissionMode;
       grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
       opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;

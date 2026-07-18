@@ -513,6 +513,28 @@ async function l1SteerRaceBenign() {
   ok('steer race (40402) is swallowed — the prompt auto-runs from the queue');
 }
 
+async function l1ThinkingPassthrough() {
+  const t = await startL1Session({ kimiPermissionMode: 'auto' });
+  // No thinking set → the field is omitted (server per-model default rules).
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'a', model: 'm' });
+  let submit = t.fetchImpl.calls.filter((call) => /\/prompts$/.test(call.path)).pop();
+  assert.equal(submit.body.thinking, undefined, 'unset thinking is not sent');
+  t.push('turn.ended', { reason: 'completed' });
+  await waitFor(() => t.events.messages('result').length === 1, 2000, 'result');
+
+  // Thinking set on a later turn → effort tier string rides the submit and
+  // sticks for subsequent turns.
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'b', model: 'm', kimiThinking: 'on' });
+  submit = t.fetchImpl.calls.filter((call) => /\/prompts$/.test(call.path)).pop();
+  assert.equal(submit.body.thinking, 'on');
+  t.push('turn.ended', { reason: 'completed' });
+  await waitFor(() => t.events.messages('result').length === 2, 2000, 'result 2');
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'c', model: 'm' });
+  submit = t.fetchImpl.calls.filter((call) => /\/prompts$/.test(call.path)).pop();
+  assert.equal(submit.body.thinking, 'on', 'thinking sticks across turns');
+  ok('thinking passthrough: omitted when unset, effort string when set, sticky');
+}
+
 async function l1ModelSwitchPerPrompt() {
   const t = await startL1Session({ model: 'model-a' });
   await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'x', model: 'model-a' });
@@ -1028,6 +1050,7 @@ const suites = [
   ['L1: queue + steer', l1QueueSteer],
   ['L1: steer race benign', l1SteerRaceBenign],
   ['L1: per-prompt model switch', l1ModelSwitchPerPrompt],
+  ['L1: thinking passthrough', l1ThinkingPassthrough],
   ['L1: compact flow', l1CompactFlow],
   ['L1: daemon exit mid-turn', l1DaemonExitMidTurn],
   ['L1: resume not_found falls forward', l1ResumeNotFound],

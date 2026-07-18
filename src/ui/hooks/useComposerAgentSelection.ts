@@ -38,6 +38,7 @@ import {
   CodexPermissionMode,
   GrokReasoningEffort,
   KimiPermissionMode,
+  KimiThinking,
   OpenCodePermissionMode,
 } from '../../shared/types';
 import {
@@ -77,7 +78,9 @@ import {
 } from '../utils/codex-permission';
 import {
   loadPreferredKimiPermissionMode,
+  loadPreferredKimiThinking,
   savePreferredKimiPermissionMode,
+  savePreferredKimiThinking,
 } from '../utils/kimi-permission';
 import {
   loadPreferredOpencodePermissionMode,
@@ -947,6 +950,41 @@ export function useComposerAgentSelection(input?: {
   const [kimiPermissionMode, setKimiPermissionModeState] = useState<KimiPermissionMode>(() =>
     loadPreferredKimiPermissionMode()
   );
+  const [kimiThinking, setKimiThinkingState] = useState<KimiThinking | null>(() =>
+    loadPreferredKimiThinking()
+  );
+  // Thinking tiers are per-model metadata (open set, validated server-side):
+  // k3-class models list `support_efforts` (+ off), k2.x thinking models are
+  // on/off, everything else has no thinking control at all.
+  const kimiThinkingOptions = useMemo<string[]>(() => {
+    if (provider !== 'kimi' || !model) return [];
+    const entry = kimiModelConfig.availableModels.find((candidate) => candidate.name === model);
+    if (!entry) return [];
+    if (entry.supportEfforts && entry.supportEfforts.length > 0) {
+      return ['off', ...entry.supportEfforts.filter((tier) => tier !== 'off')];
+    }
+    return entry.capabilities?.includes('thinking') ? ['on', 'off'] : [];
+  }, [kimiModelConfig, model, provider]);
+  const kimiThinkingSupported = kimiThinkingOptions.length > 0;
+  // The server-side default tier for the selected model (shown as checked
+  // when the user has not made a valid explicit choice).
+  const kimiThinkingDefault = useMemo<string | null>(() => {
+    if (kimiThinkingOptions.length === 0) return null;
+    const entry = kimiModelConfig.availableModels.find((candidate) => candidate.name === model);
+    if (entry?.defaultEffort && kimiThinkingOptions.includes(entry.defaultEffort)) {
+      return entry.defaultEffort;
+    }
+    return entry?.supportEfforts && entry.supportEfforts.length > 0
+      ? entry.supportEfforts[entry.supportEfforts.length - 1]
+      : 'on';
+  }, [kimiModelConfig, kimiThinkingOptions, model]);
+  // Only a preference that is valid for the CURRENT model is sent; anything
+  // else stays unset so the server applies its per-model default.
+  const kimiThinkingToSend = useMemo<KimiThinking | undefined>(() => {
+    if (!kimiThinking || !kimiThinkingOptions.includes(kimiThinking)) return undefined;
+    return kimiThinking;
+  }, [kimiThinking, kimiThinkingOptions]);
+  const kimiThinkingChecked = kimiThinkingToSend ?? kimiThinkingDefault;
   const [opencodePermissionMode, setOpencodePermissionModeState] = useState<OpenCodePermissionMode>(() =>
     input?.opencodePermissionMode || loadPreferredOpencodePermissionMode()
   );
@@ -981,6 +1019,11 @@ export function useComposerAgentSelection(input?: {
     savePreferredKimiPermissionMode(mode);
   }, []);
 
+  const setKimiThinking = useCallback((value: KimiThinking) => {
+    setKimiThinkingState(value);
+    savePreferredKimiThinking(value);
+  }, []);
+
   const setOpencodePermissionMode = useCallback((mode: OpenCodePermissionMode) => {
     setOpencodePermissionModeState(mode);
     savePreferredOpencodePermissionMode(mode);
@@ -1013,6 +1056,13 @@ export function useComposerAgentSelection(input?: {
     setCodexPermissionMode,
     kimiPermissionMode,
     setKimiPermissionMode,
+    kimiThinking,
+    setKimiThinking,
+    kimiThinkingSupported,
+    kimiThinkingOptions,
+    kimiThinkingChecked,
+    kimiThinkingToSend,
+    kimiModels: kimiModelConfig.availableModels,
     opencodePermissionMode,
     setOpencodePermissionMode,
   };

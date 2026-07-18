@@ -711,6 +711,8 @@ export function PromptInput({
             runtimeProvider === 'kimi' || runtimeProvider === 'grok'
               ? agentSelection.kimiPermissionMode
               : undefined,
+          kimiThinking:
+            runtimeProvider === 'kimi' ? agentSelection.kimiThinkingToSend : undefined,
           grokPermissionMode:
             runtimeProvider === 'grok'
               ? agentSelection.kimiPermissionMode
@@ -801,6 +803,8 @@ export function PromptInput({
           runtimeProvider === 'kimi' || runtimeProvider === 'grok'
             ? agentSelection.kimiPermissionMode
             : undefined,
+        kimiThinking:
+          runtimeProvider === 'kimi' ? agentSelection.kimiThinkingToSend : undefined,
         grokPermissionMode:
           runtimeProvider === 'grok'
             ? agentSelection.kimiPermissionMode
@@ -1360,6 +1364,9 @@ export function PromptInput({
                 onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
+                kimiThinkingOptions={agentSelection.kimiThinkingOptions}
+                kimiThinkingChecked={agentSelection.kimiThinkingChecked}
+                onKimiThinkingChange={agentSelection.setKimiThinking}
                 menuSide={menuSide}
               />
               {agentSelection.provider === 'codex' && (

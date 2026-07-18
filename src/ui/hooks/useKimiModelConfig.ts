@@ -1,11 +1,37 @@
 import { useEffect, useState } from 'react';
 import type { KimiModelConfig } from '../types';
+import { rendererStateStorage } from '../utils/renderer-state-storage';
 
 const FALLBACK_CONFIG: KimiModelConfig = {
   defaultModel: null,
   options: [],
   availableModels: [],
 };
+
+// Last-good config so the first paint already has real labels and thinking
+// tiers — without it the composer briefly shows raw model ids / stale
+// defaults until the async IPC lands (visible flicker on agent switch).
+const CACHE_STORAGE_KEY = 'cowork.kimiModelConfigCache';
+
+function loadCachedConfig(): KimiModelConfig | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = rendererStateStorage.getItem(CACHE_STORAGE_KEY);
+    if (!raw) return null;
+    return normalizeKimiModelConfig(JSON.parse(raw) as Partial<KimiModelConfig>);
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedConfig(config: KimiModelConfig): void {
+  if (typeof window === 'undefined') return;
+  try {
+    rendererStateStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(config));
+  } catch {
+    // cache is best-effort
+  }
+}
 
 function normalizeKimiModelConfig(raw: Partial<KimiModelConfig> | null | undefined): KimiModelConfig {
   const defaultModel = raw?.defaultModel?.trim() || null;
@@ -20,9 +46,12 @@ function normalizeKimiModelConfig(raw: Partial<KimiModelConfig> | null | undefin
   const availableModels =
     raw?.availableModels && raw.availableModels.length > 0
       ? raw.availableModels
-          .map((model) => {
+          .map((model): KimiModelConfig['availableModels'][number] | null => {
             const name = model.name?.trim();
             if (!name) return null;
+            const supportEfforts = (model.supportEfforts || []).filter(
+              (value): value is string => typeof value === 'string' && value.trim().length > 0
+            );
             return {
               name,
               label: model.label?.trim() || name,
@@ -33,6 +62,12 @@ function normalizeKimiModelConfig(raw: Partial<KimiModelConfig> | null | undefin
               capabilities: (model.capabilities || []).filter(
                 (value): value is string => typeof value === 'string' && value.trim().length > 0
               ),
+              // Thinking-tier metadata (k3-class) — dropping these would
+              // silently degrade the picker to the on/off fallback.
+              ...(supportEfforts.length > 0 ? { supportEfforts } : {}),
+              ...(typeof model.defaultEffort === 'string' && model.defaultEffort.trim()
+                ? { defaultEffort: model.defaultEffort.trim() }
+                : {}),
             };
           })
           .filter((model): model is KimiModelConfig['availableModels'][number] => Boolean(model))
@@ -56,7 +91,7 @@ function normalizeKimiModelConfig(raw: Partial<KimiModelConfig> | null | undefin
 }
 
 export function useKimiModelConfig() {
-  const [config, setConfig] = useState<KimiModelConfig>(FALLBACK_CONFIG);
+  const [config, setConfig] = useState<KimiModelConfig>(() => loadCachedConfig() || FALLBACK_CONFIG);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +100,9 @@ export function useKimiModelConfig() {
         .getKimiModelConfig()
         .then((nextConfig) => {
           if (!cancelled) {
-            setConfig(normalizeKimiModelConfig(nextConfig));
+            const normalized = normalizeKimiModelConfig(nextConfig);
+            setConfig(normalized);
+            saveCachedConfig(normalized);
           }
         })
         .catch((error) => {

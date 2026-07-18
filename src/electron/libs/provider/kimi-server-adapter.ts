@@ -23,6 +23,7 @@ import type {
   Attachment,
   ContentBlock,
   KimiPermissionMode,
+  KimiThinking,
   PermissionResult,
   ProviderComposerCapabilities,
   ProviderListSkillsInput,
@@ -150,6 +151,7 @@ interface ActiveServerSession {
   cwd: string;
   model?: string;
   permissionMode?: KimiPermissionMode;
+  thinking?: KimiThinking;
   activeTurn: boolean;
   currentAssistant?: StreamingText;
   currentThinking?: { uuid: string; thinking: string; createdAt: number };
@@ -255,6 +257,7 @@ export class KimiServerAdapter implements ProviderAdapter {
       cwd: input.cwd,
       model,
       permissionMode: input.kimiPermissionMode,
+      thinking: input.kimiThinking,
       activeTurn: false,
       emittedToolCalls: new Set(),
       seenInteractionIds: new Set(),
@@ -288,6 +291,7 @@ export class KimiServerAdapter implements ProviderAdapter {
         attachments: input.attachments,
         model: input.model || model,
         kimiPermissionMode: input.kimiPermissionMode,
+        kimiThinking: input.kimiThinking,
       });
     }
 
@@ -311,6 +315,9 @@ export class KimiServerAdapter implements ProviderAdapter {
 
     if (input.kimiPermissionMode) {
       session.permissionMode = input.kimiPermissionMode;
+    }
+    if (input.kimiThinking) {
+      session.thinking = input.kimiThinking;
     }
 
     session.status = 'running';
@@ -347,6 +354,9 @@ export class KimiServerAdapter implements ProviderAdapter {
         model,
         permission_mode,
         plan_mode,
+        // Effort tier string, validated per-model server-side. Unset keeps
+        // the server's per-model default (thinking models default to on).
+        ...(session.thinking ? { thinking: session.thinking } : {}),
       });
     } catch (error) {
       this.failTurn(session, error instanceof Error ? error.message : String(error));

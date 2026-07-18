@@ -219,6 +219,37 @@ export class KimiAdapterFacade implements ProviderAdapter {
     await runtime.respondToRequest(threadId, requestId, decision);
   }
 
+  private serverModelCache: { items: Array<Record<string, unknown>>; fetchedAt: number } | null = null;
+
+  /** Synchronous read of the cached server model metadata (no daemon I/O). */
+  peekServerModels(): Array<Record<string, unknown>> | null {
+    return this.serverModelCache?.items ?? null;
+  }
+
+  /**
+   * Raw server `GET /models` items (with `support_efforts`/`default_effort`
+   * thinking metadata the CLI listing lacks) — null when the server runtime
+   * is unavailable. Cached briefly; model metadata changes only with CLI
+   * upgrades.
+   */
+  async getServerModels(): Promise<Array<Record<string, unknown>> | null> {
+    if (resolveKimiRuntimeOverride() === 'acp' || !(await isKimiServerCapable())) {
+      return null;
+    }
+    if (this.serverModelCache && Date.now() - this.serverModelCache.fetchedAt < 60_000) {
+      return this.serverModelCache.items;
+    }
+    try {
+      await this.server.manager.ensureDaemon();
+      const items = await this.server.manager.listModels();
+      this.serverModelCache = { items, fetchedAt: Date.now() };
+      return items;
+    } catch (error) {
+      console.warn('[KimiAdapterFacade] server model listing failed:', error);
+      return null;
+    }
+  }
+
   /** Skill discovery is server-runtime only (the ACP surface has none). */
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
     if (resolveKimiRuntimeOverride() !== 'acp' && (await isKimiServerCapable())) {

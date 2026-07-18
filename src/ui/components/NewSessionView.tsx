@@ -290,6 +290,8 @@ export function NewSessionView() {
           agentSelection.provider === 'kimi' || agentSelection.provider === 'grok'
             ? agentSelection.kimiPermissionMode
             : undefined,
+        kimiThinking:
+          agentSelection.provider === 'kimi' ? agentSelection.kimiThinkingToSend : undefined,
         grokPermissionMode:
           agentSelection.provider === 'grok'
             ? agentSelection.kimiPermissionMode
@@ -647,6 +649,9 @@ export function NewSessionView() {
                       onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
                       codexFastMode={agentSelection.codexFastMode}
                       onCodexFastModeChange={agentSelection.setCodexFastMode}
+                      kimiThinkingOptions={agentSelection.kimiThinkingOptions}
+                      kimiThinkingChecked={agentSelection.kimiThinkingChecked}
+                      onKimiThinkingChange={agentSelection.setKimiThinking}
                       menuSide="bottom"
                     />
                     {agentSelection.provider === 'codex' && (

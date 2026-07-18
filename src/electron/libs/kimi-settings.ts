@@ -72,6 +72,45 @@ function parseProviderListJson(output: string): KimiModelConfig['availableModels
     .filter((model): model is KimiAvailableModel => Boolean(model));
 }
 
+/**
+ * Enrich the CLI-derived model list with the kimi server's `GET /models`
+ * metadata: `support_efforts` / `default_effort` (thinking tiers, k3-class)
+ * and capabilities as a fallback. The CLI's `provider list --json` does not
+ * carry effort metadata, so the server is the only source.
+ */
+export function mergeKimiServerModelMetadata(
+  config: KimiModelConfig,
+  serverItems: Array<Record<string, unknown>>
+): KimiModelConfig {
+  const byName = new Map<string, Record<string, unknown>>();
+  for (const item of serverItems) {
+    const name = typeof item.model === 'string' ? item.model : '';
+    if (name) byName.set(name, item);
+  }
+  return {
+    ...config,
+    availableModels: config.availableModels.map((model) => {
+      const server = byName.get(model.name);
+      if (!server) return model;
+      const supportEfforts = Array.isArray(server.support_efforts)
+        ? server.support_efforts.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        : [];
+      const defaultEffort = typeof server.default_effort === 'string' ? server.default_effort : undefined;
+      const capabilities = Array.isArray(server.capabilities)
+        ? server.capabilities.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        : [];
+      return {
+        ...model,
+        ...(capabilities.length > 0 && !(model.capabilities && model.capabilities.length > 0)
+          ? { capabilities }
+          : {}),
+        ...(supportEfforts.length > 0 ? { supportEfforts } : {}),
+        ...(defaultEffort ? { defaultEffort } : {}),
+      };
+    }),
+  };
+}
+
 export async function getKimiModelConfig(): Promise<KimiModelConfig> {
   const binary = await resolveKimiBinary();
   if (!binary) {

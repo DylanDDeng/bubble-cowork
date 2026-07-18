@@ -20,6 +20,7 @@ import type {
   CodexExecutionMode,
   CodexReasoningEffort,
   KimiPermissionMode,
+  KimiThinking,
   GrokPermissionMode,
   GrokReasoningEffort,
   OpenCodePermissionMode,
@@ -81,6 +82,7 @@ export interface ProviderSessionStartInput {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   codexSkills?: ProviderInputReference[];
@@ -103,6 +105,7 @@ export interface ProviderSendTurnInput {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;

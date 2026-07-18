@@ -93,6 +93,7 @@ export type {
   GrokModelConfig,
   PiModelConfig,
   KimiPermissionMode,
+  KimiThinking,
   KimiRuntimeStatus,
   GrokRuntimeStatus,
   ClaudeRuntimeStatus,
@@ -232,6 +233,7 @@ export interface SessionView {
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+  kimiThinking?: import('../shared/types').KimiThinking;
   grokPermissionMode?: import('../shared/types').GrokPermissionMode;
   grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;

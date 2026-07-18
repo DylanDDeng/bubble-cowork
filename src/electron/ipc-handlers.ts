@@ -72,7 +72,7 @@ import { getClaudePlanUsage } from './libs/claude-plan-usage';
 import { getGrokPlanUsage } from './libs/grok-plan-usage';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
-import { getKimiModelConfig } from './libs/kimi-settings';
+import { getKimiModelConfig, mergeKimiServerModelMetadata } from './libs/kimi-settings';
 import { getGrokModelConfig } from './libs/grok-settings';
 import { getPiModelConfig } from './libs/pi-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
@@ -482,6 +482,17 @@ function normalizeKimiPermissionMode(
   value?: string | null
 ): import('../shared/types').KimiPermissionMode {
   return value === 'plan' || value === 'auto' || value === 'yolo' ? value : 'default';
+}
+
+/**
+ * Effort tiers are an OPEN per-model set validated server-side — pass any
+ * non-empty tier through. Unset means "server's per-model default".
+ */
+function normalizeKimiThinking(
+  value?: string | null
+): import('../shared/types').KimiThinking | undefined {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed ? trimmed : undefined;
 }
 
 function normalizeGrokPermissionMode(
@@ -3352,6 +3363,7 @@ const runnerHandles = new Map<
 	    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
 	    codexFastMode?: boolean;
 	    kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+	    kimiThinking?: import('../shared/types').KimiThinking;
 	    grokPermissionMode?: import('../shared/types').GrokPermissionMode;
 	    grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
 	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
@@ -5778,7 +5790,38 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('get-kimi-model-config', async () => {
-    return getKimiModelConfig();
+    const config = await getKimiModelConfig();
+    // Thinking effort tiers (k3-class `support_efforts`) only exist in the
+    // server's model metadata. NEVER block this call on daemon I/O — the
+    // composer resolves its model selection from this config, and a slow
+    // response paints raw model ids / stale defaults that later snap to the
+    // real labels (visible flicker). Merge synchronously from the cache;
+    // otherwise return the CLI config now, warm the cache in the background,
+    // and nudge the renderer to refetch (which then hits the cache).
+    try {
+      ensureProviderService();
+      const kimiAdapter = getProviderService().getAdapter('kimi') as
+        | {
+            peekServerModels?: () => Array<Record<string, unknown>> | null;
+            getServerModels?: () => Promise<Array<Record<string, unknown>> | null>;
+          }
+        | null;
+      const cachedModels = kimiAdapter?.peekServerModels?.();
+      if (cachedModels) {
+        return mergeKimiServerModelMetadata(config, cachedModels);
+      }
+      void kimiAdapter
+        ?.getServerModels?.()
+        .then((serverModels) => {
+          if (serverModels && !mainWindow.isDestroyed()) {
+            broadcast(mainWindow, { type: 'kimi.modelConfigUpdated', payload: {} });
+          }
+        })
+        .catch(() => {});
+    } catch (error) {
+      console.warn('[Kimi] server model metadata enrichment failed:', error);
+    }
+    return config;
   });
 
   ipcMainHandle('get-kimi-runtime-status', async () => {
@@ -7960,6 +8003,7 @@ async function handleSessionStart(
     codexSkills,
     codexMentions,
     kimiPermissionMode,
+    kimiThinking,
     grokPermissionMode,
     grokReasoningEffort,
     opencodePermissionMode,
@@ -8041,6 +8085,8 @@ async function handleSessionStart(
     chosenProvider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined;
   const selectedKimiPermissionMode =
     chosenProvider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined;
+  const selectedKimiThinking =
+    chosenProvider === 'kimi' ? normalizeKimiThinking(kimiThinking) : undefined;
   // Composer currently reuses the kimi permission control for Grok; accept either field.
   const selectedGrokPermissionMode =
     chosenProvider === 'grok'
@@ -8304,7 +8350,9 @@ async function handleSessionStart(
         }
       : undefined,
     undefined,
-    Boolean(automationRunId)
+    Boolean(automationRunId),
+    false,
+    selectedKimiThinking
   );
   return session.id;
 }
@@ -8333,6 +8381,7 @@ async function handleSessionContinue(
     codexSkills,
     codexMentions,
     kimiPermissionMode,
+    kimiThinking,
     grokPermissionMode,
     grokReasoningEffort,
     opencodePermissionMode,
@@ -8477,6 +8526,9 @@ async function handleSessionContinue(
     : undefined;
   const nextKimiPermissionMode = nextProvider === 'kimi'
     ? normalizeKimiPermissionMode(kimiPermissionMode)
+    : undefined;
+  const nextKimiThinking = nextProvider === 'kimi'
+    ? normalizeKimiThinking(kimiThinking)
     : undefined;
   const nextGrokPermissionMode = nextProvider === 'grok'
     ? normalizeGrokPermissionMode(grokPermissionMode || kimiPermissionMode)
@@ -8781,6 +8833,7 @@ async function handleSessionContinue(
 	          : nextProvider === 'kimi'
 	          ? {
 	              kimiPermissionMode: nextKimiPermissionMode,
+	              kimiThinking: nextKimiThinking,
 	            }
           : undefined;
       existingEntry.handle.send(
@@ -8799,6 +8852,7 @@ async function handleSessionContinue(
 	      }
 	      if (nextProvider === 'kimi') {
 	        existingEntry.kimiPermissionMode = nextKimiPermissionMode;
+	        existingEntry.kimiThinking = nextKimiThinking;
 	      }
       return true;
     }
@@ -8897,7 +8951,12 @@ async function handleSessionContinue(
     nextProvider === 'grok' ? nextGrokReasoningEffort : undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
     nextProvider === 'codex' ? codexMentions : undefined,
-    sessionAgentId
+    sessionAgentId,
+    undefined,
+    undefined,
+    false,
+    false,
+    nextKimiThinking
   );
   return true;
 }
@@ -8939,7 +8998,8 @@ function startRunner(
   // splitting runClaude into a warm phase and a query phase, with canUseTool
   // and the full option set bound at warm time — the empty-prompt path gets
   // identical behavior through the existing runner plumbing.)
-  prewarmRunner = false
+  prewarmRunner = false,
+  kimiThinking?: import('../shared/types').KimiThinking
 ): void {
   if (!session) return;
 
@@ -9031,6 +9091,7 @@ function startRunner(
     codexReasoningEffort,
     codexFastMode,
     kimiPermissionMode,
+    kimiThinking,
     grokPermissionMode,
     grokReasoningEffort,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
@@ -9722,6 +9783,7 @@ function startRunner(
 	    opencodePermissionMode:
 	      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
 	    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
+	    kimiThinking: provider === 'kimi' ? normalizeKimiThinking(kimiThinking) : undefined,
     grokPermissionMode:
       provider === 'grok' ? normalizeGrokPermissionMode(grokPermissionMode) : undefined,
     grokReasoningEffort:

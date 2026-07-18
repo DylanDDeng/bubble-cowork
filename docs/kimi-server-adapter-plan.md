@@ -329,6 +329,33 @@ deep-backlog resync, quit kill ordering.
   the prefix), so the inserted token renders as an inline skill chip in the
   composer, pre- and post-session.
 
+- **Thinking** (probed 2026-07-18): the prompt-submit `thinking` field is an
+  effort-tier STRING, not a boolean (`thinking: true` → 40001 zod error).
+  Tiers are an open set (`off | on | low | medium | high` seen in the
+  binary), validated per-model server-side: `kimi-for-coding` supports only
+  `off` (50001 otherwise); thinking-capable models (`kimi-k2.x`, per the
+  `thinking` entry in model `capabilities`) accept `on`/`off`, default to ON
+  when unset, and lax-normalize unknown strings to `on`. k2.5 currently
+  fails upstream (`400 thinking.keep is not supported`) even without
+  thinking — a CLI↔moonshot mismatch, not ours; k2.6 works end-to-end with
+  streamed `thinking.delta {turnId, delta}` frames. Aegis wiring:
+  `kimiThinking?: 'on' | 'off'` rides start/continue payloads →
+  `KimiServerAdapter` (sticky per session, omitted when unset) → submit
+  `thinking`; the agent/model picker's Kimi submenu carries a
+  Codex/Claude-style "Thinking" section. **Tier sets are per-model
+  metadata** (probed 2026-07-18): the server's `GET /models` exposes
+  `support_efforts` + `default_effort` for k3-class models
+  (`kimi-code/k3`: off/low/high/max, default max; `moonshot-cn/kimi-k3`:
+  off/max), while k2.x thinking models are on/off and `always_thinking`
+  models can't disable thinking by default. The UI derives its options
+  entirely from that metadata (no tier whitelist): `get-kimi-model-config`
+  enriches the CLI list via the facade's cached server `GET /models`
+  (`mergeKimiServerModelMetadata`); a stored preference is only SENT when
+  valid for the current model, otherwise the submit omits `thinking` and
+  the checked item falls back to the model default. The trigger label
+  suffixes the active tier (" Thinking" for on, " Max"/" High"/… for
+  tiers). The ACP runtime ignores the flag (old threads no-op).
+
 ## Appendix: M0 probe results (0.26.0, 2026-07-17, `scripts/probe-kimi-server.mjs`)
 
 All probes run live against Kimi Code 0.26.0. Re-run the probe script after
