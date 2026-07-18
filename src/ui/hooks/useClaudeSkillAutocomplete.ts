@@ -183,6 +183,7 @@ export function useComposerCapabilityMenu({
 }) {
   const { claudeUserSkills, claudeProjectSkills } = useAppStore();
   const [codexSlashSkills, setCodexSlashSkills] = useState<ClaudeSkillSummary[]>([]);
+  const [kimiSlashSkills, setKimiSlashSkills] = useState<ClaudeSkillSummary[]>([]);
   const [promptLibraryItems, setPromptLibraryItems] = useState<PromptLibraryItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -267,6 +268,39 @@ export function useComposerCapabilityMenu({
     };
   }, [enableSkills, enabled, projectPath, provider]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!enabled || !enableSkills || provider !== 'kimi') {
+      setKimiSlashSkills([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Session-independent: the kimi server lists skills per workspace, so the
+    // catalog is available in NewSessionView and before the first turn.
+    void window.electron
+      .listKimiSkills({ cwd: projectPath?.trim() || undefined })
+      .then((result) => {
+        if (cancelled) return;
+        const skills = result.skills
+          .map(toCodexSlashSkill)
+          .filter((skill): skill is ClaudeSkillSummary => Boolean(skill));
+        setKimiSlashSkills(skills);
+      })
+      .catch((error) => {
+        console.warn('[Kimi composer] Failed to load Kimi skills:', error);
+        if (!cancelled) {
+          setKimiSlashSkills([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enableSkills, enabled, projectPath, provider]);
+
   const composerTrigger = useMemo(
     () => (enabled ? detectComposerTrigger(prompt, cursorIndex ?? prompt.length) : null),
     [cursorIndex, enabled, prompt]
@@ -291,12 +325,15 @@ export function useComposerCapabilityMenu({
       if (provider === 'codex') {
         return codexSlashSkills;
       }
+      if (provider === 'kimi') {
+        return kimiSlashSkills;
+      }
       if (provider === 'claude') {
         return mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames);
       }
       return [];
     },
-    [claudeUserSkills, claudeProjectSkills, codexSlashSkills, enableSkills, provider, sessionSkillNames]
+    [claudeUserSkills, claudeProjectSkills, codexSlashSkills, enableSkills, kimiSlashSkills, provider, sessionSkillNames]
   );
 
   const availableCommands = useMemo(
@@ -372,11 +409,12 @@ export function useComposerCapabilityMenu({
       includeCommands: triggerKind !== 'skill',
       includeSkills:
         triggerKind === 'skill' ||
-        (triggerKind === 'slash-command' && (provider === 'claude' || provider === 'codex')),
+        (triggerKind === 'slash-command' &&
+          (provider === 'claude' || provider === 'codex' || provider === 'kimi')),
       includePrompts: triggerKind === 'slash-command',
-      // Codex matches the codex app: `/` reaches the full skill catalog, same
-      // budget as the `$` menu (Claude keeps the compact 8-slot mix).
-      skillLimit: provider === 'codex' ? 80 : undefined,
+      // Codex/Kimi match the codex app: `/` reaches the full skill catalog,
+      // same budget as the `$` menu (Claude keeps the compact 8-slot mix).
+      skillLimit: provider === 'codex' || provider === 'kimi' ? 80 : undefined,
     });
   }, [availableCommands, availableSkills, enabled, promptLibraryItems, provider, query, triggerKind]);
 
@@ -404,11 +442,14 @@ export function useComposerCapabilityMenu({
     (!selectedCommandState || composerTrigger.kind === 'slash-command');
 
   const selectSkill = (skill: ClaudeSkillSummary) => {
+    // Kimi has no skill-reference pipeline: the server runtime expands
+    // `/skill:<name> <args>` prompt text inside the turn, so insert exactly
+    // that token (matches the ACP runtime's advertised command names).
     const next = replaceComposerTriggerOrLeadingToken({
       prompt,
       trigger: composerTrigger,
-      fallbackPrefix: skillMentionPrefix(provider),
-      name: skill.name,
+      fallbackPrefix: provider === 'kimi' ? '/' : skillMentionPrefix(provider),
+      name: provider === 'kimi' ? `skill:${skill.name}` : skill.name,
     });
     setPrompt(next.prompt);
     setCursorIndex?.(next.cursorIndex);
@@ -447,7 +488,16 @@ export function useComposerCapabilityMenu({
   const slashContext = useMemo<SlashTokenContext>(
     () =>
       createSlashTokenContext(
-        enabled && enableSkills ? recognitionSkills.map((skill) => skill.name) : [],
+        enabled && enableSkills
+          ? [
+              ...recognitionSkills.map((skill) => skill.name),
+              // Kimi skill invocations are the literal `/skill:<name>` token;
+              // registering the prefixed variant renders them as skill chips.
+              ...(provider === 'kimi'
+                ? kimiSlashSkills.map((skill) => `skill:${skill.name}`)
+                : []),
+            ]
+          : [],
         enabled ? recognitionCommands.map((command) => command.name) : [],
         enabled && enableSkills
           ? recognitionSkills
@@ -455,7 +505,7 @@ export function useComposerCapabilityMenu({
               .map((skill) => skill.name)
           : []
       ),
-    [enableSkills, enabled, recognitionCommands, recognitionSkills]
+    [enableSkills, enabled, kimiSlashSkills, provider, recognitionCommands, recognitionSkills]
   );
 
   const slashDisplayLabels = useMemo(() => {
@@ -467,8 +517,19 @@ export function useComposerCapabilityMenu({
         labels[key] = label;
       }
     }
+    if (provider === 'kimi') {
+      // The chip label drops the `skill:` prefix — the skill icon already
+      // says what it is.
+      for (const skill of kimiSlashSkills) {
+        const key = normalizeCapabilityName(`skill:${skill.name}`);
+        const label = formatCapabilityDisplayName(skill);
+        if (key && label) {
+          labels[key] = label;
+        }
+      }
+    }
     return labels;
-  }, [recognitionSkills]);
+  }, [kimiSlashSkills, provider, recognitionSkills]);
 
   return {
     hasSlashQuery,

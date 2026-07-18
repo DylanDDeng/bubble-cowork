@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'child_process';
 import type { KimiRuntimeStatus } from '../../shared/types';
 import { buildKimiEnv, buildKimiLoginCommand, resolveKimiBinary } from './kimi-cli';
+import { isKimiServerCapable } from './provider/kimi-adapter-facade';
 
 const PROBE_TIMEOUT_MS = 5000;
 
@@ -146,6 +147,7 @@ export async function getKimiRuntimeStatus(): Promise<KimiRuntimeStatus> {
       cliPath: null,
       cliVersion: null,
       acpAvailable: false,
+      serverAvailable: false,
       authState: 'unknown',
       loginCommand: buildKimiLoginCommand(null),
       summary: 'Kimi Code CLI was not found.',
@@ -154,9 +156,10 @@ export async function getKimiRuntimeStatus(): Promise<KimiRuntimeStatus> {
     };
   }
 
-  const [cliVersion, acpAvailable] = await Promise.all([
+  const [cliVersion, acpAvailable, serverAvailable] = await Promise.all([
     getKimiVersion(cliPath),
     checkAcpAvailable(cliPath),
+    isKimiServerCapable(),
   ]);
   const authState = acpAvailable ? await probeKimiAuth(cliPath) : 'error';
   const ready = acpAvailable && authState === 'ready';
@@ -167,6 +170,7 @@ export async function getKimiRuntimeStatus(): Promise<KimiRuntimeStatus> {
     cliPath,
     cliVersion,
     acpAvailable,
+    serverAvailable,
     authState,
     loginCommand: buildKimiLoginCommand(cliPath),
     summary: ready

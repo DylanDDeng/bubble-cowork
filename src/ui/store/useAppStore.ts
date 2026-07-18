@@ -260,9 +260,12 @@ function shouldPreserveStreamingStateForMessage(
     return true;
   }
   return (
-    provider === 'codex' &&
-    ((message.type === 'assistant' && message.streaming === true) ||
-      (message.type === 'system' && message.subtype === 'token_usage'))
+    (provider === 'codex' &&
+      ((message.type === 'assistant' && message.streaming === true) ||
+        (message.type === 'system' && message.subtype === 'token_usage'))) ||
+    // Kimi (server runtime) emits token_usage mid-turn between steps; it must
+    // not reset the in-flight streaming buffer either.
+    (provider === 'kimi' && message.type === 'system' && message.subtype === 'token_usage')
   );
 }
 

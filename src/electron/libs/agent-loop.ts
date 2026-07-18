@@ -2,7 +2,7 @@ import type { RunnerHandle, RunnerOptions } from '../types';
 import { ensureAgentRuntimeRegistry, resolveRuntime } from './runtime';
 import { getProviderService } from './provider/service';
 import { CodexAdapter } from './provider/codex-adapter';
-import { KimiAcpAdapter } from './provider/kimi-acp-adapter';
+import { KimiAdapterFacade } from './provider/kimi-adapter-facade';
 import { GrokAcpAdapter } from './provider/grok-acp-adapter';
 import { OpenCodeSdkAdapter } from './provider/opencode-sdk-adapter';
 import { PiSdkAdapter } from './provider/pi-sdk-adapter';
@@ -22,7 +22,8 @@ export function ensureProviderService(): void {
   const codexAdapter = new CodexAdapter();
   service.registerAdapter(codexAdapter);
   service.registerAdapter(new OpenCodeSdkAdapter());
-  service.registerAdapter(new KimiAcpAdapter());
+  // Kimi routes per-thread between the ACP and server runtimes by provenance.
+  service.registerAdapter(new KimiAdapterFacade());
   service.registerAdapter(new GrokAcpAdapter());
   service.registerAdapter(new PiSdkAdapter());
 

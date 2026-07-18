@@ -383,6 +383,7 @@ export function PromptInput({
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
   const isClaudeContextVisible = runtimeProvider === 'claude' && activeSession?.provider === 'claude';
   const isCodexContextVisible = runtimeProvider === 'codex' && activeSession?.provider === 'codex';
+  const isKimiContextVisible = runtimeProvider === 'kimi' && activeSession?.provider === 'kimi';
   const isOpenCodeContextVisible = runtimeProvider === 'opencode' && activeSession?.provider === 'opencode';
   const isPiContextVisible = runtimeProvider === 'pi' && activeSession?.provider === 'pi';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
@@ -391,10 +392,10 @@ export function PromptInput({
 
   const codexContextSnapshot = useMemo(
     () =>
-      isCodexContextVisible
+      isCodexContextVisible || isKimiContextVisible
         ? getLatestCodexContextSnapshot(activeSession.messages)
         : null,
-    [activeSession?.messages, isCodexContextVisible]
+    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible]
   );
   const claudeContextSnapshot = useMemo(() => {
     if (!isClaudeContextVisible) {

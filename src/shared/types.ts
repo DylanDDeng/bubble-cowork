@@ -244,6 +244,8 @@ export interface KimiRuntimeStatus {
   cliPath: string | null;
   cliVersion: string | null;
   acpAvailable: boolean;
+  /** The CLI ships the `kimi server` runtime (REST + WS daemon). */
+  serverAvailable: boolean;
   authState: KimiRuntimeAuthState;
   loginCommand: string | null;
   summary: string;
@@ -1347,7 +1349,7 @@ export type StreamMessage =
       subtype: 'token_usage';
       uuid: string;
       session_id: string;
-      provider: 'codex';
+      provider: 'codex' | 'kimi';
       usage: CodexContextUsage;
     })
   | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean })

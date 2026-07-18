@@ -526,6 +526,11 @@ contextBridge.exposeInMainWorld('electron', {
   ): Promise<ProviderListPluginsResult> => {
     return ipcRenderer.invoke('codex-list-plugins', input);
   },
+  listKimiSkills: (
+    input: Omit<ProviderListSkillsInput, 'provider'>
+  ): Promise<ProviderListSkillsResult> => {
+    return ipcRenderer.invoke('kimi-list-skills', input);
+  },
   readCodexPlugin: (
     input: Omit<ProviderReadPluginInput, 'provider'>
   ): Promise<ProviderReadPluginResult> => {

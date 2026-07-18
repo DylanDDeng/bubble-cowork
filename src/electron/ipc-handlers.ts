@@ -3420,6 +3420,15 @@ const stoppingCodexSessions = new Map<
   { handle: RunnerHandle; settlePromise: Promise<{ confirmed: boolean }> }
 >();
 
+/**
+ * Providers whose adapter confirms interrupts via `stop_settled` (codex
+ * app-server; kimi — both runtimes: the server runtime settles on
+ * `turn.ended {cancelled}`, the ACP facade settles synthetically).
+ */
+function isTwoPhaseStopProvider(provider: string | null | undefined): boolean {
+  return provider === 'codex' || provider === 'kimi';
+}
+
 /** The entry's stop bookkeeping as the pure reconcile policy consumes it. */
 function stopStateOf(entry: RunnerEntry): StopStateSnapshot {
   return {
@@ -5650,6 +5659,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       ...result,
       skills: result.skills.map(inlineLocalSkillIcons),
     };
+  });
+
+  ipcMainHandle('kimi-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'kimi',
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
+    });
   });
 
   ipcMainHandle('codex-list-plugins', async (_event, input?: Omit<ProviderListPluginsInput, 'provider'>) => {
@@ -8359,7 +8378,7 @@ async function handleSessionContinue(
   // handle-identity re-check downstream stays as backstop).
   {
     const stoppingEntry = stoppingCodexSessions.get(sessionId);
-    if (stoppingEntry && (provider || session.provider) === 'codex') {
+    if (stoppingEntry && isTwoPhaseStopProvider(provider || session.provider)) {
       await stoppingEntry.settlePromise.catch(() => undefined);
     }
   }
@@ -9195,7 +9214,7 @@ function startRunner(
       // the final 'idle'), and its terminal result stays out of the
       // transcript — same semantics as Claude's stopped turns.
       const codexStopping =
-        provider === 'codex' && stoppingCodexSessions.get(session.id)?.handle === handle;
+        isTwoPhaseStopProvider(provider) && stoppingCodexSessions.get(session.id)?.handle === handle;
       const stopClassification =
         codexStopping && message.type === 'result'
           ? { stoppedByUser: true, suppressStatusBroadcast: true }
@@ -10029,7 +10048,7 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
     // provider's confirmation ('turn/completed(interrupted)') instead of
     // pretending the turn stopped the moment the button was clicked.
     const canCodexTwoPhase =
-      entry.provider === 'codex' &&
+      isTwoPhaseStopProvider(entry.provider) &&
       typeof entry.handle.interruptAndSettle === 'function' &&
       !stoppingCodexSessions.has(sessionId);
     if (canCodexTwoPhase) {
@@ -10576,6 +10595,16 @@ export function cleanup(): void {
     entry.handle.abort();
   }
   runnerHandles.clear();
+  // The kimi server daemon is an HTTP child that won't die on stdio EOF like
+  // ACP children — kill it synchronously here (only if we spawned it).
+  try {
+    const kimiAdapter = getProviderService().getAdapter('kimi') as
+      | { killServerDaemonSync?: () => void }
+      | null;
+    kimiAdapter?.killServerDaemonSync?.();
+  } catch {
+    // provider service may not be initialized in some teardown paths
+  }
   sessionStates.clear();
   for (const [, entry] of localPreviewServers) {
     entry.server.close();

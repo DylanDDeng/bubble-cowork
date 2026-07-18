@@ -70,7 +70,13 @@ function isResultMessage(message: StreamMessage): message is Extract<StreamMessa
 function isCodexTokenUsageMessage(
   message: StreamMessage
 ): message is Extract<StreamMessage, { type: 'system'; subtype: 'token_usage' }> {
-  return message.type === 'system' && message.subtype === 'token_usage' && message.provider === 'codex';
+  // Kimi (server runtime) reports usage through the same message shape and
+  // shares the codex-style context ring.
+  return (
+    message.type === 'system' &&
+    message.subtype === 'token_usage' &&
+    (message.provider === 'codex' || message.provider === 'kimi')
+  );
 }
 
 function selectModelUsageEntry(

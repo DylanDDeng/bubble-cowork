@@ -95,8 +95,8 @@ export function CodexContextIndicator({ snapshot }: { snapshot: CodexContextSnap
               }}
             >
               {snapshot.percent >= CONTEXT_CRITICAL_PERCENT
-                ? `已用 ${snapshot.percent}% · 已接近上下文窗口上限`
-                : `已用 ${snapshot.percent}% · 接近上下文窗口上限`}
+                ? `${snapshot.percent}% used · context window nearly full`
+                : `${snapshot.percent}% used · approaching the context window limit`}
             </div>
           ) : null}
         </div>

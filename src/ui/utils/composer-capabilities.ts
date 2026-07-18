@@ -85,13 +85,14 @@ export function buildComposerCapabilitySuggestions(input: {
     ? filterPromptLibraryItems(input.promptLibraryItems, input.query)
     : [];
 
-  // Claude CLI exposes every skill as a slash command too, so drop commands
-  // whose names collide with a known skill to avoid duplicate entries.
+  // Claude CLI exposes every skill as a slash command too (Kimi as
+  // `skill:<name>`), so drop commands whose names collide with a known skill
+  // to avoid duplicate entries.
   const skillNameSet = new Set(
     input.availableSkills.map((skill) => skill.name.replace(/^\//, '').toLowerCase())
   );
   const dedupedCommands = commandSuggestions.filter(
-    (command) => !skillNameSet.has(command.name.toLowerCase())
+    (command) => !skillNameSet.has(command.name.replace(/^skill:/, '').toLowerCase())
   );
 
   return [
