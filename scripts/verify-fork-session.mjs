@@ -55,16 +55,33 @@ assert.ok(
   'forkSessionToPane must call the IPC, build a SessionView, and open it in a pane'
 );
 
-// Right-click native context menu on the sidebar session row, gated to Claude
-// sessions with a session id.
+// Right-click context menu on the sidebar session row (in-app Base UI menu),
+// gated to providers whose runtime can fork.
 const tree = read('src/ui/components/FolderTreeView.tsx');
 assert.ok(
-  tree.includes('onContextMenu={handleContextMenu}') &&
-    tree.includes('window.electron.showNativeMenu(') &&
-    tree.includes('forkSessionToPane(session.id)') &&
+  tree.includes('forkSessionToPane(session.id)') &&
     tree.includes('canFork') &&
-    tree.includes("session.provider === 'claude'"),
-  'sidebar session items must offer Fork via a native context menu, gated to Claude sessions'
+    tree.includes('providerSupportsFork') &&
+    tree.includes("session.provider === 'claude'") &&
+    tree.includes("session.provider === 'kimi'"),
+  'sidebar session items must offer Fork via the in-app context menu, gated to fork-capable providers (incl. kimi)'
+);
+
+// Kimi wiring: dispatch includes kimi, the provider thread id round-trips
+// through kimi_session_id with the server: provenance guard.
+assert.ok(
+  ipc.includes("sourceProvider === 'codex' || sourceProvider === 'opencode' || sourceProvider === 'kimi'") &&
+    ipc.includes('source.kimi_session_id') &&
+    ipc.includes('updateKimiSessionId(fork.id, forkedThreadId)') &&
+    ipc.includes("!providerThreadId.startsWith('server:')"),
+  'fork must route kimi through kimi_session_id with the server-runtime provenance guard'
+);
+
+// Adapter rejections must resolve to the {ok:false} toast path, not an
+// unhandled renderer rejection (return await, not bare return).
+assert.ok(
+  ipc.includes('return await forkProviderThreadSession(source, sourceProvider)'),
+  'forkSessionInternal must await forkProviderThreadSession so adapter failures hit its catch'
 );
 
 console.log('fork-session: wiring checks passed');

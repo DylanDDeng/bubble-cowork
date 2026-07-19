@@ -4815,19 +4815,37 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return generateSessionTitle(prompt);
   });
 
-  // Fork a codex/opencode conversation: fork the provider-side thread through
-  // the adapter (codex `thread/fork`, opencode `session.fork`), then mirror the
-  // Aegis session row and transcript so both branches continue independently.
+  // Fork a codex/opencode/kimi conversation: fork the provider-side thread
+  // through the adapter (codex `thread/fork`, opencode `session.fork`, kimi
+  // server `:fork`), then mirror the Aegis session row and transcript so both
+  // branches continue independently. The kimi server fork carries the full
+  // conversation history itself (probed), so the local transcript copy is
+  // display-only — nothing is ever re-submitted into the fork.
   async function forkProviderThreadSession(
     source: import('./types').SessionRow,
-    provider: 'codex' | 'opencode'
+    provider: 'codex' | 'opencode' | 'kimi'
   ): Promise<{ ok: true; session: SessionInfo } | { ok: false; message: string }> {
     const providerThreadId =
-      provider === 'codex' ? source.codex_session_id : source.opencode_session_id;
+      provider === 'codex'
+        ? source.codex_session_id
+        : provider === 'opencode'
+          ? source.opencode_session_id
+          : source.kimi_session_id;
     if (!providerThreadId) {
       return {
         ok: false as const,
         message: 'Send a message first — there is no conversation to fork yet.',
+      };
+    }
+
+    // Kimi provenance: only server-runtime threads (`server:` ids) can fork.
+    // Legacy-runtime session spaces are disjoint and have no fork mechanism;
+    // return the friendly error here instead of letting the facade throw.
+    if (provider === 'kimi' && !providerThreadId.startsWith('server:')) {
+      return {
+        ok: false as const,
+        message:
+          'This thread runs on the legacy Kimi runtime, which cannot fork — start a new Kimi thread to get forking.',
       };
     }
 
@@ -4869,6 +4887,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
     if (provider === 'codex') {
       sessions.updateCodexSessionId(fork.id, forkedThreadId);
+    } else if (provider === 'kimi') {
+      // Stored verbatim including the `server:` provenance prefix the facade
+      // stamps — resume routing depends on it.
+      sessions.updateKimiSessionId(fork.id, forkedThreadId);
     } else {
       sessions.updateOpencodeSessionId(fork.id, forkedThreadId);
     }
@@ -4893,13 +4915,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         return { ok: false as const, message: 'Session not found.' };
       }
       const sourceProvider = (source.provider || 'claude') as AgentProvider;
-      if (sourceProvider === 'codex' || sourceProvider === 'opencode') {
-        return forkProviderThreadSession(source, sourceProvider);
+      if (sourceProvider === 'codex' || sourceProvider === 'opencode' || sourceProvider === 'kimi') {
+        // `await` matters: a bare `return` would let adapter rejections skip
+        // this function's catch and surface as an unhandled renderer
+        // rejection instead of the {ok:false} toast.
+        return await forkProviderThreadSession(source, sourceProvider);
       }
       if (sourceProvider !== 'claude') {
         return {
           ok: false as const,
-          message: 'Forking is only supported for Claude, Codex, and OpenCode sessions.',
+          message: 'Forking is only supported for Claude, Codex, OpenCode, and Kimi sessions.',
         };
       }
       // The app doesn't always persist claude_session_id (it can resume by

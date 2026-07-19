@@ -356,6 +356,76 @@ deep-backlog resync, quit kill ordering.
   suffixes the active tier (" Thinking" for on, " Max"/" High"/… for
   tiers). The ACP runtime ignores the flag (old threads no-op).
 
+- **Settings usage report**: the Usage tab's kimi card aggregates persisted
+  `result` messages (`getClaudeProtocolUsageReport('kimi')`), and both kimi
+  adapters used to emit zero-usage results — so the card was always empty.
+  The server adapter now accumulates `turn.step.completed.usage` per turn
+  and emits it on the result (Claude shape: input/output/cache_read/
+  cache_creation + `model` for attribution). Cost stays 0 — the server
+  reports no per-turn cost, and there is no account-level quota/usage
+  endpoint anywhere in the CLI surface (binary-mined; membership quota is
+  docs-only). ACP threads keep zero usage (the protocol carries none).
+  Historical pre-fix usage is unrecoverable from ALL four sources (zeroed
+  Aegis results, last-step-only token_usage rows, stubbed server session
+  usage, usage-less server /messages — all verified live).
+- **Per-turn token_usage ledger**: the kimi `token_usage` uuid is stable per
+  TURN (`kimi-token-usage-<thread>:<turnId>`), not per session, and carries
+  the turn-CUMULATIVE tokens + context watermark. Steps within a turn still
+  overwrite in place (smooth ring, no row spam), but each finished turn
+  leaves one appended row — a per-turn usage timeline in the transcript DB
+  (`addMessage` upserts by uuid). Step-level within-turn history is
+  deliberately sacrificed.
+
+- **Fork wired end to end** (2026-07-19, reviewed by a three-lens panel):
+  the ipc `forkProviderThreadSession` routes kimi via `kimi_session_id`
+  (stored verbatim with the `server:` prefix), with a provenance pre-check
+  that returns a friendly error for legacy-runtime ids. The dispatch now
+  `return await`s the fork so adapter rejections hit the catch → toast
+  (previously a silent unhandled rejection — also fixed codex/opencode in
+  passing). UI enables the menu item for kimi and disables it while a turn
+  runs (fork-mid-turn semantics unprobed). Probed on 0.27.0: the server
+  fork copies the FULL history (22/22 messages verified), forks of forks
+  work, archived sessions still fork (archive ≠ delete), `:fork` errors ride
+  the envelope code on HTTP 200, and a fork's WS cursor starts fresh (its
+  history never replays over WS — `GET /messages` or the local mirror only).
+- **Logical ACP removal + legacy adoption** (2026-07-19, three-lens panel
+  review + live probes): bare-id (legacy) thread resumes no longer default
+  to the ACP runtime. The facade first asks the server to adopt the bare id
+  (explicit WS subscribe): ACCEPTED → the same session continues on the
+  server runtime with full history (probed on 0.27.0 including a real
+  2026-07-03 legacy session — list/messages/subscribe/ACP-round-trip all
+  green), and the prefixed `system_init` rewrites the DB id to
+  `server:<same id>` (reversible in the sense that the underlying id is
+  preserved under the prefix). NOT_FOUND → the thread stays on the legacy
+  runtime with its id untouched — a still-valid legacy id is never
+  destroyed (honors the Rollout invariant). Adoption is gated on the same
+  deterministic capability probe as new threads; a daemon boot failure on a
+  capable CLI throws loudly (no runtime flapping). `AEGIS_KIMI_RUNTIME=acp`
+  is an escape hatch for the MIGRATION STEP only: new threads and
+  not-yet-adopted legacy threads run on ACP, but already-migrated
+  (`server:`-prefixed) threads keep using the server daemon, and composer
+  capabilities follow the override — it is not a full server-runtime kill
+  switch. Successful adoption is silent in the UI (a console.info log
+  only), matching how successful resumes behave for every provider.
+  Physical deletion of `kimi-acp-adapter.ts` is deferred until the adopted
+  paths have survived a release cycle. Known edge: a bare id equal to an
+  already-bound server id surfaces `KimiThreadBindingError` as a raw runner
+  error; the DB id stays bare and a later retry works.
+- **Ack-shape gotcha (0.27.0)**: `client_hello` INLINE subscriptions ack
+  with `accepted_subscriptions`/`resync_required` and have NO `not_found`
+  field; explicit `subscribe` messages keep the full
+  `accepted/not_found/resync_required` payload. The manager only uses
+  explicit subscribes, so not_found semantics hold; never key logic off the
+  inline-ack shape. (`POST /sessions/{id}:archive` — colon action — remains
+  the correct archive form; the slash form `/{id}/archive` is
+  `unsupported action`.)
+- **0.27.0 canary** (2026-07-19): all surface probes match this appendix;
+  one delta — a live daemon now sees ACP-created sessions in
+  `GET /sessions` without a restart, but ACP resume of server sessions
+  still fails, so provenance stickiness is unchanged. The probe script now
+  ADOPTS a running daemon (Aegis open) and skips ownership-dependent
+  lifecycle probes instead of dying on the singleton refusal.
+
 ## Appendix: M0 probe results (0.26.0, 2026-07-17, `scripts/probe-kimi-server.mjs`)
 
 All probes run live against Kimi Code 0.26.0. Re-run the probe script after

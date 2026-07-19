@@ -20,6 +20,7 @@ import type {
   GrokPlanUsageReport,
 } from '../../types';
 import type { UserProfile } from '../../../shared/types';
+import { useKimiModelConfig } from '../../hooks/useKimiModelConfig';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { SettingsGroup } from './SettingsPrimitives';
 
@@ -70,6 +71,16 @@ export function ClaudeUsageSettingsContent() {
   const [grokPlanUsageLoading, setGrokPlanUsageLoading] = useState(true);
   const [grokPlanUsageError, setGrokPlanUsageError] = useState<string | null>(null);
   const userProfile = useUserProfile();
+  const kimiModelConfig = useKimiModelConfig();
+  const kimiModelLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const model of kimiModelConfig.availableModels) {
+      if (model.label && model.label !== model.name) {
+        labels[model.name] = model.label;
+      }
+    }
+    return labels;
+  }, [kimiModelConfig]);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,17 +241,27 @@ export function ClaudeUsageSettingsContent() {
 
   const providers = useMemo<UsageProviderCard[]>(
     () =>
-      USAGE_PROVIDERS.map((provider) => ({
-        id: provider.id,
-        title: provider.title,
-        logo: provider.logoSrc ? (
-          <img src={provider.logoSrc} alt="" className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-        ) : (
-          <OpenCodeLogo className="h-3.5 w-3.5 flex-shrink-0" />
-        ),
-        ...usageByProvider[provider.id],
-      })),
-    [usageByProvider]
+      USAGE_PROVIDERS.map((provider) => {
+        const state = usageByProvider[provider.id];
+        return {
+          id: provider.id,
+          title: provider.title,
+          logo: provider.logoSrc ? (
+            <img src={provider.logoSrc} alt="" className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+          ) : (
+            <OpenCodeLogo className="h-3.5 w-3.5 flex-shrink-0" />
+          ),
+          ...state,
+          // Kimi attributes usage by raw model id (e.g. kimi-code/kimi-for-coding);
+          // relabel with the picker's display names ("K2.7 Coding") so the card
+          // matches what the user selected.
+          report:
+            provider.id === 'kimi' && state.report
+              ? relabelUsageReportModels(state.report, kimiModelLabels)
+              : state.report,
+        };
+      }),
+    [kimiModelLabels, usageByProvider]
   );
 
   const activeProviderCard = providers.find((provider) => provider.id === activeProvider) || providers[0];
@@ -785,6 +806,52 @@ function TopModels({ report }: { report: ClaudeUsageReport }) {
 
 function shortModelName(model: string): string {
   return model.length > 26 ? `${model.slice(0, 24)}…` : model;
+}
+
+/**
+ * Replace raw model ids with display labels across a usage report (model
+ * summaries + daily byModel buckets). Same-label ids merge additively.
+ */
+function relabelUsageReportModels(
+  report: ClaudeUsageReport,
+  labels: Record<string, string>
+): ClaudeUsageReport {
+  if (Object.keys(labels).length === 0) return report;
+  const labelOf = (model: string) => labels[model] || model;
+
+  const mergedModels = new Map<string, ClaudeUsageReport['models'][number]>();
+  for (const summary of report.models) {
+    const label = labelOf(summary.model);
+    const existing = mergedModels.get(label);
+    if (!existing) {
+      mergedModels.set(label, { ...summary, model: label });
+      continue;
+    }
+    existing.inputTokens += summary.inputTokens;
+    existing.outputTokens += summary.outputTokens;
+    existing.totalTokens += summary.totalTokens;
+    existing.totalCostUsd += summary.totalCostUsd;
+    existing.cacheReadTokens += summary.cacheReadTokens;
+    existing.sessionCount += summary.sessionCount;
+  }
+
+  return {
+    ...report,
+    models: Array.from(mergedModels.values()),
+    daily: report.daily.map((day) => {
+      const byModel: Record<string, number> = {};
+      const byModelCostUsd: Record<string, number> = {};
+      for (const [model, tokens] of Object.entries(day.byModel)) {
+        const label = labelOf(model);
+        byModel[label] = (byModel[label] || 0) + tokens;
+      }
+      for (const [model, cost] of Object.entries(day.byModelCostUsd || {})) {
+        const label = labelOf(model);
+        byModelCostUsd[label] = (byModelCostUsd[label] || 0) + cost;
+      }
+      return { ...day, byModel, byModelCostUsd };
+    }),
+  };
 }
 
 /* ---------- States ---------- */
@@ -1504,7 +1571,8 @@ function getProviderLogoForModel(model: string): string | null {
     return piLogo;
   }
 
-  if (normalized.startsWith('kimi')) {
+  // "K3" / "K2.7 Coding" are Kimi display labels (see relabelUsageReportModels).
+  if (normalized.startsWith('kimi') || /^k[0-9]/.test(normalized)) {
     return moonshotLogo;
   }
 

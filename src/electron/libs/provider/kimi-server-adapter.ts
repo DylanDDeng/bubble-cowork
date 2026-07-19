@@ -160,6 +160,10 @@ interface ActiveServerSession {
   seenInteractionIds: Set<string>;
   pendingInteractions: Map<string, PendingInteraction>;
   lastContext: { contextTokens: number; maxContextTokens: number };
+  /** Per-turn token accumulation from `turn.step.completed.usage` — the sole
+   * usage source (REST session fields are stubbed). Feeds the result message
+   * so the Settings usage report can aggregate kimi consumption. */
+  turnUsage: { input: number; output: number; cacheRead: number; cacheCreation: number };
   pendingManualCompact: boolean;
   /** The current turn already surfaced an error event (P0-1 dedupe). */
   reportedTurnError: boolean;
@@ -263,6 +267,7 @@ export class KimiServerAdapter implements ProviderAdapter {
       seenInteractionIds: new Set(),
       pendingInteractions: new Map(),
       lastContext: { contextTokens: 0, maxContextTokens: 0 },
+      turnUsage: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
       pendingManualCompact: false,
       reportedTurnError: false,
       stopRequest: null,
@@ -618,6 +623,7 @@ export class KimiServerAdapter implements ProviderAdapter {
       case 'turn.started':
         session.activeTurn = true;
         session.reportedTurnError = false;
+        session.turnUsage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
         break;
       case 'assistant.delta':
         this.appendAssistantText(session, getString(payload.delta));
@@ -794,23 +800,31 @@ export class KimiServerAdapter implements ProviderAdapter {
    * Usage/context flow ONLY from WS (`turn.step.completed.usage` + the
    * volatile `agent.status.updated` context ring) — the REST session-list
    * fields are stubbed in 0.26.0 (C1).
+   *
+   * The uuid is stable PER TURN (not per session): steps within a turn
+   * overwrite one message (smooth ring, no row spam), and each finished
+   * turn leaves exactly one persisted row carrying the turn's cumulative
+   * tokens + the context watermark — an append-only per-turn usage
+   * timeline instead of a single last-step snapshot.
    */
   private emitTokenUsage(session: ActiveServerSession, payload: Record<string, unknown>): void {
     const usage = isRecord(payload.usage) ? payload.usage : {};
-    const inputTokens = getNumber(usage.inputOther);
-    const outputTokens = getNumber(usage.output);
-    const cachedInputTokens = getNumber(usage.inputCacheRead);
+    session.turnUsage.input += getNumber(usage.inputOther);
+    session.turnUsage.output += getNumber(usage.output);
+    session.turnUsage.cacheRead += getNumber(usage.inputCacheRead);
+    session.turnUsage.cacheCreation += getNumber(usage.inputCacheCreation);
     const { contextTokens, maxContextTokens } = session.lastContext;
+    const turnId = typeof payload.turnId === 'number' ? payload.turnId : 'active';
     const message: StreamMessage = {
       type: 'system',
       subtype: 'token_usage',
-      uuid: `kimi-token-usage-${session.threadId}`,
+      uuid: `kimi-token-usage-${session.threadId}:${turnId}`,
       session_id: session.threadId,
       provider: 'kimi',
       usage: {
-        inputTokens,
-        cachedInputTokens,
-        outputTokens,
+        inputTokens: session.turnUsage.input,
+        cachedInputTokens: session.turnUsage.cacheRead,
+        outputTokens: session.turnUsage.output,
         reasoningOutputTokens: 0,
         totalTokens: contextTokens,
         contextWindow: maxContextTokens,
@@ -861,7 +875,8 @@ export class KimiServerAdapter implements ProviderAdapter {
           subtype: 'error',
           duration_ms: getNumber(payload.durationMs),
           total_cost_usd: 0,
-          usage: { input_tokens: 0, output_tokens: 0 },
+          usage: this.buildTurnUsage(session),
+          model: session.model,
         },
       });
       this.settleStopIfPending(session, true);
@@ -880,12 +895,28 @@ export class KimiServerAdapter implements ProviderAdapter {
         subtype: 'success',
         duration_ms: getNumber(payload.durationMs),
         total_cost_usd: 0,
-        usage: { input_tokens: 0, output_tokens: 0 },
+        usage: this.buildTurnUsage(session),
+        model: session.model,
       },
     });
     if (reason === 'cancelled') {
       this.settleStopIfPending(session, true);
     }
+  }
+
+  /**
+   * The turn's accumulated tokens in the Claude result shape — this is what
+   * the Settings usage report aggregates per provider (cost stays 0: the
+   * server reports no per-turn cost, and the stubbed REST fields don't
+   * either).
+   */
+  private buildTurnUsage(session: ActiveServerSession) {
+    return {
+      input_tokens: session.turnUsage.input,
+      output_tokens: session.turnUsage.output,
+      cache_read_input_tokens: session.turnUsage.cacheRead,
+      cache_creation_input_tokens: session.turnUsage.cacheCreation,
+    };
   }
 
   private handleErrorFrame(session: ActiveServerSession, payload: Record<string, unknown>): void {

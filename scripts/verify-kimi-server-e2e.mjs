@@ -82,8 +82,38 @@ const resumed = await facade.startSession({
 assert.equal(resumed.providerSessionId, session.providerSessionId, 'same server session resumed');
 console.log('  ✓ resume ok');
 
-// Cleanup: archive the session, stop everything (kills the owned daemon).
+console.log('▶ live E2E: legacy bare-id adoption');
+// Release the thread binding, then resume by the BARE id (no provenance
+// prefix) — the migration path must adopt the same server session and stamp
+// the prefix back on.
+await facade.stopSession('e2e-thread');
+const bareId = session.providerSessionId.slice(KIMI_SERVER_ID_PREFIX.length);
+const adopted = await facade.startSession({
+  provider: 'kimi',
+  threadId: 'e2e-migrate',
+  cwd: process.cwd(),
+  prompt: '',
+  resumeSessionId: bareId,
+});
+assert.equal(adopted.providerSessionId, session.providerSessionId, 'bare id adopted onto the same server session');
+await facade.stopSession('e2e-migrate');
+console.log('  ✓ adoption ok');
+
+console.log('▶ live E2E: fork carries history');
+const forkedId = await facade.forkThread({
+  cwd: process.cwd(),
+  providerThreadId: session.providerSessionId,
+});
+assert.ok(forkedId.startsWith(KIMI_SERVER_ID_PREFIX), 'fork id keeps the provenance prefix');
+assert.notEqual(forkedId, session.providerSessionId, 'fork is a new session');
+const rawForkId = forkedId.slice(KIMI_SERVER_ID_PREFIX.length);
+const forkMessages = await facade.server.manager.getMessages(rawForkId);
+assert.ok(forkMessages.length > 0, 'forked session carries the source history');
+console.log(`  ✓ fork ok (${forkMessages.length} messages copied)`);
+
+// Cleanup: archive both sessions, stop everything (kills the owned daemon).
 const rawId = session.providerSessionId.slice(KIMI_SERVER_ID_PREFIX.length);
+await facade.server.manager.archiveSession(rawForkId).catch(() => {});
 await facade.server.manager.archiveSession(rawId).catch(() => {});
 await facade.stopAll();
 console.log('\nE2E PASSED');

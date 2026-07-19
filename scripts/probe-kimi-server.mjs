@@ -11,6 +11,7 @@
  * diff the report against docs/kimi-server-adapter-plan.md's verified surface.
  */
 import { spawn, execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -30,7 +31,12 @@ function randPort() {
   return 20000 + Math.floor(Math.random() * 20000);
 }
 
-/** Spawn `kimi server run --foreground --port <p>` and wait for the token line. */
+/**
+ * Spawn `kimi server run --foreground --port <p>` and wait for the token
+ * line. The daemon is a machine-wide singleton: when one is already running
+ * (e.g. Aegis is open), ADOPT it — use the refusal's port and the persistent
+ * token file — and skip the ownership-dependent lifecycle probes.
+ */
 async function spawnServer(port, extraArgs = []) {
   const proc = spawn(KIMI, ['server', 'run', '--foreground', '--port', String(port), ...extraArgs], {
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -43,7 +49,18 @@ async function spawnServer(port, extraArgs = []) {
   proc.stderr.on('data', (c) => (stderr += c));
   const deadline = Date.now() + 15000;
   let token = null;
+  let adoptedPort = null;
   while (Date.now() < deadline) {
+    const running = /server already running \(pid=\d+, port=(\d+)/.exec(stderr);
+    if (running) {
+      adoptedPort = Number.parseInt(running[1], 10);
+      try {
+        token = readFileSync(path.join(homedir(), '.kimi-code', 'server.token'), 'utf8').trim() || null;
+      } catch {
+        token = null;
+      }
+      break;
+    }
     const match = /(?:token|Token)[^\n]*?([A-Za-z0-9_-]{16,})/.exec(stdout);
     if (match) {
       token = match[1];
@@ -52,7 +69,14 @@ async function spawnServer(port, extraArgs = []) {
     if (proc.exitCode !== null) break;
     await delay(100);
   }
-  return { proc, port, get stdout() { return stdout; }, get stderr() { return stderr; }, token };
+  return {
+    proc,
+    port: adoptedPort ?? port,
+    adopted: adoptedPort !== null,
+    get stdout() { return stdout; },
+    get stderr() { return stderr; },
+    token,
+  };
 }
 
 async function rest(server, method, pathName, body) {
@@ -162,16 +186,20 @@ async function main() {
     killServer(serverA);
     process.exit(1);
   }
-  report('A. token parse', 'ok', `token=${serverA.token.slice(0, 8)}… stdout line format captured`);
-  console.log('--- raw startup stdout (for regex pinning) ---');
-  console.log(serverA.stdout);
-  console.log('---------------------------------------------');
+  if (serverA.adopted) {
+    report('A. token parse', 'ok', `ADOPTED running daemon on port ${serverA.port}; token read from ~/.kimi-code/server.token`);
+  } else {
+    report('A. token parse', 'ok', `token=${serverA.token.slice(0, 8)}… stdout line format captured`);
+    console.log('--- raw startup stdout (for regex pinning) ---');
+    console.log(serverA.stdout);
+    console.log('---------------------------------------------');
+  }
 
-  const health = await fetch(`http://127.0.0.1:${portA}/healthz`).then(
+  const health = await fetch(`http://127.0.0.1:${serverA.port}/healthz`).then(
     (r) => r.status,
     () => 'ECONNREFUSED'
   );
-  const healthApi = await fetch(`http://127.0.0.1:${portA}/api/v1/healthz`).then(
+  const healthApi = await fetch(`http://127.0.0.1:${serverA.port}/api/v1/healthz`).then(
     (r) => r.status,
     () => 'ECONNREFUSED'
   );
@@ -210,40 +238,51 @@ async function main() {
     report('D. ACP id → server store', 'warn', 'could not create ACP session (auth?)');
   }
 
-  // ── Probe E: second daemon → the server is a machine-wide singleton ──────
-  const portE = randPort();
-  const serverE = await spawnServer(portE);
-  if (serverE.token) {
-    report('E. second daemon', 'warn', 'a second daemon STARTED — singleton semantics changed since 0.26.0!');
+  // ── Probes E/F: daemon lifecycle — need OWNERSHIP of the daemon. When we
+  // adopted a running daemon (Aegis open), the singleton refusal is already
+  // proven by the adoption itself and the restart probes are skipped.
+  let serverF = serverA;
+  if (serverA.adopted) {
+    report('E. second daemon refused (singleton)', 'ok', 'proven by adoption — our own spawn was refused and we adopted the running daemon');
+    report('A. SIGTERM stops --foreground child', 'warn', 'skipped (adopted daemon — not ours to kill)');
+    report('F. token persistent across restarts', 'warn', 'skipped (adopted daemon)');
+    report('F. resubscribe with pre-restart cursor', 'warn', 'skipped (adopted daemon)');
+    wsA.ws.close();
   } else {
-    const running = /server already running \(pid=(\d+), port=(\d+)/.exec(serverE.stderr);
-    report(
-      'E. second daemon refused (singleton)',
-      running ? 'ok' : 'fail',
-      running
-        ? `refused with parseable pid=${running[1]} port=${running[2]} — adopt-existing path pinned`
-        : `refused with UNPARSEABLE output: ${serverE.stdout} ${serverE.stderr}`
-    );
-  }
-  killServer(serverE);
+    const portE = randPort();
+    const serverE = await spawnServer(portE);
+    if (serverE.token && !serverE.adopted) {
+      report('E. second daemon', 'warn', 'a second daemon STARTED — singleton semantics changed since 0.26.0!');
+    } else {
+      const running = /server already running \(pid=(\d+), port=(\d+)/.exec(serverE.stderr);
+      report(
+        'E. second daemon refused (singleton)',
+        running ? 'ok' : 'fail',
+        running
+          ? `refused with parseable pid=${running[1]} port=${running[2]} — adopt-existing path pinned`
+          : `refused with UNPARSEABLE output: ${serverE.stdout} ${serverE.stderr}`
+      );
+    }
+    killServer(serverE);
 
-  // ── Probe F: cursors across daemon restart ───────────────────────────────
-  wsA.ws.close();
-  killServer(serverA);
-  await delay(500);
-  const exitedCleanly = serverA.proc.exitCode !== null || serverA.proc.signalCode !== null;
-  report('A. SIGTERM stops --foreground child', exitedCleanly ? 'ok' : 'warn', `exitCode=${serverA.proc.exitCode} signal=${serverA.proc.signalCode}`);
+    // Cursors across daemon restart
+    wsA.ws.close();
+    killServer(serverA);
+    await delay(500);
+    const exitedCleanly = serverA.proc.exitCode !== null || serverA.proc.signalCode !== null;
+    report('A. SIGTERM stops --foreground child', exitedCleanly ? 'ok' : 'warn', `exitCode=${serverA.proc.exitCode} signal=${serverA.proc.signalCode}`);
 
-  const portF = randPort();
-  const serverF = await spawnServer(portF);
-  if (serverF.token) {
-    report('F. token persistent across restarts', serverF.token === serverA.token ? 'ok' : 'warn', serverF.token === serverA.token ? 'same token' : 'token CHANGED across restart');
-    try {
-      const wsF = await openWs(serverF, [sid], cursorFromAck ? { [sid]: cursorFromAck } : undefined);
-      report('F. resubscribe with pre-restart cursor', 'ok', `ack=${JSON.stringify(wsF.ack)?.slice(0, 400)}`);
-      wsF.ws.close();
-    } catch (error) {
-      report('F. resubscribe with pre-restart cursor', 'warn', String(error));
+    const portF = randPort();
+    serverF = await spawnServer(portF);
+    if (serverF.token) {
+      report('F. token persistent across restarts', serverF.token === serverA.token ? 'ok' : 'warn', serverF.token === serverA.token ? 'same token' : 'token CHANGED across restart');
+      try {
+        const wsF = await openWs(serverF, [sid], cursorFromAck ? { [sid]: cursorFromAck } : undefined);
+        report('F. resubscribe with pre-restart cursor', 'ok', `ack=${JSON.stringify(wsF.ack)?.slice(0, 400)}`);
+        wsF.ws.close();
+      } catch (error) {
+        report('F. resubscribe with pre-restart cursor', 'warn', String(error));
+      }
     }
   }
 
@@ -254,9 +293,11 @@ async function main() {
     report('G. turn probes', 'warn', 'skipped (pass --with-turn to run; submits tiny real prompts)');
   }
 
-  // cleanup: archive probe sessions
+  // cleanup: archive probe sessions; never kill an adopted daemon
   await rest(serverF, 'POST', `/sessions/${sid}:archive`).catch(() => {});
-  killServer(serverF);
+  if (!serverF.adopted) {
+    killServer(serverF);
+  }
 
   console.log('\n===== PROBE SUMMARY =====');
   for (const r of results) console.log(`${r.outcome.toUpperCase().padEnd(4)} ${r.name}`);

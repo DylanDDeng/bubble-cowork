@@ -581,18 +581,26 @@ function SessionItem({
   );
   // Fork branches the provider-side conversation: Claude via the SDK's native
   // fork (bootstrapped from history if needed), Codex via app-server
-  // `thread/fork`, OpenCode via the SDK's `session.fork`. Other providers have
-  // no fork mechanism yet. The main process returns a friendly error for an
-  // empty conversation.
+  // `thread/fork`, OpenCode via the SDK's `session.fork`, Kimi via the server
+  // runtime's `:fork` (legacy-runtime kimi threads get a friendly error from
+  // the main process). Other providers have no fork mechanism yet. The main
+  // process returns a friendly error for an empty conversation.
   const providerSupportsFork =
-    session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode';
-  const canFork = !session.isDraft && providerSupportsFork;
+    session.provider === 'claude' ||
+    session.provider === 'codex' ||
+    session.provider === 'opencode' ||
+    session.provider === 'kimi';
+  // Kimi server fork semantics mid-turn are unprobed — disable while running.
+  const forkBlockedWhileRunning = session.provider === 'kimi' && session.status === 'running';
+  const canFork = !session.isDraft && providerSupportsFork && !forkBlockedWhileRunning;
   const canMoveToWorktree =
     !session.isDraft && session.envMode !== 'worktree' && session.status !== 'running';
   // provider 不支持 fork 时整项隐藏（不显示置灰的解释文案）
   const forkLabel = canFork
     ? 'Fork into a new pane'
-    : 'Fork into a new pane (send a message first)';
+    : forkBlockedWhileRunning
+      ? 'Fork into a new pane (wait for the turn to finish)'
+      : 'Fork into a new pane (send a message first)';
 
   const handlePreviewOpenChange = (open: boolean) => {
     if (!open || storedWorktreeBranch || !branchCwd) return;

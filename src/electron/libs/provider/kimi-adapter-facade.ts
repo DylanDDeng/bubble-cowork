@@ -145,6 +145,26 @@ export class KimiAdapterFacade implements ProviderAdapter {
       return { ...session, providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId };
     }
     if (resumeId) {
+      // Legacy (bare-id) thread. Default path: ADOPT it on the server
+      // runtime — the server loads legacy-store sessions with full history
+      // (probed on 0.27.0, incl. a 2026-07-03 session). The bare id is only
+      // rewritten (via the prefixed system_init) after the adoption
+      // subscribe is ACCEPTED; when the server does not know the id
+      // (not_found), the thread stays on the legacy runtime with its id
+      // untouched — a still-valid legacy id is never destroyed. A daemon
+      // boot failure on a capable CLI throws loudly instead of flapping to
+      // the legacy runtime (provenance corruption guard).
+      if ((await this.pickRuntimeForNewThread()) === 'server') {
+        const adoption = await this.server.manager.subscribeSession(resumeId);
+        if (adoption.accepted) {
+          const session = await this.server.startSession({ ...input, resumeSessionId: resumeId });
+          console.info(
+            `[KimiAdapterFacade] adopted legacy kimi thread ${input.threadId} onto the server runtime (${resumeId})`
+          );
+          return { ...session, providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId };
+        }
+        this.server.manager.unsubscribeSession(resumeId);
+      }
       return this.acp.startSession(input);
     }
 

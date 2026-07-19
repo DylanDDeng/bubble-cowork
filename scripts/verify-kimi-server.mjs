@@ -513,6 +513,55 @@ async function l1SteerRaceBenign() {
   ok('steer race (40402) is swallowed — the prompt auto-runs from the queue');
 }
 
+async function l1ResultCarriesTurnUsage() {
+  const t = await startL1Session({ model: 'kimi-for-coding' });
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'a', model: 'kimi-for-coding' });
+  t.push('turn.started', { turnId: 1 });
+  t.push('turn.step.completed', {
+    turnId: 1,
+    usage: { inputOther: 100, output: 20, inputCacheRead: 300, inputCacheCreation: 5 },
+  });
+  t.push('turn.step.completed', {
+    turnId: 1,
+    usage: { inputOther: 50, output: 10, inputCacheRead: 100, inputCacheCreation: 0 },
+  });
+  t.push('turn.ended', { reason: 'completed', durationMs: 9 });
+  await waitFor(() => t.events.messages('result').length === 1, 2000, 'result');
+  const result = t.events.messages('result')[0];
+  assert.equal(result.usage.input_tokens, 150, 'steps accumulate input tokens');
+  assert.equal(result.usage.output_tokens, 30);
+  assert.equal(result.usage.cache_read_input_tokens, 400);
+  assert.equal(result.usage.cache_creation_input_tokens, 5);
+  assert.equal(result.model, 'kimi-for-coding', 'result attributes the model');
+
+  // Next turn starts from zero — no cross-turn double counting.
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'b', model: 'kimi-for-coding' });
+  t.push('turn.started', { turnId: 2 });
+  t.push('turn.step.completed', {
+    turnId: 2,
+    usage: { inputOther: 7, output: 3, inputCacheRead: 0, inputCacheCreation: 0 },
+  });
+  t.push('turn.ended', { reason: 'completed' });
+  await waitFor(() => t.events.messages('result').length === 2, 2000, 'result 2');
+  const second = t.events.messages('result')[1];
+  assert.equal(second.usage.input_tokens, 7, 'turn usage resets per turn');
+  assert.equal(second.usage.output_tokens, 3);
+
+  // token_usage messages: per-TURN stable uuid (steps overwrite in place,
+  // each finished turn persists one cumulative row).
+  const usageMessages = t.events.messages('system').filter((m) => m.subtype === 'token_usage');
+  const turn1 = usageMessages.filter((m) => m.uuid.endsWith(':1'));
+  const turn2 = usageMessages.filter((m) => m.uuid.endsWith(':2'));
+  assert.equal(turn1.length, 2, 'both turn-1 steps share one uuid');
+  assert.equal(new Set(turn1.map((m) => m.uuid)).size, 1);
+  assert.equal(turn1[1].usage.inputTokens, 150, 'second step carries turn-cumulative tokens');
+  assert.equal(turn1[1].usage.cachedInputTokens, 400);
+  assert.equal(turn2.length, 1);
+  assert.notEqual(turn2[0].uuid, turn1[0].uuid, 'each turn gets its own persisted row');
+  assert.equal(turn2[0].usage.inputTokens, 7);
+  ok('result + per-turn token_usage carry accumulated usage (append-only per-turn ledger)');
+}
+
 async function l1ThinkingPassthrough() {
   const t = await startL1Session({ kimiPermissionMode: 'auto' });
   // No thinking set → the field is omitted (server per-model default rules).
@@ -768,40 +817,121 @@ function stubAcp(facade) {
   return calls;
 }
 
-async function l1FacadeProvenanceRouting() {
+async function l1FacadeForkRoundTrip() {
   const t = makeTransport();
   const facade = new KimiAdapterFacade(t.transport);
-  const acpCalls = stubAcp(facade);
-  const events = collectEvents(facade);
+  stubAcp(facade);
+  // Server-provenance id: prefix stripped for the REST call, re-stamped on
+  // the returned fork id (stored verbatim for resume routing).
+  const forked = await facade.forkThread({ cwd: '/tmp', providerThreadId: `${KIMI_SERVER_ID_PREFIX}session_src_1` });
+  assert.equal(forked, `${KIMI_SERVER_ID_PREFIX}session_forked_1`);
+  const forkCall = t.fetchImpl.calls.find((call) => /:fork$/.test(call.path));
+  assert.ok(forkCall.path.includes('/sessions/session_src_1:fork'), 'prefix stripped before the REST call');
+  // Bare (legacy-runtime) ids refuse with a clear error.
+  await assert.rejects(
+    facade.forkThread({ cwd: '/tmp', providerThreadId: 'bare_acp_id' }),
+    /server-runtime/,
+    'legacy ids cannot fork'
+  );
+  ok('facade fork: prefix round-trip + legacy-id refusal');
+}
 
-  // Bare id = ACP provenance → ACP runtime, untouched.
-  const acpSession = await facade.startSession({
-    provider: 'kimi',
-    threadId: 'thread-acp',
-    cwd: '/tmp',
-    prompt: '',
-    resumeSessionId: 'raw_acp_id_123',
-  });
-  assert.equal(acpCalls.start.length, 1);
-  assert.equal(acpCalls.start[0].resumeSessionId, 'raw_acp_id_123');
-  assert.equal(acpSession.providerSessionId, 'acp_session_1');
+async function l1FacadeProvenanceRouting() {
+  // Escape hatch semantics: under AEGIS_KIMI_RUNTIME=acp, bare ids stay on
+  // the legacy runtime (no adoption) while server: ids route to the server
+  // regardless of the override.
+  process.env.AEGIS_KIMI_RUNTIME = 'acp';
+  try {
+    const t = makeTransport();
+    const facade = new KimiAdapterFacade(t.transport);
+    const acpCalls = stubAcp(facade);
+    const events = collectEvents(facade);
 
-  // server: prefix → server runtime with the prefix stripped and re-stamped.
-  const serverSession = await facade.startSession({
-    provider: 'kimi',
-    threadId: 'thread-server',
-    cwd: '/tmp',
-    prompt: '',
-    resumeSessionId: `${KIMI_SERVER_ID_PREFIX}session_test_9`,
-  });
-  assert.ok(serverSession.providerSessionId.startsWith(KIMI_SERVER_ID_PREFIX));
-  const init = events.byType('system_init').find((event) => event.threadId === 'thread-server');
-  assert.ok(init.sessionId.startsWith(KIMI_SERVER_ID_PREFIX), 'system_init persists the provenance prefix');
+    const acpSession = await facade.startSession({
+      provider: 'kimi',
+      threadId: 'thread-acp',
+      cwd: '/tmp',
+      prompt: '',
+      resumeSessionId: 'raw_acp_id_123',
+    });
+    assert.equal(acpCalls.start.length, 1);
+    assert.equal(acpCalls.start[0].resumeSessionId, 'raw_acp_id_123');
+    assert.equal(acpSession.providerSessionId, 'acp_session_1');
 
-  // Provenance stickiness on sendTurn.
-  await facade.sendTurn({ threadId: 'thread-acp', prompt: 'hello acp' });
-  assert.equal(acpCalls.sendTurn.length, 1, 'ACP thread stays on ACP');
-  ok('facade routes by provenance: bare ids → ACP, server: ids → server, sticky per thread');
+    // server: prefix → server runtime even under the acp override.
+    const serverSession = await facade.startSession({
+      provider: 'kimi',
+      threadId: 'thread-server',
+      cwd: '/tmp',
+      prompt: '',
+      resumeSessionId: `${KIMI_SERVER_ID_PREFIX}session_test_9`,
+    });
+    assert.ok(serverSession.providerSessionId.startsWith(KIMI_SERVER_ID_PREFIX));
+    const init = events.byType('system_init').find((event) => event.threadId === 'thread-server');
+    assert.ok(init.sessionId.startsWith(KIMI_SERVER_ID_PREFIX), 'system_init persists the provenance prefix');
+
+    // Provenance stickiness on sendTurn.
+    await facade.sendTurn({ threadId: 'thread-acp', prompt: 'hello acp' });
+    assert.equal(acpCalls.sendTurn.length, 1, 'ACP thread stays on ACP');
+    ok('facade provenance under acp override: bare → ACP, server: → server, sticky');
+  } finally {
+    delete process.env.AEGIS_KIMI_RUNTIME;
+  }
+}
+
+async function l1FacadeLegacyAdoption() {
+  process.env.AEGIS_KIMI_RUNTIME = 'server';
+  try {
+    // Default path: a bare legacy id is ADOPTED by the server runtime — the
+    // subscribe is accepted, the same id round-trips with the provenance
+    // prefix (that prefixed system_init is what rewrites the DB id), and
+    // the ACP stub is never touched.
+    const t = makeTransport();
+    const facade = new KimiAdapterFacade(t.transport);
+    const acpCalls = stubAcp(facade);
+    const events = collectEvents(facade);
+    const session = await facade.startSession({
+      provider: 'kimi',
+      threadId: 'thread-migrate',
+      cwd: '/tmp',
+      prompt: '',
+      resumeSessionId: 'raw_acp_id_123',
+    });
+    assert.equal(acpCalls.start.length, 0, 'ACP is not consulted on the default path');
+    assert.equal(session.providerSessionId, `${KIMI_SERVER_ID_PREFIX}raw_acp_id_123`, 'same id, prefixed');
+    const init = events.byType('system_init').find((event) => event.threadId === 'thread-migrate');
+    assert.equal(init.sessionId, `${KIMI_SERVER_ID_PREFIX}raw_acp_id_123`, 'rewrite rides system_init');
+    assert.ok(
+      !t.fetchImpl.calls.some((call) => call.path === '/api/v1/sessions' && call.method === 'POST'),
+      'adoption creates no new session'
+    );
+
+    // Adoption REFUSED (server does not know the id): the thread stays on
+    // the legacy runtime and the bare id is never destroyed.
+    const t2 = makeTransport();
+    t2.wsFactory.onSubscribe = (msg) => ({
+      type: 'ack',
+      id: msg.id,
+      code: 0,
+      msg: 'success',
+      payload: { accepted: [], not_found: msg.payload.session_ids, resync_required: [], cursors: {} },
+    });
+    const facade2 = new KimiAdapterFacade(t2.transport);
+    const acpCalls2 = stubAcp(facade2);
+    const refused = await facade2.startSession({
+      provider: 'kimi',
+      threadId: 'thread-stay',
+      cwd: '/tmp',
+      prompt: '',
+      resumeSessionId: 'raw_dead_id_9',
+    });
+    assert.equal(acpCalls2.start.length, 1, 'refused adoption falls back to the legacy runtime');
+    assert.equal(acpCalls2.start[0].resumeSessionId, 'raw_dead_id_9', 'bare id passed through untouched');
+    assert.equal(refused.providerSessionId, 'acp_session_1', 'no server session was created or persisted');
+    ok('legacy adoption: accepted → server with same prefixed id; refused → ACP, id preserved');
+  } finally {
+    delete process.env.AEGIS_KIMI_RUNTIME;
+  }
 }
 
 async function l1FacadeDefaultRuntime() {
@@ -1050,6 +1180,7 @@ const suites = [
   ['L1: queue + steer', l1QueueSteer],
   ['L1: steer race benign', l1SteerRaceBenign],
   ['L1: per-prompt model switch', l1ModelSwitchPerPrompt],
+  ['L1: result carries turn usage', l1ResultCarriesTurnUsage],
   ['L1: thinking passthrough', l1ThinkingPassthrough],
   ['L1: compact flow', l1CompactFlow],
   ['L1: daemon exit mid-turn', l1DaemonExitMidTurn],
@@ -1060,7 +1191,9 @@ const suites = [
   ['L1: sessionless skill listing', l1SessionlessSkillListing],
   ['L1: runOneShot + archive', l1RunOneShot],
   ['L1: token rotation retry', l1TokenRotationRetry],
+  ['L1: facade fork round-trip', l1FacadeForkRoundTrip],
   ['L1: facade provenance routing', l1FacadeProvenanceRouting],
+  ['L1: facade legacy adoption', l1FacadeLegacyAdoption],
   ['L1: facade default runtime override', l1FacadeDefaultRuntime],
   ['L1: facade ACP stop settles', l1FacadeAcpStopSettles],
   ['L2: clean boot', l2CleanBoot],
