@@ -1154,6 +1154,13 @@ export interface SessionInfo {
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
   kimiThinking?: KimiThinking;
+  /**
+   * Which kimi runtime this thread is bound to (derived from the stored
+   * session id's `server:` provenance prefix; unset ids default to 'server'
+   * since new threads run there). Gates server-only composer affordances
+   * like mid-turn steer.
+   */
+  kimiRuntime?: 'server' | 'legacy';
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;

@@ -234,6 +234,7 @@ export interface SessionView {
   codexFastMode?: boolean;
   kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
   kimiThinking?: import('../shared/types').KimiThinking;
+  kimiRuntime?: import('../shared/types').SessionInfo['kimiRuntime'];
   grokPermissionMode?: import('../shared/types').GrokPermissionMode;
   grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;

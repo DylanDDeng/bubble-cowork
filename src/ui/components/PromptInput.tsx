@@ -8,7 +8,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from 'react';
-import { Plus, Redo2, Square, Trash2 } from './icons';
+import { ArrowElbowRight, CornerDownRight, Plus, Square, Trash2 } from './icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import {
@@ -442,8 +442,15 @@ export function PromptInput({
   // Codex app-server supports turn/steer: a message sent while a turn is
   // streaming is injected into that turn instead of waiting for it to finish,
   // so the composer stays live for codex sessions while they run.
+  // Mid-turn queue+steer needs a runtime that can inject into a running
+  // turn: codex (turn/steer) and the kimi server runtime (prompts:steer).
+  // Legacy-runtime kimi threads keep the immediate-send behavior.
   const canSteerWhileRunning =
-    runtimeProvider === 'codex' && isRunning && !approvalPending && !modelSetupRequired;
+    (runtimeProvider === 'codex' ||
+      (runtimeProvider === 'kimi' && activeSession?.kimiRuntime !== 'legacy')) &&
+    isRunning &&
+    !approvalPending &&
+    !modelSetupRequired;
   const queuedMessages = useComposerQueueStore((state) =>
     selectQueuedMessages(state, targetSessionId)
   );
@@ -733,10 +740,10 @@ export function PromptInput({
       return;
     }
 
-    // While a codex turn is streaming, Enter queues the message instead of
-    // dispatching it (Codex-Desktop-style): the chip above the composer can
-    // steer it into the running turn on demand, otherwise it auto-sends when
-    // the turn completes.
+    // While a codex/kimi-server turn is streaming, Enter queues the message
+    // instead of dispatching it (Codex-Desktop-style): the chip above the
+    // composer can steer it into the running turn on demand, otherwise it
+    // auto-sends when the turn completes.
     if (canSteerWhileRunning) {
       useComposerQueueStore.getState().enqueue(activeSession.id, {
         id: crypto.randomUUID(),
@@ -1221,13 +1228,15 @@ export function PromptInput({
           </Dialog.Portal>
         </Dialog.Root>
         {queuedMessages.length > 0 ? (
-          <div className="mb-2 flex flex-col gap-1.5 px-1">
+          // Codex-Desktop-style queue bar: a card tucked BEHIND the composer
+          // (the composer's top edge overlaps its extra bottom padding), one
+          // row per queued message with a branch glyph, a plain-text Steer
+          // action, and a flat trash button.
+          <div className="-mb-4 mx-1.5 rounded-t-[18px] border border-b-0 border-[var(--border)] bg-[var(--bg-primary)] px-1.5 pb-5 pt-1 shadow-[0_-4px_16px_rgba(15,23,42,0.04)]">
             {queuedMessages.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] py-1.5 pl-3 pr-1.5 shadow-[0_2px_8px_rgba(15,23,42,0.04)]"
-              >
-                <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--text-primary)]">
+              <div key={item.id} className="flex items-center gap-2.5 py-1 pl-2.5 pr-1">
+                <ArrowElbowRight className="h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--text-primary)]">
                   {item.displayPrompt || 'Queued message'}
                 </span>
                 {item.attachments.length > 0 ? (
@@ -1244,9 +1253,9 @@ export function PromptInput({
                       ? 'Send into the running turn now'
                       : 'Send as the next message'
                   }
-                  className="flex flex-shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-[11.5px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex flex-shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <Redo2 className="h-3 w-3" />
+                  <CornerDownRight className="h-4 w-4" aria-hidden="true" />
                   {canSteerWhileRunning ? 'Steer' : 'Send'}
                 </button>
                 <button
@@ -1254,9 +1263,9 @@ export function PromptInput({
                   onClick={() => removeQueuedMessage(item.id)}
                   title="Remove from queue"
                   aria-label="Remove queued message"
-                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </div>
             ))}

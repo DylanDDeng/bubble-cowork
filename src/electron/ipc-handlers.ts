@@ -7958,6 +7958,14 @@ function buildSessionInfoFromRow(
     codexReasoningEffort: normalizeCodexReasoningEffort(row.codex_reasoning_effort),
     codexFastMode: normalizeCodexFastMode(row.codex_fast_mode),
     opencodePermissionMode: normalizeOpenCodePermissionMode(row.opencode_permission_mode),
+    kimiRuntime:
+      row.provider === 'kimi'
+        ? row.kimi_session_id
+          ? row.kimi_session_id.startsWith('server:')
+            ? ('server' as const)
+            : ('legacy' as const)
+          : ('server' as const)
+        : undefined,
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
     hiddenFromThreads: row.hidden_from_threads === 1,
