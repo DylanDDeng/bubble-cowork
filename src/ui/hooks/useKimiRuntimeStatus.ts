@@ -7,6 +7,7 @@ const FALLBACK_STATUS: KimiRuntimeStatus = {
   cliPath: null,
   cliVersion: null,
   acpAvailable: false,
+  serverAvailable: false,
   authState: 'unknown',
   loginCommand: 'kimi acp --login',
   summary: 'Kimi Code status unavailable.',

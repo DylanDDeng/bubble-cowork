@@ -32,6 +32,27 @@ interface ComposerQueueStore {
 
 const EMPTY_QUEUE: QueuedComposerMessage[] = [];
 
+// Flush ownership: a mounted composer bound to a session claims its flush so
+// the auto-send applies the LIVE composer selection (model, permission mode).
+// The store-level watcher (queue-auto-flush.ts) only flushes sessions with no
+// owner — i.e. panes the user navigated away from — using session-sticky
+// config. Refcounted (split view can bind two composers to one session).
+const flushOwners = new Map<string, number>();
+
+export function claimQueueFlushOwner(sessionId: string): void {
+  flushOwners.set(sessionId, (flushOwners.get(sessionId) || 0) + 1);
+}
+
+export function releaseQueueFlushOwner(sessionId: string): void {
+  const count = (flushOwners.get(sessionId) || 0) - 1;
+  if (count > 0) flushOwners.set(sessionId, count);
+  else flushOwners.delete(sessionId);
+}
+
+export function hasQueueFlushOwner(sessionId: string): boolean {
+  return (flushOwners.get(sessionId) || 0) > 0;
+}
+
 export const useComposerQueueStore = create<ComposerQueueStore>()((set, get) => ({
   queues: {},
 

@@ -183,11 +183,29 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         // Safety net above the provider's own confirmation window: if the
         // provider never settles (non-codex adapter, bug), don't hang the UI.
         const safetyTimer = setTimeout(() => finish(false), 15_000);
-        service.stopSession(threadId).catch((error) => {
+        const stopPromise = service.stopSession(threadId).catch((error) => {
           console.error('[ProviderService] interruptAndSettle stop failed:', error);
           finish(false);
         });
+        // Publish the stop like abort() does: the safety net can settle
+        // while the :abort REST call is still in transit, and a replacement
+        // loop must start strictly after it or the late-landing abort kills
+        // the replacement's first turn.
+        pendingSessionStops.set(threadId, stopPromise);
+        void stopPromise.finally(() => {
+          if (pendingSessionStops.get(threadId) === stopPromise) {
+            pendingSessionStops.delete(threadId);
+          }
+        });
       });
+    },
+    detach: () => {
+      // Teardown WITHOUT the stopSession side effect: for retiring a runner
+      // whose stop already settled (or whose session errored and will be
+      // re-stopped by a respawn). A second stopSession here would emit a
+      // spurious stop_settled for the replacement's gate.
+      abortController.abort();
+      service.events.off('event', handleEvent);
     },
     abort: () => {
       abortController.abort();

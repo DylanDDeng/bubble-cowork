@@ -159,6 +159,14 @@ export interface RewindFilesResult {
 export interface RunnerHandle {
   abort: () => void;
   /**
+   * Tear down this runner's event subscription and abort gate WITHOUT the
+   * `stopSession` side effect `abort()` carries. Only legal where a stop was
+   * already issued/settled (or a respawn will re-stop): retiring a runner
+   * without detaching leaks its listener, which auto-denies the replacement
+   * runner's permission requests via the stale-handle guard.
+   */
+  detach?: () => void;
+  /**
    * Softly interrupt the in-flight turn while keeping the underlying process
    * and its context alive, so the next send reuses the warm session instead
    * of paying a cold respawn. Only the Claude runner provides this (SDK

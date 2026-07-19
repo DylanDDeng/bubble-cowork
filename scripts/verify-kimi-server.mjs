@@ -34,10 +34,21 @@ const {
 const {
   KimiAdapterFacade,
   KIMI_SERVER_ID_PREFIX,
+  isKimiServerCapable,
+  requireKimiServerCapability,
+  getKimiDefaultRuntime,
+  setKimiCapabilityProbeForTests,
 } = require('../dist-electron/electron/libs/provider/kimi-adapter-facade.js');
+const { runAgentLoop, ensureProviderService } = require('../dist-electron/electron/libs/agent-loop.js');
+const { getProviderService } = require('../dist-electron/electron/libs/provider/service.js');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAKE_SERVER = join(__dirname, 'fake-kimi-server.mjs');
+
+// Deterministic capability verdict for the whole harness run (no real
+// execFile probe — machines without the kimi CLI must behave identically).
+const PINNED_CAPABLE_PROBE = async () => ({ definitive: true, capable: true });
+setKimiCapabilityProbeForTests(PINNED_CAPABLE_PROBE);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function waitFor(predicate, timeoutMs = 4000, label = 'condition') {
@@ -183,7 +194,15 @@ function makeFakeFetch(state) {
       if (state.steerRaceLost) return respond(40402, null);
       return respond(0, { steered: true, prompt_ids: body.prompt_ids });
     }
+    if (/\/prompts\/[^/]+:cancel$/.test(u.pathname) && method === 'POST') {
+      return respond(0, { cancelled: true });
+    }
     if (/\/prompts$/.test(u.pathname) && method === 'POST') {
+      if (state.submitDelayMs) await new Promise((r) => setTimeout(r, state.submitDelayMs));
+      if (state.failSubmitOnce) {
+        state.failSubmitOnce = false;
+        return respond(50000, null);
+      }
       state.promptSeq = (state.promptSeq || 0) + 1;
       return respond(0, {
         prompt_id: `prompt_${state.promptSeq}`,
@@ -212,7 +231,15 @@ function makeFakeFetch(state) {
         ],
       });
     }
-    if (/\/approvals\//.test(u.pathname) && method === 'POST') return respond(0, { resolved: true });
+    if (/\/approvals\//.test(u.pathname) && method === 'POST') {
+      if (state.approvalDelayMs) await new Promise((r) => setTimeout(r, state.approvalDelayMs));
+      if (state.failApprovalOnce) {
+        state.failApprovalOnce = false;
+        return respond(50000, null);
+      }
+      if (state.approvalsCode) return respond(state.approvalsCode, null);
+      return respond(0, { resolved: true });
+    }
     if (/\/questions\//.test(u.pathname) && method === 'POST') return respond(0, {});
     return respond(0, {});
   };
@@ -265,7 +292,9 @@ async function startL1Session(options = {}) {
   const ws = wsFactory.sockets[0];
   const sid = session.providerSessionId;
   let seq = 1;
-  const push = (type, payload = {}, volatile = false) => {
+  // `extras` land at the frame's TOP LEVEL (offset is a top-level field —
+  // spreading it into payload would test nothing).
+  const push = (type, payload = {}, volatile = false, extras = {}) => {
     if (!volatile) seq += 1;
     ws.receive({
       type,
@@ -274,6 +303,7 @@ async function startL1Session(options = {}) {
       payload: { type, ...payload },
       epoch: 'ep1',
       ...(volatile ? { volatile: true } : {}),
+      ...extras,
     });
   };
   return { adapter, events, session, sid, ws, push, child, state, fetchImpl, wsFactory };
@@ -1255,6 +1285,599 @@ async function l2QuitKillOrdering() {
   ok('L2 quit ordering: killSync tears down the owned daemon synchronously');
 }
 
+// ═════════════════════ Audit-fix suites (kimi-server-fixes-plan v2) ═════════
+
+// F10: a stop between the submit REST ack and the WS turn.started frame must
+// still reach the server (cancel the tracked prompt + belt-and-braces abort).
+async function l1StopSubmitWindow() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  // No turn.started pushed — we are inside the ack→frame window.
+  await t.adapter.stopSession('thread-1');
+  const cancel = t.fetchImpl.calls.find((call) => /\/prompts\/prompt_1:cancel$/.test(call.path));
+  const abort = t.fetchImpl.calls.find((call) => /:abort$/.test(call.path));
+  assert.ok(cancel, 'queued/submitted prompt is cancelled on stop');
+  assert.ok(abort, 'abort covers a possibly-already-running turn');
+  const settled = t.events.byType('stop_settled');
+  assert.equal(settled.length, 1);
+  assert.equal(settled[0].confirmed, true, 'settles confirmed without waiting for a terminal');
+  ok('stop in the submit→turn.started window cancels the prompt and aborts (F10)');
+}
+
+// F10: a stop while the submit REST call is still in flight — the submit
+// continuation must cancel+abort its own prompt after the release.
+async function l1StopDuringInflightSubmit() {
+  const t = await startL1Session();
+  t.state.submitDelayMs = 80;
+  const sendPromise = t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  await sleep(15);
+  await t.adapter.stopSession('thread-1');
+  assert.equal(t.events.byType('stop_settled').length, 1, 'stop settles immediately');
+  await sendPromise;
+  await waitFor(
+    () => t.fetchImpl.calls.some((call) => /\/prompts\/prompt_1:cancel$/.test(call.path)),
+    2000,
+    'late submit continuation cancels its prompt'
+  );
+  assert.ok(
+    t.fetchImpl.calls.some((call) => /:abort$/.test(call.path)),
+    'late submit continuation aborts'
+  );
+  ok('stop during an in-flight submit: the continuation cancels+aborts (F10)');
+}
+
+// F11: turn.ended(completed) racing a pending stop settles it confirmed
+// instead of hanging "stopping" until the safety timer's false warning.
+async function l1StopVsNaturalCompletion() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  const stopPromise = t.adapter.stopSession('thread-1');
+  t.push('turn.ended', { reason: 'completed', durationMs: 5 });
+  await stopPromise;
+  await waitFor(() => t.events.byType('stop_settled').length === 1, 1000, 'stop settled');
+  assert.equal(t.events.byType('stop_settled')[0].confirmed, true, 'completed settles the stop confirmed');
+  assert.equal(t.events.messages('result').length, 1, 'exactly one result');
+  assert.equal(t.events.messages('result')[0].subtype, 'success');
+  ok('turn.ended(completed) settles a pending stop confirmed (F11)');
+}
+
+// F13: a failed approval REST resolution keeps the interaction answerable —
+// notice + re-emitted permission_request; the retry lands.
+async function l1ApprovalRestFailureRetry() {
+  const t = await startL1Session({ kimiPermissionMode: 'default' });
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.push('event.approval.requested', { approval_id: 'ap1', toolName: 'Bash', action: 'run ls' });
+  await waitFor(() => t.events.byType('permission_request').length === 1, 1000, 'request');
+  const requestId = t.events.byType('permission_request')[0].requestId;
+
+  t.state.failApprovalOnce = true;
+  await assert.rejects(
+    t.adapter.respondToRequest('thread-1', requestId, { behavior: 'allow', updatedInput: { optionId: 'approved' } })
+  );
+  await waitFor(() => t.events.byType('permission_request').length === 2, 1000, 're-emit');
+  assert.equal(t.events.byType('permission_request')[1].requestId, requestId, 'same requestId re-emitted');
+  assert.ok(
+    t.events.messages('assistant').some((m) => m.message.content[0]?.text?.includes("didn't reach")),
+    'failure notice shown'
+  );
+
+  await t.adapter.respondToRequest('thread-1', requestId, { behavior: 'allow', updatedInput: { optionId: 'approved' } });
+  const posts = t.fetchImpl.calls.filter((call) => /\/approvals\//.test(call.path));
+  assert.equal(posts.length, 2, 'failed attempt + successful retry');
+  // Entry consumed on success: a third answer is a fail-closed no-op.
+  await t.adapter.respondToRequest('thread-1', requestId, { behavior: 'deny' });
+  assert.equal(t.fetchImpl.calls.filter((call) => /\/approvals\//.test(call.path)).length, 2);
+  ok('approval REST failure → notice + re-emitted card; retry lands once (F13)');
+}
+
+// F13: an expired approval (envelope 40404, probe P5) dismisses the card.
+async function l1ApprovalExpiredDismiss() {
+  const t = await startL1Session({ kimiPermissionMode: 'default' });
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.push('event.approval.requested', { approval_id: 'ap2', toolName: 'Bash', action: 'run ls' });
+  await waitFor(() => t.events.byType('permission_request').length === 1, 1000, 'request');
+  const requestId = t.events.byType('permission_request')[0].requestId;
+  t.state.approvalsCode = 40404;
+  await t.adapter.respondToRequest('thread-1', requestId, { behavior: 'allow', updatedInput: { optionId: 'approved' } });
+  assert.equal(t.events.byType('permission_dismissed').length, 1, 'card dismissed');
+  assert.equal(t.events.byType('permission_request').length, 1, 'no re-emit for an expired approval');
+  ok('expired approval (40404) maps to permission_dismissed (F13)');
+}
+
+// F13: double-click while the resolution is in flight → exactly one REST call.
+async function l1ApprovalDoubleClickLatch() {
+  const t = await startL1Session({ kimiPermissionMode: 'default' });
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.push('event.approval.requested', { approval_id: 'ap3', toolName: 'Bash', action: 'run ls' });
+  await waitFor(() => t.events.byType('permission_request').length === 1, 1000, 'request');
+  const requestId = t.events.byType('permission_request')[0].requestId;
+  t.state.approvalDelayMs = 60;
+  const first = t.adapter.respondToRequest('thread-1', requestId, { behavior: 'allow', updatedInput: { optionId: 'approved' } });
+  const second = t.adapter.respondToRequest('thread-1', requestId, { behavior: 'deny' });
+  await Promise.all([first, second]);
+  const posts = t.fetchImpl.calls.filter((call) => /\/approvals\//.test(call.path));
+  assert.equal(posts.length, 1, 'the concurrent second answer is dropped');
+  assert.equal(posts[0].body.decision, 'approved', 'the first answer wins');
+  ok('concurrent double-answer resolves once (F13 latch)');
+}
+
+// F16: a steer-path submit failure must not fail the RUNNING turn.
+async function l1SteerSubmitFailureNoDoubleTerminal() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'first', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.state.failSubmitOnce = true;
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'steer me', model: 'm' });
+  assert.equal(t.events.messages('result').length, 0, 'no terminal for the running turn');
+  assert.equal(t.events.byType('error').length, 0, 'no error event mid-turn');
+  assert.ok(
+    t.events.messages('assistant').some((m) => m.message.content[0]?.text?.includes("wasn't submitted")),
+    'failure notice shown'
+  );
+  t.push('turn.ended', { reason: 'completed', durationMs: 5 });
+  await waitFor(() => t.events.messages('result').length === 1, 1000, 'single terminal');
+  assert.equal(t.events.messages('result')[0].subtype, 'success');
+  ok('mid-turn submit failure: notice only, one terminal (F16)');
+}
+
+// F16: /compact submitted mid-turn is rejected with a notice.
+async function l1CompactMidTurnRejected() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'first', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: '/compact', model: 'm' });
+  assert.ok(
+    t.events.messages('assistant').some((m) => m.message.content[0]?.text?.includes('Wait for the current turn')),
+    'mid-turn compact notice'
+  );
+  assert.ok(!t.fetchImpl.calls.some((call) => /:compact$/.test(call.path)), 'no compact call mid-turn');
+  assert.equal(t.events.messages('result').length, 0, 'no synthetic terminal into the live turn');
+  ok('/compact mid-turn rejected with a notice (F16)');
+}
+
+// F15: duplicated volatile deltas dedupe by offset; no doubled text.
+async function l1OffsetDedupe() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.push('assistant.delta', { delta: 'Hel' }, true, { offset: 0 });
+  t.push('assistant.delta', { delta: 'Hel' }, true, { offset: 0 }); // volatile dup
+  t.push('assistant.delta', { delta: 'lo' }, true, { offset: 3 });
+  t.push('turn.ended', { reason: 'completed', durationMs: 5 });
+  await waitFor(() => t.events.messages('result').length === 1, 1000, 'result');
+  const finals = t.events.messages('assistant').filter((m) => !m.streaming && m.message.content[0]?.type === 'text');
+  assert.equal(finals[finals.length - 1].message.content[0].text, 'Hello', 'duplicate frame did not double text');
+  ok('offset dedupe: repeated volatile delta appends nothing (F15)');
+}
+
+// F15: a dropped delta (offset ahead) is repaired from GET /messages at turn
+// end, under the SAME streamed uuid.
+async function l1OffsetGapRepair() {
+  const t = await startL1Session();
+  t.state.messages = [
+    { role: 'assistant', content: [{ type: 'text', text: 'Hello world' }] },
+    { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+  ];
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.push('assistant.delta', { delta: 'Hel' }, true, { offset: 0 });
+  t.push('assistant.delta', { delta: 'ld' }, true, { offset: 9 }); // dropped middle
+  const streamedUuid = t.events
+    .messages('assistant')
+    .filter((m) => m.streaming)
+    .at(-1).uuid;
+  t.push('turn.ended', { reason: 'completed', durationMs: 5 });
+  await waitFor(
+    () =>
+      t.events
+        .messages('assistant')
+        .some((m) => !m.streaming && m.uuid === streamedUuid && m.message.content[0]?.text === 'Hello world'),
+    2000,
+    'authoritative repair under the same uuid'
+  );
+  ok('offset gap repaired from GET /messages under the streamed uuid (F15)');
+}
+
+// F15: per-segment offset reset at a tool-call boundary is NOT a gap.
+async function l1OffsetSegments() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.push('assistant.delta', { delta: 'One' }, true, { offset: 0 });
+  t.push('tool.call.started', { toolCallId: 'tc-seg', name: 'List' });
+  t.push('tool.result', { toolCallId: 'tc-seg', output: 'ok' });
+  t.push('assistant.delta', { delta: 'Two' }, true, { offset: 0 }); // new segment
+  t.push('assistant.delta', { delta: '!' }, true, { offset: 3 });
+  t.push('turn.ended', { reason: 'completed', durationMs: 5 });
+  await waitFor(() => t.events.messages('result').length === 1, 1000, 'result');
+  assert.ok(
+    !t.events.messages('assistant').some((m) => m.message.content[0]?.text?.includes('connection blip')),
+    'no spurious gap repair/notice across the segment boundary'
+  );
+  const finals = t.events
+    .messages('assistant')
+    .filter((m) => !m.streaming && m.message.content[0]?.type === 'text')
+    .map((m) => m.message.content[0].text);
+  assert.ok(finals.includes('One') && finals.includes('Two!'), 'both segments finalized intact');
+  ok('offset resets per assistant segment without false gaps (F15/P4)');
+}
+
+// F8: daemon death errors only mid-turn sessions; idle ones release silently.
+async function l1DaemonExitIdleQuiet() {
+  const t = await startL1Session();
+  await t.adapter.startSession({ provider: 'kimi', threadId: 'thread-idle', cwd: '/tmp/proj', prompt: '' });
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.child.emitExit(1);
+  await waitFor(() => t.events.byType('error').length === 1, 2000, 'mid-turn error');
+  const errorThreads = t.events.byType('error').map((event) => event.threadId);
+  assert.deepEqual(errorThreads, ['thread-1'], 'only the mid-turn session errors');
+  const errorResults = t.events
+    .filter((e) => e.type === 'message' && e.message.type === 'result' && e.threadId === 'thread-1')
+    .map((e) => e.message);
+  assert.equal(errorResults.length, 1, 'mid-turn session gets its terminal');
+  assert.equal(errorResults[0].subtype, 'error');
+  const idleStatusErrors = t.events
+    .byType('status_change')
+    .filter((event) => event.threadId === 'thread-idle' && event.status === 'error');
+  assert.equal(idleStatusErrors.length, 0, 'idle session never flips to error');
+  assert.equal(t.adapter.hasSession('thread-idle'), false, 'idle session released for transparent resume');
+  ok('daemon exit: mid-turn errors with terminal, idle releases silently (F8)');
+}
+
+// F5b: a daemon bounce during resume must not bind the session to the dead
+// generation (stale_generation on every later send).
+async function l1StaleGenerationRebind() {
+  const children = [];
+  const base = makeTransport();
+  base.transport.spawnDaemon = () => {
+    const child = makeFakeChild();
+    children.push(child);
+    setImmediate(() => child.emitStdout('\n  Kimi server ready  0.26.0\n\n  Token:    tok_l1_test\n\n'));
+    return child;
+  };
+  let subscribeCount = 0;
+  base.wsFactory.onSubscribe = (msg) => {
+    subscribeCount += 1;
+    if (subscribeCount === 1) {
+      // First resume attempt: not_found — and the daemon dies underneath.
+      setImmediate(() => children[0]?.emitExit(1));
+      return {
+        type: 'ack',
+        id: msg.id,
+        code: 0,
+        msg: 'success',
+        payload: { accepted: [], not_found: msg.payload.session_ids, resync_required: [], cursors: {} },
+      };
+    }
+    return base.wsFactory.defaultSubscribe(msg);
+  };
+  const adapter = new KimiServerAdapter(base.transport);
+  collectEvents(adapter);
+  await adapter.startSession({
+    provider: 'kimi',
+    threadId: 'thread-gen',
+    cwd: '/tmp/proj',
+    prompt: '',
+    resumeSessionId: 'session_resume_x',
+  });
+  // The regression threw stale_generation here (session bound to gen 1 on a
+  // gen-2 daemon).
+  await adapter.sendTurn({ threadId: 'thread-gen', prompt: 'hi', model: 'm' });
+  assert.ok(
+    base.fetchImpl.calls.some((call) => /\/prompts$/.test(call.path)),
+    'sendTurn reaches the daemon after the mid-resume bounce'
+  );
+  ok('session binds the post-resume generation, not the pre-resume one (F5b)');
+}
+
+// F9b: a reconnect-ack not_found is verified before session_gone.
+async function l1ReconnectNotFoundVerified() {
+  const t = await startL1Session();
+  let resubscribes = 0;
+  t.wsFactory.onSubscribe = (msg) => {
+    resubscribes += 1;
+    if (resubscribes <= 2) {
+      return {
+        type: 'ack',
+        id: msg.id,
+        code: 0,
+        msg: 'success',
+        payload: { accepted: [], not_found: msg.payload.session_ids, resync_required: [], cursors: {} },
+      };
+    }
+    return t.wsFactory.defaultSubscribe(msg);
+  };
+  t.ws.drop();
+  await waitFor(() => resubscribes >= 3, 4000, 'verification resubscribes');
+  await sleep(60);
+  assert.equal(t.adapter.hasSession('thread-1'), true, 'session survives a transient not_found');
+  assert.ok(
+    !t.events.messages('assistant').some((m) => m.message.content[0]?.text?.includes('no longer has this session')),
+    'no gone notice for a recovered session'
+  );
+  ok('reconnect not_found recovers via verification — no session_gone (F9b)');
+}
+
+// F9b: REST-confirmed absence still notifies (and idle release is quiet).
+async function l1ReconnectGoneConfirmed() {
+  const t = await startL1Session();
+  t.state.missingSessions = [t.sid];
+  t.wsFactory.onSubscribe = (msg) => ({
+    type: 'ack',
+    id: msg.id,
+    code: 0,
+    msg: 'success',
+    payload: { accepted: [], not_found: msg.payload.session_ids, resync_required: [], cursors: {} },
+  });
+  t.ws.drop();
+  await waitFor(() => t.adapter.hasSession('thread-1') === false, 4000, 'confirmed-gone release');
+  assert.ok(
+    t.events.messages('assistant').some((m) => m.message.content[0]?.text?.includes('no longer has this session')),
+    'gone notice shown'
+  );
+  assert.equal(t.events.byType('error').length, 0, 'idle gone releases without an error event');
+  ok('double-confirmed absence releases the thread with a notice (F9b/F14)');
+}
+
+// F9a: the reconnect loop re-reads a rotated token before dialing.
+async function l1WsReconnectTokenRefresh() {
+  let token = 'tok_l1_test';
+  const t = await startL1Session({ transport: { readTokenFile: () => token } });
+  token = 'tok_rotated';
+  t.ws.drop();
+  await waitFor(() => t.wsFactory.sockets.length >= 2, 4000, 'reconnect socket');
+  const reconnect = t.wsFactory.sockets[t.wsFactory.sockets.length - 1];
+  assert.equal(reconnect.headers.authorization, 'Bearer tok_rotated', 'fresh token on reconnect');
+  ok('WS reconnect re-reads the rotated token (F9a)');
+}
+
+// F3b: the refused adoption probe child's LATE exit must not tear down the
+// freshly adopted daemon.
+async function l1AdoptionProbeChildLateExit() {
+  const { transport, child } = makeTransport({
+    spawnDaemon: undefined, // use the child below
+  });
+  transport.spawnDaemon = () => {
+    setImmediate(() => child.emitStderr('Error: server already running (pid=999, port=4321).\n'));
+    return child;
+  };
+  const manager = new KimiServerManager(transport);
+  let daemonExits = 0;
+  manager.on('daemon_exit', () => {
+    daemonExits += 1;
+  });
+  await manager.ensureDaemon();
+  // The refused probe child exits AFTER adoption completed.
+  child.emitExit(0);
+  await sleep(30);
+  assert.equal(manager.isRunning(), true, 'adopted daemon survives the probe child exit');
+  assert.equal(daemonExits, 0, 'no daemon_exit for the expected probe-child exit');
+  ok('adoption disarms the probe-child exit handler (F3b)');
+}
+
+// F3/F5: a healthz-never spawn must not leak the owned child, and killSync
+// during the spawn window reaps it synchronously.
+async function l1SpawnFailureReapsChild() {
+  const state = { expectToken: null };
+  const fetchImpl = async (url, init = {}) => {
+    const u = new URL(url);
+    if (u.pathname === '/api/v1/healthz') {
+      return { ok: false, status: 500, json: async () => ({}) };
+    }
+    return { ok: true, status: 200, json: async () => ({ code: 0, msg: 'success', data: {} }) };
+  };
+  const child = makeFakeChild();
+  const manager = new KimiServerManager({
+    fetchImpl,
+    createWebSocket: makeFakeWsFactory(),
+    spawnDaemon: () => {
+      setImmediate(() => child.emitStdout('\n  Kimi server ready  0.26.0\n\n  Token:    tok_x\n\n'));
+      return child;
+    },
+    resolveBinary: async () => '/fake/kimi',
+    readTokenFile: () => 'tok_x',
+  });
+  await assert.rejects(manager.ensureDaemon(), /healthz/i);
+  assert.ok(child.killed.includes('SIGTERM'), 'owned child reaped after healthz failure (F3)');
+
+  const child2 = makeFakeChild();
+  const manager2 = new KimiServerManager({
+    fetchImpl,
+    createWebSocket: makeFakeWsFactory(),
+    spawnDaemon: () => child2, // never becomes ready
+    resolveBinary: async () => '/fake/kimi',
+    readTokenFile: () => null,
+  });
+  const pending = manager2.ensureDaemon();
+  await sleep(20);
+  manager2.killSync();
+  assert.ok(child2.killed.includes('SIGTERM'), 'killSync reaps the in-flight spawn synchronously (F5)');
+  await assert.rejects(pending);
+  ok('spawn failures and quit races never leak the owned child (F3/F5)');
+}
+
+// F4: a request timeout (or transient error with a live daemon) fails that
+// request only — no all-session teardown.
+async function l1RequestTimeoutIsolated() {
+  process.env.AEGIS_KIMI_SERVER_REQUEST_TIMEOUT_MS = '80';
+  try {
+    const t = await startL1Session();
+    let daemonExits = 0;
+    t.adapter.manager.on('daemon_exit', () => {
+      daemonExits += 1;
+    });
+    const baseFetch = t.fetchImpl;
+    let slowOnce = true;
+    t.adapter.manager.fetchImpl = async (url, init) => {
+      if (slowOnce && /\/messages$/.test(new URL(url).pathname)) {
+        slowOnce = false;
+        // A real fetch rejects when its signal aborts — honor it.
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, 300);
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new TypeError('operation aborted'));
+          });
+        });
+      }
+      return baseFetch(url, init);
+    };
+    await assert.rejects(t.adapter.manager.getMessages(t.sid), /timeout/i);
+    assert.equal(daemonExits, 0, 'timeout does not declare daemon death');
+    assert.equal(t.adapter.hasSession('thread-1'), true, 'sessions untouched');
+    await t.adapter.manager.getMessages(t.sid); // next request is fine
+    // Transient socket error with a live daemon (healthz OK): request-scoped.
+    let failOnce = true;
+    t.adapter.manager.fetchImpl = async (url, init) => {
+      if (failOnce && /\/messages$/.test(new URL(url).pathname)) {
+        failOnce = false;
+        throw new TypeError('fetch failed: ECONNRESET');
+      }
+      return baseFetch(url, init);
+    };
+    await assert.rejects(t.adapter.manager.getMessages(t.sid), /http_error/i);
+    assert.equal(daemonExits, 0, 'transient error with healthy daemon is not death');
+  } finally {
+    process.env.AEGIS_KIMI_SERVER_REQUEST_TIMEOUT_MS = '3000';
+  }
+  ok('timeouts and transient errors are request-scoped, never a teardown (F4)');
+}
+
+// F7/F12: capability probe caching + sync default runtime.
+async function l1CapabilityProbeCache() {
+  const outcomes = [];
+  let probeCalls = 0;
+  setKimiCapabilityProbeForTests(async () => {
+    probeCalls += 1;
+    return outcomes.shift() || { definitive: false, capable: false };
+  });
+  try {
+    assert.equal(getKimiDefaultRuntime(), 'acp', 'unresolved probe defaults to legacy (steer-safe)');
+    outcomes.push({ definitive: false, capable: false });
+    assert.equal(await isKimiServerCapable(), false, 'indeterminate reads false for this call');
+    outcomes.push({ definitive: true, capable: true });
+    assert.equal(await isKimiServerCapable(), true, 'not cached: next call re-probes');
+    assert.equal(getKimiDefaultRuntime(), 'server', 'definitive verdict flips the sync default');
+    const before = probeCalls;
+    assert.equal(await isKimiServerCapable(), true);
+    assert.equal(probeCalls, before, 'definitive verdict is cached');
+
+    setKimiCapabilityProbeForTests(async () => ({ definitive: false, capable: false }));
+    await assert.rejects(requireKimiServerCapability(), /could not determine/i, 'loud fail after two indeterminates');
+
+    setKimiCapabilityProbeForTests(async () => ({ definitive: true, capable: false }));
+    assert.equal(await requireKimiServerCapability(), false, 'definitive no routes to ACP');
+    assert.equal(getKimiDefaultRuntime(), 'acp');
+
+    process.env.AEGIS_KIMI_RUNTIME = 'server';
+    assert.equal(getKimiDefaultRuntime(), 'server', 'env override wins');
+  } finally {
+    delete process.env.AEGIS_KIMI_RUNTIME;
+    setKimiCapabilityProbeForTests(PINNED_CAPABLE_PROBE);
+  }
+  ok('capability probe: indeterminate never cached, loud start fail, sync default (F7/F12)');
+}
+
+// F1/F13 at the agent-loop level: a two-phase-stopped runner is detached at
+// settle, so the replacement's permission requests reach the USER, not the
+// stale-handle auto-deny.
+async function l1AgentLoopStopDetachPermission() {
+  process.env.AEGIS_KIMI_RUNTIME = 'server';
+  try {
+    ensureProviderService();
+    const service = getProviderService();
+    const base = makeTransport();
+    const facade = new KimiAdapterFacade(base.transport);
+    service.registerAdapter(facade);
+    const baselineListeners = service.events.listenerCount('event');
+
+    const stoppedHandles = new Set();
+    const makeRunner = (resumeSessionId, onPermission) =>
+      runAgentLoop({
+        prompt: '',
+        session: { id: 'al-thread', provider: 'kimi', cwd: '/tmp/proj' },
+        resumeSessionId,
+        onMessage: () => {},
+        onError: () => {},
+        onPermissionRequest: onPermission,
+      });
+
+    // Runner A: its permission callback mimics the ipc stale-handle guard.
+    let aPermissionCalls = 0;
+    const handleA = makeRunner(undefined, async () => {
+      aPermissionCalls += 1;
+      return { behavior: 'deny', message: 'The user stopped this turn.' };
+    });
+    await waitFor(() => facade.hasSession('al-thread'), 3000, 'A session');
+    const ws = base.wsFactory.sockets[0];
+    const sid = 'session_test_1';
+    let seq = 1;
+    const push = (type, payload = {}) => {
+      seq += 1;
+      ws.receive({ type, seq, session_id: sid, payload: { type, ...payload }, epoch: 'ep1' });
+    };
+
+    await facade.sendTurn({ threadId: 'al-thread', prompt: 'hi', model: 'm' });
+    push('turn.started', { turnId: 1 });
+
+    // Two-phase stop; the cancelled terminal confirms it.
+    const settlePromise = handleA.interruptAndSettle();
+    await sleep(30);
+    push('turn.ended', { reason: 'cancelled' });
+    const settled = await settlePromise;
+    assert.equal(settled.confirmed, true, 'stop settles confirmed');
+
+    // ipc settle continuation: retire + DETACH the stopped runner.
+    stoppedHandles.add(handleA);
+    assert.equal(typeof handleA.detach, 'function', 'runner handle exposes detach()');
+    handleA.detach();
+
+    // Replacement runner B with a real user decision.
+    let resolveDecision;
+    const decision = new Promise((resolve) => {
+      resolveDecision = resolve;
+    });
+    let bPermissionCalls = 0;
+    const handleB = makeRunner(`${KIMI_SERVER_ID_PREFIX}${sid}`, async () => {
+      bPermissionCalls += 1;
+      return decision;
+    });
+    await waitFor(() => facade.hasSession('al-thread'), 3000, 'B session');
+    await facade.sendTurn({ threadId: 'al-thread', prompt: 'again', model: 'm' });
+    push('turn.started', { turnId: 2 });
+    push('event.approval.requested', { approval_id: 'al-ap1', toolName: 'Bash', action: 'run ls' });
+    await waitFor(() => bPermissionCalls === 1, 2000, "B's permission callback");
+    assert.equal(aPermissionCalls, 0, 'the detached runner never auto-denies (F1)');
+
+    resolveDecision({ behavior: 'allow', updatedInput: { optionId: 'approved' } });
+    await waitFor(
+      () => base.fetchImpl.calls.filter((call) => /\/approvals\//.test(call.path)).length === 1,
+      2000,
+      'approval resolution'
+    );
+    assert.equal(
+      base.fetchImpl.calls.find((call) => /\/approvals\//.test(call.path)).body.decision,
+      'approved',
+      "the USER's answer reaches the server"
+    );
+
+    handleB.detach();
+    assert.equal(
+      service.events.listenerCount('event'),
+      baselineListeners,
+      'no leaked service listeners after both runners retired (F1)'
+    );
+  } finally {
+    delete process.env.AEGIS_KIMI_RUNTIME;
+  }
+  ok('agent-loop: detached stop → replacement approvals reach the user (F1/F13)');
+}
+
 // ═══════════════════════════════ Runner ═════════════════════════════════════
 
 const suites = [
@@ -1290,6 +1913,27 @@ const suites = [
   ['L1: facade legacy adoption', l1FacadeLegacyAdoption],
   ['L1: facade default runtime override', l1FacadeDefaultRuntime],
   ['L1: facade ACP stop settles', l1FacadeAcpStopSettles],
+  ['L1: stop in submit window (F10)', l1StopSubmitWindow],
+  ['L1: stop during in-flight submit (F10)', l1StopDuringInflightSubmit],
+  ['L1: stop vs natural completion (F11)', l1StopVsNaturalCompletion],
+  ['L1: approval REST failure retry (F13)', l1ApprovalRestFailureRetry],
+  ['L1: approval expired dismiss (F13)', l1ApprovalExpiredDismiss],
+  ['L1: approval double-click latch (F13)', l1ApprovalDoubleClickLatch],
+  ['L1: steer submit failure (F16)', l1SteerSubmitFailureNoDoubleTerminal],
+  ['L1: compact mid-turn rejected (F16)', l1CompactMidTurnRejected],
+  ['L1: offset dedupe (F15)', l1OffsetDedupe],
+  ['L1: offset gap repair (F15)', l1OffsetGapRepair],
+  ['L1: offset per-segment reset (F15)', l1OffsetSegments],
+  ['L1: daemon exit idle quiet (F8)', l1DaemonExitIdleQuiet],
+  ['L1: stale generation rebind (F5b)', l1StaleGenerationRebind],
+  ['L1: reconnect not_found verified (F9b)', l1ReconnectNotFoundVerified],
+  ['L1: reconnect gone confirmed (F9b)', l1ReconnectGoneConfirmed],
+  ['L1: WS reconnect token refresh (F9a)', l1WsReconnectTokenRefresh],
+  ['L1: adoption probe-child late exit (F3b)', l1AdoptionProbeChildLateExit],
+  ['L1: spawn failure reaps child (F3/F5)', l1SpawnFailureReapsChild],
+  ['L1: request timeout isolated (F4)', l1RequestTimeoutIsolated],
+  ['L1: capability probe cache (F7/F12)', l1CapabilityProbeCache],
+  ['L1: agent-loop stop detach (F1/F13)', l1AgentLoopStopDetachPermission],
   ['L2: clean boot', l2CleanBoot],
   ['L2: delayed token', l2DelayedToken],
   ['L2: malformed token → file fallback', l2MalformedTokenFallsBackToFile],

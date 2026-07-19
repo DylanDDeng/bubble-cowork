@@ -956,28 +956,35 @@ export function useComposerAgentSelection(input?: {
   // Thinking tiers are per-model metadata (open set, validated server-side):
   // k3-class models list `support_efforts` (+ off), k2.x thinking models are
   // on/off, everything else has no thinking control at all.
+  // The "Default" model option carries an empty value — resolve it to the
+  // configured default model so the out-of-box selection still gets its
+  // per-model tier menu.
+  const kimiEffectiveModel = provider === 'kimi' ? model || kimiModelConfig.defaultModel || '' : '';
   const kimiThinkingOptions = useMemo<string[]>(() => {
-    if (provider !== 'kimi' || !model) return [];
-    const entry = kimiModelConfig.availableModels.find((candidate) => candidate.name === model);
+    if (provider !== 'kimi' || !kimiEffectiveModel) return [];
+    const entry = kimiModelConfig.availableModels.find((candidate) => candidate.name === kimiEffectiveModel);
     if (!entry) return [];
     if (entry.supportEfforts && entry.supportEfforts.length > 0) {
       return ['off', ...entry.supportEfforts.filter((tier) => tier !== 'off')];
     }
     return entry.capabilities?.includes('thinking') ? ['on', 'off'] : [];
-  }, [kimiModelConfig, model, provider]);
+  }, [kimiModelConfig, kimiEffectiveModel, provider]);
   const kimiThinkingSupported = kimiThinkingOptions.length > 0;
   // The server-side default tier for the selected model (shown as checked
-  // when the user has not made a valid explicit choice).
+  // when the user has not made a valid explicit choice). When the model
+  // metadata does not name a default, report null — the UI must not claim
+  // a tier the server never confirmed (a guessed "Max" would be a lie).
   const kimiThinkingDefault = useMemo<string | null>(() => {
     if (kimiThinkingOptions.length === 0) return null;
-    const entry = kimiModelConfig.availableModels.find((candidate) => candidate.name === model);
+    const entry = kimiModelConfig.availableModels.find((candidate) => candidate.name === kimiEffectiveModel);
     if (entry?.defaultEffort && kimiThinkingOptions.includes(entry.defaultEffort)) {
       return entry.defaultEffort;
     }
-    return entry?.supportEfforts && entry.supportEfforts.length > 0
-      ? entry.supportEfforts[entry.supportEfforts.length - 1]
-      : 'on';
-  }, [kimiModelConfig, kimiThinkingOptions, model]);
+    if (entry?.supportEfforts && entry.supportEfforts.length > 0) {
+      return null;
+    }
+    return 'on';
+  }, [kimiModelConfig, kimiThinkingOptions, kimiEffectiveModel]);
   // Only a preference that is valid for the CURRENT model is sent; anything
   // else stays unset so the server applies its per-model default.
   const kimiThinkingToSend = useMemo<KimiThinking | undefined>(() => {
@@ -1019,7 +1026,7 @@ export function useComposerAgentSelection(input?: {
     savePreferredKimiPermissionMode(mode);
   }, []);
 
-  const setKimiThinking = useCallback((value: KimiThinking) => {
+  const setKimiThinking = useCallback((value: KimiThinking | null) => {
     setKimiThinkingState(value);
     savePreferredKimiThinking(value);
   }, []);

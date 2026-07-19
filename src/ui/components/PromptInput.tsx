@@ -12,6 +12,8 @@ import { ArrowElbowRight, CornerDownRight, Plus, Square, Trash2 } from './icons'
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import {
+  claimQueueFlushOwner,
+  releaseQueueFlushOwner,
   selectQueuedMessages,
   useComposerQueueStore,
 } from '../store/useComposerQueueStore';
@@ -842,6 +844,16 @@ export function PromptInput({
     if (!targetSessionId) return;
     useComposerQueueStore.getState().remove(targetSessionId, itemId);
   };
+
+  // While mounted and bound, this composer OWNS the session's queue flush —
+  // the store-level watcher (queue-auto-flush.ts) covers sessions no pane is
+  // showing, with session-sticky config instead of the live composer
+  // selection used here.
+  useEffect(() => {
+    if (!targetSessionId) return;
+    claimQueueFlushOwner(targetSessionId);
+    return () => releaseQueueFlushOwner(targetSessionId);
+  }, [targetSessionId]);
 
   // Auto-flush: when the running turn finishes normally, queued messages are
   // sent as the next turn (in queue order, combined into one dispatch). An

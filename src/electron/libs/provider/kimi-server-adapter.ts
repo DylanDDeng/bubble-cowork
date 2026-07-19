@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import {
+  KimiServerApiError,
   KimiServerManager,
   KimiServerTransportError,
   type KimiServerTransport,
@@ -77,6 +78,32 @@ function getNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+/** Text of a GET /messages row: string content or text blocks; null when the
+ * shape is unrecognized (repair falls back to a notice, never a guess). */
+function extractRowText(row: Record<string, unknown>): string | null {
+  const content = row.content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (typeof block === 'string') {
+        parts.push(block);
+        continue;
+      }
+      if (isRecord(block) && typeof block.text === 'string') {
+        parts.push(block.text);
+        continue;
+      }
+      if (isRecord(block) && getString(block.type) === 'thinking') {
+        continue;
+      }
+      return null;
+    }
+    return parts.join('');
+  }
+  return null;
+}
+
 /**
  * UI mapping pinned by the plan: default→manual, plan→manual+plan_mode,
  * auto→auto, yolo→yolo. (Server modes are `manual | yolo | auto`.)
@@ -141,6 +168,13 @@ interface PendingInteraction {
   kind: 'approval' | 'question';
   serverInteractionId: string;
   threadId: string;
+  /** Original request surface, kept for the failure-path re-emit (a failed
+   * REST resolution consumed the renderer card and the ipc promise — only a
+   * fresh permission_request makes the retry reachable). */
+  toolName: string;
+  input: AcpPermissionInput;
+  /** One resolution in flight per interaction (approve/reject must not race). */
+  resolving?: boolean;
 }
 
 interface ActiveServerSession {
@@ -153,6 +187,20 @@ interface ActiveServerSession {
   permissionMode?: KimiPermissionMode;
   thinking?: KimiThinking;
   activeTurn: boolean;
+  /** Prompts submitted but not yet terminally accounted (queued or running,
+   * cleared per prompt.completed/prompt.aborted and wholesale on turn.ended).
+   * A stop must reach the server whenever this is non-empty — a queued
+   * prompt AUTO-ADVANCES after `:abort` (probe P1), so stop also cancels
+   * these individually. */
+  pendingPromptIds: Set<string>;
+  /** submitPrompt calls currently awaiting their REST ack. */
+  submitInFlight: number;
+  /** A delta arrived past the expected offset (volatile frames are never
+   * replayed) — the streamed text has a hole; repair at turn end. */
+  textGapDetected: boolean;
+  /** Streamed assistant segment uuids of the current turn, in order —
+   * correlates segments to GET /messages rows for the gap repair. */
+  turnAssistantSegments: string[];
   currentAssistant?: StreamingText;
   currentThinking?: { uuid: string; thinking: string; createdAt: number };
   emittedToolCalls: Set<string>;
@@ -217,7 +265,6 @@ export class KimiServerAdapter implements ProviderAdapter {
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
     await this.manager.ensureDaemon();
-    const generation = this.manager.getGeneration();
 
     let providerSessionId = '';
     let resumeFallbackReason: string | null = null;
@@ -246,6 +293,11 @@ export class KimiServerAdapter implements ProviderAdapter {
       providerSessionId = created.id;
       const subscribed = await this.manager.subscribeSession(providerSessionId);
       if (!subscribed.accepted) {
+        // Leave nothing behind: an orphan registry entry would be
+        // resubscribed on every reconnect, and the server session store is
+        // persistent (archive the throwaway).
+        this.manager.unsubscribeSession(providerSessionId);
+        void this.manager.archiveSession(providerSessionId).catch(() => {});
         throw new KimiServerTransportError(
           'daemon_unavailable',
           `freshly created session ${providerSessionId} was not accepted for subscription`
@@ -257,13 +309,21 @@ export class KimiServerAdapter implements ProviderAdapter {
     const session: ActiveServerSession = {
       threadId: input.threadId,
       providerSessionId,
-      generation,
+      // Read AFTER the last awaited manager call: resolveResume/createSession
+      // can transparently bounce the daemon (each inner request respawns),
+      // and binding the pre-resume generation would wedge every sendTurn on
+      // stale_generation while handleDaemonExit skips the mismatched session.
+      generation: this.manager.getGeneration(),
       status: 'running',
       cwd: input.cwd,
       model,
       permissionMode: input.kimiPermissionMode,
       thinking: input.kimiThinking,
       activeTurn: false,
+      pendingPromptIds: new Set(),
+      submitInFlight: 0,
+      textGapDetected: false,
+      turnAssistantSegments: [],
       emittedToolCalls: new Set(),
       seenInteractionIds: new Set(),
       pendingInteractions: new Map(),
@@ -332,6 +392,14 @@ export class KimiServerAdapter implements ProviderAdapter {
     // `/compact` routes to the dedicated action; completion is signaled by
     // `event.session.history_compacted`, which settles the turn.
     if (input.prompt.trim() === '/compact' && !input.attachments?.length) {
+      if (session.activeTurn || session.submitInFlight > 0 || session.pendingPromptIds.size > 0) {
+        // Mid-turn `:compact` semantics are unprobed, and the synthetic
+        // completion result must never race the live turn's terminal
+        // (one result per turn). The running turn's own terminal settles
+        // the UI; this send only leaves a notice.
+        this.emitLocalNotice(input.threadId, 'Wait for the current turn to finish before running /compact.');
+        return;
+      }
       session.pendingManualCompact = true;
       try {
         await this.manager.compactSession(session.providerSessionId);
@@ -354,6 +422,7 @@ export class KimiServerAdapter implements ProviderAdapter {
     const { permission_mode, plan_mode } = mapKimiPermissionMode(session.permissionMode);
     const wasActive = session.activeTurn;
     let submitted: { prompt_id: string; status: string };
+    session.submitInFlight += 1;
     try {
       submitted = await this.manager.submitPrompt(session.providerSessionId, {
         content: buildContentBlocks(input.prompt, input.attachments),
@@ -365,8 +434,35 @@ export class KimiServerAdapter implements ProviderAdapter {
         ...(session.thinking ? { thinking: session.thinking } : {}),
       });
     } catch (error) {
-      this.failTurn(session, error instanceof Error ? error.message : String(error));
+      const detail = error instanceof Error ? error.message : String(error);
+      if (wasActive) {
+        // Steer-path failure: the RUNNING turn is fine — failing it here
+        // would emit a second terminal (and post-detach would tear down the
+        // live runner). The message's user row is already persisted; it is
+        // NOT re-queued — the notice says so.
+        this.emitLocalNotice(input.threadId, `Your queued message wasn't submitted (${detail}). Send it again.`);
+        return;
+      }
+      this.failTurn(session, detail);
       return;
+    } finally {
+      session.submitInFlight -= 1;
+    }
+
+    if (this.sessions.get(input.threadId) !== session || session.stopRequest) {
+      // A stop landed while the submit was in flight (or already released
+      // the session) — never leave the server generating unattended: cancel
+      // the prompt we just created, then abort whatever it may have started.
+      if (submitted.prompt_id) {
+        void this.manager.cancelPrompt(session.providerSessionId, submitted.prompt_id).catch(() => {});
+      }
+      void this.manager.abortSession(session.providerSessionId).catch(() => {});
+      return;
+    }
+    if (submitted.prompt_id) {
+      // Turn-pending from the ack onward: a stop between this ack and the
+      // WS turn.started frame must still reach the server (F10).
+      session.pendingPromptIds.add(submitted.prompt_id);
     }
 
     // Codex-style steer: a send landing mid-turn merges into the running turn
@@ -396,7 +492,9 @@ export class KimiServerAdapter implements ProviderAdapter {
       return;
     }
 
-    if (!session.activeTurn || session.generation !== this.manager.getGeneration()) {
+    const turnPending =
+      session.activeTurn || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
+    if (!turnPending || session.generation !== this.manager.getGeneration()) {
       this.settleStop(session, true, true);
       return;
     }
@@ -411,6 +509,37 @@ export class KimiServerAdapter implements ProviderAdapter {
     }, this.stopConfirmTimeoutMs);
     timer.unref?.();
     session.stopRequest = { timer };
+
+    // Drain queued prompts FIRST: `:abort` only cancels the active turn, and
+    // a queued prompt AUTO-ADVANCES right after it (probe P1) — a stop that
+    // skipped this would restart generation unattended.
+    for (const promptId of Array.from(session.pendingPromptIds)) {
+      try {
+        await this.manager.cancelPrompt(session.providerSessionId, promptId);
+        session.pendingPromptIds.delete(promptId);
+      } catch {
+        // best-effort; the abort below still covers the active turn
+      }
+    }
+
+    if (!session.activeTurn) {
+      // No turn.started seen — but a submitted prompt may already be running
+      // server-side (the frame lags the REST ack, and `:cancel` semantics on
+      // a running prompt are unpinned), so belt-and-braces abort before
+      // settling. No cancelled terminal will arrive for a turn we never saw
+      // start; an in-flight submit's continuation sees the released session
+      // and cancels+aborts its own prompt.
+      try {
+        await this.manager.abortSession(session.providerSessionId);
+      } catch {
+        // best-effort — nothing may be running at all
+      }
+      const current = this.sessions.get(threadId);
+      if (current === session && session.stopRequest) {
+        this.settleStop(session, true, false);
+      }
+      return;
+    }
 
     try {
       await this.manager.abortSession(session.providerSessionId);
@@ -460,11 +589,17 @@ export class KimiServerAdapter implements ProviderAdapter {
       // by the wrong thread.
       return;
     }
-    session.pendingInteractions.delete(requestId);
+    if (pending.resolving) {
+      // Exactly one resolution in flight per interaction: a second click
+      // during the REST round-trip must not race an approve against a
+      // reject server-side.
+      return;
+    }
+    pending.resolving = true;
 
-    if (pending.kind === 'question') {
+    try {
       const optionId = getString(decision.updatedInput?.optionId);
-      try {
+      if (pending.kind === 'question') {
         if (decision.behavior === 'allow' && optionId) {
           await this.manager.resolveQuestion(session.providerSessionId, pending.serverInteractionId, {
             selected_label: optionId,
@@ -475,19 +610,40 @@ export class KimiServerAdapter implements ProviderAdapter {
             `/sessions/${session.providerSessionId}/questions/${pending.serverInteractionId}:dismiss`
           );
         }
-      } catch (error) {
-        console.warn('[KimiServerAdapter] question resolution failed:', error);
+      } else {
+        const approve = decision.behavior === 'allow';
+        await this.manager.resolveApproval(session.providerSessionId, pending.serverInteractionId, {
+          decision: approve ? 'approved' : 'rejected',
+          ...(approve && optionId === 'approved_session' ? { scope: 'session' as const } : {}),
+          ...(decision.message ? { feedback: decision.message } : {}),
+        });
       }
-      return;
+      // Delete only on success: deleting before the await orphans the
+      // interaction on a REST failure — the user could never answer again.
+      session.pendingInteractions.delete(requestId);
+    } catch (error) {
+      pending.resolving = false;
+      // A WS approval/question.resolved may have consumed the entry while we
+      // were failing — don't resurrect or double-dismiss it.
+      if (session.pendingInteractions.get(requestId) !== pending) return;
+      if (error instanceof KimiServerApiError && error.code === 40404) {
+        // Expired/unknown server-side (probe P5): nothing left to answer.
+        session.pendingInteractions.delete(requestId);
+        this.emit({ type: 'permission_dismissed', threadId, requestId });
+        return;
+      }
+      // The first click consumed the renderer card and the ipc pending
+      // promise — only a fresh permission_request makes a retry reachable.
+      this.emitLocalNotice(threadId, "Your answer didn't reach the Kimi server — please answer again.");
+      this.emit({
+        type: 'permission_request',
+        threadId,
+        requestId,
+        toolName: pending.toolName,
+        input: pending.input,
+      });
+      throw error;
     }
-
-    const optionId = getString(decision.updatedInput?.optionId);
-    const approve = decision.behavior === 'allow';
-    await this.manager.resolveApproval(session.providerSessionId, pending.serverInteractionId, {
-      decision: approve ? 'approved' : 'rejected',
-      ...(approve && optionId === 'approved_session' ? { scope: 'session' as const } : {}),
-      ...(decision.message ? { feedback: decision.message } : {}),
-    });
   }
 
   async forkThread(input: { cwd: string; providerThreadId: string }): Promise<string> {
@@ -625,9 +781,15 @@ export class KimiServerAdapter implements ProviderAdapter {
         session.activeTurn = true;
         session.reportedTurnError = false;
         session.turnUsage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+        session.textGapDetected = false;
+        session.turnAssistantSegments = [];
         break;
       case 'assistant.delta':
-        this.appendAssistantText(session, getString(payload.delta));
+        this.appendAssistantText(
+          session,
+          getString(payload.delta),
+          typeof frame.offset === 'number' ? frame.offset : null
+        );
         break;
       case 'thinking.delta':
         this.appendThinking(session, getString(payload.delta) || getString(payload.thinking));
@@ -668,22 +830,69 @@ export class KimiServerAdapter implements ProviderAdapter {
       case 'event.session.history_compacted':
         this.handleHistoryCompacted(session, payload);
         break;
+      case 'prompt.completed':
+      case 'prompt.aborted': {
+        const promptId = getString(payload.prompt_id) || getString(payload.promptId);
+        if (promptId) {
+          session.pendingPromptIds.delete(promptId);
+        }
+        break;
+      }
       default:
-        // prompt.completed/aborted are queue bookkeeping; context.spliced,
-        // session.meta.updated, work_changed and volatile phase frames carry
-        // nothing the transcript needs.
+        // context.spliced, session.meta.updated, work_changed and volatile
+        // phase frames carry nothing the transcript needs.
         break;
     }
   }
 
-  private appendAssistantText(session: ActiveServerSession, delta: string): void {
+  /**
+   * `offset` is the frame's cumulative text offset WITHIN the current
+   * assistant segment (probe P4: it resets to 0 at each tool-call boundary,
+   * matching finalizeStreaming's segmentation). Deltas are volatile — never
+   * replayed after a WS drop — so offsets are the only truth about holes:
+   * behind = duplicate (append the unseen tail only), ahead = gap (mark for
+   * the authoritative turn-end repair).
+   */
+  private appendAssistantText(session: ActiveServerSession, delta: string, offset: number | null): void {
     if (!delta) return;
-    const current = session.currentAssistant || {
-      uuid: `kimi-assistant:${session.threadId}:${uuidv4()}`,
-      text: '',
-      createdAt: Date.now(),
-    };
-    current.text += delta;
+    let current = session.currentAssistant;
+    if (
+      current &&
+      offset === 0 &&
+      current.text.length > 0 &&
+      current.text.slice(0, delta.length) !== delta
+    ) {
+      // Offset space reset without a tool-call boundary: a new segment
+      // started (not a duplicate of this segment's first frame — a dup
+      // would prefix-match). Close the current segment first.
+      this.finalizeStreaming(session);
+      current = undefined;
+    }
+    if (!current) {
+      current = {
+        uuid: `kimi-assistant:${session.threadId}:${uuidv4()}`,
+        text: '',
+        createdAt: Date.now(),
+      };
+      session.turnAssistantSegments.push(current.uuid);
+    }
+    const expected = current.text.length;
+    if (offset === null || offset === expected) {
+      current.text += delta;
+    } else if (offset < expected) {
+      // Duplicate/overlap (volatile frames may repeat): only the tail past
+      // what we already streamed is new — often nothing.
+      const tail = delta.slice(expected - offset);
+      if (!tail) {
+        session.currentAssistant = current;
+        return;
+      }
+      current.text += tail;
+    } else {
+      // Frames were dropped in a WS blip: keep streaming, remember the hole.
+      session.textGapDetected = true;
+      current.text += delta;
+    }
     session.currentAssistant = current;
     this.emit({
       type: 'message',
@@ -855,7 +1064,14 @@ export class KimiServerAdapter implements ProviderAdapter {
   private handleTurnEnded(session: ActiveServerSession, payload: Record<string, unknown>): void {
     const reason = getString(payload.reason);
     session.activeTurn = false;
+    // Steered prompts merged into this turn; anything still queued
+    // auto-advances into its own turn.started, which re-tracks it.
+    session.pendingPromptIds.clear();
     this.finalizeStreaming(session);
+    if (session.textGapDetected) {
+      session.textGapDetected = false;
+      void this.repairAssistantText(session, [...session.turnAssistantSegments]);
+    }
 
     if (reason === 'failed') {
       session.status = 'error';
@@ -900,8 +1116,61 @@ export class KimiServerAdapter implements ProviderAdapter {
         model: session.model,
       },
     });
-    if (reason === 'cancelled') {
-      this.settleStopIfPending(session, true);
+    // cancelled: the stop confirmation terminal. completed: a stop racing
+    // the natural finish — the turn is over either way, so a pending stop
+    // settles confirmed instead of hanging "stopping" for the confirmation
+    // window and printing a false not-confirmed warning.
+    this.settleStopIfPending(session, true);
+  }
+
+  /**
+   * Authoritative post-turn text repair for gap-marked streams: re-fetch the
+   * turn's assistant rows and re-emit each streamed segment under its own
+   * uuid (the store upserts by uuid). Segments correlate to rows by order;
+   * on any shape mismatch fall back to an honest notice instead of guessing.
+   */
+  private async repairAssistantText(session: ActiveServerSession, segmentUuids: string[]): Promise<void> {
+    const threadId = session.threadId;
+    let repaired = false;
+    try {
+      const rows = await this.manager.getMessages(session.providerSessionId);
+      // Rows arrive newest-first; take the assistant rows back to the most
+      // recent user row (= this turn), then restore chronological order.
+      const turnAssistantRows: Array<Record<string, unknown>> = [];
+      for (const row of rows) {
+        if (!isRecord(row)) continue;
+        const role = getString(row.role);
+        if (role === 'user') break;
+        if (role === 'assistant') turnAssistantRows.push(row);
+      }
+      turnAssistantRows.reverse();
+      if (turnAssistantRows.length === segmentUuids.length && segmentUuids.length > 0) {
+        for (let index = 0; index < segmentUuids.length; index += 1) {
+          const text = extractRowText(turnAssistantRows[index]);
+          if (text === null) {
+            repaired = false;
+            break;
+          }
+          this.emit({
+            type: 'message',
+            threadId,
+            message: {
+              type: 'assistant',
+              uuid: segmentUuids[index],
+              message: { content: [{ type: 'text', text }] },
+            },
+          });
+          repaired = true;
+        }
+      }
+    } catch {
+      repaired = false;
+    }
+    if (!repaired) {
+      this.emitLocalNotice(
+        threadId,
+        'Part of the streamed reply was lost in a connection blip and could not be restored; the full text is in the Kimi session history.'
+      );
     }
   }
 
@@ -953,13 +1222,6 @@ export class KimiServerAdapter implements ProviderAdapter {
       { optionId: 'rejected', name: 'Reject', kind: 'reject_once' },
     ];
     const requestId = `kimi-server-approval:${session.threadId}:${approvalId}`;
-    session.pendingInteractions.set(requestId, {
-      requestId,
-      kind: 'approval',
-      serverInteractionId: approvalId,
-      threadId: session.threadId,
-    });
-
     const input: AcpPermissionInput = {
       kind: 'acp-permission',
       provider: 'kimi',
@@ -969,6 +1231,14 @@ export class KimiServerAdapter implements ProviderAdapter {
       options,
       toolCall: { title: action, toolCallId: approvalId, rawInput: toolInput, display },
     };
+    session.pendingInteractions.set(requestId, {
+      requestId,
+      kind: 'approval',
+      serverInteractionId: approvalId,
+      threadId: session.threadId,
+      toolName,
+      input,
+    });
     this.emit({
       type: 'permission_request',
       threadId: session.threadId,
@@ -1012,12 +1282,6 @@ export class KimiServerAdapter implements ProviderAdapter {
       .filter((option): option is AcpPermissionOption => Boolean(option));
 
     const requestId = `kimi-server-question:${session.threadId}:${questionId}`;
-    session.pendingInteractions.set(requestId, {
-      requestId,
-      kind: 'question',
-      serverInteractionId: questionId,
-      threadId: session.threadId,
-    });
     const input: AcpPermissionInput = {
       kind: 'acp-permission',
       provider: 'kimi',
@@ -1027,6 +1291,14 @@ export class KimiServerAdapter implements ProviderAdapter {
       options,
       toolCall: payload,
     };
+    session.pendingInteractions.set(requestId, {
+      requestId,
+      kind: 'question',
+      serverInteractionId: questionId,
+      threadId: session.threadId,
+      toolName: 'Question',
+      input,
+    });
     this.emit({
       type: 'permission_request',
       threadId: session.threadId,
@@ -1086,17 +1358,39 @@ export class KimiServerAdapter implements ProviderAdapter {
   private handleDaemonExit(generation: number): void {
     for (const session of Array.from(this.sessions.values())) {
       if (session.generation !== generation) continue;
+      const midTurn =
+        session.activeTurn || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
       this.finalizeStreaming(session);
       this.dismissPendingInteractions(session);
       this.settleStopIfPending(session, false);
-      session.status = 'error';
       session.activeTurn = false;
-      this.emit({ type: 'status_change', threadId: session.threadId, status: 'error' });
-      this.emit({
-        type: 'error',
-        threadId: session.threadId,
-        error: new Error('The Kimi server exited. The session can be resumed once it restarts.'),
-      });
+      session.pendingPromptIds.clear();
+      if (midTurn) {
+        // A dying turn must surface: error event (settles the ipc turn) AND
+        // the error result (one terminal for the killed turn).
+        session.status = 'error';
+        this.emit({ type: 'status_change', threadId: session.threadId, status: 'error' });
+        this.emit({
+          type: 'error',
+          threadId: session.threadId,
+          error: new Error('The Kimi server exited. The session can be resumed once it restarts.'),
+        });
+        this.emit({
+          type: 'message',
+          threadId: session.threadId,
+          message: {
+            type: 'result',
+            subtype: 'error',
+            duration_ms: 0,
+            total_cost_usd: 0,
+            usage: this.buildTurnUsage(session),
+            model: session.model,
+          },
+        });
+      }
+      // Idle sessions release silently: the next send resumes via the stored
+      // id (the ipc continue path respawns released kimi runners) — one
+      // daemon restart must not toast every open thread.
       // Sessions recover only via server persistence + resubscribe: release
       // the binding so the next start goes down the resume path.
       this.releaseSession(session);
@@ -1108,6 +1402,8 @@ export class KimiServerAdapter implements ProviderAdapter {
     if (!threadId) return;
     const session = this.sessions.get(threadId);
     if (!session) return;
+    const midTurn =
+      session.activeTurn || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
     this.finalizeStreaming(session);
     this.dismissPendingInteractions(session);
     this.settleStopIfPending(session, false);
@@ -1115,9 +1411,31 @@ export class KimiServerAdapter implements ProviderAdapter {
       threadId,
       'The Kimi server no longer has this session. Start a new turn to continue in a fresh session.'
     );
-    session.status = 'error';
     session.activeTurn = false;
-    this.emit({ type: 'status_change', threadId, status: 'error' });
+    session.pendingPromptIds.clear();
+    if (midTurn) {
+      // The turn dies here — without an error event + terminal the ipc turn
+      // never settles and the spinner runs forever.
+      session.status = 'error';
+      this.emit({ type: 'status_change', threadId, status: 'error' });
+      this.emit({
+        type: 'error',
+        threadId,
+        error: new Error('The Kimi server no longer has this session.'),
+      });
+      this.emit({
+        type: 'message',
+        threadId,
+        message: {
+          type: 'result',
+          subtype: 'error',
+          duration_ms: 0,
+          total_cost_usd: 0,
+          usage: this.buildTurnUsage(session),
+          model: session.model,
+        },
+      });
+    }
     this.releaseSession(session);
   }
 
@@ -1154,6 +1472,46 @@ export class KimiServerAdapter implements ProviderAdapter {
         'The Kimi event stream was resynchronized; some intermediate output may not be shown.'
       );
     }
+
+    // A turn terminal that fell inside the unreplayable gap would strand the
+    // session on "running" forever. Consult the server's authoritative
+    // run-state (probe P2: `main_turn_active`/`busy` on the session detail);
+    // synthesize exactly one terminal only when the server says no turn is
+    // live. No watchdog fallback — a quiet-but-alive turn must keep running.
+    if (!session.activeTurn) return;
+    let detail: Record<string, unknown> | null = null;
+    try {
+      detail = await this.manager.getSessionDetail(serverSessionId);
+    } catch {
+      return; // transport trouble — leave the turn as-is
+    }
+    // Re-check after the await: the session may have been released, the turn
+    // may have terminated for real, or a queued prompt may have started a
+    // new turn (whose own terminal will settle it).
+    if (this.sessions.get(threadId) !== session || !session.activeTurn) return;
+    if (detail?.main_turn_active === true || detail?.busy === true) return;
+    session.activeTurn = false;
+    session.pendingPromptIds.clear();
+    this.finalizeStreaming(session);
+    session.status = 'completed';
+    this.emit({ type: 'status_change', threadId, status: 'completed' });
+    this.emit({
+      type: 'message',
+      threadId,
+      message: {
+        type: 'result',
+        subtype: 'success',
+        duration_ms: 0,
+        total_cost_usd: 0,
+        usage: this.buildTurnUsage(session),
+        model: session.model,
+      },
+    });
+    this.emitLocalNotice(
+      threadId,
+      'The turn ended while the event stream was resynchronizing; its final output is in the Kimi session history.'
+    );
+    this.settleStopIfPending(session, true);
   }
 
   // ── Stop plumbing ─────────────────────────────────────────────────────────

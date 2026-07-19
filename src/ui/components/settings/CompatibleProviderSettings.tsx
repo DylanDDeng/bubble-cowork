@@ -87,10 +87,7 @@ const PROVIDER_MODEL_SUGGESTIONS: Record<
     { model: 'glm-5', smallFastModel: 'glm-5' },
     { model: 'glm-4.6', smallFastModel: 'glm-4.6' },
   ],
-  moonshot: [
-    { model: 'kimi-k2.5', smallFastModel: 'kimi-k2-turbo' },
-    { model: 'kimi-k2-turbo', smallFastModel: 'kimi-k2-turbo' },
-  ],
+  moonshot: [],
   deepseek: [
     { model: 'deepseek-chat', smallFastModel: 'deepseek-chat' },
     { model: 'deepseek-reasoner', smallFastModel: 'deepseek-chat' },
@@ -734,7 +731,7 @@ function getProviderModelPlaceholder(providerId: ClaudeCompatibleProviderId): st
     case 'zhipu':
       return 'glm-5';
     case 'moonshot':
-      return 'kimi-k2.5';
+      return 'Model name (see Moonshot docs)';
     case 'deepseek':
       return 'deepseek-chat or deepseek-reasoner';
     default:

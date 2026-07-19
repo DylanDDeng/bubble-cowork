@@ -169,6 +169,9 @@ interface PendingSubscribe {
   reject: (error: Error) => void;
   sessionId: string;
   timer: ReturnType<typeof setTimeout>;
+  /** Reconnect-path subscribes route not_found through gone-verification;
+   * caller-consumed subscribes read the verdict off the promise instead. */
+  verifyOnNotFound?: boolean;
 }
 
 /**
@@ -182,6 +185,10 @@ interface PendingSubscribe {
 export class KimiServerManager extends EventEmitter {
   private state: DaemonState | null = null;
   private startPromise: Promise<DaemonState> | null = null;
+  // In-flight spawn child, tracked synchronously: killSync() runs at
+  // before-quit where no further event-loop ticks are guaranteed, so the
+  // async stopped-checks inside startDaemon can never reap it there.
+  private pendingSpawnChild: KimiDaemonChildLike | null = null;
   // Monotonic daemon generation. Sessions capture it; events/RPCs from stale
   // generations are rejected so a late exit can't clobber a replacement.
   private generation = 0;
@@ -197,6 +204,14 @@ export class KimiServerManager extends EventEmitter {
 
   /** Sessions the adapter wants events for, with replay cursors. */
   private subscriptions = new Map<string, KimiSessionCursor | null>();
+
+  // ── session_gone verification ledger (F9b) ─────────────────────────────
+  // A lone reconnect-ack not_found is NOT proof of absence (lazy session
+  // registry after an external daemon restart) — the same class 40cab26
+  // fixed for resume. Gone-verification runs async and must be deduped and
+  // invalidated by any concurrent successful subscribe/unsubscribe.
+  private activeGoneVerifies = new Set<string>();
+  private verifyEpochs = new Map<string, number>();
 
   private readonly fetchImpl: typeof fetch;
   private readonly createWebSocketImpl: (url: string, headers: Record<string, string>) => KimiWebSocketLike;
@@ -260,6 +275,9 @@ export class KimiServerManager extends EventEmitter {
     this.generation += 1;
     const generation = this.generation;
     const port = await findAvailablePort();
+    if (this.stopped) {
+      throw new KimiServerTransportError('daemon_unavailable', 'manager stopped');
+    }
     const child = this.spawnDaemonImpl(binary, [
       'server',
       'run',
@@ -267,6 +285,7 @@ export class KimiServerManager extends EventEmitter {
       '--port',
       String(port),
     ]);
+    this.pendingSpawnChild = child;
 
     let stdout = '';
     let stderr = '';
@@ -281,88 +300,133 @@ export class KimiServerManager extends EventEmitter {
 
     let exited = false;
     let spawnErrorMessage = '';
+    // On the adoption path this child is just the refused second `run` whose
+    // exit is EXPECTED — once adoption is chosen its exit must not tear down
+    // the adopted daemon's (same-numbered) generation.
+    let adopted = false;
     child.on('exit', () => {
       exited = true;
       // A daemon we own dying invalidates the whole generation (b)/(c) —
       // late exits of an already-replaced generation are ignored inside.
-      this.handleDaemonExit(generation);
+      if (!adopted) {
+        this.handleDaemonExit(generation);
+      }
     });
     child.on('error', (error) => {
       spawnErrorMessage = error.message;
       exited = true;
     });
 
-    // Wait for one of: the startup banner (we own the daemon), "already
-    // running" (adopt the existing singleton), or child exit without either.
-    const deadline = Date.now() + this.readyTimeoutMs;
-    let adoptedPort: number | null = null;
-    let owned = false;
-    while (Date.now() < deadline) {
-      const already = ALREADY_RUNNING_REGEX.exec(stderr);
-      if (already) {
-        adoptedPort = Number.parseInt(already[2], 10);
-        break;
+    try {
+      // Wait for one of: the startup banner (we own the daemon), "already
+      // running" (adopt the existing singleton), or child exit without either.
+      const deadline = Date.now() + this.readyTimeoutMs;
+      let adoptedPort: number | null = null;
+      let owned = false;
+      while (Date.now() < deadline && !this.stopped) {
+        const already = ALREADY_RUNNING_REGEX.exec(stderr);
+        if (already) {
+          adoptedPort = Number.parseInt(already[2], 10);
+          break;
+        }
+        if (TOKEN_LINE_REGEX.test(stdout)) {
+          owned = true;
+          break;
+        }
+        // Banner up but the Token line is unusable (per-version format drift):
+        // the persistent token file is the pinned fallback.
+        if (/Kimi server ready/i.test(stdout) && this.readTokenFileImpl()) {
+          owned = true;
+          break;
+        }
+        if (exited) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      if (TOKEN_LINE_REGEX.test(stdout)) {
-        owned = true;
-        break;
+      if (this.stopped) {
+        throw new KimiServerTransportError('daemon_unavailable', 'manager stopped');
       }
-      // Banner up but the Token line is unusable (per-version format drift):
-      // the persistent token file is the pinned fallback.
-      if (/Kimi server ready/i.test(stdout) && this.readTokenFileImpl()) {
-        owned = true;
-        break;
-      }
-      if (exited) break;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
 
-    if (!owned && adoptedPort === null) {
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // already dead
+      if (!owned && adoptedPort === null) {
+        throw new KimiServerTransportError(
+          'daemon_unavailable',
+          spawnErrorMessage
+            ? `failed to spawn kimi server: ${spawnErrorMessage}`
+            : `kimi server did not become ready within ${this.readyTimeoutMs}ms.\nstdout: ${stdout.slice(0, 500)}\nstderr: ${stderr.slice(0, 500)}`
+        );
       }
-      throw new KimiServerTransportError(
-        'daemon_unavailable',
-        spawnErrorMessage
-          ? `failed to spawn kimi server: ${spawnErrorMessage}`
-          : `kimi server did not become ready within ${this.readyTimeoutMs}ms.\nstdout: ${stdout.slice(0, 500)}\nstderr: ${stderr.slice(0, 500)}`
-      );
-    }
+      adopted = adoptedPort !== null;
 
-    // Token: the persistent file works for both owned and adopted daemons;
-    // the stdout line is the fallback for owned spawns.
-    const token = this.readTokenFileImpl() || TOKEN_LINE_REGEX.exec(stdout)?.[1] || '';
-    if (!token) {
-      if (owned) {
+      // Token: the persistent file works for both owned and adopted daemons;
+      // the stdout line is the fallback for owned spawns.
+      const token = this.readTokenFileImpl() || TOKEN_LINE_REGEX.exec(stdout)?.[1] || '';
+      if (!token) {
+        throw new KimiServerTransportError('daemon_unavailable', 'could not obtain the kimi server bearer token');
+      }
+
+      const effectivePort = owned ? port : (adoptedPort as number);
+      const baseUrl = `http://127.0.0.1:${effectivePort}`;
+
+      // Readiness gate on /healthz. The 2s shortcut applies only to an owned
+      // child that already died; the refused adoption probe child exiting is
+      // normal and must not shrink the adopted daemon's window.
+      await this.waitForHealthz(baseUrl, owned && exited ? 2_000 : this.readyTimeoutMs, owned ? child : null);
+      if (this.stopped) {
+        throw new KimiServerTransportError('daemon_unavailable', 'manager stopped');
+      }
+
+      const state: DaemonState = {
+        generation,
+        port: effectivePort,
+        baseUrl,
+        token,
+        child: owned ? child : null,
+        owned,
+        abortController: new AbortController(),
+      };
+      this.state = state;
+      this.connectWebSocket(state);
+      return state;
+    } catch (error) {
+      // Never leak the child we spawned, whichever step threw (healthz
+      // failure included — a leaked wedged daemon makes every retry adopt
+      // the corpse). Killing the refused adoption probe child is harmless;
+      // the adopted daemon itself has no handle here and is never touched.
+      if (error instanceof KimiServerTransportError && error.reason === 'daemon_unavailable' && adopted && !this.stopped) {
+        // Adoption failed (unhealthy singleton): the error must be
+        // actionable — we refuse to kill a daemon we did not spawn.
+        const already = ALREADY_RUNNING_REGEX.exec(stderr);
+        throw new KimiServerTransportError(
+          'daemon_unavailable',
+          `${error.message}\nAn existing kimi server daemon (pid=${already?.[1] ?? '?'}, port=${already?.[2] ?? '?'}) is not responding; run \`kimi server kill\` to clear it, then retry.`
+        );
+      }
+      throw error;
+    } finally {
+      if (this.pendingSpawnChild === child) {
+        this.pendingSpawnChild = null;
+      }
+      if (this.state?.child !== child) {
+        // Failure path, stopped mid-start, or adoption (probe child): reap
+        // our own spawn. try/catch — it may already be dead.
         try {
           child.kill('SIGTERM');
         } catch {
-          // ignore
+          // already dead
         }
       }
-      throw new KimiServerTransportError('daemon_unavailable', 'could not obtain the kimi server bearer token');
     }
+  }
 
-    const effectivePort = owned ? port : (adoptedPort as number);
-    const baseUrl = `http://127.0.0.1:${effectivePort}`;
-
-    // Readiness gate on /healthz.
-    await this.waitForHealthz(baseUrl, exited ? 2_000 : this.readyTimeoutMs, owned ? child : null);
-
-    const state: DaemonState = {
-      generation,
-      port: effectivePort,
-      baseUrl,
-      token,
-      child: owned ? child : null,
-      owned,
-      abortController: new AbortController(),
-    };
-    this.state = state;
-    this.connectWebSocket(state);
-    return state;
+  /** One quick liveness check; false on any failure. */
+  private async probeHealthz(state: DaemonState): Promise<boolean> {
+    try {
+      const response = await this.fetchImpl(`${state.baseUrl}/api/v1/healthz`, {
+        signal: AbortSignal.any([state.abortController.signal, AbortSignal.timeout(2_000)]),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   private async waitForHealthz(
@@ -416,6 +480,7 @@ export class KimiServerManager extends EventEmitter {
   /** Stop everything. Kills the daemon only if this process spawned it. */
   async stop(): Promise<void> {
     this.stopped = true;
+    this.reapPendingSpawn();
     const state = this.state;
     this.state = null;
     this.teardownWs();
@@ -453,12 +518,26 @@ export class KimiServerManager extends EventEmitter {
    */
   killSync(): void {
     this.stopped = true;
+    this.reapPendingSpawn();
     const state = this.state;
     this.state = null;
     this.teardownWs();
     if (state?.owned && state.child) {
       try {
         state.child.kill('SIGTERM');
+      } catch {
+        // already dead
+      }
+    }
+  }
+
+  /** Synchronously reap an in-flight spawn — see pendingSpawnChild. */
+  private reapPendingSpawn(): void {
+    const child = this.pendingSpawnChild;
+    this.pendingSpawnChild = null;
+    if (child) {
+      try {
+        child.kill('SIGTERM');
       } catch {
         // already dead
       }
@@ -488,6 +567,7 @@ export class KimiServerManager extends EventEmitter {
       throw new KimiServerTransportError('stale_generation', `${method} ${requestPath}`);
     }
     let response: Response;
+    const timeoutSignal = AbortSignal.timeout(this.requestTimeoutMs);
     try {
       response = await this.fetchImpl(`${state.baseUrl}/api/v1${requestPath}`, {
         method,
@@ -496,17 +576,35 @@ export class KimiServerManager extends EventEmitter {
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.any([
-          state.abortController.signal,
-          AbortSignal.timeout(this.requestTimeoutMs),
-        ]),
+        signal: AbortSignal.any([state.abortController.signal, timeoutSignal]),
       });
     } catch (error) {
       if (state.abortController.signal.aborted) {
         throw new KimiServerTransportError('daemon_exit', `${method} ${requestPath}`);
       }
-      // Connection refused ⇒ the daemon died without a child-exit signal
-      // (adopted daemon, sleep/wake). Same teardown path as a child exit.
+      // A slow endpoint is this request's problem, not daemon death — one
+      // 30s GET /messages must never tear down every live session. (Check
+      // the signal, not error.name: robust against undici wrapping.)
+      if (timeoutSignal.aborted) {
+        throw new KimiServerTransportError(
+          'timeout',
+          `${method} ${requestPath}: timed out after ${this.requestTimeoutMs}ms`
+        );
+      }
+      // Verify before declaring death: only an unreachable daemon justifies
+      // the full teardown (connection refused without a child-exit signal —
+      // adopted daemon, sleep/wake). A transient socket error with a live
+      // daemon fails this request only.
+      const alive = await this.probeHealthz(state);
+      if (state.abortController.signal.aborted) {
+        throw new KimiServerTransportError('daemon_exit', `${method} ${requestPath}`);
+      }
+      if (alive) {
+        throw new KimiServerTransportError(
+          'http_error',
+          `${method} ${requestPath}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       this.handleDaemonExit(state.generation);
       throw new KimiServerTransportError(
         'daemon_unavailable',
@@ -585,6 +683,19 @@ export class KimiServerManager extends EventEmitter {
   async abortSession(sessionId: string): Promise<boolean> {
     const data = await this.request<Record<string, unknown>>('POST', `/sessions/${sessionId}:abort`);
     return data?.aborted === true;
+  }
+
+  /** Cancel one submitted/queued prompt (probe P1: the route exists; a stop
+   * must use it because queued prompts auto-advance after `:abort`). */
+  async cancelPrompt(sessionId: string, promptId: string): Promise<void> {
+    await this.request('POST', `/sessions/${sessionId}/prompts/${promptId}:cancel`);
+  }
+
+  /** `GET /sessions/{id}` — carries the authoritative run-state
+   * (`busy`/`main_turn_active`/`last_turn_reason`, probe P2). */
+  async getSessionDetail(sessionId: string): Promise<Record<string, unknown> | null> {
+    const data = await this.request<Record<string, unknown>>('GET', `/sessions/${sessionId}`);
+    return isRecord(data) ? data : null;
   }
 
   async forkSession(sessionId: string): Promise<string> {
@@ -753,6 +864,7 @@ export class KimiServerManager extends EventEmitter {
 
   unsubscribeSession(sessionId: string): void {
     this.subscriptions.delete(sessionId);
+    this.bumpVerifyEpoch(sessionId);
     if (this.wsConnected && this.ws) {
       try {
         this.ws.send(
@@ -839,9 +951,11 @@ export class KimiServerManager extends EventEmitter {
       this.wsReconnectDelayMs = 500;
       this.emit('ws_connected_internal');
       // Resubscribe everything registered (reconnect path) with cursors.
+      // not_found here is NOT trusted alone (lazy registry after an external
+      // restart) — it routes through REST-verified gone-notification.
       const sessionIds = Array.from(this.subscriptions.keys());
       if (sessionIds.length > 0) {
-        void this.sendSubscribe(sessionIds)
+        void this.sendSubscribe(sessionIds, { verifyOnNotFound: true })
           .then(() => this.emit('ws_reconnected', { generation: state.generation }))
           .catch(() => {
             // subscribe failure surfaces via pending timeouts / close
@@ -878,7 +992,8 @@ export class KimiServerManager extends EventEmitter {
   }
 
   private sendSubscribe(
-    sessionIds: string[]
+    sessionIds: string[],
+    options: { verifyOnNotFound?: boolean } = {}
   ): Promise<{ accepted: boolean; resync: string | null; cursor: KimiSessionCursor | null }> {
     const ws = this.ws;
     if (!ws || !this.wsConnected) {
@@ -903,6 +1018,7 @@ export class KimiServerManager extends EventEmitter {
         reject,
         sessionId: sessionIds.length === 1 ? sessionIds[0] : '',
         timer,
+        verifyOnNotFound: options.verifyOnNotFound === true,
       });
       try {
         ws.send(
@@ -961,8 +1077,18 @@ export class KimiServerManager extends EventEmitter {
         });
       }
     }
-    for (const sessionId of notFound) {
-      this.emit('session_gone', { sessionId });
+    for (const sessionId of accepted) {
+      // A live subscription invalidates any in-flight gone-verification.
+      this.bumpVerifyEpoch(sessionId);
+    }
+    if (pending.verifyOnNotFound) {
+      // Reconnect-path not_found: verify before notifying (at most one loop
+      // per session id). Caller-consumed subscribes (resolveResume, the
+      // verification loop itself) read the verdict off the returned promise
+      // instead — an immediate session_gone would fire before verification.
+      for (const sessionId of notFound) {
+        void this.verifyGoneAndNotify(sessionId);
+      }
     }
 
     if (pending.sessionId) {
@@ -981,6 +1107,63 @@ export class KimiServerManager extends EventEmitter {
     pending.resolve({ accepted: accepted.length > 0, resync: null, cursor: null });
   }
 
+  private bumpVerifyEpoch(sessionId: string): void {
+    this.verifyEpochs.set(sessionId, (this.verifyEpochs.get(sessionId) || 0) + 1);
+  }
+
+  /**
+   * REST-verified session_gone (F9b): re-subscribe with the resolveResume
+   * discipline (40401 twice, spaced, GET /messages warm-up between), and
+   * emit `session_gone` only when absence is double-confirmed AND nothing
+   * concurrently re-attached the session (epoch/generation/registry checks
+   * before every step). Never inserts into `subscriptions`.
+   */
+  private async verifyGoneAndNotify(sessionId: string): Promise<void> {
+    if (!this.subscriptions.has(sessionId)) return;
+    if (this.activeGoneVerifies.has(sessionId)) return;
+    this.activeGoneVerifies.add(sessionId);
+    const epoch = this.verifyEpochs.get(sessionId) || 0;
+    const generation = this.generation;
+    const attempts = envInt('AEGIS_KIMI_SERVER_RESUME_ATTEMPTS', 3);
+    const retryDelayMs = envInt('AEGIS_KIMI_SERVER_RESUME_RETRY_MS', 500);
+    const stale = () =>
+      this.stopped ||
+      this.generation !== generation ||
+      !this.subscriptions.has(sessionId) ||
+      (this.verifyEpochs.get(sessionId) || 0) !== epoch;
+    try {
+      let confirmedMissing = 0;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        if (stale()) return;
+        const subscribed = await this.sendSubscribe([sessionId]).catch(() => null);
+        if (subscribed?.accepted) return; // recovered
+        if (stale()) return;
+        let exists: boolean;
+        try {
+          exists = await this.sessionExists(sessionId);
+        } catch {
+          return; // transport trouble proves nothing — leave the thread bound
+        }
+        if (!exists) {
+          confirmedMissing += 1;
+          if (confirmedMissing >= 2) break;
+        } else {
+          confirmedMissing = 0;
+          // Lazy-registry warm-up (pinned): a legacy-store session only
+          // materializes for WS subscription after one messages load.
+          await this.getMessages(sessionId).catch(() => {});
+        }
+        if (attempt < attempts) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
+        }
+      }
+      if (stale() || confirmedMissing < 2) return;
+      this.emit('session_gone', { sessionId });
+    } finally {
+      this.activeGoneVerifies.delete(sessionId);
+    }
+  }
+
   private failPendingSubscribes(detail: string): void {
     for (const pending of this.pendingSubscribes.values()) {
       clearTimeout(pending.timer);
@@ -996,6 +1179,14 @@ export class KimiServerManager extends EventEmitter {
     this.wsReconnectTimer = setTimeout(() => {
       this.wsReconnectTimer = null;
       if (this.stopped || this.state !== state) return;
+      // The token may have been rotated while we were disconnected (`kimi
+      // server rotate-token`): the REST path re-reads on 401, but a WS-only
+      // reconnect has no REST traffic — refresh unconditionally or the loop
+      // 401s forever mid-turn.
+      const freshToken = this.readTokenFileImpl();
+      if (freshToken && freshToken !== state.token) {
+        state.token = freshToken;
+      }
       // Distinguish failure domains: probe REST liveness first. Dead daemon
       // (ECONNREFUSED) goes down the full respawn path via handleDaemonExit.
       void this.fetchImpl(`${state.baseUrl}/api/v1/healthz`, { signal: AbortSignal.timeout(2_000) })

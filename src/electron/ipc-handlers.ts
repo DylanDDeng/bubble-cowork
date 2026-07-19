@@ -200,6 +200,7 @@ import type {
 } from '../shared/types';
 import { buildSessionUserPromptSummaries } from '../shared/outline-summary';
 import { getProviderService } from './libs/provider/service';
+import { getKimiDefaultRuntime, warmKimiCapabilityProbe } from './libs/provider/kimi-adapter-facade';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
 import { disposeTerminalTransportServer } from './libs/terminal-transport-server';
 
@@ -4720,6 +4721,17 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 加载 Claude 配置
   loadClaudeSettings();
 
+  // Sessions serialized before the kimi capability probe settles report the
+  // conservative 'legacy' runtime default — push a refreshed list once the
+  // probe resolves so server machines get their steer UI without a re-fetch.
+  void warmKimiCapabilityProbe().then(() => {
+    try {
+      handleSessionList(mainWindow);
+    } catch {
+      // window may be gone during shutdown
+    }
+  });
+
   feishuBridge.setHandlers({
     startSession: async ({ title, prompt, cwd, provider, model }) => {
       return handleSessionStart(mainWindow, { title, prompt, cwd, provider, model });
@@ -7964,7 +7976,12 @@ function buildSessionInfoFromRow(
           ? row.kimi_session_id.startsWith('server:')
             ? ('server' as const)
             : ('legacy' as const)
-          : ('server' as const)
+          : // Id-less rows follow the probed default, not blanket optimism:
+            // 'server' here enables the steer UI, and steering into the ACP
+            // adapter (no concurrent prompts) clobbers the streaming turn.
+            getKimiDefaultRuntime() === 'server'
+            ? ('server' as const)
+            : ('legacy' as const)
         : undefined,
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
@@ -8798,11 +8815,37 @@ async function handleSessionContinue(
   // would kill the running turn instead of steering it. The manager records
   // the new values on the session, so they apply from the next turn/start.
   const codexMidTurn = nextProvider === 'codex' && session.status === 'running';
+  // Same rule for kimi SERVER-runtime threads: the runtime takes `model` per
+  // prompt, so a steered/queued send carries the new model natively — an
+  // abort here would kill the streaming turn. Scoped to server provenance:
+  // legacy ACP threads cannot take a mid-turn prompt at all, so config drift
+  // there keeps the abort-and-respawn behavior. Id-less rows follow the
+  // probed default runtime (matching the serializer's steer gate).
+  const kimiMidTurn =
+    nextProvider === 'kimi' &&
+    session.status === 'running' &&
+    (session.kimi_session_id
+      ? session.kimi_session_id.startsWith('server:')
+      : getKimiDefaultRuntime() === 'server');
+  // A kimi runner whose adapter session was released while idle (daemon
+  // exit, session_gone) is a zombie: reusing its handle throws "No Kimi
+  // session found" at send time with a toast and a dropped message. Respawn
+  // instead — the fresh start resumes via the stored kimi_session_id.
+  const kimiSessionReleased =
+    nextProvider === 'kimi' &&
+    Boolean(existingEntry) &&
+    // Not while 'running': a rapidly-followed-up send can land before the
+    // starting runner has registered its adapter session — that is a
+    // mid-start window, not a zombie. (Mid-turn daemon death retires the
+    // entry via onError, so the zombie shape is always non-running.)
+    session.status !== 'running' &&
+    !(getProviderService().getAdapter('kimi')?.hasSession(sessionId) ?? false);
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
       runnerCwdChanged ||
-      (((nextProvider === 'codex' && !codexMidTurn) || nextProvider === 'opencode' || nextProvider === 'kimi' || nextProvider === 'grok' || nextProvider === 'pi') && modelChanged) ||
+      kimiSessionReleased ||
+      (((nextProvider === 'codex' && !codexMidTurn) || nextProvider === 'opencode' || (nextProvider === 'kimi' && !kimiMidTurn) || nextProvider === 'grok' || nextProvider === 'pi') && modelChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexFastModeChanged) ||
@@ -9669,6 +9712,10 @@ function startRunner(
           clearStopFallbackTimer(currentEntry);
         }
         turnDone?.('error', message);
+        // detach, not abort: the session already errored; a stopSession here
+        // would emit a spurious stop_settled, but leaving the listener leaks
+        // it against the replacement runner.
+        handle.detach?.();
         runnerHandles.delete(session.id);
       }
     },
@@ -10175,6 +10222,11 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
 
       void settlePromise.then(({ confirmed }) => {
         stoppingCodexSessions.delete(sessionId);
+        // The settled runner is done on every exit path below (initiator,
+        // replacement-live, or entry already deleted) — detach it so its
+        // event listener can't linger and auto-deny the replacement
+        // runner's permission requests via the stale-handle guard.
+        stopHandle.detach?.();
         // Retire the runner entry (staleness-guarded: a replacement runner
         // may already own this session key).
         const currentEntry = runnerHandles.get(sessionId);
@@ -10199,8 +10251,9 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
         });
 
         if (!confirmed) {
+          const providerLabel = entry.provider === 'kimi' ? 'Kimi' : entry.provider === 'codex' ? 'Codex' : 'The agent';
           const warning = buildLocalAssistantMessage(
-            'Codex did not confirm the stop within 10s; the turn may still be finishing server-side.'
+            `${providerLabel} did not confirm the stop; the turn may still be finishing server-side.`
           );
           sessions.addMessage(sessionId, warning);
           broadcast(mainWindow, {

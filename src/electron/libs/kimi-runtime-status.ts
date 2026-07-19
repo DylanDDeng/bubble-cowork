@@ -137,7 +137,22 @@ async function probeKimiAuth(binaryPath: string): Promise<KimiRuntimeStatus['aut
   });
 }
 
+const STATUS_CACHE_TTL_MS = 10_000;
+let statusCache: { status: KimiRuntimeStatus; fetchedAt: number } | null = null;
+
 export async function getKimiRuntimeStatus(): Promise<KimiRuntimeStatus> {
+  // Turn starts gate on this per send — cache briefly so a turn does not pay
+  // repeated probe spawns (and legacy machines don't pay the 5s auth
+  // handshake per message).
+  if (statusCache && Date.now() - statusCache.fetchedAt < STATUS_CACHE_TTL_MS) {
+    return statusCache.status;
+  }
+  const status = await computeKimiRuntimeStatus();
+  statusCache = { status, fetchedAt: Date.now() };
+  return status;
+}
+
+async function computeKimiRuntimeStatus(): Promise<KimiRuntimeStatus> {
   const cliPath = await resolveKimiBinary();
   const checkedAt = Date.now();
   if (!cliPath) {
@@ -161,8 +176,11 @@ export async function getKimiRuntimeStatus(): Promise<KimiRuntimeStatus> {
     checkAcpAvailable(cliPath),
     isKimiServerCapable(),
   ]);
-  const authState = acpAvailable ? await probeKimiAuth(cliPath) : 'error';
-  const ready = acpAvailable && authState === 'ready';
+  // Capability-first gating: a server-capable CLI is ready without the 5s
+  // per-call ACP auth handshake (login problems surface from the daemon at
+  // turn time). The ACP auth probe remains only for legacy-only machines.
+  const authState = serverAvailable ? 'unknown' : acpAvailable ? await probeKimiAuth(cliPath) : 'error';
+  const ready = serverAvailable || (acpAvailable && authState === 'ready');
 
   return {
     ready,
@@ -174,19 +192,23 @@ export async function getKimiRuntimeStatus(): Promise<KimiRuntimeStatus> {
     authState,
     loginCommand: buildKimiLoginCommand(cliPath),
     summary: ready
-      ? 'Kimi Code ACP is ready.'
+      ? serverAvailable
+        ? 'Kimi Code is ready.'
+        : 'Kimi Code ACP is ready.'
       : authState === 'login_required'
         ? 'Kimi Code needs login.'
         : acpAvailable
           ? 'Kimi Code ACP is installed but not ready.'
-          : 'Kimi Code ACP was not found.',
+          : 'Kimi Code runtime was not found.',
     detail: ready
-      ? 'Aegis can start Kimi Code sessions through ACP.'
+      ? serverAvailable
+        ? 'Aegis can start Kimi Code sessions through the local Kimi server.'
+        : 'Aegis can start Kimi Code sessions through ACP.'
       : authState === 'login_required'
         ? `Run ${buildKimiLoginCommand(cliPath)} to authenticate Kimi Code.`
         : acpAvailable
           ? 'Aegis could not verify Kimi Code authentication.'
-          : 'The kimi executable does not expose the acp command.',
+          : 'The kimi executable exposes neither the server nor the acp command.',
     checkedAt,
   };
 }
@@ -198,8 +220,8 @@ export function formatKimiRuntimeBlockingMessage(status: KimiRuntimeStatus): str
   if (!status.cliAvailable) {
     return 'Kimi Code CLI is not installed or was not found. Install Kimi Code, then restart Aegis.';
   }
-  if (!status.acpAvailable) {
-    return 'Kimi Code ACP is not available from the detected kimi executable.';
+  if (!status.serverAvailable && !status.acpAvailable) {
+    return 'The detected kimi executable exposes neither the server nor the acp runtime.';
   }
-  return status.detail || 'Kimi Code ACP is not ready.';
+  return status.detail || 'Kimi Code is not ready.';
 }

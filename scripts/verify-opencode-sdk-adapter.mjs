@@ -239,7 +239,6 @@ assert.ok(
 );
 
 for (const file of [
-  'src/ui/components/ProvidersRuntimeStatusPanel.tsx',
   'src/ui/components/settings/CompatibleProviderSettings.tsx',
   'src/electron/ipc-handlers.ts',
 ]) {

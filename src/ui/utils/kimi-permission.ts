@@ -32,8 +32,14 @@ export function loadPreferredKimiThinking(): KimiThinking | null {
   return normalizeKimiThinking(rendererStateStorage.getItem(THINKING_STORAGE_KEY));
 }
 
-export function savePreferredKimiThinking(value: KimiThinking): void {
+export function savePreferredKimiThinking(value: KimiThinking | null): void {
   if (typeof window === 'undefined') return;
+  if (value === null) {
+    // "Default" selection: no explicit tier is sent; the server applies the
+    // model's own default.
+    rendererStateStorage.removeItem(THINKING_STORAGE_KEY);
+    return;
+  }
   const normalized = normalizeKimiThinking(value);
   if (normalized) {
     rendererStateStorage.setItem(THINKING_STORAGE_KEY, normalized);

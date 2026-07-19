@@ -671,7 +671,7 @@ const KimiAgentSubContent: FC<{
   kimiThinkingOptions: string[];
   kimiThinkingChecked: string | null;
   onSelectModel: (option: ComposerModelOption) => void;
-  onKimiThinkingChange: (value: KimiThinking) => void;
+  onKimiThinkingChange: (value: KimiThinking | null) => void;
   selectedModel: string | null;
 }> = ({
   modelOptions,
@@ -688,6 +688,18 @@ const KimiAgentSubContent: FC<{
           <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
             Thinking
           </div>
+          <DropdownMenu.Item
+            key="__default"
+            onSelect={() => onKimiThinkingChange(null)}
+            className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+          >
+            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+              Default
+            </span>
+            {kimiThinkingChecked === null ? (
+              <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" />
+            ) : null}
+          </DropdownMenu.Item>
           {kimiThinkingOptions.map((tier) => {
             const isSelected = kimiThinkingChecked === tier;
             return (
@@ -991,7 +1003,7 @@ export function ComposerAgentModelPicker({
   kimiThinkingOptions?: string[];
   /** The tier shown as checked (explicit choice or the model default). */
   kimiThinkingChecked?: string | null;
-  onKimiThinkingChange?: (value: KimiThinking) => void;
+  onKimiThinkingChange?: (value: KimiThinking | null) => void;
   /** Which side the menu opens toward. Bottom-anchored composers open 'top'
    * (default); the centered new-thread landing passes 'bottom'. */
   menuSide?: 'top' | 'bottom';

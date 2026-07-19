@@ -56,7 +56,7 @@ const DEFAULT_CONFIG: ClaudeCompatibleProvidersConfig = {
       baseUrl: 'https://api.moonshot.cn/anthropic',
       authType: 'auth_token',
       secret: '',
-      model: 'kimi-k2.5',
+      model: '',
       smallFastModel: '',
     },
     deepseek: {

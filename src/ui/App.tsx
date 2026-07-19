@@ -74,6 +74,7 @@ import {
 } from './utils/message-content';
 import { aggregateMessages } from './utils/aggregated-messages';
 import { resolveCodexModel } from './utils/codex-model';
+import { startQueueAutoFlush } from './lib/queue-auto-flush';
 import {
   deriveTurnPhase,
   hasRunningToolInMessages,
@@ -301,6 +302,12 @@ export function App() {
   const activeSession = useAppStore((s) =>
     s.activeSessionId ? s.sessions[s.activeSessionId] ?? null : null
   );
+
+  // Queue auto-flush must outlive any single pane: a queued message's turn
+  // can complete while its session is shown nowhere.
+  useEffect(() => {
+    startQueueAutoFlush();
+  }, []);
 
   useEffect(() => {
     if (!electronAvailable) {

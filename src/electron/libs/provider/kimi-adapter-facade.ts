@@ -44,30 +44,127 @@ export function resolveKimiRuntimeOverride(): KimiRuntimeKind | null {
   return env === 'acp' || env === 'server' ? env : null;
 }
 
-let serverCapableProbe: Promise<boolean> | null = null;
+interface KimiCapabilityProbeOutcome {
+  /** True when the probe actually answered (CLI ran to a clean verdict);
+   * false for spawn failures/timeouts/missing binary, which prove nothing. */
+  definitive: boolean;
+  capable: boolean;
+}
 
-/**
- * Deterministic capability probe: does this CLI ship the `server` subcommand?
- * (Not a version allowlist — unknown versions pass if the capability exists.)
- */
-export function isKimiServerCapable(forceReload = false): Promise<boolean> {
-  if (!forceReload && serverCapableProbe) return serverCapableProbe;
-  serverCapableProbe = (async () => {
+type KimiCapabilityProbeFn = () => Promise<KimiCapabilityProbeOutcome>;
+
+let serverCapableProbe: Promise<KimiCapabilityProbeOutcome> | null = null;
+/** Last DEFINITIVE probe verdict; null until one lands. Sync consumers
+ * (session serializer, respawn predicate) read it via getKimiDefaultRuntime. */
+let lastDefinitiveServerCapable: boolean | null = null;
+let probeImpl: KimiCapabilityProbeFn = defaultCapabilityProbe;
+
+/** Test seam (L1): replace/restore the execFile-backed probe. */
+export function setKimiCapabilityProbeForTests(impl: KimiCapabilityProbeFn | null): void {
+  probeImpl = impl || defaultCapabilityProbe;
+  serverCapableProbe = null;
+  lastDefinitiveServerCapable = null;
+}
+
+function defaultCapabilityProbe(): Promise<KimiCapabilityProbeOutcome> {
+  return (async () => {
     const binary = await resolveKimiBinary();
-    if (!binary) return false;
-    return new Promise<boolean>((resolve) => {
+    if (!binary) {
+      // Missing binary proves nothing durable (mid-run installs happen);
+      // re-probe on the next ask instead of pinning a stale verdict.
+      return { definitive: false, capable: false };
+    }
+    return new Promise<KimiCapabilityProbeOutcome>((resolve) => {
       execFile(
         binary,
         ['server', '--help'],
         { timeout: 5_000, env: buildKimiEnv() },
         (error, stdout, stderr) => {
           const output = `${stdout || ''}${stderr || ''}`;
-          resolve(!error && /\brun\b/.test(output));
+          if (!error) {
+            resolve({ definitive: true, capable: /\brun\b/.test(output) });
+            return;
+          }
+          const err = error as NodeJS.ErrnoException & { killed?: boolean };
+          // A clean non-zero exit (numeric code) means the CLI ran and
+          // rejected the subcommand — a definitive NO for old CLIs. Timeouts
+          // (killed) and spawn errors (string code / no code) prove nothing.
+          const definitive = typeof err.code === 'number' && err.killed !== true;
+          resolve({ definitive, capable: false });
         }
       );
     });
   })();
-  return serverCapableProbe;
+}
+
+function runCapabilityProbe(): Promise<KimiCapabilityProbeOutcome> {
+  if (serverCapableProbe) return serverCapableProbe;
+  const probe = probeImpl().then(
+    (outcome) => {
+      if (outcome.definitive) {
+        lastDefinitiveServerCapable = outcome.capable;
+      } else if (serverCapableProbe === probe) {
+        // Indeterminate outcomes are never cached: a transient execFile
+        // timeout must not silently route every later new thread to ACP
+        // (the runtime-flapping this facade's docblock forbids).
+        serverCapableProbe = null;
+      }
+      return outcome;
+    },
+    (error) => {
+      if (serverCapableProbe === probe) serverCapableProbe = null;
+      throw error;
+    }
+  );
+  serverCapableProbe = probe;
+  return probe;
+}
+
+/**
+ * Deterministic capability probe: does this CLI ship the `server` subcommand?
+ * (Not a version allowlist — unknown versions pass if the capability exists.)
+ * Soft form: indeterminate reads as `false` for THIS call but is not cached.
+ */
+export async function isKimiServerCapable(): Promise<boolean> {
+  return (await runCapabilityProbe()).capable;
+}
+
+/**
+ * Loud form for the session-start path: retries one indeterminate outcome,
+ * then THROWS instead of silently creating an ACP thread — only a definitive
+ * "no server subcommand" may route new threads to the legacy runtime.
+ */
+export async function requireKimiServerCapability(): Promise<boolean> {
+  let outcome = await runCapabilityProbe();
+  if (!outcome.definitive) {
+    outcome = await runCapabilityProbe();
+  }
+  if (!outcome.definitive) {
+    throw new Error(
+      'Could not determine whether the Kimi CLI supports the server runtime (probe failed twice). Retry in a moment.'
+    );
+  }
+  return outcome.capable;
+}
+
+/**
+ * Sync default runtime for id-less threads (session serializer, composer
+ * capability gates). Unresolved probe reports 'acp' — the safe direction:
+ * worst case the steer UI stays disabled until the warm probe settles,
+ * versus steering into an ACP adapter that cannot take concurrent prompts.
+ */
+export function getKimiDefaultRuntime(): KimiRuntimeKind {
+  const override = resolveKimiRuntimeOverride();
+  if (override) return override;
+  return lastDefinitiveServerCapable ? 'server' : 'acp';
+}
+
+/** Resolves when the warm capability probe settles (F12 push-not-poll). */
+export function warmKimiCapabilityProbe(): Promise<void> {
+  return runCapabilityProbe().then(
+    () => undefined,
+    () => undefined
+  );
 }
 
 export class KimiAdapterFacade implements ProviderAdapter {
@@ -81,6 +178,10 @@ export class KimiAdapterFacade implements ProviderAdapter {
   constructor(serverTransport: KimiServerTransport = {}) {
     this.acp = new KimiAcpAdapter();
     this.server = new KimiServerAdapter(serverTransport);
+
+    // Warm the capability probe so getKimiDefaultRuntime() has a definitive
+    // verdict before (or shortly after) the first session list renders.
+    void warmKimiCapabilityProbe();
 
     // ACP events pass through untouched (bare ids = ACP provenance).
     this.acp.events.on('event', (event: ProviderRuntimeEvent) => {
@@ -112,11 +213,11 @@ export class KimiAdapterFacade implements ProviderAdapter {
    * on them rather than silently downgrading new threads.
    */
   get capabilities(): ProviderAdapterCapabilities {
-    return resolveKimiRuntimeOverride() === 'acp' ? this.acp.capabilities : this.server.capabilities;
+    return getKimiDefaultRuntime() === 'acp' ? this.acp.capabilities : this.server.capabilities;
   }
 
   getComposerCapabilities(): ProviderComposerCapabilities {
-    return resolveKimiRuntimeOverride() === 'acp'
+    return getKimiDefaultRuntime() === 'acp'
       ? this.acp.getComposerCapabilities()
       : this.server.getComposerCapabilities();
   }
@@ -130,7 +231,9 @@ export class KimiAdapterFacade implements ProviderAdapter {
   private async pickRuntimeForNewThread(): Promise<KimiRuntimeKind> {
     const override = resolveKimiRuntimeOverride();
     if (override) return override;
-    return (await isKimiServerCapable()) ? 'server' : 'acp';
+    // Loud form: a transient probe failure throws instead of silently
+    // creating an ACP thread (bare persisted id = provenance corruption).
+    return (await requireKimiServerCapability()) ? 'server' : 'acp';
   }
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
@@ -159,7 +262,15 @@ export class KimiAdapterFacade implements ProviderAdapter {
         // the session exists but cannot be attached right now.
         const adoption = await this.server.manager.resolveResume(resumeId);
         if (adoption === 'accepted') {
-          const session = await this.server.startSession({ ...input, resumeSessionId: resumeId });
+          let session: ProviderSession;
+          try {
+            session = await this.server.startSession({ ...input, resumeSessionId: resumeId });
+          } catch (error) {
+            // Don't leak the pre-check subscription: an orphan registry
+            // entry gets resubscribed on every reconnect forever.
+            this.server.manager.unsubscribeSession(resumeId);
+            throw error;
+          }
           console.info(
             `[KimiAdapterFacade] adopted legacy kimi thread ${input.threadId} onto the server runtime (${resumeId})`
           );
