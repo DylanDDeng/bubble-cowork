@@ -12,6 +12,8 @@ process.env.AEGIS_KIMI_SERVER_REQUEST_TIMEOUT_MS = '3000';
 process.env.AEGIS_KIMI_SERVER_SUBSCRIBE_TIMEOUT_MS = '2000';
 process.env.AEGIS_KIMI_SERVER_RECONNECT_MAX_MS = '400';
 process.env.AEGIS_KIMI_SERVER_STOP_CONFIRM_TIMEOUT_MS = '300';
+process.env.AEGIS_KIMI_SERVER_RESUME_ATTEMPTS = '3';
+process.env.AEGIS_KIMI_SERVER_RESUME_RETRY_MS = '20';
 
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -195,6 +197,12 @@ function makeFakeFetch(state) {
     if (/\/messages$/.test(u.pathname)) return respond(0, { items: state.messages || [] });
     if (u.pathname === '/api/v1/workspaces') {
       return respond(0, { items: state.workspaces ?? [{ id: 'wd_test_1', root: '/tmp/proj' }] });
+    }
+    const sessionGet = /^\/api\/v1\/sessions\/([^/:]+)$/.exec(u.pathname);
+    if (sessionGet && method === 'GET') {
+      return state.missingSessions?.includes(sessionGet[1])
+        ? respond(40401, null)
+        : respond(0, { id: sessionGet[1] });
     }
     if (/\/skills$/.test(u.pathname)) {
       return respond(0, {
@@ -626,7 +634,9 @@ async function l1DaemonExitMidTurn() {
 }
 
 async function l1ResumeNotFound() {
-  const { transport, wsFactory } = makeTransport();
+  const { transport, wsFactory, state } = makeTransport();
+  // Genuinely gone: subscribe says not_found AND REST confirms 40401.
+  state.missingSessions = ['session_gone_1'];
   wsFactory.onSubscribe = (msg) => ({
     type: 'ack',
     id: msg.id,
@@ -654,6 +664,87 @@ async function l1ResumeNotFound() {
   const init = events.byType('system_init')[0];
   assert.equal(init.sessionId, session.providerSessionId, 'new id flows back via system_init');
   ok('resume of a dead session falls forward visibly and rebinds the cursor');
+}
+
+async function l1ResumeFlushRace() {
+  // Daemon-restart flush race: the first subscribe says not_found while REST
+  // says the session EXISTS — resolveResume must retry and attach instead of
+  // falling forward (a real 50-message session was orphaned this way).
+  const { transport, wsFactory, fetchImpl } = makeTransport();
+  // Model the REAL daemon semantics: a cold session subscribes as not_found
+  // until its messages have been loaded once (warming) in this daemon's
+  // lifetime — regardless of how many times you subscribe.
+  let warmed = false;
+  let subscribeCalls = 0;
+  transport.fetchImpl = async (url, init) => {
+    if (String(url).includes('/sessions/session_racy_1/messages')) {
+      warmed = true;
+    }
+    return fetchImpl(url, init);
+  };
+  wsFactory.onSubscribe = (msg) => {
+    if (msg.payload.session_ids.includes('session_racy_1')) {
+      subscribeCalls += 1;
+      if (!warmed) {
+        return {
+          type: 'ack',
+          id: msg.id,
+          code: 0,
+          msg: 'success',
+          payload: { accepted: [], not_found: ['session_racy_1'], resync_required: [], cursors: {} },
+        };
+      }
+    }
+    return wsFactory.defaultSubscribe(msg);
+  };
+  const adapter = new KimiServerAdapter(transport);
+  const events = collectEvents(adapter);
+  const session = await adapter.startSession({
+    provider: 'kimi',
+    threadId: 'thread-race',
+    cwd: '/tmp/proj',
+    prompt: '',
+    resumeSessionId: 'session_racy_1',
+  });
+  assert.equal(session.providerSessionId, 'session_racy_1', 'transient not_found recovers to the SAME session');
+  assert.ok(subscribeCalls >= 2, 'subscribe was retried');
+  assert.ok(
+    fetchImpl.calls.some((call) => call.path === '/api/v1/sessions/session_racy_1/messages'),
+    'the session was warmed via GET /messages before the retry'
+  );
+  assert.ok(
+    !events.messages('assistant').some((m) => m.message.content[0]?.text?.includes('Could not restore')),
+    'no false degradation notice'
+  );
+
+  // Session exists but never attaches: throw loudly, never rebind — the
+  // stored id survives for a later retry.
+  const t2 = makeTransport();
+  t2.wsFactory.onSubscribe = (msg) =>
+    msg.payload.session_ids[0] === 'session_stuck_1'
+      ? {
+          type: 'ack',
+          id: msg.id,
+          code: 0,
+          msg: 'success',
+          payload: { accepted: [], not_found: ['session_stuck_1'], resync_required: [], cursors: {} },
+        }
+      : t2.wsFactory.defaultSubscribe(msg);
+  const adapter2 = new KimiServerAdapter(t2.transport);
+  const events2 = collectEvents(adapter2);
+  await assert.rejects(
+    adapter2.startSession({
+      provider: 'kimi',
+      threadId: 'thread-stuck',
+      cwd: '/tmp/proj',
+      prompt: '',
+      resumeSessionId: 'session_stuck_1',
+    }),
+    /could not be attached/,
+    'exists-but-unattachable throws instead of falling forward'
+  );
+  assert.equal(events2.byType('system_init').length, 0, 'no system_init → stored id is never rewritten');
+  ok('resume verification: flush race retries to the same session; unattachable throws, id preserved');
 }
 
 async function l1OneOwnerGuard() {
@@ -906,9 +997,11 @@ async function l1FacadeLegacyAdoption() {
       'adoption creates no new session'
     );
 
-    // Adoption REFUSED (server does not know the id): the thread stays on
-    // the legacy runtime and the bare id is never destroyed.
+    // Adoption REFUSED (server does not know the id — subscribe not_found
+    // AND REST-confirmed 40401): the thread stays on the legacy runtime and
+    // the bare id is never destroyed.
     const t2 = makeTransport();
+    t2.state.missingSessions = ['raw_dead_id_9'];
     t2.wsFactory.onSubscribe = (msg) => ({
       type: 'ack',
       id: msg.id,
@@ -1185,6 +1278,7 @@ const suites = [
   ['L1: compact flow', l1CompactFlow],
   ['L1: daemon exit mid-turn', l1DaemonExitMidTurn],
   ['L1: resume not_found falls forward', l1ResumeNotFound],
+  ['L1: resume flush-race verification', l1ResumeFlushRace],
   ['L1: one-owner guard', l1OneOwnerGuard],
   ['L1: resync notice', l1ResyncNotice],
   ['L1: slash catalog', l1SlashCatalog],

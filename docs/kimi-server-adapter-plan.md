@@ -388,6 +388,15 @@ deep-backlog resync, quit kill ordering.
   work, archived sessions still fork (archive ≠ delete), `:fork` errors ride
   the envelope code on HTTP 200, and a fork's WS cursor starts fresh (its
   history never replays over WS — `GET /messages` or the local mirror only).
+- **Queue + steer composer UX** (2026-07-19): the codex-style mid-turn
+  queue (Enter enqueues while a turn runs; chips can Steer into the running
+  turn or auto-flush on completion) now covers kimi server-runtime threads.
+  `SessionInfo.kimiRuntime` ('server' | 'legacy', derived from the stored
+  id's provenance prefix; unset ids default to 'server') gates it —
+  legacy-runtime threads keep the immediate-send behavior since ACP has no
+  mid-turn injection. The steer path needs no new plumbing: a mid-turn send
+  reaches the adapter, submits (queued server-side), and the adapter's
+  existing auto-steer merges it into the running turn.
 - **Logical ACP removal + legacy adoption** (2026-07-19, three-lens panel
   review + live probes): bare-id (legacy) thread resumes no longer default
   to the ACP runtime. The facade first asks the server to adopt the bare id
@@ -454,6 +463,17 @@ CLI upgrades and diff against this appendix.
    A `not_found` subscribe result means no events will ever arrive for that
    id on this connection, even if the session is later re-created — treat as
    resume failure (visible degradation notice) and re-create + re-subscribe.
+   **[CORRECTED 2026-07-19: `not_found` does NOT prove absence.]** The
+   daemon's WS session registry is LAZY: a legacy-store session subscribes
+   as `not_found` until its messages have been loaded once in this daemon's
+   lifetime — `GET /sessions/{id}` (detail) does not materialize it, only
+   `GET /sessions/{id}/messages` does (probed against a live 50-message
+   session: cold subscribe → not_found; subscribe after GET detail → still
+   not_found; subscribe after GET messages → accepted with a cursor). This
+   orphaned a real thread in the wild before `resolveResume` learned to
+   verify via REST (`40401` = truly absent, confirmed twice), warm via
+   `GET /messages`, retry the subscribe, and throw (preserving the stored
+   id) rather than fall forward when the session exists.
 6. **Envelopes**: list endpoints return `data.items[]` (`/models`,
    `/sessions`, `/approvals`). Session objects use `id` (not `session_id`).
    `GET /sessions` items DO carry a `usage` object but it is all-zeros in

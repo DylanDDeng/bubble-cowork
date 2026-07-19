@@ -155,15 +155,16 @@ export class KimiAdapterFacade implements ProviderAdapter {
       // boot failure on a capable CLI throws loudly instead of flapping to
       // the legacy runtime (provenance corruption guard).
       if ((await this.pickRuntimeForNewThread()) === 'server') {
-        const adoption = await this.server.manager.subscribeSession(resumeId);
-        if (adoption.accepted) {
+        // resolveResume verifies + retries; it throws (id untouched) when
+        // the session exists but cannot be attached right now.
+        const adoption = await this.server.manager.resolveResume(resumeId);
+        if (adoption === 'accepted') {
           const session = await this.server.startSession({ ...input, resumeSessionId: resumeId });
           console.info(
             `[KimiAdapterFacade] adopted legacy kimi thread ${input.threadId} onto the server runtime (${resumeId})`
           );
           return { ...session, providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId };
         }
-        this.server.manager.unsubscribeSession(resumeId);
       }
       return this.acp.startSession(input);
     }

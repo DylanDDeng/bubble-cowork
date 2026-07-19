@@ -623,6 +623,73 @@ export class KimiServerManager extends EventEmitter {
     return Array.isArray(data?.items) ? (data.items as Array<Record<string, unknown>>) : [];
   }
 
+  /** REST existence check: `GET /sessions/{id}` → 40401 means genuinely absent. */
+  async sessionExists(sessionId: string): Promise<boolean> {
+    try {
+      await this.request('GET', `/sessions/${sessionId}`);
+      return true;
+    } catch (error) {
+      if (error instanceof KimiServerApiError && error.code === 40401) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Resolve a resume id against the daemon with verification + retries.
+   *
+   * A single not_found subscribe is NOT proof the session is gone: a dev
+   * restart kills the old daemon (SIGTERM) while the new app spawns a fresh
+   * one, and the old daemon's async session flush can land AFTER the new
+   * daemon builds its index — a just-active session transiently reads as
+   * missing (observed in the wild: a 50-message session came back seconds
+   * later). So: subscribe; on not_found consult REST (`40401` = absent,
+   * confirmed across two spaced attempts before giving up); when REST says
+   * the session EXISTS but the subscribe keeps failing, throw loudly so the
+   * caller preserves the stored id and the user can retry — never fall
+   * forward and orphan a live session.
+   */
+  async resolveResume(sessionId: string): Promise<'accepted' | 'missing'> {
+    const attempts = envInt('AEGIS_KIMI_SERVER_RESUME_ATTEMPTS', 3);
+    const retryDelayMs = envInt('AEGIS_KIMI_SERVER_RESUME_RETRY_MS', 500);
+    let confirmedMissing = 0;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const subscribed = await this.subscribeSession(sessionId);
+      if (subscribed.accepted) {
+        return 'accepted';
+      }
+      const exists = await this.sessionExists(sessionId);
+      if (!exists) {
+        confirmedMissing += 1;
+        if (confirmedMissing >= 2) {
+          this.unsubscribeSession(sessionId);
+          return 'missing';
+        }
+      } else {
+        confirmedMissing = 0;
+        // WARM the daemon's live session registry: a legacy-store session
+        // only materializes for WS subscription after its messages are
+        // loaded once in this daemon's lifetime — the detail endpoint does
+        // NOT do it (probed: cold subscribe → not_found even though the
+        // session exists; subscribe after GET /messages → accepted).
+        try {
+          await this.getMessages(sessionId);
+        } catch {
+          // transport errors will surface on the next subscribe attempt
+        }
+      }
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
+      }
+    }
+    this.unsubscribeSession(sessionId);
+    throw new KimiServerTransportError(
+      'daemon_unavailable',
+      `session ${sessionId} exists on the server but could not be attached — retry in a moment`
+    );
+  }
+
   /** `GET /sessions/{id}/skills` → `{skills: [{name, description, path, source}]}` (0.26.0). */
   async listSessionSkills(sessionId: string): Promise<Array<Record<string, unknown>>> {
     const data = await this.request<Record<string, unknown>>('GET', `/sessions/${sessionId}/skills`);

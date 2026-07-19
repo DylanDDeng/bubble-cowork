@@ -229,13 +229,14 @@ export class KimiServerAdapter implements ProviderAdapter {
       if (boundThreadId && boundThreadId !== input.threadId) {
         throw new KimiThreadBindingError(input.resumeSessionId, boundThreadId);
       }
-      const subscribed = await this.manager.subscribeSession(input.resumeSessionId);
-      if (subscribed.accepted) {
+      // Verified resume: a lone not_found subscribe can be a daemon-restart
+      // flush race, so resolveResume retries with REST existence checks and
+      // THROWS (preserving the stored id) when the session exists but can't
+      // be attached. Only a REST-confirmed missing session falls forward.
+      const resolution = await this.manager.resolveResume(input.resumeSessionId);
+      if (resolution === 'accepted') {
         providerSessionId = input.resumeSessionId;
       } else {
-        // Pinned: a not_found subscribe never yields events later. Recreate
-        // and make the context break visible (codex P0-5 pattern).
-        this.manager.unsubscribeSession(input.resumeSessionId);
         resumeFallbackReason = 'the server no longer has this session';
       }
     }
