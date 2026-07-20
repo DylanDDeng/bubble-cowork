@@ -6,6 +6,7 @@ import minimaxLogo from '../../assets/minimax-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import openaiLogo from '../../assets/openai.svg';
 import piLogo from '../../assets/pi-logo-auto.svg';
+import qoderLogo from '../../assets/qoder.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import type {
@@ -49,6 +50,7 @@ const USAGE_PROVIDERS: Array<{ id: AgentProvider; title: string; logoSrc?: strin
   { id: 'kimi', title: 'Kimi', logoSrc: moonshotLogo },
   { id: 'grok', title: 'Grok', logoSrc: grokLogo },
   { id: 'pi', title: 'Pi', logoSrc: piLogo },
+  { id: 'qoder', title: 'Qoder', logoSrc: qoderLogo },
 ];
 
 const INITIAL_PROVIDER_USAGE: Record<AgentProvider, ProviderUsageState> = Object.fromEntries(

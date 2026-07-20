@@ -8,6 +8,7 @@ import moonshotLogo from '../assets/moonshot.svg';
 import grokLogo from '../assets/grok.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
+import { QoderLogo } from './QoderLogo';
 
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
@@ -30,6 +31,9 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'pi') {
     return <PiLogo />;
+  }
+  if (provider === 'qoder') {
+    return <QoderLogo />;
   }
 
   return null;

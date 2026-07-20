@@ -1,0 +1,15 @@
+{
+  "name": "qoder-m0",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@qoder-ai/qoder-agent-sdk": "^1.0.15"
+  }
+}

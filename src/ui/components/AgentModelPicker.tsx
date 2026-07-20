@@ -21,6 +21,7 @@ import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
+import { QoderLogo } from './QoderLogo';
 import { Input } from './ui/input';
 
 type PickerMode = 'provider' | 'model';
@@ -94,6 +95,9 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'pi') {
     return <PiLogo />;
+  }
+  if (provider === 'qoder') {
+    return <QoderLogo />;
   }
 
   return null;

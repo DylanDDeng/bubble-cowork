@@ -1016,6 +1016,15 @@ export const useAppStore = create<Store>()(
         }
         break;
 
+      case 'qoder.modelConfigUpdated':
+        // The qoder adapter refreshed its catalog after a session boot (or a
+        // setModel re-init); the qoder model-config hook re-fetches so the
+        // picker shows the full model list.
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('qoder-model-config-updated'));
+        }
+        break;
+
       case 'project.tree':
         set({
           projectTreeCwd: event.payload.cwd,
@@ -2854,7 +2863,8 @@ function handleStreamMessage(
       provider === 'opencode' ||
       provider === 'kimi' ||
       provider === 'grok' ||
-      provider === 'pi'
+      provider === 'pi' ||
+      provider === 'qoder'
         ? provider
         : undefined;
     const incoming: McpServerStatus[] =

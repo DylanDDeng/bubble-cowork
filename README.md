@@ -18,7 +18,7 @@ Aegis turns a local project folder into an AI operating surface. Instead of trea
 
 * Start and organize multiple AI work sessions around real project directories
 
-* Switch between Claude Code and Codex from the same interface
+* Switch between Claude Code, Codex, OpenCode, Kimi, Grok, Pi, and Qoder from the same interface
 
 * Connect Anthropic-compatible providers such as MiniMax, Zhipu, Moonshot, and DeepSeek
 

@@ -6,6 +6,7 @@ import { KimiAdapterFacade } from './provider/kimi-adapter-facade';
 import { GrokAcpAdapter } from './provider/grok-acp-adapter';
 import { OpenCodeSdkAdapter } from './provider/opencode-sdk-adapter';
 import { PiSdkAdapter } from './provider/pi-sdk-adapter';
+import { QoderSdkAdapter } from './provider/qoder-sdk-adapter';
 import { isDev } from '../util';
 
 let providerServiceInitialized = false;
@@ -26,6 +27,7 @@ export function ensureProviderService(): void {
   service.registerAdapter(new KimiAdapterFacade());
   service.registerAdapter(new GrokAcpAdapter());
   service.registerAdapter(new PiSdkAdapter());
+  service.registerAdapter(new QoderSdkAdapter());
 
   if (isDev()) {
     console.log('[ProviderService] initialized with adapters:', service.listAdapters().map((a) => a.provider));
@@ -148,6 +150,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       grokPermissionMode: options.grokPermissionMode,
       grokReasoningEffort: options.grokReasoningEffort,
       opencodePermissionMode: options.opencodePermissionMode,
+      qoderPermissionMode: options.qoderPermissionMode,
       codexSkills: options.codexSkills,
       codexMentions: options.codexMentions,
     });
@@ -238,6 +241,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         grokPermissionMode?: import('../../shared/types').GrokPermissionMode;
         grokReasoningEffort?: import('../../shared/types').GrokReasoningEffort;
         opencodePermissionMode?: import('../../shared/types').OpenCodePermissionMode;
+        qoderPermissionMode?: import('../../shared/types').QoderPermissionMode;
       }
     ) => {
       if (abortController.signal.aborted) return;
@@ -266,6 +270,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
             grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
             opencodePermissionMode:
               sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
+            qoderPermissionMode: sendOptions?.qoderPermissionMode ?? options.qoderPermissionMode,
             codexSkills,
             codexMentions,
           });

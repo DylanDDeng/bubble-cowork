@@ -7,6 +7,7 @@ import minimaxLogo from '../../assets/minimax-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import grokLogo from '../../assets/grok.svg';
+import qoderLogo from '../../assets/qoder.svg';
 import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
@@ -14,6 +15,7 @@ import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
 import { useKimiRuntimeStatus } from '../../hooks/useKimiRuntimeStatus';
 import { useGrokRuntimeStatus } from '../../hooks/useGrokRuntimeStatus';
 import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
+import { useAgentReadiness } from '../../hooks/useAgentReadiness';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import {
   DropdownMenu,
@@ -178,6 +180,10 @@ export function CompatibleProviderSettingsContent() {
   const { status: opencodeRuntimeStatus, loading: opencodeRuntimeLoading } = useOpencodeRuntimeStatus();
   const { status: kimiRuntimeStatus, loading: kimiRuntimeLoading } = useKimiRuntimeStatus();
   const { status: grokRuntimeStatus, loading: grokRuntimeLoading } = useGrokRuntimeStatus();
+  // Qoder rides the shared runtime directory probe (probeQoder): no dedicated
+  // IPC — the directory already checks CLI presence + login state.
+  const { entries: agentReadinessEntries, loading: agentReadinessLoading } = useAgentReadiness();
+  const qoderReadiness = agentReadinessEntries.find((entry) => entry.provider === 'qoder');
 
   useEffect(() => {
     let cancelled = false;
@@ -371,6 +377,12 @@ export function CompatibleProviderSettingsContent() {
           logo={<img src={grokLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
           detail={!grokRuntimeLoading && !grokRuntimeStatus.ready ? buildGrokSummary(grokRuntimeStatus, grokRuntimeLoading) : undefined}
           status={buildGrokRailStatus(grokRuntimeStatus, grokRuntimeLoading)}
+        />
+        <RuntimeStatusRow
+          title="Qoder"
+          logo={<img src={qoderLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          detail={!agentReadinessLoading && qoderReadiness && qoderReadiness.state !== 'ready' ? qoderReadiness.detail : undefined}
+          status={buildQoderRailStatus(qoderReadiness, agentReadinessLoading)}
         />
       </SettingsGroup>
 
@@ -881,6 +893,38 @@ function buildKimiRailStatus(status: KimiRuntimeStatus, loading: boolean) {
     };
   }
 
+  return {
+    label: 'Setup',
+    tone: 'text-amber-700',
+    dot: 'bg-amber-500',
+  };
+}
+
+function buildQoderRailStatus(
+  entry: { state: 'ready' | 'needs_login' | 'missing' | 'error' | 'checking'; summary: string } | undefined,
+  loading: boolean
+) {
+  if (loading || !entry || entry.state === 'checking') {
+    return {
+      label: 'Checking',
+      tone: 'text-[var(--text-secondary)]',
+      dot: 'bg-[var(--text-muted)]/60',
+    };
+  }
+  if (entry.state === 'ready') {
+    return {
+      label: 'Connected',
+      tone: 'text-emerald-700',
+      dot: 'bg-emerald-500',
+    };
+  }
+  if (entry.state === 'needs_login') {
+    return {
+      label: 'Sign in',
+      tone: 'text-amber-700',
+      dot: 'bg-amber-500',
+    };
+  }
   return {
     label: 'Setup',
     tone: 'text-amber-700',

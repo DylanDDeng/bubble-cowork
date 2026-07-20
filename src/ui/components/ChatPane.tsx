@@ -1837,7 +1837,8 @@ export function ChatPane({
                             (session.provider === 'claude' ||
                               session.provider === 'codex' ||
                               session.provider === 'opencode' ||
-                              session.provider === 'pi')
+                              session.provider === 'pi' ||
+                              session.provider === 'qoder')
                               ? {
                                   canEditAndRetry: item.originalIndex === lastUserPromptIndex,
                                   isSessionRunning: session.status === 'running',

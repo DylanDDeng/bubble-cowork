@@ -1,0 +1,41 @@
+[
+  {
+    "type": "result",
+    "subtype": "error_during_execution",
+    "duration_ms": 0,
+    "duration_api_ms": 0,
+    "is_error": true,
+    "num_turns": 0,
+    "stop_reason": null,
+    "total_cost_usd": 0,
+    "usage": {
+      "input_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 0,
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "",
+      "iterations": [],
+      "speed": "standard"
+    },
+    "modelUsage": {},
+    "permission_denials": [],
+    "errors": [
+      "No qodercli login found. Run \"qodercli login\" first."
+    ],
+    "terminal_reason": "auth_required",
+    "uuid": "68ca6887-3896-4fb6-86f5-3acb4f87fa6b",
+    "session_id": "9d2e00c5-60ae-4154-a44a-221acf524f69"
+  },
+  {
+    "thrown": "Qoder CLI process exited with code 41"
+  }
+]

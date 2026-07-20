@@ -24,6 +24,7 @@ import type {
   GrokPermissionMode,
   GrokReasoningEffort,
   OpenCodePermissionMode,
+  QoderPermissionMode,
   ClaudeAccessMode,
   ClaudeExecutionMode,
   ClaudeReasoningEffort,
@@ -44,7 +45,7 @@ import type { SessionRow } from '../../types';
 
 // ── Provider Identity ──────────────────────────────────────────────────────
 
-export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
+export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
 
 export interface ProviderAdapterCapabilities {
   /** Supports switching model mid-session */
@@ -88,6 +89,7 @@ export interface ProviderSessionStartInput {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+  qoderPermissionMode?: QoderPermissionMode;
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
   claudeReasoningEffort?: ClaudeReasoningEffort;
@@ -109,6 +111,7 @@ export interface ProviderSendTurnInput {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
+  qoderPermissionMode?: QoderPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
 }
@@ -144,7 +147,16 @@ export type ProviderRuntimeEvent =
     }
   // Provider-authoritative model catalog refresh. Process-scoped: threadId is
   // always null (present so per-thread event filters type-check and skip it).
-  | { type: 'model_catalog_updated'; threadId: null; models: unknown[] }
+  // `provider` discriminates the consumer (codex emits without it — legacy
+  // default; qoder emits 'qoder' + defaultModel so the IPC layer can persist
+  // and rebroadcast without touching codex settings).
+  | {
+      type: 'model_catalog_updated';
+      threadId: null;
+      provider?: ProviderKind;
+      models: unknown[];
+      defaultModel?: string | null;
+    }
   | { type: 'error'; threadId: string; error: Error }
   | { type: 'system_init'; threadId: string; sessionId: string; model?: string };
 

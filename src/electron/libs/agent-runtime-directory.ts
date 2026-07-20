@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'fs';
+import { homedir } from 'os';
 import { join } from 'path';
 import type {
   AgentProvider,
@@ -12,6 +13,7 @@ import { getOpencodeRuntimeStatus } from './opencode-runtime-status';
 import { getKimiRuntimeStatus } from './kimi-runtime-status';
 import { getGrokRuntimeStatus } from './grok-runtime-status';
 import { resolvePiAgentDir } from './provider/pi-sdk-loader';
+import { findMachineQoderCli } from './provider/qoder-sdk-loader';
 
 // Static per-provider metadata for the onboarding/install guidance. Install
 // commands and docs are only listed where we are confident they stay correct;
@@ -47,6 +49,11 @@ const PROVIDER_META: Record<
   },
   pi: {
     title: 'Pi',
+    installCommand: null,
+    docsUrl: null,
+  },
+  qoder: {
+    title: 'Qoder',
     installCommand: null,
     docsUrl: null,
   },
@@ -197,6 +204,33 @@ async function probePi(): Promise<AgentRuntimeEntry> {
   }
 }
 
+// Qoder readiness = machine qodercli + login state. File-existence checks
+// only (probePi pattern): never accountInfo() — it spawns a CLI per call.
+async function probeQoder(): Promise<AgentRuntimeEntry> {
+  try {
+    if (!findMachineQoderCli()) {
+      return entry('qoder', 'not_installed', {
+        summary: 'Qoder CLI (qodercli) was not found on this machine.',
+        detail: 'Install Qoder and make sure qodercli is on the PATH (or in ~/.local/bin).',
+      });
+    }
+    const authUserPath = join(homedir(), '.qoder', '.auth', 'user');
+    if (existsSync(authUserPath)) {
+      return entry('qoder', 'ready', { summary: 'Qoder is ready (qodercli found, login state present).' });
+    }
+    return entry('qoder', 'login_required', {
+      summary: 'Qoder is installed but not signed in.',
+      detail: 'Run `qodercli login`, then retry.',
+      loginCommand: 'qodercli login',
+    });
+  } catch (error) {
+    return entry('qoder', 'error', {
+      summary: 'Could not check Qoder status.',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export async function getAgentRuntimeDirectory(force = false): Promise<AgentRuntimeDirectoryReport> {
   const probes: Array<[AgentProvider, Promise<AgentRuntimeEntry>]> = [
     ['claude', probeClaude(force)],
@@ -205,6 +239,7 @@ export async function getAgentRuntimeDirectory(force = false): Promise<AgentRunt
     ['kimi', probeKimi()],
     ['grok', probeGrok()],
     ['pi', probePi()],
+    ['qoder', probeQoder()],
   ];
 
   const entries = await Promise.all(

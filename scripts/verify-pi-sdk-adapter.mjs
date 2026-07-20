@@ -67,7 +67,7 @@ const sharedTypes = read('src/shared/types.ts');
 assert.ok(
   providerTypes.includes("'pi'") &&
     sharedTypes.includes("'pi_local'") &&
-    sharedTypes.includes("AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi'"),
+    /AgentProvider =[^;]*'pi'/.test(sharedTypes),
   'provider/shared types must include Pi'
 );
 

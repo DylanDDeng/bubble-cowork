@@ -29,7 +29,8 @@ export interface SessionRow {
   kimi_session_id: string | null;
   grok_session_id: string | null;
   pi_session_id: string | null;
-  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
+  qoder_session_id: string | null;
+  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;
@@ -130,6 +131,7 @@ export interface RunnerOptions {
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+  qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (

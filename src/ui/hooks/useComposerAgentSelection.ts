@@ -11,6 +11,7 @@ import { useOpencodeModelConfig } from './useOpencodeModelConfig';
 import { useKimiModelConfig } from './useKimiModelConfig';
 import { useGrokModelConfig } from './useGrokModelConfig';
 import { usePiModelConfig } from './usePiModelConfig';
+import { useQoderModelConfig } from './useQoderModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import {
@@ -89,6 +90,7 @@ import {
 const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
 const GROK_MODEL_STORAGE_KEY = 'cowork.preferredGrokModel';
 const PI_MODEL_STORAGE_KEY = 'cowork.preferredPiModel';
+const QODER_MODEL_STORAGE_KEY = 'cowork.preferredQoderModel';
 
 export interface ComposerModelOption {
   key: string;
@@ -147,6 +149,21 @@ function savePreferredPiModel(model: string | null): void {
     return;
   }
   rendererStateStorage.setItem(PI_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredQoderModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = rendererStateStorage.getItem(QODER_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredQoderModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    rendererStateStorage.removeItem(QODER_MODEL_STORAGE_KEY);
+    return;
+  }
+  rendererStateStorage.setItem(QODER_MODEL_STORAGE_KEY, model);
 }
 
 function resolveCompatibleProviderForModel(
@@ -377,6 +394,47 @@ function resolveConfiguredPiModel(
   return null;
 }
 
+function formatQoderModelLabel(value: string, config: ReturnType<typeof useQoderModelConfig>): string {
+  const match = config.models.find((model) => model.value === value);
+  return match?.displayName || value;
+}
+
+function buildQoderModelOptions(config: ReturnType<typeof useQoderModelConfig>): ComposerModelOption[] {
+  const defaultOption: ComposerModelOption = {
+    key: 'qoder:default',
+    value: '',
+    label: 'Default',
+    description: config.defaultModel
+      ? `Use ${formatQoderModelLabel(config.defaultModel, config)}`
+      : 'Use Qoder default model',
+  };
+  const explicitOptions = config.models
+    .filter((model) => model.isEnabled !== false)
+    .map((model) => ({
+      key: `qoder:${model.value}`,
+      value: model.value,
+      label: model.displayName || model.value,
+      description: model.isDefault ? 'Configured default' : undefined,
+    }));
+  return [defaultOption, ...explicitOptions];
+}
+
+function resolveConfiguredQoderModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof useQoderModelConfig>
+): string | null {
+  const options = buildQoderModelOptions(config);
+  const optionValues = new Set(options.map((option) => option.value.trim()));
+  const candidates = [requestedModel, loadPreferredQoderModel()];
+  for (const candidate of candidates) {
+    const normalized = candidate?.trim() || null;
+    if (normalized && optionValues.has(normalized)) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
 export function useComposerAgentSelection(input?: {
   selectionKey?: string | null;
   provider?: AgentProvider | null;
@@ -396,6 +454,7 @@ export function useComposerAgentSelection(input?: {
   const kimiModelConfig = useKimiModelConfig();
   const grokModelConfig = useGrokModelConfig();
   const piModelConfig = usePiModelConfig();
+  const qoderModelConfig = useQoderModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
   const [model, setModelState] = useState<string | null>(() => {
@@ -409,6 +468,7 @@ export function useComposerAgentSelection(input?: {
     if (initialProvider === 'codex') return loadPreferredCodexModel();
     if (initialProvider === 'opencode') return loadPreferredOpencodeModel();
     if (initialProvider === 'pi') return loadPreferredPiModel();
+    if (initialProvider === 'qoder') return loadPreferredQoderModel();
     if (initialProvider === 'claude') return loadPreferredClaudeModel();
     return null;
   });
@@ -459,8 +519,9 @@ export function useComposerAgentSelection(input?: {
       kimi: buildKimiModelOptions(kimiModelConfig),
       grok: buildGrokModelOptions(grokModelConfig),
       pi: buildPiModelOptions(piModelConfig),
+      qoder: buildQoderModelOptions(qoderModelConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, qoderModelConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -514,8 +575,12 @@ export function useComposerAgentSelection(input?: {
       return buildPiModelOptions(piModelConfig);
     }
 
+    if (provider === 'qoder') {
+      return buildQoderModelOptions(qoderModelConfig);
+    }
+
     return [];
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, provider]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, qoderModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -576,12 +641,19 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
+      if (nextProvider === 'qoder') {
+        return {
+          model: resolveConfiguredQoderModel(normalizedRequestedModel, qoderModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
       return {
         model: null,
         compatibleProviderId: null,
       };
     },
-    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig]
+    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, qoderModelConfig]
   );
 
   // Apply session switches during render so the first painted frame already
@@ -728,6 +800,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredGrokModel(nextModel);
       } else if (targetProvider === 'pi') {
         savePreferredPiModel(nextModel);
+      } else if (targetProvider === 'qoder') {
+        savePreferredQoderModel(nextModel);
       }
 
       input?.onSelectionChange?.({

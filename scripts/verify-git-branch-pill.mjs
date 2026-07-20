@@ -30,12 +30,12 @@ assert.ok(
   pills.includes('gitCreateBranch') &&
     pills.includes('handleCreateBranch') &&
     pills.includes('createBranchDialogOpen') &&
-    pills.includes('创建并检出新分支') &&
-    pills.includes('创建并检出分支'),
+    pills.includes('Create and checkout new branch') &&
+    pills.includes('Create and checkout branch'),
   'the branch pill must open a dialog to create and switch to a new branch'
 );
 assert.ok(
-  pills.includes('branchQuery') && pills.includes('搜索分支'),
+  pills.includes('branchQuery') && pills.includes('Search branches'),
   'the branch picker must include branch search'
 );
 

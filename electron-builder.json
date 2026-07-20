@@ -13,7 +13,10 @@
     "!node_modules/@anthropic-ai/claude-agent-sdk-*",
     "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
     "!node_modules/**/@anthropic-ai/claude-agent-sdk-*",
-    "!node_modules/**/@anthropic-ai/claude-agent-sdk-*/**/*"
+    "!node_modules/**/@anthropic-ai/claude-agent-sdk-*/**/*",
+    "!node_modules/@qoder-ai/qoder-agent-sdk/dist/_bundled",
+    "!node_modules/@qoder-ai/qoder-agent-sdk/dist/_bundled/**/*",
+    "!node_modules/**/@qoder-ai/qoder-agent-sdk/dist/_bundled/**/*"
   ],
   "asarUnpack": [
     "node_modules/better-sqlite3/**/*"

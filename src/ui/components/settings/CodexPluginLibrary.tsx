@@ -1481,13 +1481,18 @@ export function CodexSkillDetailDialog({
               </div>
 
               <div className="flex items-center justify-between gap-3 px-7 py-5">
-                <button
-                  type="button"
-                  onClick={() => void window.electron.revealPath(skill.path)}
-                  className="inline-flex h-8 items-center rounded-full border border-[var(--border)] px-3.5 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                >
-                  Reveal in Finder
-                </button>
+                {/* Virtual paths (kimi builtin://, qoder://) have no file to reveal. */}
+                {skill.path.startsWith('/') ? (
+                  <button
+                    type="button"
+                    onClick={() => void window.electron.revealPath(skill.path)}
+                    className="inline-flex h-8 items-center rounded-full border border-[var(--border)] px-3.5 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  >
+                    Reveal in Finder
+                  </button>
+                ) : (
+                  <span />
+                )}
                 {activeSessionId ? (
                   <button
                     type="button"

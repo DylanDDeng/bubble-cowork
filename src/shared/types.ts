@@ -92,7 +92,7 @@ export interface McpServerStatus {
   /** Codex: the server needs a fresh OAuth login (mcpServer/oauth/login). */
   failureReason?: 'reauthenticationRequired';
   /** Which agent reported this status. Used to avoid cross-agent name collisions. */
-  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
+  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
 }
 
 // Claude Skills 摘要
@@ -133,6 +133,14 @@ export type KimiThinking = string;
 export type GrokPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
+export type QoderPermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'bypassPermissions'
+  | 'yolo'
+  | 'plan'
+  | 'dontAsk'
+  | 'auto';
 /**
  * Codex reasoning effort slug (e.g. "low", "medium", "high", "xhigh", "max",
  * "ultra"). Deliberately an open string: the valid set is model-specific and
@@ -232,6 +240,32 @@ export interface PiModelConfig {
     maxContextSize?: number | null;
     capabilities?: string[];
   }>;
+}
+
+export interface QoderModelOption {
+  value: string;
+  displayName: string;
+  description?: string;
+  /** Vision-language models accept image attachments. */
+  isVl?: boolean;
+  isEnabled?: boolean;
+  isDefault?: boolean;
+  /** Active (default-tier) context window in tokens; drives the context ring. */
+  contextWindow?: number | null;
+  availableContextWindows?: number[];
+  maxInputTokens?: number | null;
+  maxOutputTokens?: number | null;
+  /** Reasoning effort tiers; absent for non-reasoning models. */
+  efforts?: string[];
+  defaultEffort?: string | null;
+  priceFactor?: number | null;
+  source?: 'system' | 'user';
+}
+
+export interface QoderModelConfig {
+  defaultModel: string | null;
+  options: string[];
+  models: QoderModelOption[];
 }
 
 export interface CodexRuntimeStatus {
@@ -464,7 +498,7 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
+export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
@@ -472,7 +506,8 @@ export type SessionSource =
   | 'opencode_local'
   | 'kimi_local'
   | 'grok_local'
-  | 'pi_local';
+  | 'pi_local'
+  | 'qoder_local';
 
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;
@@ -795,6 +830,7 @@ export type ServerEvent =
   // should refetch codex model config (fast-mode eligibility may change).
   | { type: 'codex.modelCatalogUpdated'; payload: Record<string, never> }
   | { type: 'kimi.modelConfigUpdated'; payload: Record<string, never> }
+  | { type: 'qoder.modelConfigUpdated'; payload: Record<string, never> }
   | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode | null } }
   | {
       type: 'project.file';
@@ -872,6 +908,7 @@ export interface SessionStartPayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+  qoderPermissionMode?: QoderPermissionMode;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
   hiddenFromThreads?: boolean;
@@ -934,6 +971,7 @@ export interface SessionContinuePayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+  qoderPermissionMode?: QoderPermissionMode;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
 }
@@ -1164,6 +1202,7 @@ export interface SessionInfo {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
+  qoderPermissionMode?: QoderPermissionMode;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
@@ -1217,6 +1256,7 @@ export interface SessionStatusPayload {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
+  qoderPermissionMode?: QoderPermissionMode;
   hiddenFromThreads?: boolean;
   channelId?: string;
   teamMode?: SessionTeamMode;

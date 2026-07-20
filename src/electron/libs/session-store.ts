@@ -376,6 +376,7 @@ export function initialize(): void {
       kimi_session_id TEXT,
       grok_session_id TEXT,
       pi_session_id TEXT,
+      qoder_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       conversation_scope TEXT DEFAULT 'project',
@@ -526,6 +527,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'kimi_session_id', 'TEXT');
   ensureColumn('sessions', 'grok_session_id', 'TEXT');
   ensureColumn('sessions', 'pi_session_id', 'TEXT');
+  ensureColumn('sessions', 'qoder_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
@@ -782,6 +784,9 @@ function getSessionSourceOrigin(sessionId: string): SessionSource {
   if (row.provider === 'pi') {
     return 'pi_local';
   }
+  if (row.provider === 'qoder') {
+    return 'qoder_local';
+  }
   return 'aegis';
 }
 
@@ -1033,7 +1038,9 @@ function backfillMessageMetadata(): void {
                     ? 'grok_local'
                     : row.provider === 'pi'
                       ? 'pi_local'
-                  : 'aegis';
+                      : row.provider === 'qoder'
+                        ? 'qoder_local'
+                        : 'aegis';
         const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
         updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
         upsertSearchIndexStmt.run(row.id, row.session_id, sourceOrigin, searchText, row.created_at);
@@ -1160,7 +1167,7 @@ export function createSession(params: {
   associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
+  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -1760,8 +1767,25 @@ export function setPiSessionId(sessionId: string, piSessionId: string | null): v
   stmt.run(piSessionId, now, sessionId);
 }
 
+// 更新 Qoder Session ID
+export function updateQoderSessionId(sessionId: string, qoderSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET qoder_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(qoderSessionId, now, sessionId);
+}
+
+export function setQoderSessionId(sessionId: string, qoderSessionId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET qoder_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(qoderSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi'): void {
+export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?
@@ -3075,6 +3099,7 @@ const USAGE_PROVIDER_MODEL_FALLBACK: Partial<Record<AgentProvider, string>> = {
   kimi: 'Kimi',
   grok: 'Grok',
   pi: 'Pi',
+  qoder: 'Qoder',
 };
 
 function looksLikeClaudeModelAlias(value: string): boolean {

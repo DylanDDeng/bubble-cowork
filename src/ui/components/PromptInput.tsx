@@ -388,9 +388,11 @@ export function PromptInput({
   const isKimiContextVisible = runtimeProvider === 'kimi' && activeSession?.provider === 'kimi';
   const isOpenCodeContextVisible = runtimeProvider === 'opencode' && activeSession?.provider === 'opencode';
   const isPiContextVisible = runtimeProvider === 'pi' && activeSession?.provider === 'pi';
+  const isQoderContextVisible = runtimeProvider === 'qoder' && activeSession?.provider === 'qoder';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
   const openCodeContextModel = isOpenCodeContextVisible ? selectedModel || activeSession?.model || null : null;
   const piContextModel = isPiContextVisible ? selectedModel || activeSession?.model || null : null;
+  const qoderContextModel = isQoderContextVisible ? selectedModel || activeSession?.model || null : null;
 
   const codexContextSnapshot = useMemo(
     () =>
@@ -434,6 +436,13 @@ export function PromptInput({
         ? getLatestOpenCodeContextSnapshot(activeSession.messages, piContextModel, 'Pi')
         : null,
     [activeSession?.messages, isPiContextVisible, piContextModel]
+  );
+  const qoderContextSnapshot = useMemo(
+    () =>
+      isQoderContextVisible
+        ? getLatestOpenCodeContextSnapshot(activeSession.messages, qoderContextModel, 'Qoder')
+        : null,
+    [activeSession?.messages, isQoderContextVisible, qoderContextModel]
   );
   const isRunning = activeSession?.status === 'running';
   // Codex two-phase stop: 'stopping' is a broadcast-only transient while the
@@ -1455,6 +1464,13 @@ export function PromptInput({
                   snapshot={piContextSnapshot}
                   modelLabel={selectedModelLabel || piContextModel}
                   providerLabel="Pi"
+                />
+              ) : null}
+              {isQoderContextVisible ? (
+                <OpenCodeContextIndicator
+                  snapshot={qoderContextSnapshot}
+                  modelLabel={selectedModelLabel || qoderContextModel}
+                  providerLabel="Qoder"
                 />
               ) : null}
               {/* While a steer-capable turn runs, the slot flips with composer

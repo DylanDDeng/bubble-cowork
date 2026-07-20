@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
-import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
 import type { AddressInfo } from 'net';
 import { promisify } from 'util';
@@ -483,6 +483,49 @@ function normalizeKimiPermissionMode(
   value?: string | null
 ): import('../shared/types').KimiPermissionMode {
   return value === 'plan' || value === 'auto' || value === 'yolo' ? value : 'default';
+}
+
+function normalizeQoderPermissionMode(
+  value?: string | null
+): import('../shared/types').QoderPermissionMode | undefined {
+  return value === 'default' ||
+    value === 'acceptEdits' ||
+    value === 'bypassPermissions' ||
+    value === 'yolo' ||
+    value === 'plan' ||
+    value === 'dontAsk' ||
+    value === 'auto'
+    ? value
+    : undefined;
+}
+
+// Qoder model catalog disk cache: the live catalog only exists after a
+// session boots (lazy CLI init), so the last refresh is persisted and served
+// until the first session of a launch lands a fresh one.
+function qoderModelCatalogCachePath(): string {
+  return join(app.getPath('userData'), 'qoder-model-catalog.json');
+}
+
+function readQoderModelCatalogCache(): import('../shared/types').QoderModelConfig | null {
+  try {
+    const raw = readFileSync(qoderModelCatalogCachePath(), 'utf8');
+    const parsed = JSON.parse(raw) as import('../shared/types').QoderModelConfig;
+    if (!parsed || !Array.isArray(parsed.models) || parsed.models.length === 0) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeQoderModelCatalogCache(config: import('../shared/types').QoderModelConfig): void {
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true });
+    writeFileSync(qoderModelCatalogCachePath(), JSON.stringify(config, null, 2), 'utf8');
+  } catch (error) {
+    console.warn('[Qoder] failed to persist model catalog cache:', error);
+  }
 }
 
 /**
@@ -1578,6 +1621,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'kimi') return 'Kimi Code';
   if (provider === 'grok') return 'Grok Build';
   if (provider === 'pi') return 'Pi';
+  if (provider === 'qoder') return 'Qoder';
   return 'Claude Code';
 }
 
@@ -3354,7 +3398,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
+    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -3368,6 +3412,7 @@ const runnerHandles = new Map<
 	    grokPermissionMode?: import('../shared/types').GrokPermissionMode;
 	    grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
 	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+	    qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
     onTurnDone?: (status: SessionStatus, message?: string) => void;
@@ -4759,6 +4804,22 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ensureProviderService();
   getProviderService().events.on('event', (event) => {
     if (event.type === 'model_catalog_updated') {
+      if (event.provider === 'qoder') {
+        // Qoder's catalog only exists after a session boots; persist it so
+        // later launches (and the model picker before any session starts)
+        // have the full list immediately.
+        writeQoderModelCatalogCache({
+          defaultModel: event.defaultModel ?? null,
+          options: (event.models as Array<{ value?: string }>)
+            .map((model) => model?.value?.trim())
+            .filter((value): value is string => Boolean(value)),
+          models: event.models,
+        });
+        if (!mainWindow.isDestroyed()) {
+          broadcast(mainWindow, { type: 'qoder.modelConfigUpdated', payload: {} });
+        }
+        return;
+      }
       setCodexRuntimeModelCatalog(event.models);
       if (!mainWindow.isDestroyed()) {
         broadcast(mainWindow, { type: 'codex.modelCatalogUpdated', payload: {} });
@@ -5720,6 +5781,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     });
   });
 
+  ipcMainHandle('qoder-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'qoder',
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
+    });
+  });
+
   ipcMainHandle('codex-list-plugins', async (_event, input?: Omit<ProviderListPluginsInput, 'provider'>) => {
     ensureProviderService();
     const result = await getProviderService().listPlugins({
@@ -5875,6 +5946,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-pi-model-config', async () => {
     return getPiModelConfig();
+  });
+
+  ipcMainHandle('get-qoder-model-config', async () => {
+    // Live catalog lives in the adapter (populated from initializationResult()
+    // at session start); fall back to the disk cache from the last refresh so
+    // the picker has the full list before any session boots this launch.
+    const adapter = getProviderService().getAdapter('qoder') as
+      | { getModelCatalog?: () => import('../shared/types').QoderModelConfig | null }
+      | undefined;
+    return adapter?.getModelCatalog?.() ?? readQoderModelCatalogCache() ?? { defaultModel: null, options: [], models: [] };
   });
 
   ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {
@@ -7948,7 +8029,9 @@ function buildSessionInfoFromRow(
                 ? 'grok_local'
                 : row.provider === 'pi'
                   ? 'pi_local'
-                : 'aegis',
+                  : row.provider === 'qoder'
+                    ? 'qoder_local'
+                    : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
@@ -8057,6 +8140,7 @@ async function handleSessionStart(
     grokPermissionMode,
     grokReasoningEffort,
     opencodePermissionMode,
+    qoderPermissionMode,
     teamMode,
     teamId,
     hiddenFromThreads,
@@ -8144,6 +8228,8 @@ async function handleSessionStart(
       : undefined;
   const selectedGrokReasoningEffort =
     chosenProvider === 'grok' ? normalizeGrokReasoningEffort(grokReasoningEffort) : undefined;
+  const selectedQoderPermissionMode =
+    chosenProvider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -8241,6 +8327,7 @@ async function handleSessionStart(
       kimiPermissionMode: selectedKimiPermissionMode,
       opencodePermissionMode:
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+      qoderPermissionMode: selectedQoderPermissionMode,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
@@ -8402,7 +8489,8 @@ async function handleSessionStart(
     undefined,
     Boolean(automationRunId),
     false,
-    selectedKimiThinking
+    selectedKimiThinking,
+    selectedQoderPermissionMode
   );
   return session.id;
 }
@@ -8435,6 +8523,7 @@ async function handleSessionContinue(
     grokPermissionMode,
     grokReasoningEffort,
     opencodePermissionMode,
+    qoderPermissionMode,
     teamMode,
     teamId,
   } = payload;
@@ -8576,6 +8665,9 @@ async function handleSessionContinue(
     : undefined;
   const nextKimiPermissionMode = nextProvider === 'kimi'
     ? normalizeKimiPermissionMode(kimiPermissionMode)
+    : undefined;
+  const nextQoderPermissionMode = nextProvider === 'qoder'
+    ? normalizeQoderPermissionMode(qoderPermissionMode)
     : undefined;
   const nextKimiThinking = nextProvider === 'kimi'
     ? normalizeKimiThinking(kimiThinking)
@@ -8911,6 +9003,10 @@ async function handleSessionContinue(
 	              kimiPermissionMode: nextKimiPermissionMode,
 	              kimiThinking: nextKimiThinking,
 	            }
+	          : nextProvider === 'qoder'
+	            ? {
+	                qoderPermissionMode: nextQoderPermissionMode,
+	              }
           : undefined;
       existingEntry.handle.send(
         runnerPrompt,
@@ -8958,7 +9054,9 @@ async function handleSessionContinue(
                 ? session.grok_session_id ?? undefined
                 : nextProvider === 'pi'
                   ? session.pi_session_id ?? undefined
-                  : undefined;
+                  : nextProvider === 'qoder'
+                    ? session.qoder_session_id ?? undefined
+                    : undefined;
   let nextResumeSessionId = resumeSessionId;
 
   if (
@@ -9032,7 +9130,8 @@ async function handleSessionContinue(
     undefined,
     false,
     false,
-    nextKimiThinking
+    nextKimiThinking,
+    nextQoderPermissionMode
   );
   return true;
 }
@@ -9044,7 +9143,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi',
+  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -9075,7 +9174,8 @@ function startRunner(
   // and the full option set bound at warm time — the empty-prompt path gets
   // identical behavior through the existing runner plumbing.)
   prewarmRunner = false,
-  kimiThinking?: import('../shared/types').KimiThinking
+  kimiThinking?: import('../shared/types').KimiThinking,
+  qoderPermissionMode?: import('../shared/types').QoderPermissionMode
 ): void {
   if (!session) return;
 
@@ -9173,6 +9273,7 @@ function startRunner(
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
+    qoderPermissionMode,
     onMessage: (message) => {
       // A runner the user stopped that has since been retired or replaced is
       // dead to this session: NOTHING it emits may touch session state again
@@ -9208,6 +9309,11 @@ function startRunner(
           }
         } else if (provider === 'pi') {
           sessions.updatePiSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'qoder') {
+          sessions.updateQoderSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }
@@ -9864,6 +9970,7 @@ function startRunner(
 	      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
 	    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
 	    kimiThinking: provider === 'kimi' ? normalizeKimiThinking(kimiThinking) : undefined,
+	    qoderPermissionMode: provider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined,
     grokPermissionMode:
       provider === 'grok' ? normalizeGrokPermissionMode(grokPermissionMode) : undefined,
     grokReasoningEffort:

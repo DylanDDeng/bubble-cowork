@@ -33,6 +33,7 @@ const PROVIDER_ORDER: Array<{ provider: AgentProvider; label: string }> = [
   { provider: 'kimi', label: 'Kimi Code' },
   { provider: 'grok', label: 'Grok Build' },
   { provider: 'pi', label: 'Pi' },
+  { provider: 'qoder', label: 'Qoder' },
 ];
 
 // Shared across hook instances: several pickers/panels mount at once and the

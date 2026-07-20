@@ -184,6 +184,7 @@ export function useComposerCapabilityMenu({
   const { claudeUserSkills, claudeProjectSkills } = useAppStore();
   const [codexSlashSkills, setCodexSlashSkills] = useState<ClaudeSkillSummary[]>([]);
   const [kimiSlashSkills, setKimiSlashSkills] = useState<ClaudeSkillSummary[]>([]);
+  const [qoderSlashSkills, setQoderSlashSkills] = useState<ClaudeSkillSummary[]>([]);
   const [promptLibraryItems, setPromptLibraryItems] = useState<PromptLibraryItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -301,6 +302,40 @@ export function useComposerCapabilityMenu({
     };
   }, [enableSkills, enabled, projectPath, provider]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!enabled || !enableSkills || provider !== 'qoder') {
+      setQoderSlashSkills([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Session-independent: the adapter serves its process-wide catalog cache
+    // (warmed by session starts; cold path spawns a message-free throwaway
+    // qodercli), so the catalog is available in NewSessionView too.
+    void window.electron
+      .listQoderSkills({ cwd: projectPath?.trim() || undefined })
+      .then((result) => {
+        if (cancelled) return;
+        const skills = result.skills
+          .map(toCodexSlashSkill)
+          .filter((skill): skill is ClaudeSkillSummary => Boolean(skill));
+        setQoderSlashSkills(skills);
+      })
+      .catch((error) => {
+        console.warn('[Qoder composer] Failed to load Qoder skills:', error);
+        if (!cancelled) {
+          setQoderSlashSkills([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enableSkills, enabled, projectPath, provider]);
+
   const composerTrigger = useMemo(
     () => (enabled ? detectComposerTrigger(prompt, cursorIndex ?? prompt.length) : null),
     [cursorIndex, enabled, prompt]
@@ -328,12 +363,15 @@ export function useComposerCapabilityMenu({
       if (provider === 'kimi') {
         return kimiSlashSkills;
       }
+      if (provider === 'qoder') {
+        return qoderSlashSkills;
+      }
       if (provider === 'claude') {
         return mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames);
       }
       return [];
     },
-    [claudeUserSkills, claudeProjectSkills, codexSlashSkills, enableSkills, kimiSlashSkills, provider, sessionSkillNames]
+    [claudeUserSkills, claudeProjectSkills, codexSlashSkills, enableSkills, kimiSlashSkills, provider, qoderSlashSkills, sessionSkillNames]
   );
 
   const availableCommands = useMemo(
@@ -410,11 +448,12 @@ export function useComposerCapabilityMenu({
       includeSkills:
         triggerKind === 'skill' ||
         (triggerKind === 'slash-command' &&
-          (provider === 'claude' || provider === 'codex' || provider === 'kimi')),
+          (provider === 'claude' || provider === 'codex' || provider === 'kimi' || provider === 'qoder')),
       includePrompts: triggerKind === 'slash-command',
-      // Codex/Kimi match the codex app: `/` reaches the full skill catalog,
-      // same budget as the `$` menu (Claude keeps the compact 8-slot mix).
-      skillLimit: provider === 'codex' || provider === 'kimi' ? 80 : undefined,
+      // Codex/Kimi/Qoder match the codex app: `/` reaches the full skill
+      // catalog, same budget as the `$` menu (Claude keeps the compact
+      // 8-slot mix).
+      skillLimit: provider === 'codex' || provider === 'kimi' || provider === 'qoder' ? 80 : undefined,
     });
   }, [availableCommands, availableSkills, enabled, promptLibraryItems, provider, query, triggerKind]);
 
@@ -442,13 +481,14 @@ export function useComposerCapabilityMenu({
     (!selectedCommandState || composerTrigger.kind === 'slash-command');
 
   const selectSkill = (skill: ClaudeSkillSummary) => {
-    // Kimi has no skill-reference pipeline: the server runtime expands
-    // `/skill:<name> <args>` prompt text inside the turn, so insert exactly
-    // that token (matches the ACP runtime's advertised command names).
+    // Kimi and Qoder have no skill-reference pipeline: the runtime expands
+    // the prompt text inside the turn (kimi as `/skill:<name> <args>`,
+    // qoder as `/<name> <args>` — skills double as slash commands, verified
+    // live), so insert exactly that token.
     const next = replaceComposerTriggerOrLeadingToken({
       prompt,
       trigger: composerTrigger,
-      fallbackPrefix: provider === 'kimi' ? '/' : skillMentionPrefix(provider),
+      fallbackPrefix: provider === 'kimi' || provider === 'qoder' ? '/' : skillMentionPrefix(provider),
       name: provider === 'kimi' ? `skill:${skill.name}` : skill.name,
     });
     setPrompt(next.prompt);

@@ -531,6 +531,11 @@ contextBridge.exposeInMainWorld('electron', {
   ): Promise<ProviderListSkillsResult> => {
     return ipcRenderer.invoke('kimi-list-skills', input);
   },
+  listQoderSkills: (
+    input: Omit<ProviderListSkillsInput, 'provider'>
+  ): Promise<ProviderListSkillsResult> => {
+    return ipcRenderer.invoke('qoder-list-skills', input);
+  },
   readCodexPlugin: (
     input: Omit<ProviderReadPluginInput, 'provider'>
   ): Promise<ProviderReadPluginResult> => {
@@ -599,6 +604,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   getPiModelConfig: () => {
     return ipcRenderer.invoke('get-pi-model-config');
+  },
+
+  getQoderModelConfig: () => {
+    return ipcRenderer.invoke('get-qoder-model-config');
   },
 
   getClaudeRuntimeStatus: (model?: string | null) => {
