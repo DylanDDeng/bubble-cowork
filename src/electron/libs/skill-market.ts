@@ -4,6 +4,11 @@ import type { SkillMarketDetail, SkillMarketInstallResult, SkillMarketItem } fro
 import { listClaudeSkills } from './claude-skills';
 
 const SKILLS_BASE_URL = 'https://skills.sh';
+// Every agent Aegis manages a skill library for. The skills CLI copies to
+// ~/.claude/skills for claude-code and collapses the other three (all
+// ".agents/skills"-standard agents) into one ~/.agents/skills copy, which
+// Codex, OpenCode, and KimiCore each discover.
+const INSTALL_AGENT_TARGETS = ['claude-code', 'codex', 'opencode', 'kimi-code-cli'];
 const DEFAULT_LIMIT = 60;
 const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 12_000;
@@ -114,7 +119,7 @@ export async function installSkillFromMarket(id: string): Promise<SkillMarketIns
 
   const repoUrl = `https://github.com/${route.owner}/${route.repo}`;
   const command = buildInstallCommand(route.owner, route.repo, route.skillId);
-  const args = ['--yes', 'skills', 'add', repoUrl, '--skill', route.skillId, '-g', '-a', 'claude-code', '--copy', '-y'];
+  const args = ['--yes', 'skills', 'add', repoUrl, '--skill', route.skillId, '-g', '-a', ...INSTALL_AGENT_TARGETS, '--copy', '-y'];
 
   return new Promise<SkillMarketInstallResult>((resolve) => {
     const proc = spawn('npx', args, {
@@ -166,6 +171,8 @@ export async function installSkillFromMarket(id: string): Promise<SkillMarketIns
 
     proc.on('close', (code) => {
       clearTimeout(timer);
+      // The CLI installs to every agent in INSTALL_AGENT_TARGETS; the Claude
+      // copy is the cheapest deterministic success signal we can verify.
       const installed = listClaudeSkills().userSkills.some((skill) => skill.name === route.skillId);
       settle({
         ok: code === 0 && installed,
@@ -332,7 +339,7 @@ function parseSkillRoute(id: string): ParsedSkillRoute | null {
 }
 
 function buildInstallCommand(owner: string, repo: string, skillId: string): string {
-  return `npx --yes skills add https://github.com/${owner}/${repo} --skill ${skillId} -g -a claude-code --copy -y`;
+  return `npx --yes skills add https://github.com/${owner}/${repo} --skill ${skillId} -g -a ${INSTALL_AGENT_TARGETS.join(' ')} --copy -y`;
 }
 
 function extractInstallCommand(html: string): string | null {

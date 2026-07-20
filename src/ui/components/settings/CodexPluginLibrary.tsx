@@ -1398,8 +1398,8 @@ export function CodexSkillDetailDialog({
   skill: ProviderSkillDescriptor | null;
   /** Preloaded by openSkillDetail; only trusted when it matches skill.path. */
   content: { path: string; content: string | null; error: string | null } | null;
-  /** Composer token prefix used by Try now ('$' for codex, '/' for opencode). */
-  mentionPrefix?: '/' | '$';
+  /** Composer token prefix used by Try now ('$' for codex, '/' for opencode, '/skill:' for kimi). */
+  mentionPrefix?: '/' | '$' | '/skill:';
 }) {
   const { activeSessionId, setShowSettings } = useAppStore();
 

@@ -16,6 +16,7 @@ import type { SkillMarketDetail, SkillMarketItem } from '../../types';
 import { CodexPluginLibraryContent } from './CodexPluginLibrary';
 import { ClaudeLibraryContent } from './ClaudePluginLibrary';
 import { OpenCodeSkillLibraryContent } from './OpenCodeSkillLibrary';
+import { KimiSkillLibraryContent } from './KimiSkillLibrary';
 
 const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
@@ -48,7 +49,7 @@ export function SkillMarketSettingsContent() {
     claudeUserSkills,
     claudeProjectSkills,
   } = useAppStore();
-  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode'>('skills');
+  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode' | 'kimi'>('skills');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SkillMarketItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -226,6 +227,15 @@ export function SkillMarketSettingsContent() {
             >
               OpenCode
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'kimi'}
+              onClick={() => setView('kimi')}
+              className={getTopTabClassName('kimi')}
+            >
+              Kimi
+            </button>
           </div>
         </div>
       </div>
@@ -236,6 +246,8 @@ export function SkillMarketSettingsContent() {
         <CodexPluginLibraryContent />
       ) : view === 'opencode' ? (
         <OpenCodeSkillLibraryContent />
+      ) : view === 'kimi' ? (
+        <KimiSkillLibraryContent />
       ) : (
         <>
           <MarketCardGrid
