@@ -3,6 +3,7 @@ import type {
   PullRequestCheckItem,
   PullRequestCheckState,
   PullRequestComment,
+  PullRequestCommit,
   PullRequestDetail,
   PullRequestListResult,
   PullRequestSummary,
@@ -45,6 +46,8 @@ const VIEW_DETAIL_FIELDS = [
 
 let listCache: { fetchedAt: number; result: PullRequestListResult } | null = null;
 const detailCache = new Map<string, { fetchedAt: number; detail: PullRequestDetail }>();
+const diffCache = new Map<string, { fetchedAt: number; diff: string }>();
+const commitsCache = new Map<string, { fetchedAt: number; commits: PullRequestCommit[] }>();
 
 class GhCliError extends Error {
   constructor(
@@ -378,6 +381,61 @@ export async function getPullRequestDetail(
 
   detailCache.set(key, { fetchedAt: Date.now(), detail });
   return detail;
+}
+
+export async function getPullRequestDiff(
+  repo: string,
+  number: number,
+  forceReload = false
+): Promise<{ diff: string }> {
+  const key = prKey(repo, number);
+  const cached = diffCache.get(key);
+  if (!forceReload && cached && Date.now() - cached.fetchedAt < DETAIL_CACHE_TTL_MS) {
+    return { diff: cached.diff };
+  }
+  const diff = await runGh(['pr', 'diff', String(number), '--repo', repo]);
+  diffCache.set(key, { fetchedAt: Date.now(), diff });
+  return { diff };
+}
+
+export async function getPullRequestCommits(
+  repo: string,
+  number: number,
+  forceReload = false
+): Promise<{ commits: PullRequestCommit[] }> {
+  const key = prKey(repo, number);
+  const cached = commitsCache.get(key);
+  if (!forceReload && cached && Date.now() - cached.fetchedAt < DETAIL_CACHE_TTL_MS) {
+    return { commits: cached.commits };
+  }
+  // REST endpoint: carries the mapped GitHub account (login + avatar_url)
+  // per commit when the author email is linked; unlinked identities (e.g.
+  // automation git users) come back with author: null, like on github.com.
+  const raw = await runGhJson<Array<Record<string, unknown>>>([
+    'api', `repos/${repo}/pulls/${number}/commits?per_page=100`,
+  ]);
+  const commits: PullRequestCommit[] = (Array.isArray(raw) ? raw : [])
+    .map((entry): PullRequestCommit | null => {
+      const record = entry as {
+        sha?: string;
+        commit?: { message?: string; author?: { name?: string; date?: string } };
+        author?: { login?: string; avatar_url?: string } | null;
+      };
+      const message = record.commit?.message?.trim();
+      if (!message) return null;
+      const [headline, ...rest] = message.split('\n');
+      return {
+        oid: record.sha || '',
+        messageHeadline: headline.trim(),
+        messageBody: rest.join('\n').trim() || undefined,
+        author: record.author?.login || record.commit?.author?.name || '',
+        avatarUrl: record.author?.avatar_url || undefined,
+        authoredDate: record.commit?.author?.date || '',
+      };
+    })
+    .filter((entry): entry is PullRequestCommit => Boolean(entry));
+  commitsCache.set(key, { fetchedAt: Date.now(), commits });
+  return { commits };
 }
 
 export async function addPullRequestComment(input: {

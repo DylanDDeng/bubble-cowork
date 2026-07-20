@@ -133,6 +133,7 @@ export type {
   PullRequestCheckItem,
   PullRequestCheckState,
   PullRequestComment,
+  PullRequestCommit,
   PullRequestDetail,
   PullRequestListResult,
   PullRequestSummary,

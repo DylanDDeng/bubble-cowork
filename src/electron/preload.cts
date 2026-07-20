@@ -646,6 +646,12 @@ contextBridge.exposeInMainWorld('electron', {
   addPullRequestComment: (input: { repo: string; number: number; body: string }) => {
     return ipcRenderer.invoke('pull-requests-comment', input);
   },
+  getPullRequestDiff: (input: { repo: string; number: number; forceReload?: boolean }) => {
+    return ipcRenderer.invoke('pull-requests-diff', input);
+  },
+  getPullRequestCommits: (input: { repo: string; number: number; forceReload?: boolean }) => {
+    return ipcRenderer.invoke('pull-requests-commits', input);
+  },
 
   // 用户资料
   getUserProfile: () => {

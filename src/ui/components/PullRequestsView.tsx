@@ -23,17 +23,41 @@ import {
   Search,
   X,
 } from './icons';
+import { FileDiff, Virtualizer } from '@pierre/diffs/react';
 import { SidebarHeaderTrigger } from './Sidebar';
+import { DiffStatLabel } from './DiffStatLabel';
 import { MDContent } from '../render/markdown';
 import { useAppStore } from '../store/useAppStore';
+import { parseWorkspacePatch, type AegisDiffFile } from '../utils/aegis-diff-rendering';
 import type {
   PullRequestCheckItem,
+  PullRequestCommit,
   PullRequestDetail,
   PullRequestListResult,
   PullRequestSummary,
 } from '../types';
 
 type RoleTab = 'all' | 'reviewing' | 'authored';
+type DetailTab = 'summary' | 'timeline' | 'code';
+
+const DETAIL_TABS: Array<{ id: DetailTab; label: string }> = [
+  { id: 'summary', label: 'Summary' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'code', label: 'Code' },
+];
+
+// Matches AegisDiffPanel's unified-mode rendering.
+const PR_DIFF_OPTIONS = {
+  diffStyle: 'unified' as const,
+  hunkSeparators: 'line-info-basic' as const,
+  disableFileHeader: true,
+  stickyHeader: false,
+  overflow: 'scroll' as const,
+  diffIndicators: 'bars' as const,
+  lineDiffType: 'word' as const,
+  useCSSClasses: true,
+  tokenizeMaxLineLength: 400,
+};
 
 const PR_LIST_WIDTH_KEY = 'aegis-pr-list-width';
 const PR_LIST_MIN_WIDTH = 300;
@@ -140,6 +164,60 @@ function CommentAvatar({
   );
 }
 
+/**
+ * Compact single-line file header matching the codex app's Code tab: path
+ * left, diffstat right, trailing chevron — no status line or type icon.
+ */
+function PrDiffFileCard({
+  file,
+  expanded,
+  onToggle,
+}: {
+  file: AegisDiffFile;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <section data-aegis-diff-file={file.path} className="overflow-hidden rounded-lg">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex min-h-[44px] w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+      >
+        <span
+          className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text-primary)]"
+          title={file.path}
+        >
+          {file.path}
+        </span>
+        <DiffStatLabel additions={file.addedLines} deletions={file.removedLines} />
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform ${
+            expanded ? '' : '-rotate-90'
+          }`}
+        />
+      </button>
+
+      {expanded ? (
+        <div className="aegis-diff-body bg-[var(--bg-primary)]">
+          {file.diff ? (
+            <FileDiff
+              fileDiff={file.diff}
+              options={PR_DIFF_OPTIONS}
+              disableWorkerPool
+              className="aegis-file-diff"
+            />
+          ) : (
+            <div className="px-4 py-3 text-xs text-[var(--text-muted)]">
+              No inline diff captured for this file.
+            </div>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function DraftDot({ pr }: { pr: PullRequestSummary }) {
   return (
     <span className="relative mt-0.5 shrink-0 text-[var(--text-muted)]">
@@ -179,6 +257,17 @@ export function PullRequestsView() {
   const [listWidth, setListWidth] = useState<number>(readStoredListWidth);
   const listWidthRef = useRef(listWidth);
   listWidthRef.current = listWidth;
+  const [detailTab, setDetailTab] = useState<DetailTab>('summary');
+  const [codeFiles, setCodeFiles] = useState<AegisDiffFile[] | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [codeLoading, setCodeLoading] = useState(false);
+  const [expandedDiffKeys, setExpandedDiffKeys] = useState<Set<string>>(new Set());
+  const [commits, setCommits] = useState<PullRequestCommit[] | null>(null);
+  const [commitsLoading, setCommitsLoading] = useState(false);
+  /** PR id whose diff/commits fetch has been issued — dedupes without putting
+   *  loading flags in effect deps (a self-cancelling loop otherwise). */
+  const codeRequestRef = useRef<string | null>(null);
+  const commitsRequestRef = useRef<string | null>(null);
 
   const handleResizeStart = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -263,12 +352,81 @@ export function PullRequestsView() {
   useEffect(() => {
     setConfirmMerge(false);
     setCommentDraft('');
+    setDetailTab('summary');
+    setCodeFiles(null);
+    setCodeError(null);
+    setCommits(null);
+    codeRequestRef.current = null;
+    commitsRequestRef.current = null;
     if (!selected) {
       setDetail(null);
       return;
     }
     void loadDetail(false);
   }, [loadDetail, selected]);
+
+  // Lazy per-tab loads: the diff and commit list only fetch when their tab
+  // first opens for the selected PR.
+  useEffect(() => {
+    if (!selected || detailTab !== 'code') return;
+    if (codeRequestRef.current === selected.id) return;
+    const requestId = selected.id;
+    codeRequestRef.current = requestId;
+    setCodeLoading(true);
+    setCodeError(null);
+    void (async () => {
+      try {
+        const { diff } = await window.electron.getPullRequestDiff({
+          repo: selected.repo,
+          number: selected.number,
+        });
+        if (codeRequestRef.current !== requestId) return;
+        const parsed = parseWorkspacePatch(diff);
+        setCodeFiles(parsed.files);
+        setCodeError(parsed.files.length === 0 ? parsed.parseError : null);
+        setExpandedDiffKeys(new Set(parsed.files.map((file) => file.key)));
+      } catch (error) {
+        if (codeRequestRef.current !== requestId) return;
+        setCodeFiles([]);
+        setCodeError(error instanceof Error ? error.message : 'Failed to load the diff.');
+      } finally {
+        if (codeRequestRef.current === requestId) setCodeLoading(false);
+      }
+    })();
+  }, [detailTab, selected]);
+
+  useEffect(() => {
+    if (!selected || detailTab !== 'timeline') return;
+    if (commitsRequestRef.current === selected.id) return;
+    const requestId = selected.id;
+    commitsRequestRef.current = requestId;
+    setCommitsLoading(true);
+    void (async () => {
+      try {
+        const next = await window.electron.getPullRequestCommits({
+          repo: selected.repo,
+          number: selected.number,
+        });
+        if (commitsRequestRef.current !== requestId) return;
+        setCommits(next.commits);
+      } catch (error) {
+        if (commitsRequestRef.current !== requestId) return;
+        setCommits([]);
+        toast.error(error instanceof Error ? error.message : 'Failed to load commits.');
+      } finally {
+        if (commitsRequestRef.current === requestId) setCommitsLoading(false);
+      }
+    })();
+  }, [detailTab, selected]);
+
+  const toggleDiffFile = (key: string) => {
+    setExpandedDiffKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const handlePostComment = async () => {
     if (!detail || !commentDraft.trim() || postingComment) return;
@@ -444,11 +602,107 @@ export function PullRequestsView() {
         </div>
 
         <section className="flex min-w-0 flex-1 flex-col">
-          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`} />
+          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
+            {selected ? (
+              <div className="flex h-full items-center gap-1 px-4" role="tablist" aria-label="Pull request detail views">
+                {DETAIL_TABS.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={detailTab === entry.id}
+                    onClick={() => setDetailTab(entry.id)}
+                    className={`no-drag rounded-md px-2.5 py-1 text-[12px] transition-colors ${
+                      detailTab === entry.id
+                        ? 'bg-[var(--bg-tertiary)] font-medium text-[var(--text-primary)]'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {entry.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
           {!selected ? (
             <div className="flex h-full items-center justify-center text-[13px] text-[var(--text-muted)]">
               Select a pull request to inspect it.
+            </div>
+          ) : detailTab === 'code' ? (
+            <div className="mx-auto max-w-[1120px] px-6 pb-12 pt-2">
+              <div className="mb-4 flex flex-wrap items-center gap-2 text-[12.5px] text-[var(--text-secondary)]">
+                <GitBranch className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                <span className="font-mono">{detail?.headRefName || selected.headRefName || '—'}</span>
+                <span className="text-[var(--text-muted)]">→</span>
+                <span className="font-mono">{detail?.baseRefName || selected.baseRefName || '—'}</span>
+                {typeof selected.additions === 'number' && typeof selected.deletions === 'number' ? (
+                  <span className="tabular-nums text-[12px]">
+                    <span className="text-emerald-600 dark:text-emerald-400">+{selected.additions}</span>{' '}
+                    <span className="text-red-600 dark:text-red-400">-{selected.deletions}</span>
+                  </span>
+                ) : null}
+              </div>
+              {codeLoading ? (
+                <div className="flex items-center gap-2 py-6 text-[13px] text-[var(--text-secondary)]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading diff...
+                </div>
+              ) : codeError ? (
+                <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-[13px] text-[var(--text-secondary)]">
+                  {codeError}
+                </div>
+              ) : codeFiles && codeFiles.length > 0 ? (
+                <Virtualizer>
+                  <div className="space-y-1">
+                    {codeFiles.map((file) => (
+                      <PrDiffFileCard
+                        key={file.key}
+                        file={file}
+                        expanded={expandedDiffKeys.has(file.key)}
+                        onToggle={() => toggleDiffFile(file.key)}
+                      />
+                    ))}
+                  </div>
+                </Virtualizer>
+              ) : (
+                <p className="py-6 text-[13px] text-[var(--text-muted)]">This pull request has no diff.</p>
+              )}
+            </div>
+          ) : detailTab === 'timeline' ? (
+            <div className="mx-auto max-w-[860px] px-8 pb-12 pt-2">
+              {commitsLoading ? (
+                <div className="flex items-center gap-2 py-6 text-[13px] text-[var(--text-secondary)]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading commits...
+                </div>
+              ) : commits && commits.length > 0 ? (
+                <div>
+                  {commits.map((commit, index) => (
+                    <div
+                      key={commit.oid || index}
+                      className="flex items-start gap-3 border-b border-[color-mix(in_srgb,var(--border)_60%,transparent)] py-3 last:border-b-0"
+                    >
+                      <CommentAvatar login={commit.author} avatarUrl={commit.avatarUrl} sizeClassName="h-5 w-5" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium text-[var(--text-primary)]" title={commit.messageHeadline}>
+                          {commit.messageHeadline}
+                        </div>
+                        <div className="mt-0.5 text-[12px] text-[var(--text-muted)]">
+                          {commit.author} · {formatTimestamp(commit.authoredDate)}
+                        </div>
+                      </div>
+                      {commit.oid ? (
+                        <code className="shrink-0 rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-secondary)]">
+                          {commit.oid.slice(0, 7)}
+                        </code>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="py-6 text-[13px] text-[var(--text-muted)]">No commits found.</p>
+              )}
             </div>
           ) : (
             <div className="mx-auto max-w-[860px] px-8 pb-12 pt-2">

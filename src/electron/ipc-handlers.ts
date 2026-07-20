@@ -62,7 +62,14 @@ import {
 } from './libs/font-settings';
 import { getUserProfile, saveUserProfile } from './libs/user-profile';
 import { getAgentRuntimeDirectory } from './libs/agent-runtime-directory';
-import { addPullRequestComment, getPullRequestDetail, listPullRequests, mergePullRequest } from './libs/pull-requests';
+import {
+  addPullRequestComment,
+  getPullRequestCommits,
+  getPullRequestDetail,
+  getPullRequestDiff,
+  listPullRequests,
+  mergePullRequest,
+} from './libs/pull-requests';
 import {
   getCodexModelConfig,
   saveCodexModelVisibility,
@@ -5998,6 +6005,20 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     'pull-requests-comment',
     async (_event, input: { repo: string; number: number; body: string }) => {
       return addPullRequestComment(input);
+    }
+  );
+
+  ipcMainHandle(
+    'pull-requests-diff',
+    async (_event, input: { repo: string; number: number; forceReload?: boolean }) => {
+      return getPullRequestDiff(input.repo, input.number, input.forceReload === true);
+    }
+  );
+
+  ipcMainHandle(
+    'pull-requests-commits',
+    async (_event, input: { repo: string; number: number; forceReload?: boolean }) => {
+      return getPullRequestCommits(input.repo, input.number, input.forceReload === true);
     }
   );
 

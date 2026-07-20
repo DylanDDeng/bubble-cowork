@@ -3260,6 +3260,17 @@ button.aegis-mdx-metadata-key:hover {
   --diffs-font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace);
   --diffs-font-size: 12px;
   --diffs-line-height: 22px;
+  /* Sync pierre's base surface with the app theme (its default is
+     light-dark(#fff, …), which reads as a stark white block on tinted
+     themes). The light/dark pair feeds --diffs-bg; the overrides retint
+     the context/separator strips and gutter numbers. */
+  --diffs-light-bg: var(--bg-primary);
+  --diffs-dark-bg: var(--bg-primary);
+  --diffs-light: var(--text-primary);
+  --diffs-dark: var(--text-primary);
+  --diffs-bg-context-override: var(--bg-secondary);
+  --diffs-bg-separator-override: var(--bg-secondary);
+  --diffs-fg-number-override: var(--text-muted);
   background: var(--bg-primary);
 }
 
@@ -3273,7 +3284,7 @@ button.aegis-mdx-metadata-key:hover {
 .aegis-file-diff pre {
   margin: 0;
   min-width: max-content;
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 .aegis-file-diff [data-line-type="addition"],

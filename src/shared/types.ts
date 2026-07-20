@@ -1766,6 +1766,16 @@ export interface PullRequestDetail extends PullRequestSummary {
   mergeable?: string;
 }
 
+export interface PullRequestCommit {
+  oid: string;
+  messageHeadline: string;
+  messageBody?: string;
+  author: string;
+  /** GitHub avatar when the commit email maps to an account. */
+  avatarUrl?: string;
+  authoredDate: string;
+}
+
 export interface PullRequestListResult {
   prs: PullRequestSummary[];
   fetchedAt: number;
