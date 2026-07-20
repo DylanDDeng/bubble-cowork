@@ -7,7 +7,7 @@ import {
 // Composer tokens end at whitespace, but Codex skill names can contain spaces
 // ("Brand Guidelines Generator") — they are inserted hyphenated, so both sides
 // normalize spaces to hyphens before comparing.
-function normalizeSkillToken(value: string): string {
+export function normalizeSkillToken(value: string): string {
   return value.replace(/^[/$]/, '').trim().toLowerCase().replace(/\s+/g, '-');
 }
 

@@ -12,7 +12,8 @@ import { getContentBlocks, isAnyToolUseBlockType } from '../utils/message-conten
 import type { ClaudeSlashCommand } from '../utils/claude-slash';
 import { buildProviderSlashCommands, getSessionSlashCommands, parseSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import type { ClaudeSkillSummary } from '../types';
-import { getSessionSkillNames, mergeClaudeSkills, parseSelectedSkillPrompt } from '../utils/claude-skills';
+import { getSessionSkillNames, mergeClaudeSkills, normalizeSkillToken, parseSelectedSkillPrompt } from '../utils/claude-skills';
+import { useProviderSlashSkills } from '../hooks/useProviderSlashSkills';
 import type {
   StreamMessage,
   Attachment,
@@ -268,21 +269,55 @@ function UserPromptCard({
   const currentSessionId = sessionId ?? activeSessionId;
   const activeSession = currentSessionId ? sessions[currentSessionId] : null;
   const activeSessionMessages = activeSession?.messages || [];
+  // Same shared catalog the composer chips use (codex/kimi/qoder), so a
+  // token that rendered as a skill chip while typing keeps that look after
+  // sending instead of degrading to the generic command style.
+  const providerSlashSkills = useProviderSlashSkills(activeSession?.provider, activeSession?.cwd);
   const availableSkills = useMemo(
     () => mergeClaudeSkills(
-      claudeUserSkills,
-      claudeProjectSkills,
-      getSessionSkillNames(activeSessionMessages)
+      mergeClaudeSkills(
+        claudeUserSkills,
+        claudeProjectSkills,
+        getSessionSkillNames(activeSessionMessages)
+      ),
+      providerSlashSkills
     ),
-    [activeSessionMessages, claudeProjectSkills, claudeUserSkills]
+    [activeSessionMessages, claudeProjectSkills, claudeUserSkills, providerSlashSkills]
   );
   const availableCommands = useMemo(
     () => buildProviderSlashCommands(activeSession?.provider || 'claude', getSessionSlashCommands(activeSessionMessages)),
     [activeSession?.provider, activeSessionMessages]
   );
   const promptPrefixDisplay = useMemo<UserPromptPrefixDisplay | null>(() => {
+    // Kimi skill invocations are literal `/skill:<name>` tokens; render them
+    // with the same skill chip the composer showed (never the generic
+    // command style), even when the catalog fetch hasn't landed yet.
+    const kimiToken = prompt.trimStart().match(/^\/skill:(\S+)([\s\S]*)$/);
+    if (kimiToken) {
+      const normalized = normalizeSkillToken(kimiToken[1]);
+      const skill =
+        availableSkills.find((item) => normalizeSkillToken(item.name) === normalized) ||
+        ({
+          name: kimiToken[1],
+          title: kimiToken[1],
+          path: '',
+          source: 'user',
+        } satisfies ClaudeSkillSummary);
+      return {
+        kind: 'skill',
+        skill,
+        remainder: kimiToken[2].replace(/^\s+/, ''),
+      };
+    }
+
     const skillState = parseSelectedSkillPrompt(prompt, availableSkills, ['/', '$']);
-    if (skillState) {
+    const commandState = parseSelectedSlashCommandPrompt(prompt, availableCommands);
+    // Codex builtin commands win over same-named skills on `/` tokens —
+    // mirrors the composer's routing so both surfaces show the same chip.
+    const skillWins =
+      skillState &&
+      !(activeSession?.provider === 'codex' && skillState.prefix === '/' && commandState);
+    if (skillState && skillWins) {
       return {
         kind: 'skill',
         skill: skillState.skill,
@@ -290,7 +325,6 @@ function UserPromptCard({
       };
     }
 
-    const commandState = parseSelectedSlashCommandPrompt(prompt, availableCommands);
     if (commandState) {
       return {
         kind: 'command',
@@ -310,7 +344,7 @@ function UserPromptCard({
     }
 
     return null;
-  }, [availableCommands, availableSkills, prompt]);
+  }, [activeSession?.provider, availableCommands, availableSkills, prompt]);
 
   useEffect(() => {
     if (!isEditing) {

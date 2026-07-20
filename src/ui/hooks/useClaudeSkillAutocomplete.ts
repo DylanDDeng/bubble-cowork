@@ -21,85 +21,11 @@ import {
   replaceComposerTriggerText,
   type ComposerTrigger,
 } from '../utils/composer-triggers';
-import { CODEX_PLUGIN_SLASH_PREFIX } from '../utils/codex-composer';
 import { getPromptLibraryItems } from '../utils/prompt-library-api';
-import type {
-  AgentProvider,
-  ProviderListPluginsResult,
-  ProviderPluginDescriptor,
-  ProviderPluginMarketplaceDescriptor,
-  ProviderSkillDescriptor,
-} from '../types';
+import { useProviderSlashSkills } from './useProviderSlashSkills';
+import type { AgentProvider } from '../types';
 
-function codexSkillSource(scope?: string): ClaudeSkillSummary['source'] {
-  const normalized = (scope || '').toLowerCase();
-  if (normalized === 'repo' || normalized === 'project' || normalized === 'workspace') {
-    return 'project';
-  }
-  return 'user';
-}
-
-function toCodexSlashSkill(skill: ProviderSkillDescriptor): ClaudeSkillSummary | null {
-  const name = skill.name.replace(/^\//, '').trim();
-  const path = skill.path.trim();
-  if (!name || !path || skill.enabled === false) {
-    return null;
-  }
-
-  return {
-    name,
-    title: skill.interface?.displayName || name,
-    description: skill.interface?.shortDescription || skill.description,
-    path,
-    source: codexSkillSource(skill.scope),
-  };
-}
-
-function isInstalledCodexPlugin(plugin: ProviderPluginDescriptor): boolean {
-  return plugin.enabled || plugin.installed || plugin.installPolicy === 'INSTALLED_BY_DEFAULT';
-}
-
-function getCodexPluginReferencePath(
-  marketplace: ProviderPluginMarketplaceDescriptor,
-  plugin: ProviderPluginDescriptor
-): string {
-  const marketplaceName = marketplace.name.trim();
-  const pluginName = plugin.name.trim();
-  if (marketplaceName && pluginName) {
-    return `plugin://${pluginName}@${marketplaceName}`;
-  }
-
-  if (plugin.source.type === 'local') return plugin.source.path;
-  if (plugin.source.type === 'git') return plugin.source.path || plugin.source.url;
-  return marketplace.path || marketplace.name;
-}
-
-function toCodexPluginSlashSkill(
-  marketplace: ProviderPluginMarketplaceDescriptor,
-  plugin: ProviderPluginDescriptor
-): ClaudeSkillSummary | null {
-  const pluginName = plugin.name.trim();
-  const path = getCodexPluginReferencePath(marketplace, plugin).trim();
-  if (!pluginName || !path || !isInstalledCodexPlugin(plugin)) {
-    return null;
-  }
-
-  return {
-    name: `${CODEX_PLUGIN_SLASH_PREFIX}${pluginName}`,
-    title: plugin.interface?.displayName || pluginName,
-    description: plugin.interface?.shortDescription || plugin.interface?.longDescription || 'Codex plugin',
-    path,
-    source: 'plugin',
-  };
-}
-
-function flattenCodexPluginSlashSkills(result: ProviderListPluginsResult): ClaudeSkillSummary[] {
-  return result.marketplaces.flatMap((marketplace) =>
-    marketplace.plugins
-      .map((plugin) => toCodexPluginSlashSkill(marketplace, plugin))
-      .filter((skill): skill is ClaudeSkillSummary => Boolean(skill))
-  );
-}
+const EMPTY_SKILLS: ClaudeSkillSummary[] = [];
 
 function skillMentionPrefix(provider: AgentProvider): '/' | '$' {
   return provider === 'claude' ? '/' : '$';
@@ -182,9 +108,14 @@ export function useComposerCapabilityMenu({
   onAutoSubmitCommand?: (prompt: string) => void;
 }) {
   const { claudeUserSkills, claudeProjectSkills } = useAppStore();
-  const [codexSlashSkills, setCodexSlashSkills] = useState<ClaudeSkillSummary[]>([]);
-  const [kimiSlashSkills, setKimiSlashSkills] = useState<ClaudeSkillSummary[]>([]);
-  const [qoderSlashSkills, setQoderSlashSkills] = useState<ClaudeSkillSummary[]>([]);
+  // Shared provider catalog (codex/kimi/qoder) — the same cache backs the
+  // sent-message chips in MessageCard, keeping both surfaces consistent.
+  const providerSlashSkills = useProviderSlashSkills(
+    provider,
+    projectPath,
+    enabled && enableSkills
+  );
+  const kimiSlashSkills = provider === 'kimi' ? providerSlashSkills : EMPTY_SKILLS;
   const [promptLibraryItems, setPromptLibraryItems] = useState<PromptLibraryItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -227,115 +158,6 @@ export function useComposerCapabilityMenu({
     };
   }, [enabled]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!enabled || !enableSkills || provider !== 'codex') {
-      setCodexSlashSkills([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const cwd = projectPath?.trim() || undefined;
-    const skillsPromise = window.electron.listCodexSkills({ cwd });
-    const pluginsPromise =
-      provider === 'codex'
-        ? window.electron.listCodexPlugins({ cwd })
-        : Promise.resolve({ marketplaces: [] });
-
-    void Promise.all([
-      skillsPromise,
-      pluginsPromise,
-    ])
-      .then(([skillsResult, pluginsResult]) => {
-        if (cancelled) return;
-
-        const skills = skillsResult.skills
-          .map(toCodexSlashSkill)
-          .filter((skill): skill is ClaudeSkillSummary => Boolean(skill));
-        const plugins = flattenCodexPluginSlashSkills(pluginsResult);
-        setCodexSlashSkills(mergeClaudeSkills(plugins, skills));
-      })
-      .catch((error) => {
-        console.warn('[Codex composer] Failed to load Codex skills/plugins:', error);
-        if (!cancelled) {
-          setCodexSlashSkills([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [enableSkills, enabled, projectPath, provider]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!enabled || !enableSkills || provider !== 'kimi') {
-      setKimiSlashSkills([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    // Session-independent: the kimi server lists skills per workspace, so the
-    // catalog is available in NewSessionView and before the first turn.
-    void window.electron
-      .listKimiSkills({ cwd: projectPath?.trim() || undefined })
-      .then((result) => {
-        if (cancelled) return;
-        const skills = result.skills
-          .map(toCodexSlashSkill)
-          .filter((skill): skill is ClaudeSkillSummary => Boolean(skill));
-        setKimiSlashSkills(skills);
-      })
-      .catch((error) => {
-        console.warn('[Kimi composer] Failed to load Kimi skills:', error);
-        if (!cancelled) {
-          setKimiSlashSkills([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [enableSkills, enabled, projectPath, provider]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!enabled || !enableSkills || provider !== 'qoder') {
-      setQoderSlashSkills([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    // Session-independent: the adapter serves its process-wide catalog cache
-    // (warmed by session starts; cold path spawns a message-free throwaway
-    // qodercli), so the catalog is available in NewSessionView too.
-    void window.electron
-      .listQoderSkills({ cwd: projectPath?.trim() || undefined })
-      .then((result) => {
-        if (cancelled) return;
-        const skills = result.skills
-          .map(toCodexSlashSkill)
-          .filter((skill): skill is ClaudeSkillSummary => Boolean(skill));
-        setQoderSlashSkills(skills);
-      })
-      .catch((error) => {
-        console.warn('[Qoder composer] Failed to load Qoder skills:', error);
-        if (!cancelled) {
-          setQoderSlashSkills([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [enableSkills, enabled, projectPath, provider]);
-
   const composerTrigger = useMemo(
     () => (enabled ? detectComposerTrigger(prompt, cursorIndex ?? prompt.length) : null),
     [cursorIndex, enabled, prompt]
@@ -357,21 +179,15 @@ export function useComposerCapabilityMenu({
       if (!enableSkills) {
         return [];
       }
-      if (provider === 'codex') {
-        return codexSlashSkills;
-      }
-      if (provider === 'kimi') {
-        return kimiSlashSkills;
-      }
-      if (provider === 'qoder') {
-        return qoderSlashSkills;
+      if (provider === 'codex' || provider === 'kimi' || provider === 'qoder') {
+        return providerSlashSkills;
       }
       if (provider === 'claude') {
         return mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames);
       }
       return [];
     },
-    [claudeUserSkills, claudeProjectSkills, codexSlashSkills, enableSkills, kimiSlashSkills, provider, qoderSlashSkills, sessionSkillNames]
+    [claudeUserSkills, claudeProjectSkills, enableSkills, provider, providerSlashSkills, sessionSkillNames]
   );
 
   const availableCommands = useMemo(
