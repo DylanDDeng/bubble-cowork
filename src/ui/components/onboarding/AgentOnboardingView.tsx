@@ -110,7 +110,7 @@ export function AgentOnboardingView({ onComplete }: { onComplete: () => void }) 
           <div className="divide-y divide-[var(--border)]">
             {report
               ? report.entries.map((item) => <AgentRuntimeRow key={item.provider} entry={item} />)
-              : Array.from({ length: 6 }, (_, index) => <AgentRuntimeRowSkeleton key={index} />)}
+              : Array.from({ length: 7 }, (_, index) => <AgentRuntimeRowSkeleton key={index} />)}
           </div>
         </div>
 
