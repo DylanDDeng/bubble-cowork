@@ -39,7 +39,6 @@ import type {
   ThemeState,
   ThemeVariant,
   ChromeTheme,
-  PromptLibraryInsertMode,
   WorkspaceChannel,
   SessionTeamMode,
   McpServerStatus,
@@ -911,7 +910,6 @@ export const useAppStore = create<Store>()(
         version: null,
         autoDetected: false,
       },
-      promptLibraryInsertRequest: null,
       pendingChatInjection: null,
       // 文件夹
       folderConfigs: [],
@@ -2021,23 +2019,6 @@ export const useAppStore = create<Store>()(
       agentSetupOpen: false,
       agentSetupCompletedAt: Date.now(),
     }),
-  requestPromptLibraryInsert: (content, mode: PromptLibraryInsertMode = 'append') =>
-    set({
-      promptLibraryInsertRequest: {
-        content,
-        mode,
-        nonce: Date.now(),
-      },
-    }),
-  consumePromptLibraryInsert: (nonce) =>
-    set((state) => {
-      if (!state.promptLibraryInsertRequest || state.promptLibraryInsertRequest.nonce !== nonce) {
-        return state;
-      }
-
-      return { promptLibraryInsertRequest: null };
-    }),
-
   requestChatInjection: (request) =>
     set((state) => {
       const pending = state.pendingChatInjection;
@@ -2237,7 +2218,6 @@ export const useAppStore = create<Store>()(
           chatCodeFontFamily,
         });
         const activeWorkspace =
-          persisted?.activeWorkspace === 'prompts' ||
           persisted?.activeWorkspace === 'skills' ||
           persisted?.activeWorkspace === 'automations'
             ? persisted.activeWorkspace

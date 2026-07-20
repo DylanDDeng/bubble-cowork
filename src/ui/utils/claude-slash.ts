@@ -1,4 +1,4 @@
-import type { AgentProvider, AvailableCommand, ClaudeSkillSummary, PromptLibraryItem, StreamMessage } from '../types';
+import type { AgentProvider, AvailableCommand, ClaudeSkillSummary, StreamMessage } from '../types';
 import { parseComposerCapabilityToken } from './composer-capability-token';
 
 export interface ClaudeSlashCommand {
@@ -12,8 +12,7 @@ export interface ClaudeSlashCommand {
 
 export type ClaudeSlashSuggestion =
   | { kind: 'command'; command: ClaudeSlashCommand }
-  | { kind: 'skill'; skill: ClaudeSkillSummary }
-  | { kind: 'prompt'; prompt: PromptLibraryItem };
+  | { kind: 'skill'; skill: ClaudeSkillSummary };
 
 const DEFAULT_COMMAND_DEFINITIONS: Record<
   string,

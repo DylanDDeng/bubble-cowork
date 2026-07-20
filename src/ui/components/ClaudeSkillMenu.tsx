@@ -192,7 +192,6 @@ function getGroupId(suggestion: ClaudeSlashSuggestion): string {
     return suggestion.command.source === 'default' ? 'built-in' : 'provider';
   }
 
-  if (suggestion.kind === 'prompt') return 'prompts';
   if (suggestion.skill.source === 'plugin') return 'plugins';
   if (suggestion.skill.source === 'project') return 'project-skills';
   return 'global-skills';
@@ -204,10 +203,9 @@ const GROUP_LABELS: Record<string, string> = {
   plugins: 'Plugins',
   'project-skills': 'Project Skills',
   'global-skills': 'Global Skills',
-  prompts: 'Prompts',
 };
 
-const GROUP_ORDER = ['built-in', 'provider', 'plugins', 'project-skills', 'global-skills', 'prompts'];
+const GROUP_ORDER = ['built-in', 'provider', 'plugins', 'project-skills', 'global-skills'];
 
 function groupSuggestions(suggestions: ClaudeSlashSuggestion[]): MenuGroup[] {
   const buckets = new Map<string, MenuGroup>();
@@ -239,9 +237,6 @@ function suggestionKey(suggestion: ClaudeSlashSuggestion): string {
   if (suggestion.kind === 'command') {
     return `command:${suggestion.command.source}:${suggestion.command.name}`;
   }
-  if (suggestion.kind === 'prompt') {
-    return `prompt:${suggestion.prompt.id}`;
-  }
   return `skill:${suggestion.skill.source}:${suggestion.skill.path || suggestion.skill.name}`;
 }
 
@@ -249,8 +244,8 @@ export function ClaudeSkillMenu({
   suggestions,
   selectedIndex,
   empty,
-  title = 'Commands, skills, and prompts',
-  emptyMessage = 'No matching commands, skills, or prompts.',
+  title = 'Commands and skills',
+  emptyMessage = 'No matching commands or skills.',
   onSelect,
   onHighlight,
 }: {
@@ -284,31 +279,23 @@ export function ClaudeSkillMenu({
             {group.suggestions.map(({ suggestion, index }) => {
               const selected = index === selectedIndex;
               const isSkill = suggestion.kind === 'skill';
-              const Icon = suggestion.kind === 'prompt'
-                ? BookOpenText
-                : isSkill
+              const Icon = isSkill
                 ? suggestion.skill.source === 'plugin'
                   ? Plug
                   : SkillStack
                 : commandIcon(suggestion.command);
               const title =
-                suggestion.kind === 'prompt'
-                  ? suggestion.prompt.title
-                  : isSkill
-                    ? suggestion.skill.title || suggestion.skill.name.replace(/^\//, '')
-                    : commandTitle(suggestion.command);
+                isSkill
+                  ? suggestion.skill.title || suggestion.skill.name.replace(/^\//, '')
+                  : commandTitle(suggestion.command);
               const description =
-                suggestion.kind === 'prompt'
-                  ? suggestion.prompt.description || suggestion.prompt.content
-                  : isSkill
-                    ? suggestion.skill.description || suggestion.skill.path || `/${suggestion.skill.name}`
-                    : suggestion.command.description;
+                isSkill
+                  ? suggestion.skill.description || suggestion.skill.path || `/${suggestion.skill.name}`
+                  : suggestion.command.description;
               const trailingMeta =
-                suggestion.kind === 'prompt'
-                  ? 'Prompt'
-                  : isSkill
-                    ? skillScopeLabel(suggestion.skill.source)
-                    : `/${suggestion.command.name}`;
+                isSkill
+                  ? skillScopeLabel(suggestion.skill.source)
+                  : `/${suggestion.command.name}`;
 
               return (
                 <button
@@ -331,7 +318,7 @@ export function ClaudeSkillMenu({
 
                   <div className="min-w-0 flex flex-1 items-center gap-3">
                     <div className="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
-                      <span className={`shrink-0 truncate text-[11.5px] font-medium ${isSkill || suggestion.kind === 'prompt' ? 'font-semibold' : ''}`}>
+                      <span className={`shrink-0 truncate text-[11.5px] font-medium ${isSkill ? 'font-semibold' : ''}`}>
                         {title}
                       </span>
                       {description ? (

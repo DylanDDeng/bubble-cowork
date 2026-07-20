@@ -132,10 +132,6 @@ export type {
   AgentRuntimeState,
   SessionSource,
   SessionScope,
-  PromptLibraryItem,
-  UpsertPromptLibraryItemInput,
-  PromptLibraryImportResult,
-  PromptLibraryExportResult,
   FolderConfig,
   GitPatchScope,
   GitPatchResult,
@@ -163,8 +159,8 @@ export interface SessionStreamingState {
   thinking: string;
 }
 
-export type ActiveWorkspace = 'chat' | 'skills' | 'prompts' | 'automations';
-export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
+export type ActiveWorkspace = 'chat' | 'skills' | 'automations';
+export type ChatSidebarView = 'threads' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
 export type ProjectUtilityPanelTarget =
@@ -346,7 +342,6 @@ export interface AppState {
   agentSetupDismissedAt: number | null;
   agentSetupCompletedAt: number | null;
   updateStatus: AppUpdateStatus;
-  promptLibraryInsertRequest: PromptLibraryInsertRequest | null;
   pendingChatInjection: ChatInjectionRequest | null;
   // 文件夹
   folderConfigs: FolderConfig[];
@@ -477,8 +472,6 @@ export interface AppActions {
   setAgentSetupOpen: (open: boolean) => void;
   dismissAgentSetup: () => void;
   completeAgentSetup: () => void;
-  requestPromptLibraryInsert: (content: string, mode?: PromptLibraryInsertMode) => void;
-  consumePromptLibraryInsert: (nonce: number) => void;
   requestChatInjection: (request: Omit<ChatInjectionRequest, 'nonce'>) => void;
   consumeChatInjection: (nonce: number) => void;
   // 文件夹 Actions
@@ -492,14 +485,6 @@ export interface AppActions {
   resetThemeVariant: (variant: ThemeVariant) => void;
   setUiFontFamily: (value: string) => void;
   setChatCodeFontFamily: (value: string) => void;
-}
-
-export type PromptLibraryInsertMode = 'append' | 'replace';
-
-export interface PromptLibraryInsertRequest {
-  content: string;
-  mode: PromptLibraryInsertMode;
-  nonce: number;
 }
 
 // Request to inject text/attachments into the active chat composer from

@@ -21,7 +21,6 @@ const testFiles = [
   'scripts/tests/layout-tree.test.ts',
   'scripts/tests/layout-adapter.test.ts',
   'scripts/tests/sidebar-width.test.ts',
-  'scripts/tests/project-starter-prompts.test.ts',
 ];
 
 const compile = spawnSync(

@@ -23,7 +23,6 @@ import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { NewThreadLanding } from './NewThreadLanding';
-import { useProjectStarterPrompts } from '../hooks/useProjectStarterPrompts';
 import { ComposerContextPills } from './ComposerContextPills';
 import { InSessionSearch } from './search/InSessionSearch';
 import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
@@ -958,8 +957,6 @@ export function ChatPane({
     removePermissionRequest,
     openReviewDiff,
     requestChatInjection,
-    setActiveSettingsTab,
-    setShowSettings,
     createDraftSession,
     removeDraftSession,
     draftStartMode,
@@ -972,8 +969,6 @@ export function ChatPane({
       removePermissionRequest: s.removePermissionRequest,
       openReviewDiff: s.openReviewDiff,
       requestChatInjection: s.requestChatInjection,
-      setActiveSettingsTab: s.setActiveSettingsTab,
-      setShowSettings: s.setShowSettings,
       createDraftSession: s.createDraftSession,
       removeDraftSession: s.removeDraftSession,
       draftStartMode: s.draftStartMode,
@@ -1563,18 +1558,12 @@ export function ChatPane({
       !activePermissionRequest
   );
   const threadStarterCwd = session?.projectCwd || session?.cwd || '';
-  const threadStarterPrompts = useProjectStarterPrompts(threadStarterCwd);
   const threadStarterProject = threadStarterCwd
     ? threadStarterCwd.split('/').filter(Boolean).pop() || threadStarterCwd
     : '';
   const threadStarterHeading = threadStarterProject
     ? `What should we build in ${threadStarterProject}?`
     : 'What can I help you with?';
-  const openConnectAppsSettings = () => {
-    setActiveSettingsTab('mcp');
-    setShowSettings(true);
-  };
-
   // Recent folders for the new-thread context pill's project dropdown.
   const [threadStarterRecentCwds, setThreadStarterRecentCwds] = useState<string[]>([]);
   useEffect(() => {
@@ -1680,14 +1669,7 @@ export function ChatPane({
             </div>
           ) : null}
           {showThreadStarter ? (
-            <NewThreadLanding
-              heading={threadStarterHeading}
-              prompts={threadStarterPrompts}
-              onPickSuggestion={(text) =>
-                requestChatInjection({ sessionId, text, mode: 'replace' })
-              }
-              onConnectApps={openConnectAppsSettings}
-            >
+            <NewThreadLanding heading={threadStarterHeading}>
               <div className="mx-auto w-full max-w-3xl">
                 <PromptInput
                   sessionId={sessionId}

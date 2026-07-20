@@ -9,15 +9,11 @@ import type {
   GitPatchScope,
   MemoryDocument,
   MemoryWorkspace,
-  PromptLibraryExportResult,
-  PromptLibraryImportResult,
-  PromptLibraryItem,
   SkillMarketDetail,
   SkillMarketInstallResult,
   SkillMarketItem,
   SystemFontOption,
   UiResumeState,
-  UpsertPromptLibraryItemInput,
   UpsertAutomationInput,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
@@ -479,26 +475,6 @@ contextBridge.exposeInMainWorld('electron', {
 
   getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-opencode-usage-report', days);
-  },
-
-  getPromptLibrary: (): Promise<PromptLibraryItem[]> => {
-    return ipcRenderer.invoke('get-prompt-library');
-  },
-
-  savePromptLibraryItem: (input: UpsertPromptLibraryItemInput): Promise<PromptLibraryItem[]> => {
-    return ipcRenderer.invoke('save-prompt-library-item', input);
-  },
-
-  deletePromptLibraryItem: (id: string): Promise<PromptLibraryItem[]> => {
-    return ipcRenderer.invoke('delete-prompt-library-item', id);
-  },
-
-  importPromptLibrary: (): Promise<PromptLibraryImportResult> => {
-    return ipcRenderer.invoke('import-prompt-library');
-  },
-
-  exportPromptLibrary: (): Promise<PromptLibraryExportResult> => {
-    return ipcRenderer.invoke('export-prompt-library');
   },
 
   // 获取 Codex 模型配置

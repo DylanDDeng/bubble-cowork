@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from 'react';
 import {
-  BookOpenText,
   FolderOpen,
   Script,
   Search,
@@ -314,12 +313,6 @@ export function Sidebar() {
         keywords: ['chat', 'sessions'],
       },
       {
-        id: 'switch-prompts',
-        label: 'Go to Prompt Library',
-        description: 'Browse saved prompts',
-        keywords: ['prompts', 'snippets'],
-      },
-      {
         id: 'switch-automations',
         label: 'Go to Automations',
         description: 'Manage scheduled project workflows',
@@ -428,11 +421,6 @@ export function Sidebar() {
         break;
       case 'switch-chat':
         setActiveWorkspace('chat');
-        setChatSidebarView('threads');
-        setShowSettings(false);
-        break;
-      case 'switch-prompts':
-        setActiveWorkspace('prompts');
         setChatSidebarView('threads');
         setShowSettings(false);
         break;
@@ -550,16 +538,6 @@ export function Sidebar() {
                         active={activeWorkspace === 'automations'}
                         onClick={() => {
                           setActiveWorkspace('automations');
-                          setChatSidebarView('threads');
-                          setShowSettings(false);
-                        }}
-                      />
-                      <SidebarNavRow
-                        icon={<BookOpenText className="h-[15px] w-[15px]" />}
-                        label="Prompt Library"
-                        active={activeWorkspace === 'prompts'}
-                        onClick={() => {
-                          setActiveWorkspace('prompts');
                           setChatSidebarView('threads');
                           setShowSettings(false);
                         }}

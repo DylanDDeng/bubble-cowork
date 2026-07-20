@@ -27,7 +27,6 @@ import { ComposerContextPills } from './ComposerContextPills';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
-import { useProjectStarterPrompts } from '../hooks/useProjectStarterPrompts';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
@@ -60,8 +59,6 @@ export function NewSessionView() {
     setActiveChannelForProject,
     setShowSettings,
     setActiveSettingsTab,
-    promptLibraryInsertRequest,
-    consumePromptLibraryInsert,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -74,7 +71,6 @@ export function NewSessionView() {
   const isComposingRef = useRef(false);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
-  const starterPrompts = useProjectStarterPrompts(cwd);
   const agentSelection = useComposerAgentSelection({ selectionKey: '__new_session__' });
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
   const capabilityMenu = useComposerCapabilityMenu({
@@ -101,22 +97,6 @@ export function NewSessionView() {
     prompt,
     cursorIndex,
   });
-
-  useEffect(() => {
-    if (!promptLibraryInsertRequest) {
-      return;
-    }
-
-    setPrompt((current) => {
-      if (promptLibraryInsertRequest.mode === 'replace' || !current.trim()) {
-        return promptLibraryInsertRequest.content;
-      }
-
-      return `${current.trimEnd()}\n\n${promptLibraryInsertRequest.content}`;
-    });
-    window.requestAnimationFrame(() => editorRef.current?.focus());
-    consumePromptLibraryInsert(promptLibraryInsertRequest.nonce);
-  }, [consumePromptLibraryInsert, promptLibraryInsertRequest]);
 
   useEffect(() => {
     window.electron.getRecentCwds(8).then(setRecentCwds);
@@ -471,20 +451,6 @@ export function NewSessionView() {
     ? `What should we build in ${projectName}?`
     : 'What can I help you with?';
 
-  const handleUseStarter = (text: string) => {
-    setPrompt(text);
-    setCursorIndex(text.length);
-    window.requestAnimationFrame(() => {
-      editorRef.current?.focus();
-      editorRef.current?.setCursorIndex(text.length);
-    });
-  };
-
-  const handleConnectApps = () => {
-    setActiveSettingsTab('mcp');
-    setShowSettings(true);
-  };
-
   const handleKeyDown = (e: ReactKeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
       return;
@@ -554,12 +520,7 @@ export function NewSessionView() {
         </div>
       </div>
 
-      <NewThreadLanding
-        heading={heading}
-        prompts={starterPrompts}
-        onPickSuggestion={handleUseStarter}
-        onConnectApps={handleConnectApps}
-      >
+      <NewThreadLanding heading={heading}>
             <div className="group relative rounded-[18px] bg-[var(--bg-secondary)] shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
               {projectFileMentions.hasMentionQuery ? (
                 <div className="absolute inset-x-0 bottom-full z-40 mb-1">

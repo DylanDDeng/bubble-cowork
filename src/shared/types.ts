@@ -14,42 +14,6 @@ export interface FolderConfigFile {
   folders: FolderConfig[];
 }
 
-export interface PromptLibraryItem {
-  id: string;
-  title: string;
-  content: string;
-  tags: string[];
-  description?: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface PromptLibraryFile {
-  version: number;
-  prompts: PromptLibraryItem[];
-}
-
-export interface UpsertPromptLibraryItemInput {
-  id?: string;
-  title: string;
-  content: string;
-  tags?: string[];
-  description?: string;
-}
-
-export interface PromptLibraryImportResult {
-  items: PromptLibraryItem[];
-  importedCount: number;
-  skippedCount: number;
-  filePath: string | null;
-}
-
-export interface PromptLibraryExportResult {
-  canceled: boolean;
-  filePath: string | null;
-  count: number;
-}
-
 export interface UiResumeState {
   activeSessionId: string | null;
   showNewSession: boolean;

@@ -114,8 +114,6 @@ export function PromptInput({
     setShowSettings,
     setActiveSettingsTab,
     setPendingStart,
-    promptLibraryInsertRequest,
-    consumePromptLibraryInsert,
     pendingChatInjection,
     consumeChatInjection,
     draftStartMode,
@@ -130,8 +128,6 @@ export function PromptInput({
       setShowSettings: s.setShowSettings,
       setActiveSettingsTab: s.setActiveSettingsTab,
       setPendingStart: s.setPendingStart,
-      promptLibraryInsertRequest: s.promptLibraryInsertRequest,
-      consumePromptLibraryInsert: s.consumePromptLibraryInsert,
       pendingChatInjection: s.pendingChatInjection,
       consumeChatInjection: s.consumeChatInjection,
       draftStartMode: s.draftStartMode,
@@ -502,22 +498,6 @@ export function PromptInput({
     setActiveSettingsTab(setup.settingsTab);
     setShowSettings(true);
   }, [agentSelection.modelSetup, setActiveSettingsTab, setShowSettings]);
-
-  useEffect(() => {
-    if (!promptLibraryInsertRequest) {
-      return;
-    }
-
-    setPrompt((current) => {
-      if (promptLibraryInsertRequest.mode === 'replace' || !current.trim()) {
-        return promptLibraryInsertRequest.content;
-      }
-
-      return `${current.trimEnd()}\n\n${promptLibraryInsertRequest.content}`;
-    });
-    window.requestAnimationFrame(() => editorRef.current?.focus());
-    consumePromptLibraryInsert(promptLibraryInsertRequest.nonce);
-  }, [consumePromptLibraryInsert, promptLibraryInsertRequest]);
 
   useEffect(() => {
     if (!pendingChatInjection) {

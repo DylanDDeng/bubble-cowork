@@ -93,13 +93,6 @@ import {
   notifySessionDone,
   setNotificationSettings,
 } from './libs/notifications';
-import {
-  deletePromptLibraryItem,
-  exportPromptLibraryFile,
-  importPromptLibraryFile,
-  listPromptLibraryItems,
-  savePromptLibraryItem,
-} from './libs/prompt-library';
 import { expandClaudeSkillPrompt, listClaudeSkills } from './libs/claude-skills';
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
 import { feishuBridge } from './libs/feishu-bridge';
@@ -168,7 +161,6 @@ import type {
   FontSettingsPayload,
   FeishuBridgeConfig,
   UserProfileUpdate,
-  UpsertPromptLibraryItemInput,
   ProviderInputReference,
   SessionTeamMode,
   ProviderListPluginsInput,
@@ -207,7 +199,6 @@ import { disposeTerminalTransportServer } from './libs/terminal-transport-server
 // === IPC 模块导入（从 ipc-handlers.ts 拆分） ===
 import { register as registerTerminal } from './ipc/terminal'
 import { register as registerFeishu } from './ipc/feishu'
-import { register as registerPromptLibrary } from './ipc/prompt-library'
 import { register as registerMemory } from './ipc/memory'
 import { register as registerFont } from './ipc/font'
 import { register as registerSkillMarket } from './ipc/skill-market'
@@ -5570,63 +5561,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return sessions.getAgentUsageReport(provider, days);
   });
 
-  ipcMainHandle('get-prompt-library', async () => {
-    return listPromptLibraryItems();
-  });
-
-  ipcMainHandle('save-prompt-library-item', async (_event, input: UpsertPromptLibraryItemInput) => {
-    return savePromptLibraryItem(input);
-  });
-
-  ipcMainHandle('delete-prompt-library-item', async (_event, id: string) => {
-    return deletePromptLibraryItem(id);
-  });
-
-  ipcMainHandle('import-prompt-library', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      filters: [
-        {
-          name: 'JSON',
-          extensions: ['json'],
-        },
-      ],
-    });
-
-    if (result.canceled || !result.filePaths[0]) {
-      return {
-        items: listPromptLibraryItems(),
-        importedCount: 0,
-        skippedCount: 0,
-        filePath: null,
-      };
-    }
-
-    return importPromptLibraryFile(result.filePaths[0]);
-  });
-
-  ipcMainHandle('export-prompt-library', async () => {
-    const result = await dialog.showSaveDialog(mainWindow, {
-      defaultPath: 'prompt-library.json',
-      filters: [
-        {
-          name: 'JSON',
-          extensions: ['json'],
-        },
-      ],
-    });
-
-    if (result.canceled || !result.filePath) {
-      return {
-        canceled: true,
-        filePath: null,
-        count: listPromptLibraryItems().length,
-      };
-    }
-
-    return exportPromptLibraryFile(result.filePath);
-  });
-
   // RPC: 获取 Codex 模型配置
   ipcMainHandle('get-codex-model-config', async () => {
     return getCodexModelConfig();
@@ -7902,7 +7836,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   }
   registerTerminal(ipcCtx)
   registerFeishu(ipcCtx)
-  registerPromptLibrary(ipcCtx)
   registerFont(ipcCtx)
   registerMemory(ipcCtx)
   registerSkillMarket(ipcCtx)

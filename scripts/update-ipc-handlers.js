@@ -18,7 +18,6 @@ const moduleImports = [
   '// === IPC 模块导入（从 ipc-handlers.ts 拆分） ===',
   `import { register as registerTerminal } from './ipc/terminal'`,
   `import { register as registerFeishu } from './ipc/feishu'`,
-  `import { register as registerPromptLibrary } from './ipc/prompt-library'`,
   `import { register as registerMemory } from './ipc/memory'`,
   `import { register as registerFont } from './ipc/font'`,
   `import { register as registerSkillMarket } from './ipc/skill-market'`,
@@ -93,7 +92,6 @@ const registerBlock = [
   '  }',
   '  registerTerminal(ipcCtx)',
   '  registerFeishu(ipcCtx)',
-  '  registerPromptLibrary(ipcCtx)',
   '  registerFont(ipcCtx)',
   '  registerMemory(ipcCtx)',
   '  registerSkillMarket(ipcCtx)',
@@ -139,5 +137,5 @@ fs.writeFileSync(SRC + '/ipc-handlers.ts', newContent)
 console.log('ipc-handlers.ts updated!')
 
 // 检查结果
-const moduleCount = (newContent.match(/registerTerminal|registerFeishu|registerPromptLibrary|registerFont|registerMemory|registerSkillMarket|registerGit/g) || []).length
+const moduleCount = (newContent.match(/registerTerminal|registerFeishu|registerFont|registerMemory|registerSkillMarket|registerGit/g) || []).length
 console.log(`Register calls: ${moduleCount}`)

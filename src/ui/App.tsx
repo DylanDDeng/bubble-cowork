@@ -34,7 +34,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
-import { PromptLibraryView } from './components/prompts/PromptLibraryView';
 import { AutomationsView } from './components/AutomationsView';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
@@ -995,8 +994,6 @@ export function App() {
             </div>
           </main>
         </div>
-      ) : activeWorkspace === 'prompts' ? (
-        <PromptLibraryView />
       ) : activeWorkspace === 'automations' ? (
         <AutomationsView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (

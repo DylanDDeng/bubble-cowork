@@ -16,15 +16,11 @@ import type {
   MemoryDocument,
   MemoryWorkspace,
   ProjectTreeNode,
-  PromptLibraryExportResult,
-  PromptLibraryImportResult,
-  PromptLibraryItem,
   SystemFontOption,
   ClaudeModelConfig,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
   CodexRateLimitReport,
-  UpsertPromptLibraryItemInput,
   UpsertAutomationInput,
   CodexModelConfig,
   CodexRuntimeStatus,
@@ -188,11 +184,6 @@ declare global {
       provider: import('./shared/types').AgentProvider,
       days?: ClaudeUsageRangeDays
     ) => Promise<ClaudeUsageReport>;
-    getPromptLibrary: () => Promise<PromptLibraryItem[]>;
-    savePromptLibraryItem: (input: UpsertPromptLibraryItemInput) => Promise<PromptLibraryItem[]>;
-    deletePromptLibraryItem: (id: string) => Promise<PromptLibraryItem[]>;
-    importPromptLibrary: () => Promise<PromptLibraryImportResult>;
-    exportPromptLibrary: () => Promise<PromptLibraryExportResult>;
     searchChatMessages: (query: string, limit?: number) => Promise<ChatSessionSearchResult[]>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
     saveCodexModelVisibility: (enabledModels: string[]) => Promise<CodexModelConfig>;

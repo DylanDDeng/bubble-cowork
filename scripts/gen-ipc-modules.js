@@ -38,11 +38,6 @@ const importMap = {
   'getAegisBuiltinAgentConfig': './libs/builtin-agent-manager',
   'saveAegisBuiltinAgentConfig': './libs/builtin-agent-manager',
   'listAegisSkillsForProvider': './libs/builtin-agent/skills/manager',
-  'getPromptLibrary': './libs/prompt-library',
-  'savePromptLibraryItem': './libs/prompt-library',
-  'deletePromptLibraryItem': './libs/prompt-library',
-  'importPromptLibrary': './libs/prompt-library',
-  'exportPromptLibrary': './libs/prompt-library',
   'getFeishuBridgeStatus': './libs/feishu-bridge',
   'startFeishuBridge': './libs/feishu-bridge',
   'stopFeishuBridge': './libs/feishu-bridge',
@@ -128,7 +123,6 @@ function extractHandlerBlock(startLine) {
 
 // 输出所有模块
 const modules = [
-  { name: 'prompt-library', range: [3463, 3504] },
   { name: 'skill-market', range: [3592, 3612] },
   { name: 'memory', range: [3641, 3648] },
   { name: 'font', range: [3658, 3695] },

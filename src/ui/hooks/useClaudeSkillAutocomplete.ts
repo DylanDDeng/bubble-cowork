@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { sendEvent } from './useIPC';
 import { useAppStore } from '../store/useAppStore';
-import type { ClaudeSkillSummary, PromptLibraryItem, StreamMessage } from '../types';
+import type { ClaudeSkillSummary, StreamMessage } from '../types';
 import type { ClaudeSlashSuggestion } from '../utils/claude-slash';
 import {
   parseSelectedSkillPrompt,
@@ -21,7 +21,6 @@ import {
   replaceComposerTriggerText,
   type ComposerTrigger,
 } from '../utils/composer-triggers';
-import { getPromptLibraryItems } from '../utils/prompt-library-api';
 import { useProviderSlashSkills } from './useProviderSlashSkills';
 import type { AgentProvider } from '../types';
 
@@ -116,7 +115,6 @@ export function useComposerCapabilityMenu({
     enabled && enableSkills
   );
   const kimiSlashSkills = provider === 'kimi' ? providerSlashSkills : EMPTY_SKILLS;
-  const [promptLibraryItems, setPromptLibraryItems] = useState<PromptLibraryItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
@@ -129,34 +127,6 @@ export function useComposerCapabilityMenu({
       payload: { projectPath },
     });
   }, [enableSkills, enabled, projectPath, provider]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!enabled) {
-      setPromptLibraryItems([]);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    void getPromptLibraryItems()
-      .then((items) => {
-        if (!cancelled) {
-          setPromptLibraryItems(items);
-        }
-      })
-      .catch((error) => {
-        console.warn('[Composer] Failed to load prompt library:', error);
-        if (!cancelled) {
-          setPromptLibraryItems([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled]);
 
   const composerTrigger = useMemo(
     () => (enabled ? detectComposerTrigger(prompt, cursorIndex ?? prompt.length) : null),
@@ -259,19 +229,17 @@ export function useComposerCapabilityMenu({
       triggerKind,
       availableCommands,
       availableSkills,
-      promptLibraryItems,
       includeCommands: triggerKind !== 'skill',
       includeSkills:
         triggerKind === 'skill' ||
         (triggerKind === 'slash-command' &&
           (provider === 'claude' || provider === 'codex' || provider === 'kimi' || provider === 'qoder')),
-      includePrompts: triggerKind === 'slash-command',
       // Codex/Kimi/Qoder match the codex app: `/` reaches the full skill
       // catalog, same budget as the `$` menu (Claude keeps the compact
       // 8-slot mix).
       skillLimit: provider === 'codex' || provider === 'kimi' || provider === 'qoder' ? 80 : undefined,
     });
-  }, [availableCommands, availableSkills, enabled, promptLibraryItems, provider, query, triggerKind]);
+  }, [availableCommands, availableSkills, enabled, provider, query, triggerKind]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -328,13 +296,6 @@ export function useComposerCapabilityMenu({
 
       setPrompt(next.prompt);
       setCursorIndex?.(next.cursorIndex);
-      return;
-    }
-
-    if (suggestion.kind === 'prompt') {
-      const nextPrompt = suggestion.prompt.content;
-      setPrompt(nextPrompt);
-      setCursorIndex?.(nextPrompt.length);
       return;
     }
 
@@ -397,16 +358,16 @@ export function useComposerCapabilityMenu({
         : triggerKind === 'slash-model'
           ? 'Models'
           : provider === 'claude' || provider === 'codex'
-            ? 'Commands, Skills & Prompts'
-            : 'Commands & Prompts',
+            ? 'Commands & Skills'
+            : 'Commands',
     emptyMessage:
       triggerKind === 'skill'
         ? 'No matching skills.'
         : triggerKind === 'slash-model'
           ? 'No matching models.'
           : provider === 'claude' || provider === 'codex'
-            ? 'No matching commands, skills, or prompts.'
-            : 'No matching commands or prompts.',
+            ? 'No matching commands or skills.'
+            : 'No matching commands.',
     suggestions,
     availableSkills,
     availableCommands,
