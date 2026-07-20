@@ -1715,6 +1715,64 @@ export interface SkillMarketInstallResult {
   message?: string;
 }
 
+// GitHub pull-request directory (gh CLI backed)
+export type PullRequestCheckState = 'success' | 'failure' | 'pending' | 'none';
+
+export interface PullRequestCheckItem {
+  name: string;
+  workflowName?: string;
+  state: 'passed' | 'failed' | 'pending' | 'skipped' | 'neutral';
+  url?: string;
+}
+
+export interface PullRequestSummary {
+  /** `owner/repo#number` */
+  id: string;
+  repo: string;
+  number: number;
+  title: string;
+  author: string;
+  isDraft: boolean;
+  state: 'OPEN' | 'MERGED' | 'CLOSED';
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  role: 'authored' | 'reviewing' | 'both';
+  headRefName?: string;
+  baseRefName?: string;
+  additions?: number;
+  deletions?: number;
+}
+
+export interface PullRequestComment {
+  author: string;
+  /** GitHub avatar URL (bots have no github.com/<login>.png page). */
+  avatarUrl?: string;
+  body: string;
+  createdAt: string;
+  url?: string;
+  kind: 'comment' | 'review';
+  /** Review verdict (APPROVED / CHANGES_REQUESTED / COMMENTED) for kind 'review'. */
+  reviewState?: string;
+}
+
+export interface PullRequestDetail extends PullRequestSummary {
+  authorName?: string;
+  body: string;
+  commentCount: number;
+  comments: PullRequestComment[];
+  reviewers: Array<{ login: string; state: string }>;
+  checks: { state: PullRequestCheckState; summary: string; items: PullRequestCheckItem[] };
+  mergeable?: string;
+}
+
+export interface PullRequestListResult {
+  prs: PullRequestSummary[];
+  fetchedAt: number;
+  cached: boolean;
+  error?: { kind: 'not_installed' | 'auth_required' | 'command_failed'; message: string };
+}
+
 // 系统监控类型（预留）
 export interface StatisticsData {
   cpuUsage: number;

@@ -633,6 +633,20 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-agent-runtime-directory', force);
   },
 
+  // GitHub pull-request directory
+  listPullRequests: (forceReload?: boolean) => {
+    return ipcRenderer.invoke('pull-requests-list', forceReload);
+  },
+  getPullRequestDetail: (input: { repo: string; number: number; forceReload?: boolean }) => {
+    return ipcRenderer.invoke('pull-requests-detail', input);
+  },
+  mergePullRequest: (input: { repo: string; number: number; method: 'merge' | 'squash' | 'rebase' }) => {
+    return ipcRenderer.invoke('pull-requests-merge', input);
+  },
+  addPullRequestComment: (input: { repo: string; number: number; body: string }) => {
+    return ipcRenderer.invoke('pull-requests-comment', input);
+  },
+
   // 用户资料
   getUserProfile: () => {
     return ipcRenderer.invoke('get-user-profile');

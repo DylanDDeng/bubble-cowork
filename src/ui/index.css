@@ -1550,6 +1550,35 @@ button.md-inline-file-code:hover {
   border-radius: 5px;
 }
 
+/* GitHub-style markdown for PR descriptions/comments: images stay inline
+   (bot comments embed 16px badge logos inside headings — a block img would
+   split the heading), sized by their own width/height attributes. */
+.pr-markdown img {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  vertical-align: text-bottom;
+}
+
+/* Badge logos inside headings are decoration ("Deploying X with <logo>
+   Cloudflare Pages") — hide them like the codex app does. Anchors that wrap
+   only a logo must vanish too: an empty inline box between two spaces blocks
+   whitespace collapsing and leaves a double-space hole in the sentence. */
+.pr-markdown h1 img,
+.pr-markdown h2 img,
+.pr-markdown h3 img,
+.pr-markdown h4 img,
+.pr-markdown h5 img,
+.pr-markdown h6 img,
+.pr-markdown h1 a:has(> img:only-child),
+.pr-markdown h2 a:has(> img:only-child),
+.pr-markdown h3 a:has(> img:only-child),
+.pr-markdown h4 a:has(> img:only-child),
+.pr-markdown h5 a:has(> img:only-child),
+.pr-markdown h6 a:has(> img:only-child) {
+  display: none;
+}
+
 .aegis-text-codemirror-host {
   height: 100%;
   min-height: 0;

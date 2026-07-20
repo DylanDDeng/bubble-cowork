@@ -130,6 +130,12 @@ export type {
   AgentRuntimeDirectoryReport,
   AgentRuntimeEntry,
   AgentRuntimeState,
+  PullRequestCheckItem,
+  PullRequestCheckState,
+  PullRequestComment,
+  PullRequestDetail,
+  PullRequestListResult,
+  PullRequestSummary,
   SessionSource,
   SessionScope,
   FolderConfig,
@@ -159,7 +165,7 @@ export interface SessionStreamingState {
   thinking: string;
 }
 
-export type ActiveWorkspace = 'chat' | 'skills' | 'automations';
+export type ActiveWorkspace = 'chat' | 'skills' | 'automations' | 'prs';
 export type ChatSidebarView = 'threads' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';

@@ -220,6 +220,24 @@ declare global {
     getAgentRuntimeDirectory: (
       force?: boolean
     ) => Promise<import('./shared/types').AgentRuntimeDirectoryReport>;
+    listPullRequests: (
+      forceReload?: boolean
+    ) => Promise<import('./shared/types').PullRequestListResult>;
+    getPullRequestDetail: (input: {
+      repo: string;
+      number: number;
+      forceReload?: boolean;
+    }) => Promise<import('./shared/types').PullRequestDetail>;
+    mergePullRequest: (input: {
+      repo: string;
+      number: number;
+      method: 'merge' | 'squash' | 'rebase';
+    }) => Promise<{ ok: boolean; message?: string }>;
+    addPullRequestComment: (input: {
+      repo: string;
+      number: number;
+      body: string;
+    }) => Promise<{ ok: boolean; message?: string }>;
     getUserProfile: () => Promise<import('./shared/types').UserProfile>;
     saveUserProfile: (
       update: import('./shared/types').UserProfileUpdate

@@ -62,6 +62,7 @@ import {
 } from './libs/font-settings';
 import { getUserProfile, saveUserProfile } from './libs/user-profile';
 import { getAgentRuntimeDirectory } from './libs/agent-runtime-directory';
+import { addPullRequestComment, getPullRequestDetail, listPullRequests, mergePullRequest } from './libs/pull-requests';
 import {
   getCodexModelConfig,
   saveCodexModelVisibility,
@@ -5973,6 +5974,32 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('get-agent-runtime-directory', async (_event, force?: boolean) => {
     return getAgentRuntimeDirectory(force === true);
   });
+
+  // RPC: GitHub pull-request directory (gh CLI backed)
+  ipcMainHandle('pull-requests-list', async (_event, forceReload?: boolean) => {
+    return listPullRequests(forceReload === true);
+  });
+
+  ipcMainHandle(
+    'pull-requests-detail',
+    async (_event, input: { repo: string; number: number; forceReload?: boolean }) => {
+      return getPullRequestDetail(input.repo, input.number, input.forceReload === true);
+    }
+  );
+
+  ipcMainHandle(
+    'pull-requests-merge',
+    async (_event, input: { repo: string; number: number; method: 'merge' | 'squash' | 'rebase' }) => {
+      return mergePullRequest(input);
+    }
+  );
+
+  ipcMainHandle(
+    'pull-requests-comment',
+    async (_event, input: { repo: string; number: number; body: string }) => {
+      return addPullRequestComment(input);
+    }
+  );
 
   // RPC: 用户资料(展示名/handle,用于 Usage 档案头)
   ipcMainHandle('get-user-profile', async () => {

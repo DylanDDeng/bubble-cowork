@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {
   FolderOpen,
+  GitPullRequest,
   Script,
   Search,
   Settings,
@@ -319,6 +320,12 @@ export function Sidebar() {
         keywords: ['automation', 'schedule', 'cron', 'workflow'],
       },
       {
+        id: 'switch-prs',
+        label: 'Go to Pull Requests',
+        description: 'Review and merge your GitHub pull requests',
+        keywords: ['pr', 'pull request', 'github', 'merge', 'review'],
+      },
+      {
         id: 'switch-skills',
         label: 'Go to Skills',
         description: 'Browse skills',
@@ -426,6 +433,11 @@ export function Sidebar() {
         break;
       case 'switch-automations':
         setActiveWorkspace('automations');
+        setChatSidebarView('threads');
+        setShowSettings(false);
+        break;
+      case 'switch-prs':
+        setActiveWorkspace('prs');
         setChatSidebarView('threads');
         setShowSettings(false);
         break;
@@ -538,6 +550,16 @@ export function Sidebar() {
                         active={activeWorkspace === 'automations'}
                         onClick={() => {
                           setActiveWorkspace('automations');
+                          setChatSidebarView('threads');
+                          setShowSettings(false);
+                        }}
+                      />
+                      <SidebarNavRow
+                        icon={<GitPullRequest className="h-[15px] w-[15px]" />}
+                        label="Pull Requests"
+                        active={activeWorkspace === 'prs'}
+                        onClick={() => {
+                          setActiveWorkspace('prs');
                           setChatSidebarView('threads');
                           setShowSettings(false);
                         }}

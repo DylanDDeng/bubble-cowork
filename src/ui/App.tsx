@@ -35,6 +35,7 @@ import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
 import { AutomationsView } from './components/AutomationsView';
+import { PullRequestsView } from './components/PullRequestsView';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
@@ -996,6 +997,8 @@ export function App() {
         </div>
       ) : activeWorkspace === 'automations' ? (
         <AutomationsView />
+      ) : activeWorkspace === 'prs' ? (
+        <PullRequestsView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
         <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden rounded-l-[12px] bg-[var(--bg-primary)]">
           {/* Top drag region */}
