@@ -125,6 +125,33 @@ class ProviderServiceImpl implements ProviderService {
     this.directory.remove(threadId);
   }
 
+  disposeSession(threadId: string): boolean {
+    // Deliberately synchronous end to end: the onError retirement path relies
+    // on the adapter map being clean before any later event-loop turn can
+    // start a replacement session (no identity bookkeeping needed).
+    try {
+      // Route via the directory; fall back to scanning adapters because a
+      // failed first turn removes the binding while the adapter session
+      // survives (startSession's catch removes only the binding).
+      const provider = this.directory.getProvider(threadId);
+      const adapter = provider
+        ? registry.getAdapter(provider)
+        : registry.listAdapters().find((candidate) => candidate.hasSession(threadId)) ?? null;
+      const disposed = adapter?.disposeSession(threadId) ?? false;
+      if (disposed) {
+        // Only a true dispose may drop the binding: for policy no-op
+        // adapters (codex/kimi) the session is still live, and removing the
+        // binding would break late permission responses and neuter
+        // stopSession for that thread.
+        this.directory.remove(threadId);
+      }
+      return disposed;
+    } catch (error) {
+      console.warn('[ProviderService] disposeSession failed:', error);
+      return false;
+    }
+  }
+
   async stopAll(): Promise<void> {
     const adapters = registry.listAdapters();
     await Promise.all(adapters.map((adapter) => adapter.stopAll()));

@@ -628,5 +628,94 @@ const messageEvents = (events) => events.filter((event) => event.type === 'messa
   ok('runOneShot cold path returns text');
 }
 
+// ── L1-9: disposeSession — quiet teardown for errored-runner retirement ─────
+{
+  const { harness, sdk } = makeHarness({});
+  setQoderSdkForTests(sdk);
+  const adapter = new QoderSdkAdapter();
+  const events = collectEvents(adapter);
+  await adapter.startSession({ provider: 'qoder', threadId: 'td1', cwd: '/tmp', prompt: 'hello' });
+  await waitFor(() => resultEvents(events).length === 1, 4000, 'first result');
+
+  const before = events.length;
+  const disposed = adapter.disposeSession('td1');
+  assert.equal(disposed, true, 'dispose of a live session must return true');
+  assert.equal(adapter.hasSession('td1'), false, 'dispose must drop the session');
+  await waitFor(() => harness.queries[0].state.closeCalls === 1, 4000, 'query closed');
+  assert.equal(
+    events.slice(before).filter((e) => e.type === 'status_change' || (e.type === 'message' && e.message.type === 'result')).length,
+    0,
+    'dispose must emit no status_change and no synthesized result'
+  );
+  assert.equal(adapter.disposeSession('td1'), false, 'second dispose is an idempotent no-op');
+  assert.equal(adapter.disposeSession('unknown-thread'), false, 'unknown thread → false');
+  ok('disposeSession: true once, quiet (no status/result), idempotent');
+
+  // Defensive overwrite: a second startSession for the same thread disposes
+  // the stale predecessor instead of orphaning its CLI process.
+  await adapter.startSession({ provider: 'qoder', threadId: 'td2', cwd: '/tmp', prompt: 'one' });
+  await waitFor(() => resultEvents(events).length >= 2, 4000, 'td2 result');
+  const staleQuery = harness.queries.at(-1);
+  await adapter.startSession({ provider: 'qoder', threadId: 'td2', cwd: '/tmp', prompt: 'two' });
+  await waitFor(() => staleQuery.state.closeCalls === 1, 4000, 'stale query closed');
+  assert.equal(adapter.hasSession('td2'), true, 'replacement session must survive the defensive dispose');
+  ok('startSession disposes a same-thread predecessor (never orphan)');
+}
+
+// ── L1-10: dispose neutralizes the in-flight turn (no stale 'stopped' synth) ─
+{
+  const { harness, sdk } = makeHarness({
+    onTurn: async () => {
+      // Turn never terminates on its own — models the auth-expired shape
+      // where an error event fires with no terminal result.
+    },
+  });
+  setQoderSdkForTests(sdk);
+  const adapter = new QoderSdkAdapter();
+  const events = collectEvents(adapter);
+  await adapter.startSession({ provider: 'qoder', threadId: 'td3', cwd: '/tmp', prompt: 'hang' });
+  await waitFor(() => harness.queries.length === 1, 4000, 'query spawned');
+
+  const before = events.length;
+  assert.equal(adapter.disposeSession('td3'), true);
+  // Closing the query ends the pump; handleIteratorEnded must NOT synthesize
+  // a stale 'stopped' result because dispose neutralized the turn.
+  harness.queries[0].finish();
+  await sleep(80);
+  assert.equal(
+    events.slice(before).filter((e) => e.type === 'message' && e.message.type === 'result').length,
+    0,
+    'pump end after dispose must synthesize no result'
+  );
+  ok('dispose neutralizes the in-flight turn (settle paired, no stale synth)');
+}
+
+// ── L1-11: service.disposeSession — boolean-gated binding removal + fallback ─
+{
+  const { getProviderService } = require('../dist-electron/electron/libs/provider/service.js');
+  const { sdk } = makeHarness({});
+  setQoderSdkForTests(sdk);
+  const service = getProviderService();
+  const adapter = new QoderSdkAdapter();
+  service.registerAdapter(adapter);
+  await service.startSession({ provider: 'qoder', threadId: 'td4', cwd: '/tmp', prompt: 'hello' });
+  await waitFor(() => adapter.hasSession('td4'), 4000, 'service session up');
+
+  assert.equal(service.disposeSession('td4'), true, 'service dispose routes via the directory');
+  assert.equal(adapter.hasSession('td4'), false);
+  assert.equal(service.directory.getProvider('td4'), null, 'true dispose must drop the binding');
+
+  // Binding-gone fallback: register a session, strip the binding (the
+  // first-turn-failure shape), dispose must still find it via hasSession.
+  await service.startSession({ provider: 'qoder', threadId: 'td5', cwd: '/tmp', prompt: 'hello' });
+  await waitFor(() => adapter.hasSession('td5'), 4000, 'td5 up');
+  service.directory.remove('td5');
+  assert.equal(service.disposeSession('td5'), true, 'fallback scan must find the bindingless session');
+  assert.equal(adapter.hasSession('td5'), false);
+
+  assert.equal(service.disposeSession('never-existed'), false, 'unknown thread → false, no binding change');
+  ok('service.disposeSession: directory route, hasSession fallback, boolean-gated binding removal');
+}
+
 setQoderSdkForTests(null);
 console.log(`\nverify-qoder-sdk-adapter: ${passed + 8} checks passed`);

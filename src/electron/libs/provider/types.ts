@@ -176,6 +176,21 @@ export interface ProviderAdapter {
   listSessions(): ProviderSession[];
   hasSession(threadId: string): boolean;
 
+  /**
+   * Quiet, synchronous, idempotent teardown of this thread's local resources
+   * (event loops, child processes, SDK handles) WITHOUT the protocol side
+   * effects of stopSession — never emits status_change / stop_settled /
+   * synthesized turn results (per-requestId permission_dismissed IS allowed:
+   * it clears stranded approval cards and cannot be misread by stop gates),
+   * and never throws. Returns true iff resources were actually released —
+   * false means either "nothing to release" (unknown/already-clean thread)
+   * or "policy no-op" (codex/kimi sessions are not locally owned), and the
+   * caller must then leave the directory binding alone. Used when retiring
+   * an errored runner and defensively before a same-thread startSession
+   * overwrite ("never orphan" enforced at the owning layer).
+   */
+  disposeSession(threadId: string): boolean;
+
   // Permission responses
   respondToRequest(threadId: string, requestId: string, decision: PermissionResult): Promise<void>;
   runOneShot?(input: ProviderSessionStartInput): Promise<{ text: string; sessionId?: string; model?: string }>;
@@ -234,6 +249,9 @@ export interface ProviderService {
   stopSession(threadId: string): Promise<void>;
   stopAll(): Promise<void>;
   listSessions(): ProviderSession[];
+  /** Quiet teardown (see ProviderAdapter.disposeSession); removes the
+   * directory binding only when the adapter actually released resources. */
+  disposeSession(threadId: string): boolean;
 
   // Permission
   respondToRequest(threadId: string, requestId: string, decision: PermissionResult): Promise<void>;

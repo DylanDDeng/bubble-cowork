@@ -1084,6 +1084,14 @@ export class CodexAdapter implements ProviderAdapter {
 	    );
   }
 
+  disposeSession(_threadId: string): boolean {
+    // Policy no-op: codex sessions are threads on a shared app-server
+    // process, not per-thread local resources — an errored turn leaves
+    // nothing to release, and the directory binding must survive so late
+    // permission responses and stopSession keep working.
+    return false;
+  }
+
   async stopSession(threadId: string): Promise<void> {
     // Two-phase stop (P0-6): this only requests the interrupt. Adapter-side
     // state is released by the guarded `stop_settled` handler — deleting it

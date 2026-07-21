@@ -355,6 +355,9 @@ export class PiSdkAdapter implements ProviderAdapter {
       durationStartMs: Date.now(),
     };
     activeSession.unsubscribe = piSession.subscribe((event) => this.handlePiEvent(activeSession, event));
+    // Never orphan a previous session for the same thread — an undisposed
+    // predecessor would leak its SDK session and event subscription.
+    this.disposeSession(input.threadId);
     this.sessions.set(input.threadId, activeSession);
 
     this.emit({
@@ -428,6 +431,22 @@ export class PiSdkAdapter implements ProviderAdapter {
     session.session.dispose();
     this.sessions.delete(threadId);
     this.emit({ type: 'status_change', threadId, status: 'stopped' });
+  }
+
+  disposeSession(threadId: string): boolean {
+    const session = this.sessions.get(threadId);
+    if (!session) {
+      return false;
+    }
+    // Map entry first so dispose stays idempotent even if SDK teardown throws.
+    this.sessions.delete(threadId);
+    try {
+      session.unsubscribe?.();
+      session.session.dispose();
+    } catch (error) {
+      console.warn('[PiSdkAdapter] disposeSession cleanup failed:', error);
+    }
+    return true;
   }
 
   async stopAll(): Promise<void> {

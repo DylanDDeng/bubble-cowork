@@ -522,6 +522,9 @@ export class QoderSdkAdapter implements ProviderAdapter {
       turnSeq: 0,
       pendingPermissions: new Map(),
     };
+    // Never orphan a previous session for the same thread — an undisposed
+    // predecessor would leak its qodercli child process.
+    this.disposeSession(input.threadId);
     this.sessions.set(input.threadId, session);
 
     // The pump consumes the message stream for the Query's whole life; it
@@ -664,6 +667,35 @@ export class QoderSdkAdapter implements ProviderAdapter {
     }
     this.releaseSession(session);
     this.emit({ type: 'status_change', threadId, status: 'stopped' });
+  }
+
+  disposeSession(threadId: string): boolean {
+    const session = this.sessions.get(threadId);
+    if (!session) {
+      return false;
+    }
+    try {
+      session.closed = true;
+      // Neutralize the in-flight turn BEFORE closing: handleIteratorEnded
+      // would otherwise synthesize a stale 'stopped' result when the pump
+      // ends (reachable via the auth-expired error path, which terminates
+      // with no result). Pair the flag with settle() like emitTurnResult
+      // does, so a concurrent stopSession's waitForTurnSettle never strands.
+      const turn = session.turn;
+      if (turn && !turn.resultEmitted) {
+        turn.resultEmitted = true;
+        turn.settle();
+      }
+      // Emits per-requestId permission_dismissed — the one emission dispose
+      // allows (clears stranded cards; cannot be misread by stop gates).
+      this.dismissAllPermissions(session, 'Session was replaced.');
+      session.promptQueue.close();
+      void session.query.close().catch(() => {});
+      this.releaseSession(session);
+    } catch (error) {
+      console.warn('[QoderSdkAdapter] disposeSession cleanup failed:', error);
+    }
+    return true;
   }
 
   async stopAll(): Promise<void> {

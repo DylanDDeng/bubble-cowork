@@ -335,6 +335,9 @@ export class GrokAcpAdapter implements ProviderAdapter {
       reasoningEffort,
       terminals: new Map(),
     };
+    // Never orphan a previous session for the same thread — an undisposed
+    // predecessor would leak its grok child process.
+    this.disposeSession(input.threadId);
     this.sessions.set(input.threadId, active);
 
     proc.on('exit', () => {
@@ -404,6 +407,12 @@ export class GrokAcpAdapter implements ProviderAdapter {
       });
       this.emit({ type: 'status_change', threadId: input.threadId, status: 'completed' });
     } catch (error) {
+      // A disposeSession kills the process, which rejects this turn's RPC —
+      // that stale rejection must not emit an error result into whatever
+      // replacement session now owns the thread.
+      if (this.sessions.get(input.threadId) !== session) {
+        return;
+      }
       this.finalizeStreaming(session);
       session.status = 'error';
       this.emit({
@@ -437,6 +446,38 @@ export class GrokAcpAdapter implements ProviderAdapter {
     this.cleanupTerminals(session);
     session.proc.kill('SIGTERM');
     this.sessions.delete(threadId);
+  }
+
+  disposeSession(threadId: string): boolean {
+    const session = this.sessions.get(threadId);
+    if (!session) {
+      return false;
+    }
+    try {
+      // Dismiss stranded approval cards before killing the process: a card
+      // clicked after dispose would otherwise hit a dead binding and the
+      // pendingPermissions entry would leak forever.
+      for (const [requestId, pending] of this.pendingPermissions) {
+        if (pending.threadId !== threadId) {
+          continue;
+        }
+        this.pendingPermissions.delete(requestId);
+        this.emit({ type: 'permission_dismissed', threadId, requestId });
+        try {
+          pending.rpc.respond(pending.request.id, { outcome: { outcome: 'cancelled' } });
+        } catch {
+          // The process may already be gone.
+        }
+      }
+      this.cleanupTerminals(session);
+      // Map entry goes first: the exit handler is identity-guarded
+      // (current?.proc === proc), so the async exit then emits nothing.
+      this.sessions.delete(threadId);
+      session.proc.kill('SIGTERM');
+    } catch (error) {
+      console.warn('[GrokAcpAdapter] disposeSession cleanup failed:', error);
+    }
+    return true;
   }
 
   async stopAll(): Promise<void> {

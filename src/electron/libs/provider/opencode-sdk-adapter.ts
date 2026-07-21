@@ -505,6 +505,9 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       eventReady,
     };
     session.eventTask = this.consumeEvents(session, markEventReady);
+    // Never orphan a previous session for the same thread (an errored runner
+    // is retired with dispose, but any path that missed it lands here).
+    this.disposeSession(input.threadId);
     this.sessions.set(input.threadId, session);
     await eventReady;
 
@@ -556,6 +559,12 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     const response = shouldRunCommand
       ? await this.executeSlashCommand(session, slashCommand, input.model || session.model)
       : await this.executePrompt(session, input);
+    // The prompt REST call carries no abort signal, so a disposeSession
+    // during the await leaves this promise to resolve later — bail before
+    // emitting a stale result/status into a replacement session's thread.
+    if (this.sessions.get(input.threadId) !== session) {
+      return;
+    }
     if (!response) {
       return;
     }
@@ -614,7 +623,7 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       return;
     }
     session.status = 'stopped';
-    session.eventAbortController.abort();
+    this.releaseSessionResources(threadId, session);
     try {
       await session.client.session.abort({
         path: { id: session.providerSessionId },
@@ -623,8 +632,35 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     } catch {
       // The session may already be idle or the server may be shutting down.
     }
-    this.sessions.delete(threadId);
     this.emit({ type: 'status_change', threadId, status: 'stopped' });
+  }
+
+  disposeSession(threadId: string): boolean {
+    const session = this.sessions.get(threadId);
+    if (!session) {
+      return false;
+    }
+    try {
+      this.releaseSessionResources(threadId, session);
+    } catch (error) {
+      console.warn('[OpenCodeSdkAdapter] disposeSession cleanup failed:', error);
+    }
+    return true;
+  }
+
+  /**
+   * Resource-release subset shared by stopSession and disposeSession: kills
+   * the SSE loop (its consumer guards on the aborted signal, so no emit),
+   * dismisses stranded approval cards, and drops the map entry. No network
+   * abort, no status emission — dispose must stay silent for stop gates.
+   */
+  private releaseSessionResources(threadId: string, session: ActiveOpenCodeSession): void {
+    session.eventAbortController.abort();
+    for (const requestId of session.pendingRequests.keys()) {
+      this.emit({ type: 'permission_dismissed', threadId, requestId });
+    }
+    session.pendingRequests.clear();
+    this.sessions.delete(threadId);
   }
 
   async stopAll(): Promise<void> {

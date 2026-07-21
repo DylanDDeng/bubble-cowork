@@ -9809,10 +9809,12 @@ function startRunner(
           clearStopFallbackTimer(currentEntry);
         }
         turnDone?.('error', message);
-        // detach, not abort: the session already errored; a stopSession here
-        // would emit a spurious stop_settled, but leaving the listener leaks
-        // it against the replacement runner.
-        handle.detach?.();
+        // dispose, not abort: the session already errored, so a stopSession
+        // here would emit a spurious stop_settled — but plain detach leaks
+        // the adapter session's local resources (a live SSE loop double-fed
+        // every event into the respawned thread; qoder leaked a CLI process
+        // per errored turn). dispose = detach + quiet adapter teardown.
+        handle.dispose?.();
         runnerHandles.delete(session.id);
       }
     },

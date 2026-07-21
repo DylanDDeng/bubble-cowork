@@ -247,3 +247,228 @@ for (const file of [
 }
 
 console.log('opencode-sdk-adapter: wiring checks passed');
+
+// ═══════════ L1 runtime: dispose semantics (fake serve-manager seam) ═══════
+// Requires `npm run transpile:electron` to have produced dist-electron.
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { OpenCodeSdkAdapter } = require('../dist-electron/electron/libs/provider/opencode-sdk-adapter.js');
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Broadcast-bus fake for the serve manager: every event.subscribe() call gets
+ * its own queue fed by bus.push (mirrors the real server broadcasting SSE to
+ * all connections), honoring the passed AbortSignal — which is exactly the
+ * mechanism the double-emission bug rode on (an orphaned subscription with a
+ * never-aborted signal kept receiving broadcasts).
+ */
+function makeFakeOpenCodeEnv() {
+  const subscriptions = [];
+  let sessionCounter = 0;
+  let promptGate = null;
+  const bus = {
+    subscriptions,
+    push(event) {
+      for (const sub of subscriptions) {
+        sub.push(event);
+      }
+    },
+  };
+  const client = {
+    event: {
+      subscribe: async ({ signal }) => {
+        const queue = [];
+        let waiter = null;
+        let closed = false;
+        const deliver = (event) => {
+          if (closed || signal?.aborted) return;
+          if (waiter) {
+            const pending = waiter;
+            waiter = null;
+            pending({ value: event, done: false });
+          } else {
+            queue.push(event);
+          }
+        };
+        const close = () => {
+          closed = true;
+          if (waiter) {
+            const pending = waiter;
+            waiter = null;
+            pending({ value: undefined, done: true });
+          }
+        };
+        signal?.addEventListener('abort', close, { once: true });
+        subscriptions.push({ signal, push: deliver });
+        return {
+          stream: {
+            [Symbol.asyncIterator]() {
+              return {
+                next() {
+                  if (queue.length > 0) {
+                    return Promise.resolve({ value: queue.shift(), done: false });
+                  }
+                  if (closed || signal?.aborted) {
+                    return Promise.resolve({ value: undefined, done: true });
+                  }
+                  return new Promise((resolve) => {
+                    waiter = resolve;
+                  });
+                },
+              };
+            },
+          },
+        };
+      },
+    },
+    session: {
+      create: async () => ({ id: `sess-${(sessionCounter += 1)}` }),
+      get: async ({ path: p }) => ({ id: p.id }),
+      prompt: () =>
+        promptGate
+          ? promptGate.promise
+          : Promise.resolve({ info: {}, parts: [] }),
+      abort: async () => ({}),
+    },
+  };
+  const manager = {
+    getClient: async () => client,
+    close: async () => {},
+  };
+  const gatePrompt = () => {
+    let release;
+    const promise = new Promise((resolve) => {
+      release = resolve;
+    });
+    promptGate = { promise, release };
+    return promptGate;
+  };
+  return { manager, bus, client, gatePrompt };
+}
+
+function collectAdapterEvents(adapter) {
+  const events = [];
+  adapter.events.on('event', (event) => events.push(event));
+  return events;
+}
+const assistantDeltas = (events) =>
+  events.filter((e) => e.type === 'message' && e.message?.type === 'stream_event');
+
+// ── Double-emission regression: errored-turn retire → resume → single feed ──
+{
+  const env = makeFakeOpenCodeEnv();
+  const adapter = new OpenCodeSdkAdapter(env.manager);
+  const events = collectAdapterEvents(adapter);
+  await adapter.startSession({ provider: 'opencode', threadId: 't1', cwd: '/tmp' });
+  const providerSessionId = 'sess-1';
+
+  // Sanity: one subscription, one delta per broadcast.
+  env.bus.push({
+    type: 'message.updated',
+    properties: { info: { id: 'm1', sessionID: providerSessionId, role: 'assistant' } },
+  });
+  env.bus.push({
+    type: 'message.part.updated',
+    properties: {
+      part: { id: 'p1', sessionID: providerSessionId, messageID: 'm1', type: 'text', text: 'Hi' },
+      delta: 'Hi',
+    },
+  });
+  await sleep(40);
+  const baseline = assistantDeltas(events).length;
+  assert.ok(baseline >= 1, 'fake bus must drive at least one assistant delta');
+
+  // Errored-turn retirement path: dispose, then respawn resuming the SAME
+  // provider session id (exactly what handleSessionContinue does).
+  assert.equal(adapter.disposeSession('t1'), true, 'dispose of live session → true');
+  assert.equal(env.bus.subscriptions[0].signal.aborted, true, 'dispose must abort the SSE subscription');
+  await adapter.startSession({
+    provider: 'opencode',
+    threadId: 't1',
+    cwd: '/tmp',
+    resumeSessionId: providerSessionId,
+  });
+
+  env.bus.push({
+    type: 'message.updated',
+    properties: { info: { id: 'm2', sessionID: providerSessionId, role: 'assistant' } },
+  });
+  env.bus.push({
+    type: 'message.part.updated',
+    properties: {
+      part: { id: 'p2', sessionID: providerSessionId, messageID: 'm2', type: 'text', text: 'again' },
+      delta: 'again',
+    },
+  });
+  await sleep(40);
+  const after = assistantDeltas(events).length - baseline;
+  assert.equal(after, 1, `post-respawn broadcast must emit exactly once, got ${after} (zombie double-feed)`);
+  console.log('  ✓ dispose → resume: one subscription, one emission per broadcast (double-feed regression)');
+
+  // Defensive overwrite: startSession over a live same-thread session
+  // disposes the predecessor (never orphan).
+  const liveSubs = env.bus.subscriptions.filter((sub) => !sub.signal.aborted).length;
+  await adapter.startSession({ provider: 'opencode', threadId: 't1', cwd: '/tmp' });
+  const liveAfter = env.bus.subscriptions.filter((sub) => !sub.signal.aborted).length;
+  assert.equal(liveAfter, liveSubs, 'same-thread restart must not grow live subscriptions');
+  console.log('  ✓ startSession disposes a same-thread predecessor (never orphan)');
+}
+
+// ── Dispose is quiet + dismisses stranded permission cards ─────────────────
+{
+  const env = makeFakeOpenCodeEnv();
+  const adapter = new OpenCodeSdkAdapter(env.manager);
+  const events = collectAdapterEvents(adapter);
+  await adapter.startSession({ provider: 'opencode', threadId: 't2', cwd: '/tmp' });
+
+  env.bus.push({
+    type: 'permission.asked',
+    properties: { id: 'perm-1', sessionID: 'sess-1', permission: { id: 'perm-1' } },
+  });
+  await sleep(40);
+  assert.ok(
+    events.some((e) => e.type === 'permission_request'),
+    'permission.asked must surface a permission_request'
+  );
+
+  const before = events.length;
+  assert.equal(adapter.disposeSession('t2'), true);
+  const emitted = events.slice(before);
+  assert.ok(
+    emitted.some((e) => e.type === 'permission_dismissed' && e.requestId === 'perm-1'),
+    'dispose must dismiss the stranded permission card'
+  );
+  assert.equal(
+    emitted.filter((e) => e.type === 'status_change' || (e.type === 'message' && e.message?.type === 'result')).length,
+    0,
+    'dispose must emit no status_change and no result'
+  );
+  assert.equal(adapter.disposeSession('t2'), false, 'second dispose → false (idempotent)');
+  console.log('  ✓ dispose: permission_dismissed only, no status/result, idempotent');
+}
+
+// ── Stranded sendTurn: late prompt resolution after dispose emits nothing ──
+{
+  const env = makeFakeOpenCodeEnv();
+  const adapter = new OpenCodeSdkAdapter(env.manager);
+  const events = collectAdapterEvents(adapter);
+  await adapter.startSession({ provider: 'opencode', threadId: 't3', cwd: '/tmp' });
+
+  const gate = env.gatePrompt();
+  const turnPromise = adapter.sendTurn({ provider: 'opencode', threadId: 't3', prompt: 'hello' });
+  await sleep(20);
+  assert.equal(adapter.disposeSession('t3'), true);
+  const before = events.length;
+  gate.release({ info: { id: 'm9', sessionID: 'sess-1', role: 'assistant' }, parts: [] });
+  await turnPromise;
+  await sleep(20);
+  assert.equal(
+    events.length - before,
+    0,
+    'a prompt resolving after dispose must emit nothing (stale-result guard)'
+  );
+  console.log('  ✓ stranded sendTurn after dispose emits nothing (liveness recheck)');
+}
+
+console.log('opencode-sdk-adapter: dispose runtime checks passed');

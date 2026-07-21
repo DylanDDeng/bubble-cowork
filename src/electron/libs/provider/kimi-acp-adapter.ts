@@ -360,6 +360,12 @@ export class KimiAcpAdapter implements ProviderAdapter {
     }
   }
 
+  disposeSession(_threadId: string): boolean {
+    // Policy no-op — kimi lifecycle is owned by the facade (see
+    // KimiAdapterFacade.disposeSession).
+    return false;
+  }
+
   async stopSession(threadId: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;

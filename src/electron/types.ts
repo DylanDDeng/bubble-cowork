@@ -169,6 +169,13 @@ export interface RunnerHandle {
    */
   detach?: () => void;
   /**
+   * detach + quiet release of the provider session's local resources (event
+   * loops, child processes). For retiring an errored runner: never emits
+   * status_change/stop_settled/synthesized results, never throws. Absent on
+   * the Claude runner (its runtime owns process lifecycle).
+   */
+  dispose?: () => void;
+  /**
    * Softly interrupt the in-flight turn while keeping the underlying process
    * and its context alive, so the next send reuses the warm session instead
    * of paying a cold respawn. Only the Claude runner provides this (SDK

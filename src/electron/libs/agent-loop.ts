@@ -210,6 +210,20 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       abortController.abort();
       service.events.off('event', handleEvent);
     },
+    dispose: () => {
+      // detach + quiet adapter teardown, for retiring an ERRORED runner:
+      // releases the adapter session's local resources (SSE loops, child
+      // processes) that detach alone would orphan. Ordering matters —
+      // disposeSession runs FIRST so its permission_dismissed emissions
+      // still reach this runner's live forwarder and clear stranded cards;
+      // dispose is otherwise silent by contract, so nothing else can leak
+      // through. (The dismissal resolving a pending permission makes
+      // handlePermissionRequest's respondToRequest hit a removed binding on
+      // a microtask — caught below as benign console noise.)
+      service.disposeSession(threadId);
+      abortController.abort();
+      service.events.off('event', handleEvent);
+    },
     abort: () => {
       abortController.abort();
       const stopPromise = service.stopSession(threadId).catch((error) => {

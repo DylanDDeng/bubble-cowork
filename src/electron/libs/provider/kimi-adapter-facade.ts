@@ -296,6 +296,14 @@ export class KimiAdapterFacade implements ProviderAdapter {
     await runtime.sendTurn(input);
   }
 
+  disposeSession(_threadId: string): boolean {
+    // Policy no-op (both runtimes): kimi has its own zombie handling
+    // (kimiSessionReleased respawn guard keyed on hasSession) and the
+    // binding must survive an errored turn — do NOT delegate to the inner
+    // adapters here.
+    return false;
+  }
+
   async stopSession(threadId: string): Promise<void> {
     if (this.server.hasSession(threadId)) {
       await this.server.stopSession(threadId);
