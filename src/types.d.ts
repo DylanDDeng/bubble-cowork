@@ -248,6 +248,11 @@ declare global {
       number: number;
       forceReload?: boolean;
     }) => Promise<{ commits: import('./shared/types').PullRequestCommit[] }>;
+    setPullRequestDraft: (input: {
+      repo: string;
+      number: number;
+      draft: boolean;
+    }) => Promise<{ ok: boolean; message?: string }>;
     getUserProfile: () => Promise<import('./shared/types').UserProfile>;
     saveUserProfile: (
       update: import('./shared/types').UserProfileUpdate

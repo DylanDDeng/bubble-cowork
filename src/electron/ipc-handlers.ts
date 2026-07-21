@@ -69,6 +69,7 @@ import {
   getPullRequestDiff,
   listPullRequests,
   mergePullRequest,
+  setPullRequestDraft,
 } from './libs/pull-requests';
 import {
   getCodexModelConfig,
@@ -6019,6 +6020,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     'pull-requests-commits',
     async (_event, input: { repo: string; number: number; forceReload?: boolean }) => {
       return getPullRequestCommits(input.repo, input.number, input.forceReload === true);
+    }
+  );
+
+  ipcMainHandle(
+    'pull-requests-set-draft',
+    async (_event, input: { repo: string; number: number; draft: boolean }) => {
+      return setPullRequestDraft(input);
     }
   );
 

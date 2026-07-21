@@ -460,6 +460,25 @@ export async function addPullRequestComment(input: {
   }
 }
 
+export async function setPullRequestDraft(input: {
+  repo: string;
+  number: number;
+  draft: boolean;
+}): Promise<{ ok: boolean; message?: string }> {
+  try {
+    await runGh([
+      'pr', 'ready', String(input.number),
+      '--repo', input.repo,
+      ...(input.draft ? ['--undo'] : []),
+    ]);
+    detailCache.delete(prKey(input.repo, input.number));
+    listCache = null;
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export async function mergePullRequest(input: {
   repo: string;
   number: number;

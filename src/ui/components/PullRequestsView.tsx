@@ -14,15 +14,24 @@ import {
   ChevronDown,
   CircleDashed,
   CircleX,
+  CollapseDiagonal,
+  ExpandDiagonal,
   ExternalLink,
   GitBranch,
   GitPullRequest,
   Loader2,
   MessageCircle,
+  MoreHorizontal,
   RefreshCw,
   Search,
   X,
 } from './icons';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { FileDiff, Virtualizer } from '@pierre/diffs/react';
 import { SidebarHeaderTrigger } from './Sidebar';
 import { DiffStatLabel } from './DiffStatLabel';
@@ -251,6 +260,8 @@ export function PullRequestsView() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [merging, setMerging] = useState(false);
   const [confirmMerge, setConfirmMerge] = useState(false);
+  const [togglingDraft, setTogglingDraft] = useState(false);
+  const [detailFullscreen, setDetailFullscreen] = useState(false);
   const [checksExpanded, setChecksExpanded] = useState(true);
   const [commentDraft, setCommentDraft] = useState('');
   const [postingComment, setPostingComment] = useState(false);
@@ -448,6 +459,26 @@ export function PullRequestsView() {
     }
   };
 
+  const handleSetDraft = async (draft: boolean) => {
+    if (!detail || detail.isDraft === draft || togglingDraft) return;
+    setTogglingDraft(true);
+    try {
+      const outcome = await window.electron.setPullRequestDraft({
+        repo: detail.repo,
+        number: detail.number,
+        draft,
+      });
+      if (!outcome.ok) {
+        toast.error(outcome.message || 'Failed to update the draft state.');
+        return;
+      }
+      toast.success(draft ? 'Converted to draft.' : 'Marked ready for review.');
+      await Promise.all([loadDetail(true), load(true)]);
+    } finally {
+      setTogglingDraft(false);
+    }
+  };
+
   const handleMerge = async () => {
     if (!detail) return;
     if (!confirmMerge) {
@@ -477,14 +508,13 @@ export function PullRequestsView() {
 
   return (
     <div className="flex-1 min-w-0 flex bg-[var(--bg-primary)]">
-        <section className="flex flex-shrink-0 flex-col" style={{ width: listWidth }}>
-          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
-            <div className="flex h-full items-center px-3">
+        <section
+          className={`${detailFullscreen ? 'hidden' : 'flex'} flex-shrink-0 flex-col`}
+          style={{ width: listWidth }}
+>
+          <div className="h-12 drag-region flex-shrink-0">
+            <div className="flex h-full items-center gap-2 px-4">
               {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
-            </div>
-          </div>
-          <div className="space-y-3 px-4 pb-3 pt-1">
-            <div className="flex items-center justify-between">
               <div className="flex items-center gap-1" role="tablist" aria-label="Pull request filters">
                 {ROLE_TABS.map((entry) => (
                   <button
@@ -493,28 +523,30 @@ export function PullRequestsView() {
                     role="tab"
                     aria-selected={tab === entry.id}
                     onClick={() => setTab(entry.id)}
-                    className={`rounded-full px-3 py-1 text-[12.5px] transition-colors ${
+                    className={`no-drag rounded-full px-3 py-1 text-[12.5px] transition-colors ${
                       tab === entry.id
                         ? 'bg-[var(--bg-tertiary)] font-medium text-[var(--text-primary)]'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
                     {entry.label}
                   </button>
                 ))}
               </div>
+              <div className="flex-1" />
               <button
                 type="button"
                 onClick={() => void load(true)}
                 disabled={loading}
                 title="Refresh"
                 aria-label="Refresh pull requests"
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
               >
                 {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               </button>
             </div>
-
+          </div>
+          <div className="px-4 pb-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
               <input
@@ -596,13 +628,13 @@ export function PullRequestsView() {
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize pull request list"
-          className="group relative z-10 -mx-1 w-[9px] shrink-0 cursor-col-resize"
-        >
+          className={`group relative z-10 -mx-1 w-[9px] shrink-0 cursor-col-resize ${detailFullscreen ? 'hidden' : ''}`}
+>
           <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--border)] transition-colors group-hover:bg-[var(--text-muted)] group-active:bg-[var(--text-muted)]" />
         </div>
 
         <section className="flex min-w-0 flex-1 flex-col">
-          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
+          <div className="h-12 drag-region flex-shrink-0">
             {selected ? (
               <div className="flex h-full items-center gap-1 px-4" role="tablist" aria-label="Pull request detail views">
                 {DETAIL_TABS.map((entry) => (
@@ -615,12 +647,104 @@ export function PullRequestsView() {
                     className={`no-drag rounded-md px-2.5 py-1 text-[12px] transition-colors ${
                       detailTab === entry.id
                         ? 'bg-[var(--bg-tertiary)] font-medium text-[var(--text-primary)]'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
                     {entry.label}
                   </button>
                 ))}
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => void window.electron.openExternalUrl(selected.url)}
+                  title="Open on GitHub"
+                  aria-label="Open on GitHub"
+                  className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                >
+                  <ExternalLink className="h-4 w-4" stroke={1.5} />
+                </button>
+                {detail && detail.state === 'OPEN' ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        title="More actions"
+                        aria-label="More actions"
+                        className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[200px]">
+                      <DropdownMenuItem
+                        disabled={togglingDraft}
+                        onSelect={() => void handleSetDraft(true)}
+                      >
+                        <span className="min-w-0 flex-1">Draft</span>
+                        {detail.isDraft ? <Check className="ml-3 h-3.5 w-3.5" /> : null}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={togglingDraft}
+                        onSelect={() => void handleSetDraft(false)}
+                      >
+                        <span className="min-w-0 flex-1">Ready for review</span>
+                        {!detail.isDraft ? <Check className="ml-3 h-3.5 w-3.5" /> : null}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+                {detail && detail.state === 'OPEN' ? (
+                  confirmMerge ? (
+                    <span className="no-drag flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void handleMerge()}
+                        disabled={merging}
+                        className="inline-flex h-[26px] items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 text-[12px] font-medium text-[var(--accent-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                      >
+                        {merging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                        Confirm merge
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmMerge(false)}
+                        disabled={merging}
+                        className="inline-flex h-7 items-center rounded-md px-2 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleMerge()}
+                      disabled={detail.isDraft || detail.mergeable === 'CONFLICTING'}
+                      title={
+                        detail.isDraft
+                          ? 'Draft pull requests cannot be merged.'
+                          : detail.mergeable === 'CONFLICTING'
+                            ? 'This pull request has conflicts.'
+                            : 'Merge this pull request'
+                      }
+                      className="no-drag inline-flex h-[26px] items-center rounded-lg bg-[var(--text-primary)] px-2.5 text-[12px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Merge
+                    </button>
+                  )
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setDetailFullscreen((current) => !current)}
+                  title={detailFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                  aria-label={detailFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                  className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                >
+                  {detailFullscreen ? (
+                    <CollapseDiagonal className="h-4 w-4" stroke="1.5" />
+                  ) : (
+                    <ExpandDiagonal className="h-4 w-4" stroke="1.5" />
+                  )}
+                </button>
               </div>
             ) : null}
           </div>
@@ -706,61 +830,9 @@ export function PullRequestsView() {
             </div>
           ) : (
             <div className="mx-auto max-w-[860px] px-8 pb-12 pt-2">
-              <div className="flex items-start justify-between gap-4">
-                <h1 className="min-w-0 text-[24px] font-semibold leading-snug tracking-[-0.01em] text-[var(--text-primary)]">
-                  {selected.title}
-                </h1>
-                <div className="flex shrink-0 items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => void window.electron.openExternalUrl(selected.url)}
-                    title="Open on GitHub"
-                    aria-label="Open on GitHub"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </button>
-                  {detail && detail.state === 'OPEN' ? (
-                    confirmMerge ? (
-                      <span className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => void handleMerge()}
-                          disabled={merging}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--accent)] px-3 text-[12.5px] font-medium text-[var(--accent-foreground)] transition-opacity hover:opacity-90 disabled:opacity-50"
-                        >
-                          {merging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                          Confirm merge
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmMerge(false)}
-                          disabled={merging}
-                          className="inline-flex h-8 items-center rounded-md px-2 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-                        >
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void handleMerge()}
-                        disabled={detail.isDraft || detail.mergeable === 'CONFLICTING'}
-                        title={
-                          detail.isDraft
-                            ? 'Draft pull requests cannot be merged.'
-                            : detail.mergeable === 'CONFLICTING'
-                              ? 'This pull request has conflicts.'
-                              : 'Merge this pull request'
-                        }
-                        className="inline-flex h-8 items-center rounded-md bg-[var(--text-primary)] px-3.5 text-[12.5px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Merge
-                      </button>
-                    )
-                  ) : null}
-                </div>
-              </div>
+              <h1 className="min-w-0 text-[24px] font-semibold leading-snug tracking-[-0.01em] text-[var(--text-primary)]">
+                {selected.title}
+              </h1>
 
               <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-[var(--text-muted)]">
                 <CommentAvatar login={selected.author} sizeClassName="h-5 w-5" />
