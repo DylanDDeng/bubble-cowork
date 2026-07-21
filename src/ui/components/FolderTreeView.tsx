@@ -1,7 +1,6 @@
 import { useMemo, useState, type DragEvent } from 'react';
 import { Tooltip as TooltipPrimitive } from '@base-ui-components/react/tooltip';
 import {
-  ArrowsSplit,
   FolderClosed,
   FolderOpen,
   GitBranch,
@@ -453,7 +452,6 @@ export function FolderTreeView({
                                 : null
                           }
                           depth={depth}
-                          showWorktreeBadge={depth < 2}
                           onClick={() => onSessionClick(session.id)}
                           onTogglePin={() =>
                             sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })
@@ -477,7 +475,7 @@ export function FolderTreeView({
                                 className="group/worktree ml-4 flex h-6 min-w-0 items-center gap-1.5 rounded-md px-2 text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
                                 title={`${branch} · ${worktreePath}`}
                               >
-                                <ArrowsSplit className="h-3 w-3 flex-shrink-0" />
+                                <GitBranch className="h-3 w-3 flex-shrink-0" />
                                 <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
                                   {branch}
                                 </span>
@@ -544,7 +542,6 @@ function SessionItem({
   depth,
   onClick,
   onTogglePin,
-  showWorktreeBadge = true,
 }: {
   session: SessionView;
   isActive: boolean;
@@ -552,8 +549,6 @@ function SessionItem({
   depth: number;
   onClick: () => void;
   onTogglePin: () => void;
-  /** worktree 子分组的分支头已表达归属时，行内徽标可省 */
-  showWorktreeBadge?: boolean;
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
   const createDraftSession = useAppStore((s) => s.createDraftSession);
@@ -785,12 +780,12 @@ function SessionItem({
                   />
                 </span>
               ) : null}
-              {showWorktreeBadge && session.envMode === 'worktree' && session.worktreePath ? (
+              {session.envMode === 'worktree' && session.worktreePath ? (
                 <span
                   className="flex-shrink-0"
-                  title={`Runs in a worktree${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
+                  title={`Runs on an isolated branch${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
                 >
-                  <ArrowsSplit className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-label="Runs in a worktree" />
+                  <GitBranch className="h-3.5 w-3.5 text-[var(--accent)]" aria-label="Runs on an isolated branch" />
                 </span>
               ) : null}
               {runtimeBadge && (
@@ -844,10 +839,18 @@ function SessionItem({
               </div>
               {branch || branchLoading ? (
                 <div className="flex min-w-0 items-center gap-2">
-                  <GitBranch className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                  <GitBranch
+                    className={`h-3.5 w-3.5 flex-shrink-0 ${inWorktree ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}`}
+                  />
                   <span className={`min-w-0 flex-1 truncate font-mono text-[11px] ${branchLoading ? 'text-[var(--text-muted)]' : ''}`}>
                     {branchLoading ? 'Checking branch…' : branch}
                   </span>
+                </div>
+              ) : null}
+              {inWorktree ? (
+                <div className="pl-[22px] text-[11px] leading-4 text-[var(--text-muted)]">
+                  Runs on an isolated branch — changes stay here until you apply them back to the
+                  project.
                 </div>
               ) : null}
             </div>
