@@ -17,6 +17,8 @@ import {
   CollapseDiagonal,
   ExpandDiagonal,
   ExternalLink,
+  Folders,
+  LayoutList,
   GitBranch,
   GitPullRequest,
   Loader2,
@@ -35,9 +37,14 @@ import {
 import { FileDiff, Virtualizer } from '@pierre/diffs/react';
 import { SidebarHeaderTrigger } from './Sidebar';
 import { DiffStatLabel } from './DiffStatLabel';
+import { FileTypeIcon } from './FileTypeIcon';
 import { MDContent } from '../render/markdown';
 import { useAppStore } from '../store/useAppStore';
-import { parseWorkspacePatch, type AegisDiffFile } from '../utils/aegis-diff-rendering';
+import {
+  basenameOfDiffPath,
+  parseWorkspacePatch,
+  type AegisDiffFile,
+} from '../utils/aegis-diff-rendering';
 import type {
   PullRequestCheckItem,
   PullRequestCommit,
@@ -181,10 +188,12 @@ function PrDiffFileCard({
   file,
   expanded,
   onToggle,
+  options = PR_DIFF_OPTIONS,
 }: {
   file: AegisDiffFile;
   expanded: boolean;
   onToggle: () => void;
+  options?: Parameters<typeof FileDiff>[0]['options'];
 }) {
   return (
     <section data-aegis-diff-file={file.path} className="overflow-hidden rounded-lg">
@@ -212,7 +221,7 @@ function PrDiffFileCard({
           {file.diff ? (
             <FileDiff
               fileDiff={file.diff}
-              options={PR_DIFF_OPTIONS}
+              options={options}
               disableWorkerPool
               className="aegis-file-diff"
             />
@@ -224,6 +233,37 @@ function PrDiffFileCard({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Split-diff toggle glyph matching the codex app: an outlined square whose
+ * halves carry the deletion/addition tints. Outline follows currentColor so
+ * the active state still reads from the button's text color.
+ */
+function SplitDiffGlyph({ className }: { className?: string }) {
+  // Drawn on tabler's 24px grid with its stroke conventions so the line
+  // weight and antialiasing match the sibling toolbar icons exactly.
+  // Opaque fills only: translucent color composites against the hover
+  // background and reads as "darker on hover".
+  // Every paint is a fixed opaque hex and the svg opts out of transitions:
+  // no currentColor, no CSS variables — nothing the hover state can touch.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#9aa1ac"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      style={{ transition: 'none' }}
+      aria-hidden="true"
+    >
+      <rect x="5.5" y="6.5" width="5.5" height="11" rx="1" fill="#fca5a5" stroke="none" />
+      <rect x="13" y="6.5" width="5.5" height="11" rx="1" fill="#86efac" stroke="none" />
+      <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+    </svg>
   );
 }
 
@@ -262,6 +302,13 @@ export function PullRequestsView() {
   const [confirmMerge, setConfirmMerge] = useState(false);
   const [togglingDraft, setTogglingDraft] = useState(false);
   const [detailFullscreen, setDetailFullscreen] = useState(false);
+  const [diffRenderMode, setDiffRenderMode] = useState<'unified' | 'split'>('unified');
+  const [showFileTree, setShowFileTree] = useState(false);
+  const [treeFilter, setTreeFilter] = useState('');
+  const diffOptions = useMemo(
+    () => ({ ...PR_DIFF_OPTIONS, diffStyle: diffRenderMode }),
+    [diffRenderMode]
+  );
   const [checksExpanded, setChecksExpanded] = useState(true);
   const [commentDraft, setCommentDraft] = useState('');
   const [postingComment, setPostingComment] = useState(false);
@@ -367,6 +414,7 @@ export function PullRequestsView() {
     setCodeFiles(null);
     setCodeError(null);
     setCommits(null);
+    setTreeFilter('');
     codeRequestRef.current = null;
     commitsRequestRef.current = null;
     if (!selected) {
@@ -429,6 +477,23 @@ export function PullRequestsView() {
       }
     })();
   }, [detailTab, selected]);
+
+  const treeGroups = useMemo(() => {
+    if (!codeFiles) return [] as Array<[string, AegisDiffFile[]]>;
+    const needle = treeFilter.trim().toLowerCase();
+    const filtered = needle
+      ? codeFiles.filter((file) => file.path.toLowerCase().includes(needle))
+      : codeFiles;
+    const byDir = new Map<string, AegisDiffFile[]>();
+    for (const file of filtered) {
+      const base = basenameOfDiffPath(file.path);
+      const dir = file.path.slice(0, Math.max(0, file.path.length - base.length - 1));
+      const list = byDir.get(dir) ?? [];
+      list.push(file);
+      byDir.set(dir, list);
+    }
+    return [...byDir.entries()];
+  }, [codeFiles, treeFilter]);
 
   const toggleDiffFile = (key: string) => {
     setExpandedDiffKeys((current) => {
@@ -633,7 +698,7 @@ export function PullRequestsView() {
           <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--border)] transition-colors group-hover:bg-[var(--text-muted)] group-active:bg-[var(--text-muted)]" />
         </div>
 
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section className="relative flex min-w-0 flex-1 flex-col">
           <div className="h-12 drag-region flex-shrink-0">
             {selected ? (
               <div className="flex h-full items-center gap-1 px-4" role="tablist" aria-label="Pull request detail views">
@@ -748,14 +813,9 @@ export function PullRequestsView() {
               </div>
             ) : null}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-          {!selected ? (
-            <div className="flex h-full items-center justify-center text-[13px] text-[var(--text-muted)]">
-              Select a pull request to inspect it.
-            </div>
-          ) : detailTab === 'code' ? (
-            <div className="mx-auto max-w-[1120px] px-6 pb-12 pt-2">
-              <div className="mb-4 flex flex-wrap items-center gap-2 text-[12.5px] text-[var(--text-secondary)]">
+          {selected && detailTab === 'code' ? (
+            <div className="flex-shrink-0 px-6">
+              <div className="mx-auto flex max-w-[1120px] flex-wrap items-center gap-2 border-b border-[color-mix(in_srgb,var(--border)_70%,transparent)] pb-3 pt-1 text-[12.5px] text-[var(--text-secondary)]">
                 <GitBranch className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                 <span className="font-mono">{detail?.headRefName || selected.headRefName || '—'}</span>
                 <span className="text-[var(--text-muted)]">→</span>
@@ -766,7 +826,68 @@ export function PullRequestsView() {
                     <span className="text-red-600 dark:text-red-400">-{selected.deletions}</span>
                   </span>
                 ) : null}
+                <span className="flex-1" />
+                <span className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!codeFiles) return;
+                      setExpandedDiffKeys((current) =>
+                        current.size === codeFiles.length
+                          ? new Set()
+                          : new Set(codeFiles.map((file) => file.key))
+                      );
+                    }}
+                    title={
+                      codeFiles && expandedDiffKeys.size === codeFiles.length
+                        ? 'Collapse all files'
+                        : 'Expand all files'
+                    }
+                    aria-label={
+                      codeFiles && expandedDiffKeys.size === codeFiles.length
+                        ? 'Collapse all files'
+                        : 'Expand all files'
+                    }
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-[background-color] hover:bg-[var(--bg-tertiary)]"
+                  >
+                    <LayoutList className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDiffRenderMode((current) => (current === 'unified' ? 'split' : 'unified'))
+                    }
+                    title={diffRenderMode === 'unified' ? 'Split diff' : 'Unified diff'}
+                    aria-label={diffRenderMode === 'unified' ? 'Split diff' : 'Unified diff'}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-[background-color] hover:bg-[var(--bg-tertiary)] ${
+                      diffRenderMode === 'split' ? 'bg-[var(--bg-tertiary)]' : ''
+                    }`}
+                  >
+                    <SplitDiffGlyph className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowFileTree((current) => !current)}
+                    title={showFileTree ? 'Hide file tree' : 'Show file tree'}
+                    aria-label={showFileTree ? 'Hide file tree' : 'Show file tree'}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-[background-color] hover:bg-[var(--bg-tertiary)] ${
+                      showFileTree ? 'bg-[var(--bg-tertiary)]' : ''
+                    }`}
+                  >
+                    <Folders className="h-3.5 w-3.5" />
+                  </button>
+                </span>
               </div>
+            </div>
+          ) : null}
+          <div className="relative min-h-0 flex-1">
+          <div className="h-full overflow-y-auto">
+          {!selected ? (
+            <div className="flex h-full items-center justify-center text-[13px] text-[var(--text-muted)]">
+              Select a pull request to inspect it.
+            </div>
+          ) : detailTab === 'code' ? (
+            <div className="mx-auto max-w-[1120px] px-6 pb-12 pt-4">
               {codeLoading ? (
                 <div className="flex items-center gap-2 py-6 text-[13px] text-[var(--text-secondary)]">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -785,6 +906,7 @@ export function PullRequestsView() {
                         file={file}
                         expanded={expandedDiffKeys.has(file.key)}
                         onToggle={() => toggleDiffFile(file.key)}
+                        options={diffOptions}
                       />
                     ))}
                   </div>
@@ -1054,6 +1176,72 @@ export function PullRequestsView() {
               ) : null}
             </div>
           )}
+          </div>
+
+          {detailTab === 'code' && showFileTree && codeFiles && codeFiles.length > 0 ? (
+            <aside className="pr-file-tree-overlay absolute inset-y-0 right-0 z-20 flex w-[280px] flex-col border-l border-[var(--border)] bg-[var(--bg-primary)]">
+              <div className="px-3 pb-2 pt-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
+                  <input
+                    type="text"
+                    value={treeFilter}
+                    onChange={(event) => setTreeFilter(event.target.value)}
+                    placeholder="Filter files..."
+                    className="h-8 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] pl-8 pr-2 text-[12.5px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]"
+                  />
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+                {treeGroups.length === 0 ? (
+                  <p className="px-2 py-3 text-[12px] text-[var(--text-muted)]">No files match.</p>
+                ) : (
+                  treeGroups.map(([dir, files]) => (
+                    <div key={dir || '.'} className="mb-1">
+                      <div className="truncate px-2 py-1 text-[11.5px] text-[var(--text-muted)]" title={dir || '.'}>
+                        {dir || '.'}
+                      </div>
+                      {files.map((file) => (
+                        <button
+                          key={file.key}
+                          type="button"
+                          onClick={() => {
+                            setExpandedDiffKeys((current) => new Set(current).add(file.key));
+                            window.requestAnimationFrame(() => {
+                              document
+                                .querySelector(`[data-aegis-diff-file="${CSS.escape(file.path)}"]`)
+                                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            });
+                          }}
+                          title={file.path}
+                          className="flex w-full items-center gap-2 rounded-md py-1.5 pl-4 pr-2 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+                        >
+                          <FileTypeIcon
+                            name={basenameOfDiffPath(file.path)}
+                            className="h-4 w-4 shrink-0"
+                            fallbackClassName="h-4 w-4 text-[var(--text-muted)]"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--text-primary)]">
+                            {basenameOfDiffPath(file.path)}
+                          </span>
+                          <span
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                              file.status === 'A' || file.status === '?'
+                                ? 'bg-emerald-500'
+                                : file.status === 'D'
+                                  ? 'bg-red-500'
+                                  : 'bg-amber-500'
+                            }`}
+                            aria-hidden="true"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  ))
+                )}
+              </div>
+            </aside>
+          ) : null}
           </div>
         </section>
     </div>
