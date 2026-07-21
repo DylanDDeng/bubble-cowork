@@ -746,7 +746,9 @@ function SessionItem({
                 : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
             }`}
             style={{
-              marginLeft: `${depth * 16}px`,
+              // -14 lines the provider glyph (16px depth + 32px pin gutter)
+              // up with the project label's first letter at 34px.
+              marginLeft: `${depth * 16 - 14}px`,
               marginBottom: '1px',
             }}
             draggable
