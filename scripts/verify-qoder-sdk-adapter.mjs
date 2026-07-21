@@ -717,5 +717,82 @@ const messageEvents = (events) => events.filter((event) => event.type === 'messa
   ok('service.disposeSession: directory route, hasSession fallback, boolean-gated binding removal');
 }
 
+// ── L1-12: detached probes run the machine CLI; catalog warm-up single-flights ─
+{
+  const { writeFileSync, chmodSync, mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join: joinPath } = await import('node:path');
+  const fakeCliDir = mkdtempSync(joinPath(tmpdir(), 'qoder-cli-'));
+  const fakeCli = joinPath(fakeCliDir, 'qodercli');
+  writeFileSync(fakeCli, '#!/bin/sh\nexit 0\n');
+  chmodSync(fakeCli, 0o755);
+  const previousEnv = process.env.QODERCLI_PATH;
+  process.env.QODERCLI_PATH = fakeCli;
+  try {
+    const { harness, sdk } = makeHarness({});
+    setQoderSdkForTests(sdk);
+    const adapter = new QoderSdkAdapter();
+    const events = collectEvents(adapter);
+
+    // No live session → listSkills takes the detached probe, which must pin
+    // the machine CLI (the SDK's bundled binary is absent in packaged apps
+    // and the bare PATH fallback dies under the macOS GUI sparse PATH).
+    await adapter.listSkills({ provider: 'qoder', cwd: '/tmp', forceReload: true });
+    assert.equal(
+      harness.queries.at(-1).options.pathToQoderCLIExecutable,
+      fakeCli,
+      'detached skills probe must run the machine CLI'
+    );
+    ok('detached probe pins the machine qodercli (packaged-app PATH fix)');
+
+    // Fresh-install warm-up: populates the catalog through the same
+    // model_catalog_updated event as session starts, exactly once per launch.
+    const warmAdapter = new QoderSdkAdapter();
+    const warmEvents = collectEvents(warmAdapter);
+    const { harness: warmHarness, sdk: warmSdk } = makeHarness({});
+    setQoderSdkForTests(warmSdk);
+    await warmAdapter.warmCatalogDetached();
+    assert.ok(warmAdapter.getModelCatalog()?.models?.length >= 2, 'warm-up must populate the catalog');
+    assert.equal(
+      warmEvents.filter((event) => event.type === 'model_catalog_updated').length,
+      1,
+      'warm-up must broadcast model_catalog_updated once'
+    );
+    assert.equal(
+      warmHarness.queries.at(-1).options.pathToQoderCLIExecutable,
+      fakeCli,
+      'warm-up probe must run the machine CLI'
+    );
+    const spawnsAfterFirst = warmHarness.queries.length;
+    await warmAdapter.warmCatalogDetached();
+    assert.equal(warmHarness.queries.length, spawnsAfterFirst, 'second warm-up call must not spawn again');
+    ok('catalog warm-up: populates + broadcasts once, single attempt per launch');
+  } finally {
+    if (previousEnv === undefined) {
+      delete process.env.QODERCLI_PATH;
+    } else {
+      process.env.QODERCLI_PATH = previousEnv;
+    }
+  }
+
+  // The plan-usage probe shares the fix; its control method is absent on the
+  // fake, so pin it at source level alongside the IPC warm-up gate.
+  const adapterSource = read('src/electron/libs/provider/qoder-sdk-adapter.ts');
+  const usageProbe = adapterSource.slice(adapterSource.indexOf('private async fetchUsageInfoDetached'));
+  assert.match(
+    usageProbe.slice(0, 1200),
+    /findMachineQoderCli\(\)/,
+    'fetchUsageInfoDetached must resolve the machine CLI'
+  );
+  const ipcSource = read('src/electron/ipc-handlers.ts');
+  const modelConfigHandler = ipcSource.slice(ipcSource.indexOf("ipcMainHandle('get-qoder-model-config'"));
+  assert.match(
+    modelConfigHandler.slice(0, 1600),
+    /if \(!catalog && findMachineQoderCli\(\)\)[\s\S]{0,700}void adapter\?\.warmCatalogDetached\?\.\(\);/,
+    'model-config IPC must gate the background warm-up on a machine CLI and never block on it'
+  );
+  ok('usage probe + IPC warm-up gate source pins');
+}
+
 setQoderSdkForTests(null);
 console.log(`\nverify-qoder-sdk-adapter: ${passed + 8} checks passed`);

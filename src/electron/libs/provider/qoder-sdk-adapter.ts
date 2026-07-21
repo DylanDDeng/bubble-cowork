@@ -480,6 +480,9 @@ export class QoderSdkAdapter implements ProviderAdapter {
   private skillsCatalog: { skills: ProviderSkillDescriptor[]; fetchedAt: number } | null = null;
   /** Account plan-usage cache, served by the get-qoder-plan-usage IPC. */
   private planUsage: QoderPlanUsageReport | null = null;
+  /** One detached catalog warm-up attempt per launch (see warmCatalogDetached). */
+  private catalogWarmStarted = false;
+  private catalogWarmPromise: Promise<void> | null = null;
 
   // ── Session lifecycle ──────────────────────────────────────────────────
 
@@ -834,25 +837,55 @@ export class QoderSdkAdapter implements ProviderAdapter {
   private async refreshModelCatalog(session: ActiveQoderSession): Promise<void> {
     try {
       const init = await session.query.initializationResult();
-      // Session starts warm the skill cache for free — same payload.
-      this.skillsCatalog = { skills: parseQoderSkills(init), fetchedAt: Date.now() };
-      const catalog = buildModelCatalog(init, session.model);
-      const changed = JSON.stringify(catalog.models) !== JSON.stringify(this.modelCatalog?.models ?? null);
-      this.modelCatalog = catalog;
-      if (changed && catalog.models.length > 0) {
-        // The IPC layer persists this to disk and rebroadcasts to the UI
-        // (qoder.modelConfigUpdated → useQoderModelConfig refetch).
-        this.emit({
-          type: 'model_catalog_updated',
-          threadId: null,
-          provider: 'qoder',
-          models: catalog.models,
-          defaultModel: catalog.defaultModel,
-        });
-      }
+      this.ingestInitializationResult(init, session.model);
     } catch (error) {
       console.warn('[QoderSdkAdapter] initializationResult() failed:', error);
     }
+  }
+
+  /** Shared by session starts and the detached warm-up — same payload. */
+  private ingestInitializationResult(init: QoderInitializationResult, currentModel?: string): void {
+    // Every init warms the skill cache for free.
+    this.skillsCatalog = { skills: parseQoderSkills(init), fetchedAt: Date.now() };
+    const catalog = buildModelCatalog(init, currentModel);
+    const changed = JSON.stringify(catalog.models) !== JSON.stringify(this.modelCatalog?.models ?? null);
+    this.modelCatalog = catalog;
+    if (changed && catalog.models.length > 0) {
+      // The IPC layer persists this to disk and rebroadcasts to the UI
+      // (qoder.modelConfigUpdated → useQoderModelConfig refetch).
+      this.emit({
+        type: 'model_catalog_updated',
+        threadId: null,
+        provider: 'qoder',
+        models: catalog.models,
+        defaultModel: catalog.defaultModel,
+      });
+    }
+  }
+
+  /**
+   * Background catalog warm-up for launches that never ran a qoder session
+   * (a fresh install's picker would otherwise show only the default entry
+   * until the first conversation). One attempt per launch, single-flight,
+   * fire-and-forget from the model-config IPC — which gates on a machine
+   * CLI existing, so machines without qodercli never spawn anything. On
+   * success the catalog flows through the same model_catalog_updated event
+   * as session starts (disk cache + UI broadcast come from that wiring).
+   */
+  warmCatalogDetached(): Promise<void> {
+    if (this.catalogWarmStarted) {
+      return this.catalogWarmPromise ?? Promise.resolve();
+    }
+    this.catalogWarmStarted = true;
+    this.catalogWarmPromise = (async () => {
+      const init = await this.fetchInitializationResultDetached();
+      if (init) {
+        this.ingestInitializationResult(init);
+      }
+    })().catch((error) => {
+      console.warn('[QoderSdkAdapter] detached catalog warm-up failed:', error);
+    });
+    return this.catalogWarmPromise;
   }
 
   // ── Skill discovery ────────────────────────────────────────────────────
@@ -901,11 +934,18 @@ export class QoderSdkAdapter implements ProviderAdapter {
     try {
       const sdk = await loadQoderSdk();
       const promptQueue = new QoderPromptQueue();
+      // Same binary as real sessions (buildQueryOptions): without the
+      // explicit path the SDK prefers its bundled binary — absent in the
+      // packaged app, where the bare PATH fallback then fails under the
+      // macOS GUI sparse PATH. Omit when no machine CLI so dev keeps the
+      // SDK's own resolution.
+      const machineCli = findMachineQoderCli();
       const query = sdk.query({
         prompt: promptQueue,
         options: {
           cwd: cwd?.trim() || process.cwd(),
           auth: sdk.qodercliAuth(),
+          ...(machineCli ? { pathToQoderCLIExecutable: machineCli } : {}),
         },
       });
       try {
@@ -969,11 +1009,14 @@ export class QoderSdkAdapter implements ProviderAdapter {
     try {
       const sdk = await loadQoderSdk();
       const promptQueue = new QoderPromptQueue();
+      // Same binary as real sessions — see fetchInitializationResultDetached.
+      const machineCli = findMachineQoderCli();
       const query = sdk.query({
         prompt: promptQueue,
         options: {
           cwd: process.cwd(),
           auth: sdk.qodercliAuth(),
+          ...(machineCli ? { pathToQoderCLIExecutable: machineCli } : {}),
         },
       });
       try {

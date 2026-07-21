@@ -78,6 +78,7 @@ import {
 } from './libs/codex-settings';
 import { normalizeCodexReasoningEffort as normalizeCodexReasoningEffortShared } from '../shared/codex-reasoning';
 import { buildWarmSendOptions } from './libs/warm-send-options';
+import { findMachineQoderCli } from './libs/provider/qoder-sdk-loader';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getClaudePlanUsage } from './libs/claude-plan-usage';
 import { getGrokPlanUsage } from './libs/grok-plan-usage';
@@ -5896,10 +5897,24 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     // Live catalog lives in the adapter (populated from initializationResult()
     // at session start); fall back to the disk cache from the last refresh so
     // the picker has the full list before any session boots this launch.
+    ensureProviderService();
     const adapter = getProviderService().getAdapter('qoder') as
-      | { getModelCatalog?: () => import('../shared/types').QoderModelConfig | null }
+      | {
+          getModelCatalog?: () => import('../shared/types').QoderModelConfig | null;
+          warmCatalogDetached?: () => Promise<void>;
+        }
       | undefined;
-    return adapter?.getModelCatalog?.() ?? readQoderModelCatalogCache() ?? { defaultModel: null, options: [], models: [] };
+    const catalog = adapter?.getModelCatalog?.() ?? readQoderModelCatalogCache();
+    if (!catalog && findMachineQoderCli()) {
+      // Fresh install, no session yet: kick a single background probe (the
+      // adapter single-flights it, once per launch) instead of blocking this
+      // invoke for a ~7s CLI spawn. The probe lands through the same
+      // model_catalog_updated event as session starts, which persists the
+      // disk cache and broadcasts qoder.modelConfigUpdated to the picker.
+      // The machine-CLI gate keeps qoder-less machines spawn-free.
+      void adapter?.warmCatalogDetached?.();
+    }
+    return catalog ?? { defaultModel: null, options: [], models: [] };
   });
 
   ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {
