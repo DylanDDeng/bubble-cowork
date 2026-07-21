@@ -18,7 +18,6 @@ import {
   ExpandDiagonal,
   ExternalLink,
   Folders,
-  LayoutList,
   GitBranch,
   GitPullRequest,
   Loader2,
@@ -267,6 +266,33 @@ function SplitDiffGlyph({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Expand/collapse-all glyph matching the codex app: an up-down arrow on the
+ * left with two list lines on the right. Tabler's 24px grid and stroke
+ * conventions so it sits flush with the sibling icons.
+ */
+function ExpandAllGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M7 4v5" />
+      <path d="M4.5 6.5 7 9l2.5-2.5" />
+      <path d="M7 20v-5" />
+      <path d="M4.5 17.5 7 15l2.5 2.5" />
+      <path d="M13.5 9h7" />
+      <path d="M13.5 15h4.5" />
+    </svg>
+  );
+}
+
 function DraftDot({ pr }: { pr: PullRequestSummary }) {
   return (
     <span className="relative mt-0.5 shrink-0 text-[var(--text-muted)]">
@@ -305,9 +331,16 @@ export function PullRequestsView() {
   const [diffRenderMode, setDiffRenderMode] = useState<'unified' | 'split'>('unified');
   const [showFileTree, setShowFileTree] = useState(false);
   const [treeFilter, setTreeFilter] = useState('');
+  const [diffWordWrap, setDiffWordWrap] = useState(false);
+  const [diffWordDiffs, setDiffWordDiffs] = useState(true);
   const diffOptions = useMemo(
-    () => ({ ...PR_DIFF_OPTIONS, diffStyle: diffRenderMode }),
-    [diffRenderMode]
+    () => ({
+      ...PR_DIFF_OPTIONS,
+      diffStyle: diffRenderMode,
+      overflow: (diffWordWrap ? 'wrap' : 'scroll') as 'wrap' | 'scroll',
+      lineDiffType: (diffWordDiffs ? 'word' : 'none') as 'word' | 'none',
+    }),
+    [diffRenderMode, diffWordDiffs, diffWordWrap]
   );
   const [checksExpanded, setChecksExpanded] = useState(true);
   const [commentDraft, setCommentDraft] = useState('');
@@ -814,8 +847,8 @@ export function PullRequestsView() {
             ) : null}
           </div>
           {selected && detailTab === 'code' ? (
-            <div className="flex-shrink-0 px-6">
-              <div className="mx-auto flex max-w-[1120px] flex-wrap items-center gap-2 border-b border-[color-mix(in_srgb,var(--border)_70%,transparent)] pb-3 pt-1 text-[12.5px] text-[var(--text-secondary)]">
+            <div className="flex-shrink-0 border-b border-[color-mix(in_srgb,var(--border)_70%,transparent)] px-6">
+              <div className="mx-auto flex max-w-[1120px] flex-wrap items-center gap-2 pb-3 pt-1 text-[12.5px] text-[var(--text-secondary)]">
                 <GitBranch className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                 <span className="font-mono">{detail?.headRefName || selected.headRefName || '—'}</span>
                 <span className="text-[var(--text-muted)]">→</span>
@@ -828,6 +861,32 @@ export function PullRequestsView() {
                 ) : null}
                 <span className="flex-1" />
                 <span className="flex items-center gap-0.5">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        title="Diff options"
+                        aria-label="Diff options"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-[background-color] hover:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[200px]">
+                      <DropdownMenuItem onSelect={() => setDiffWordWrap((current) => !current)}>
+                        <span className="min-w-0 flex-1">
+                          {diffWordWrap ? 'Disable word wrap' : 'Enable word wrap'}
+                        </span>
+                        {diffWordWrap ? <Check className="ml-3 h-3.5 w-3.5" /> : null}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setDiffWordDiffs((current) => !current)}>
+                        <span className="min-w-0 flex-1">
+                          {diffWordDiffs ? 'Disable word diffs' : 'Enable word diffs'}
+                        </span>
+                        {diffWordDiffs ? <Check className="ml-3 h-3.5 w-3.5" /> : null}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <button
                     type="button"
                     onClick={() => {
@@ -850,7 +909,7 @@ export function PullRequestsView() {
                     }
                     className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-[background-color] hover:bg-[var(--bg-tertiary)]"
                   >
-                    <LayoutList className="h-3.5 w-3.5" />
+                    <ExpandAllGlyph className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
