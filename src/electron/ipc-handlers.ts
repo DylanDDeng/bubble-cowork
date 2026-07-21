@@ -76,6 +76,7 @@ import {
   saveCodexModelVisibility,
   setCodexRuntimeModelCatalog,
 } from './libs/codex-settings';
+import { normalizeCodexReasoningEffort as normalizeCodexReasoningEffortShared } from '../shared/codex-reasoning';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getClaudePlanUsage } from './libs/claude-plan-usage';
 import { getGrokPlanUsage } from './libs/grok-plan-usage';
@@ -449,19 +450,13 @@ function normalizeCodexExecutionMode(
   return value === 'plan' ? 'plan' : 'execute';
 }
 
-function normalizeCodexReasoningEffort(
+// Thin shim over the shared open-vocabulary normalizer: every call site in
+// this file expects `undefined` (not `null`) for "no effort" — the DB persist
+// path applies its own `|| null` — so the shim only adapts the empty case.
+const normalizeCodexReasoningEffort = (
   value?: string | null
-): import('../shared/types').CodexReasoningEffort | undefined {
-  switch ((value || '').trim().toLowerCase()) {
-    case 'low':
-    case 'medium':
-    case 'high':
-    case 'xhigh':
-      return value!.trim().toLowerCase() as import('../shared/types').CodexReasoningEffort;
-    default:
-      return undefined;
-  }
-}
+): import('../shared/types').CodexReasoningEffort | undefined =>
+  normalizeCodexReasoningEffortShared(value) ?? undefined;
 
 function normalizeCodexFastMode(value: unknown): boolean {
   return value === true || value === 1 || value === '1';

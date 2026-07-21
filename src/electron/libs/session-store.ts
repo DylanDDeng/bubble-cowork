@@ -6,6 +6,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import { normalizeCodexReasoningEffort } from '../../shared/codex-reasoning';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type { ArtifactRow, DerivedSummaryRow } from '../types';
 import type {
@@ -186,15 +187,6 @@ function normalizeCodexExecutionMode(
   return value === 'plan' ? 'plan' : 'execute';
 }
 
-function normalizeCodexReasoningEffort(
-  value?: string | null
-): CodexReasoningEffort | null {
-  // Open vocabulary — Codex defines the valid set per model (models_cache),
-  // so persist any non-empty slug instead of whitelisting and dropping it.
-  const normalized = (value || '').trim().toLowerCase();
-  return normalized || null;
-}
-
 function normalizeOpenCodePermissionMode(
   value?: string | null
 ): OpenCodePermissionMode {
@@ -228,7 +220,8 @@ function normalizeAutomationProvider(value?: string | null): AgentProvider {
     value === 'opencode' ||
     value === 'kimi' ||
     value === 'grok' ||
-    value === 'pi'
+    value === 'pi' ||
+    value === 'qoder'
     ? value
     : 'claude';
 }

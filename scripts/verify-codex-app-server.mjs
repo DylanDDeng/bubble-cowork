@@ -783,6 +783,36 @@ async function testSlashCommands() {
   }
 }
 
+// ── Reasoning effort: open vocabulary, one owner (src/shared/codex-reasoning) ──
+async function testEffortOpenVocabulary() {
+  console.log('effort open vocabulary');
+  const { normalizeCodexReasoningEffort } = require('../dist-electron/shared/codex-reasoning.js');
+  assert.equal(normalizeCodexReasoningEffort('max'), 'max');
+  assert.equal(normalizeCodexReasoningEffort(' Ultra '), 'ultra');
+  assert.equal(normalizeCodexReasoningEffort('xhigh'), 'xhigh');
+  assert.strictEqual(normalizeCodexReasoningEffort(''), null);
+  assert.strictEqual(normalizeCodexReasoningEffort(undefined), null);
+  ok('shared normalizer passes any non-empty slug, null on empty');
+
+  // Manager-level passthrough: an effort outside the old whitelist must reach
+  // turn/start both as the top-level param and inside collaborationMode.
+  const { manager, outbound, responders } = createCapturingManager();
+  seedSession(manager, 't1', 'p1');
+  responders.set('turn/start', () => ({ result: { turn: { id: `turn-${outbound.length}` } } }));
+  await manager.sendTurn('t1', 'x', undefined, undefined, undefined, { codexReasoningEffort: 'ultra' });
+  manager.sessions.get('t1').status = 'ready';
+  manager.sessions.get('t1').activeTurnId = undefined;
+  // Junk slug: open vocabulary forwards it verbatim (model-side validation),
+  // and the turn must still dispatch rather than wedge.
+  await manager.sendTurn('t1', 'x', undefined, undefined, undefined, { codexReasoningEffort: 'totally-new-tier' });
+  const turnStarts = outbound.filter((m) => m.method === 'turn/start');
+  assert.equal(turnStarts.length, 2);
+  assert.equal(turnStarts[0].params.effort, 'ultra');
+  assert.equal(turnStarts[0].params.collaborationMode?.settings?.reasoning_effort, 'ultra');
+  assert.equal(turnStarts[1].params.effort, 'totally-new-tier');
+  ok("'ultra' and junk slugs pass through sendTurn to turn/start (no whitelist)");
+}
+
 // ── Source-level pins for electron-bound modules ──────────────────────────
 function testSourcePins() {
   console.log('source pins (electron-bound modules)');
@@ -799,6 +829,46 @@ function testSourcePins() {
   assert.match(ipcSource, /codexStopping && message\.type === 'result'/, 'stopping result must be classified');
   assert.match(ipcSource, /await stoppingEntry\.settlePromise/, 'continue must hold on the stop settle');
   ok('ipc stop-window classification wired (source pin)');
+
+  // Effort normalization has ONE owner (src/shared/codex-reasoning). A local
+  // `function normalizeCodexReasoningEffort` anywhere below would be a
+  // whitelist regrowing — the 2026-07 bug was exactly a stale ipc copy.
+  const uiSource = readFileSync(join(__dirname, '../src/ui/utils/codex-reasoning.ts'), 'utf8');
+  const codexSettings = readFileSync(join(__dirname, '../src/electron/libs/codex-settings.ts'), 'utf8');
+  for (const [name, source] of [
+    ['ipc-handlers', ipcSource],
+    ['session-store', sessionStore],
+    ['codex-settings', codexSettings],
+    ['ui codex-reasoning', uiSource],
+  ]) {
+    assert.ok(
+      !source.includes('function normalizeCodexReasoningEffort'),
+      `${name} must not define a local effort normalizer`
+    );
+    assert.match(
+      source,
+      /import \{ normalizeCodexReasoningEffort(?: as \w+)? \} from '[./]*shared\/codex-reasoning'/,
+      `${name} must import the shared effort normalizer`
+    );
+  }
+  assert.match(
+    ipcSource,
+    /normalizeCodexReasoningEffortShared\(value\) \?\? undefined/,
+    'ipc shim must adapt null→undefined only (no filtering)'
+  );
+  assert.match(
+    ipcSource,
+    /updateSessionCodexReasoningEffort\(sessionId, nextCodexReasoningEffort \|\| null\)/,
+    'DB persist must keep the || null adapter'
+  );
+  ok('effort normalizer single-owner pins (4 importers, shim, persist)');
+
+  assert.match(
+    sessionStore,
+    /value === 'qoder'[\s\S]{0,80}\? value\s*: 'claude'/,
+    "normalizeAutomationProvider must accept 'qoder' (latent hardening)"
+  );
+  ok("normalizeAutomationProvider accepts 'qoder'");
 }
 
 async function main() {
@@ -811,6 +881,7 @@ async function main() {
   await testApprovalRouting();
   await testProcessLifecycle();
   await testSlashCommands();
+  await testEffortOpenVocabulary();
   testSourcePins();
   console.log(`\nverify:codex-app-server OK (${passed} checks)`);
   process.exit(0);

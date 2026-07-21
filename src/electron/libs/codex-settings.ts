@@ -13,6 +13,7 @@ import {
   seedPriorityForCodexModel,
   unionCodexModelNames,
 } from '../../shared/codex-model-catalog';
+import { normalizeCodexReasoningEffort } from '../../shared/codex-reasoning';
 
 const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 const CODEX_MODELS_CACHE_PATH = join(homedir(), '.codex', 'models_cache.json');
@@ -227,16 +228,6 @@ function getDetectedCodexModels(
   );
 
   return sortCodexModelsByPriority(merged, priorityByName);
-}
-
-function normalizeCodexReasoningEffort(
-  value?: string | null
-): CodexReasoningEffort | null {
-  // Open vocabulary: the valid set is model-specific and comes from
-  // models_cache `supported_reasoning_levels`, so pass any non-empty slug
-  // through (a whitelist here silently dropped config "ultra"/"max").
-  const normalized = (value || '').trim().toLowerCase();
-  return normalized || null;
 }
 
 function normalizeSupportedReasoningLevels(

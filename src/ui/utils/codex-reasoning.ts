@@ -1,17 +1,8 @@
 import { rendererStateStorage } from './renderer-state-storage';
+import { normalizeCodexReasoningEffort } from '../../shared/codex-reasoning';
 import type { CodexModelConfig, CodexReasoningEffort, CodexReasoningLevelOption } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredCodexReasoningEfforts';
-
-function normalizeCodexReasoningEffort(
-  raw: string | null | undefined
-): CodexReasoningEffort | null {
-  // Open vocabulary: the valid set is model-specific (models_cache
-  // supported_reasoning_levels), so accept any non-empty slug instead of
-  // whitelisting — otherwise new levels like "max"/"ultra" get dropped.
-  const normalized = (raw || '').trim().toLowerCase();
-  return normalized || null;
-}
 
 /**
  * Human label for an effort slug without a hardcoded per-level map, so new
