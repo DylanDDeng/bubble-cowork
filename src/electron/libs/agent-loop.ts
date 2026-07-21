@@ -231,18 +231,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       model?: string,
       codexSkills?: import('../../shared/types').ProviderInputReference[],
       codexMentions?: import('../../shared/types').ProviderInputReference[],
-      sendOptions?: {
-        codexExecutionMode?: import('../../shared/types').CodexExecutionMode;
-        codexPermissionMode?: import('../../shared/types').CodexPermissionMode;
-        codexReasoningEffort?: import('../../shared/types').CodexReasoningEffort;
-        codexFastMode?: boolean;
-        kimiPermissionMode?: import('../../shared/types').KimiPermissionMode;
-        kimiThinking?: import('../../shared/types').KimiThinking;
-        grokPermissionMode?: import('../../shared/types').GrokPermissionMode;
-        grokReasoningEffort?: import('../../shared/types').GrokReasoningEffort;
-        opencodePermissionMode?: import('../../shared/types').OpenCodePermissionMode;
-        qoderPermissionMode?: import('../../shared/types').QoderPermissionMode;
-      }
+      sendOptions?: import('./warm-send-options').WarmSendOptions
     ) => {
       if (abortController.signal.aborted) return;
 

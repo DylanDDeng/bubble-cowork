@@ -77,6 +77,7 @@ import {
   setCodexRuntimeModelCatalog,
 } from './libs/codex-settings';
 import { normalizeCodexReasoningEffort as normalizeCodexReasoningEffortShared } from '../shared/codex-reasoning';
+import { buildWarmSendOptions } from './libs/warm-send-options';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getClaudePlanUsage } from './libs/claude-plan-usage';
 import { getGrokPlanUsage } from './libs/grok-plan-usage';
@@ -8979,24 +8980,21 @@ async function handleSessionContinue(
         }
         existingEntry.prewarmed = false;
       }
-      const sendOptions =
-        nextProvider === 'codex'
-	          ? {
-	              codexExecutionMode: nextCodexExecutionMode,
-	              codexPermissionMode: nextCodexPermissionMode,
-	              codexReasoningEffort: nextCodexReasoningEffort || undefined,
-	              codexFastMode: nextCodexFastMode,
-	            }
-	          : nextProvider === 'kimi'
-	          ? {
-	              kimiPermissionMode: nextKimiPermissionMode,
-	              kimiThinking: nextKimiThinking,
-	            }
-	          : nextProvider === 'qoder'
-	            ? {
-	                qoderPermissionMode: nextQoderPermissionMode,
-	              }
-          : undefined;
+      // Unconditional full envelope — per-provider assembly here is how
+      // grok's permission-mode switch got silently dropped. Non-active
+      // providers' fields are undefined by construction of the next* locals.
+      const sendOptions = buildWarmSendOptions({
+        codexExecutionMode: nextCodexExecutionMode,
+        codexPermissionMode: nextCodexPermissionMode,
+        codexReasoningEffort: nextCodexReasoningEffort,
+        codexFastMode: nextCodexFastMode,
+        kimiPermissionMode: nextKimiPermissionMode,
+        kimiThinking: nextKimiThinking,
+        grokPermissionMode: nextGrokPermissionMode,
+        grokReasoningEffort: nextGrokReasoningEffort,
+        opencodePermissionMode: nextOpenCodePermissionMode,
+        qoderPermissionMode: nextQoderPermissionMode,
+      });
       existingEntry.handle.send(
         runnerPrompt,
         outgoingAttachments,
@@ -9014,6 +9012,10 @@ async function handleSessionContinue(
 	      if (nextProvider === 'kimi') {
 	        existingEntry.kimiPermissionMode = nextKimiPermissionMode;
 	        existingEntry.kimiThinking = nextKimiThinking;
+	      }
+	      if (nextProvider === 'grok') {
+	        existingEntry.grokPermissionMode = nextGrokPermissionMode;
+	        existingEntry.grokReasoningEffort = nextGrokReasoningEffort;
 	      }
       return true;
     }

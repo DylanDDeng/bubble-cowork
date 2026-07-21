@@ -206,17 +206,9 @@ export interface RunnerHandle {
     model?: string,
     codexSkills?: import('../shared/types').ProviderInputReference[],
     codexMentions?: import('../shared/types').ProviderInputReference[],
-    options?: {
-      codexExecutionMode?: import('../shared/types').CodexExecutionMode;
-      codexPermissionMode?: import('../shared/types').CodexPermissionMode;
-      codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
-      codexFastMode?: boolean;
-      kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
-      kimiThinking?: import('../shared/types').KimiThinking;
-      grokPermissionMode?: import('../shared/types').GrokPermissionMode;
-      grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
-      opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
-    }
+    // The full per-turn option envelope (one named type across the dispatch
+    // site, this handle, and agent-loop's merge — see warm-send-options.ts).
+    options?: import('./libs/warm-send-options').WarmSendOptions
   ) => void;
 }
 
