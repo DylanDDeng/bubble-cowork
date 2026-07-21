@@ -30,6 +30,7 @@ import type {
   ClaudeReasoningEffort,
   ClaudeCompatibleProviderId,
   CodexRateLimitReport,
+  QoderPlanUsageReport,
   ProviderComposerCapabilities,
   ProviderInputReference,
   ProviderListPluginsInput,
@@ -188,6 +189,7 @@ export interface ProviderAdapter {
   // Optional provider discovery APIs
   getComposerCapabilities?(): ProviderComposerCapabilities;
   getRateLimits?(): Promise<CodexRateLimitReport>;
+  getPlanUsage?(): Promise<QoderPlanUsageReport>;
   listSkills?(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
   listPlugins?(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
   readPlugin?(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;
@@ -239,6 +241,7 @@ export interface ProviderService {
   // Discovery
   getComposerCapabilities(provider: ProviderKind): ProviderComposerCapabilities;
   getRateLimits(provider: ProviderKind): Promise<CodexRateLimitReport | null>;
+  getPlanUsage(provider: ProviderKind): Promise<QoderPlanUsageReport | null>;
   listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
   listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
   readPlugin(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;

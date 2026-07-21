@@ -80,6 +80,7 @@ export type {
   ClaudePlanUsageWindow,
   ClaudePlanModelWindow,
   GrokPlanUsageReport,
+  QoderPlanUsageReport,
   SessionUserPromptSummary,
   ChatSessionSearchResult,
   SessionHistoryPayload,

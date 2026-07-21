@@ -240,6 +240,36 @@ export type QoderQueryOptions = {
   [key: string]: unknown;
 };
 
+/** Quota bucket inside getUsageInfo() (verified 1.0.15). */
+export type QoderUsageQuotaBucket = {
+  total?: number;
+  used?: number;
+  remaining?: number;
+  percentage?: number;
+  unit?: string;
+  detailUrl?: string;
+  /** orgResourcePackage variant caps with `cap` instead of `total`. */
+  cap?: number;
+  available?: boolean;
+  [key: string]: unknown;
+};
+
+/** Account quota payload from getUsageInfo() (verified 1.0.15). */
+export type QoderUsageInfo = {
+  userId?: string;
+  userType?: string;
+  totalUsagePercentage?: number;
+  isHighestTier?: boolean;
+  expiresAt?: number;
+  upgradeUrl?: string;
+  userQuota?: QoderUsageQuotaBucket;
+  addOnQuota?: QoderUsageQuotaBucket;
+  orgResourcePackage?: QoderUsageQuotaBucket;
+  isQuotaExceeded?: boolean;
+  isPlanQuotaProrated?: boolean;
+  [key: string]: unknown;
+};
+
 export type QoderInitializationResult = {
   models?: QoderModelInfo[];
   commands?: Array<{ name: string; description?: string }>;
@@ -255,6 +285,8 @@ export type QoderQuery = AsyncIterable<QoderSDKMessage> & {
   setModel(model?: string): Promise<void>;
   setPermissionMode(mode: QoderSdkPermissionMode): Promise<void>;
   initializationResult(): Promise<QoderInitializationResult>;
+  /** Account quota/usage; null when unauthenticated. Optional so L1 fakes can omit it. */
+  getUsageInfo?(): Promise<QoderUsageInfo | null>;
   generateSessionTitle(
     description: string,
     options?: { persist?: boolean }

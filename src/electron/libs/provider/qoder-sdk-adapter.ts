@@ -12,6 +12,8 @@ import type {
   QoderModelConfig,
   QoderModelOption,
   QoderPermissionMode,
+  QoderPlanQuotaBucket,
+  QoderPlanUsageReport,
   StreamMessage,
   Usage,
 } from '../../../shared/types';
@@ -46,6 +48,8 @@ import {
   type QoderStreamEventMessage,
   type QoderSystemInitMessage,
   type QoderSystemMessage,
+  type QoderUsageInfo,
+  type QoderUsageQuotaBucket,
   type QoderUserMessage,
 } from './qoder-sdk-loader';
 
@@ -82,6 +86,10 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
 /** P9b: ~140ms typical in streamInput mode; 2s is the safety bound. */
 const STOP_SETTLE_TIMEOUT_MS = 2_000;
 const INIT_TIMEOUT_MS = 30_000;
+
+/** Plan-usage cache TTL — same cadence as the Claude/Grok plan probes. */
+const PLAN_USAGE_TTL_MS = 45_000;
+const PLAN_USAGE_TIMEOUT_MS = 20_000;
 
 /**
  * Skill catalog cache TTL. Listing without a live session spawns a
@@ -413,6 +421,51 @@ function buildModelCatalog(
   return { defaultModel, options: models.map((model) => model.value), models };
 }
 
+function parsePlanQuotaBucket(bucket: QoderUsageQuotaBucket | undefined): QoderPlanQuotaBucket | null {
+  if (!bucket || typeof bucket !== 'object') {
+    return null;
+  }
+  const total = asFiniteNumber(bucket.total) ?? asFiniteNumber(bucket.cap);
+  const used = asFiniteNumber(bucket.used);
+  const remaining = asFiniteNumber(bucket.remaining);
+  let percentage = clampPercent(asFiniteNumber(bucket.percentage));
+  if (percentage === null && total !== null && total > 0 && used !== null) {
+    percentage = clampPercent((used / total) * 100);
+  }
+  if (total === null && used === null && remaining === null && percentage === null) {
+    return null;
+  }
+  const unit = typeof bucket.unit === 'string' && bucket.unit.trim() ? bucket.unit.trim() : null;
+  return { total, used, remaining, percentage, unit };
+}
+
+function buildPlanUsageReport(info: QoderUsageInfo): QoderPlanUsageReport {
+  const expires = asFiniteNumber(info.expiresAt);
+  return {
+    source: 'qoder-sdk',
+    fetchedAt: Date.now(),
+    userType: typeof info.userType === 'string' && info.userType.trim() ? info.userType.trim() : null,
+    totalUsagePercentage: clampPercent(asFiniteNumber(info.totalUsagePercentage)),
+    isHighestTier: Boolean(info.isHighestTier),
+    isQuotaExceeded: Boolean(info.isQuotaExceeded),
+    // Second-resolution epochs are normalized to ms (1e12 ms ≈ 2001-09).
+    expiresAt: expires === null || expires <= 0 ? null : expires < 1e12 ? expires * 1000 : expires,
+    upgradeUrl:
+      typeof info.upgradeUrl === 'string' && info.upgradeUrl.trim() ? info.upgradeUrl.trim() : null,
+    userQuota: parsePlanQuotaBucket(info.userQuota),
+    addOnQuota: parsePlanQuotaBucket(info.addOnQuota),
+    orgResourcePackage: parsePlanQuotaBucket(info.orgResourcePackage),
+  };
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function clampPercent(value: number | null): number | null {
+  return value === null ? null : Math.max(0, Math.min(100, value));
+}
+
 export class QoderSdkAdapter implements ProviderAdapter {
   readonly provider: ProviderKind = 'qoder';
   readonly displayName = 'Qoder';
@@ -425,6 +478,8 @@ export class QoderSdkAdapter implements ProviderAdapter {
   private modelCatalog: QoderModelConfig | null = null;
   /** Process-wide: qoder skills are global (no cwd axis in the catalog). */
   private skillsCatalog: { skills: ProviderSkillDescriptor[]; fetchedAt: number } | null = null;
+  /** Account plan-usage cache, served by the get-qoder-plan-usage IPC. */
+  private planUsage: QoderPlanUsageReport | null = null;
 
   // ── Session lifecycle ──────────────────────────────────────────────────
 
@@ -838,6 +893,77 @@ export class QoderSdkAdapter implements ProviderAdapter {
       }
     } catch (error) {
       console.warn('[QoderSdkAdapter] detached initializationResult() failed:', error);
+      return null;
+    }
+  }
+
+  // ── Plan usage (account quota) ─────────────────────────────────────────
+
+  /**
+   * Account quota behind qodercli's /usage. Prefers a live session's control
+   * channel (no CLI spawn), else a message-free throwaway Query. Cached
+   * briefly so the polling Usage page does not respawn the CLI on every tick.
+   */
+  async getPlanUsage(): Promise<QoderPlanUsageReport> {
+    const cached = this.planUsage;
+    if (cached && Date.now() - cached.fetchedAt < PLAN_USAGE_TTL_MS) {
+      return cached;
+    }
+
+    let info: QoderUsageInfo | null = null;
+    const live = [...this.sessions.values()].find((session) => !session.closed);
+    if (live?.query.getUsageInfo) {
+      try {
+        info = await live.query.getUsageInfo();
+      } catch (error) {
+        console.warn('[QoderSdkAdapter] live getUsageInfo() failed:', error);
+      }
+    }
+    if (!info) {
+      info = await this.fetchUsageInfoDetached();
+    }
+    if (!info) {
+      if (cached) {
+        return cached;
+      }
+      throw new Error('Qoder usage info is unavailable. Make sure qodercli is signed in.');
+    }
+    const report = buildPlanUsageReport(info);
+    this.planUsage = report;
+    return report;
+  }
+
+  private async fetchUsageInfoDetached(): Promise<QoderUsageInfo | null> {
+    try {
+      const sdk = await loadQoderSdk();
+      const promptQueue = new QoderPromptQueue();
+      const query = sdk.query({
+        prompt: promptQueue,
+        options: {
+          cwd: process.cwd(),
+          auth: sdk.qodercliAuth(),
+        },
+      });
+      try {
+        if (!query.getUsageInfo) {
+          return null;
+        }
+        return await Promise.race([
+          query.getUsageInfo(),
+          new Promise<never>((_resolve, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error('Qoder usage probe timed out.')),
+              PLAN_USAGE_TIMEOUT_MS
+            );
+            timer.unref?.();
+          }),
+        ]);
+      } finally {
+        promptQueue.close();
+        void query.close().catch(() => {});
+      }
+    } catch (error) {
+      console.warn('[QoderSdkAdapter] detached getUsageInfo() failed:', error);
       return null;
     }
   }

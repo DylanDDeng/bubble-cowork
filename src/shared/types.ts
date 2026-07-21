@@ -1657,6 +1657,34 @@ export interface GrokPlanUsageReport {
   prepaidBalance: number | null;
 }
 
+/** One Qoder account quota bucket (plan, add-on pack, or org resource package). */
+export interface QoderPlanQuotaBucket {
+  total: number | null;
+  used: number | null;
+  remaining: number | null;
+  /** Percentage of the bucket used, 0-100. */
+  percentage: number | null;
+  /** Unit label as reported by qodercli, or null. */
+  unit: string | null;
+}
+
+export interface QoderPlanUsageReport {
+  source: 'qoder-sdk';
+  fetchedAt: number;
+  /** Account tier as reported by qodercli (e.g. 'free' | 'pro'), or null. */
+  userType: string | null;
+  /** Percentage of the plan quota used overall, 0-100. */
+  totalUsagePercentage: number | null;
+  isHighestTier: boolean;
+  isQuotaExceeded: boolean;
+  /** Epoch ms when the current quota period ends, or null. */
+  expiresAt: number | null;
+  upgradeUrl: string | null;
+  userQuota: QoderPlanQuotaBucket | null;
+  addOnQuota: QoderPlanQuotaBucket | null;
+  orgResourcePackage: QoderPlanQuotaBucket | null;
+}
+
 /** Lightweight index entry for the chat outline rail: one per user prompt. */
 export interface SessionUserPromptSummary {
   /** Epoch ms; matches the message's createdAt for history navigation. */

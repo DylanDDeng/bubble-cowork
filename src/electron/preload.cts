@@ -465,6 +465,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-grok-plan-usage');
   },
 
+  getQoderPlanUsage: () => {
+    return ipcRenderer.invoke('get-qoder-plan-usage');
+  },
+
   getSessionUserPrompts: (sessionId: string) => {
     return ipcRenderer.invoke('get-session-user-prompts', sessionId);
   },

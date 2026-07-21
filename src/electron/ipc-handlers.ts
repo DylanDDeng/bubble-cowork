@@ -5600,6 +5600,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getGrokPlanUsage();
   });
 
+  ipcMainHandle('get-qoder-plan-usage', async () => {
+    ensureProviderService();
+    return getProviderService().getPlanUsage('qoder');
+  });
+
   ipcMainHandle('codex-get-composer-capabilities', async () => {
     ensureProviderService();
     return getProviderService().getComposerCapabilities('codex');

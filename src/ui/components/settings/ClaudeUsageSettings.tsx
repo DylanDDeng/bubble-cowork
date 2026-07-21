@@ -19,6 +19,7 @@ import type {
   CodexRateLimitSnapshot,
   CodexRateLimitWindow,
   GrokPlanUsageReport,
+  QoderPlanUsageReport,
 } from '../../types';
 import type { UserProfile } from '../../../shared/types';
 import { useKimiModelConfig } from '../../hooks/useKimiModelConfig';
@@ -72,6 +73,9 @@ export function ClaudeUsageSettingsContent() {
   const [grokPlanUsage, setGrokPlanUsage] = useState<GrokPlanUsageReport | null>(null);
   const [grokPlanUsageLoading, setGrokPlanUsageLoading] = useState(true);
   const [grokPlanUsageError, setGrokPlanUsageError] = useState<string | null>(null);
+  const [qoderPlanUsage, setQoderPlanUsage] = useState<QoderPlanUsageReport | null>(null);
+  const [qoderPlanUsageLoading, setQoderPlanUsageLoading] = useState(true);
+  const [qoderPlanUsageError, setQoderPlanUsageError] = useState<string | null>(null);
   const userProfile = useUserProfile();
   const kimiModelConfig = useKimiModelConfig();
   const kimiModelLabels = useMemo(() => {
@@ -241,6 +245,48 @@ export function ClaudeUsageSettingsContent() {
     };
   }, [activeProvider]);
 
+  useEffect(() => {
+    // The Qoder probe may spawn a short-lived CLI session (it reuses a live
+    // one when available), so only poll while the Qoder provider is in view.
+    if (activeProvider !== 'qoder') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPlanUsage = async () => {
+      setQoderPlanUsageLoading(true);
+      setQoderPlanUsageError(null);
+
+      try {
+        const report = await window.electron.getQoderPlanUsage();
+        if (cancelled) {
+          return;
+        }
+        setQoderPlanUsage(report);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setQoderPlanUsageError(normalizeUsageLoadError(error, 'get-qoder-plan-usage'));
+      } finally {
+        if (!cancelled) {
+          setQoderPlanUsageLoading(false);
+        }
+      }
+    };
+
+    void loadPlanUsage();
+    const refreshTimer = window.setInterval(() => {
+      void loadPlanUsage();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, [activeProvider]);
+
   const providers = useMemo<UsageProviderCard[]>(
     () =>
       USAGE_PROVIDERS.map((provider) => {
@@ -270,6 +316,13 @@ export function ClaudeUsageSettingsContent() {
   const activeReport = activeProviderCard.report;
   const estimatedCost = activeReport?.costMode === 'estimated';
   const stats = useMemo(() => (activeReport ? computeUsageStats(activeReport) : null), [activeReport]);
+  // Sessions ran but every result summed to zero tokens: the provider's CLI
+  // does not report token counts (qodercli through 1.1.1 only exposes a
+  // context ratio). Hide the token report entirely instead of showing a
+  // misleading empty state — the plan-limits panel moves up in its place.
+  const tokenReportHidden = Boolean(
+    activeReport && activeReport.totals.totalTokens <= 0 && activeReport.totals.sessionCount > 0
+  );
 
   return (
     <div className="space-y-8 pb-10">
@@ -280,18 +333,20 @@ export function ClaudeUsageSettingsContent() {
         onSelectProvider={setActiveProvider}
       />
 
-      {renderUsageState(activeProviderCard) || (
-        <>
-          <UsageStatStrip stats={stats!} estimatedCost={estimatedCost} />
+      {tokenReportHidden
+        ? null
+        : renderUsageState(activeProviderCard) || (
+            <>
+              <UsageStatStrip stats={stats!} estimatedCost={estimatedCost} />
 
-          <TokenActivitySection daily={activeReport!.daily} />
+              <TokenActivitySection daily={activeReport!.daily} />
 
-          <div className="grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-2">
-            <ActivityInsights report={activeReport!} stats={stats!} />
-            <TopModels report={activeReport!} />
-          </div>
-        </>
-      )}
+              <div className="grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-2">
+                <ActivityInsights report={activeReport!} stats={stats!} />
+                <TopModels report={activeReport!} />
+              </div>
+            </>
+          )}
 
       {activeProviderCard.id === 'claude' ? (
         <ClaudePlanUsagePanel
@@ -314,6 +369,14 @@ export function ClaudeUsageSettingsContent() {
           report={grokPlanUsage}
           loading={grokPlanUsageLoading}
           error={grokPlanUsageError}
+        />
+      ) : null}
+
+      {activeProviderCard.id === 'qoder' ? (
+        <QoderPlanUsagePanel
+          report={qoderPlanUsage}
+          loading={qoderPlanUsageLoading}
+          error={qoderPlanUsageError}
         />
       ) : null}
     </div>
@@ -1234,6 +1297,159 @@ function grokPlanWindowToTile(report: GrokPlanUsageReport): CodexRateLimitWindow
     windowDurationMins,
     resetsAt: period?.endsAt ?? null,
   };
+}
+
+function QoderPlanUsagePanel({
+  report,
+  loading,
+  error,
+}: {
+  report: QoderPlanUsageReport | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <SettingsGroup title="Qoder plan limits">
+      {renderQoderPlanUsageState(report, loading, error) || (
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <img src={qoderLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+                  Qoder CLI
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
+                Updated {formatLocalTime(report!.fetchedAt)}
+                {report!.isQuotaExceeded ? ' · Quota exceeded' : ''}
+              </div>
+            </div>
+            {report!.userType ? (
+              <span className="rounded-[6px] border border-[var(--border)] px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)]">
+                {formatPlanName(report!.userType)}
+              </span>
+            ) : null}
+          </div>
+
+          <QoderPlanTileGrid report={report!} />
+        </div>
+      )}
+    </SettingsGroup>
+  );
+}
+
+function QoderPlanTileGrid({ report }: { report: QoderPlanUsageReport }) {
+  const tiles: ReactNode[] = [
+    <CodexRateLimitWindowTile
+      key="plan"
+      title="Plan quota remaining"
+      window={qoderPlanWindowToTile(report)}
+    />,
+  ];
+  if (report.userQuota) {
+    tiles.push(
+      <MetricTile
+        key="user-quota"
+        title="Plan quota"
+        value={formatQoderQuotaValue(report.userQuota)}
+        subtitle={formatQoderQuotaSubtitle(report.userQuota)}
+      />
+    );
+  }
+  if (report.addOnQuota) {
+    tiles.push(
+      <MetricTile
+        key="add-on"
+        title="Add-on pack"
+        value={formatQoderQuotaValue(report.addOnQuota)}
+        subtitle={formatQoderQuotaSubtitle(report.addOnQuota)}
+      />
+    );
+  }
+  if (report.orgResourcePackage) {
+    tiles.push(
+      <MetricTile
+        key="org"
+        title="Org package"
+        value={formatQoderQuotaValue(report.orgResourcePackage)}
+        subtitle={formatQoderQuotaSubtitle(report.orgResourcePackage)}
+      />
+    );
+  }
+
+  const columnsClass =
+    tiles.length <= 1
+      ? ''
+      : tiles.length === 2
+        ? 'sm:grid-cols-2'
+        : tiles.length === 3
+          ? 'sm:grid-cols-3'
+          : 'sm:grid-cols-2 xl:grid-cols-4';
+
+  return (
+    <div className={`grid grid-cols-1 gap-px border-t border-[var(--border)] bg-[var(--border)] ${columnsClass}`}>
+      {tiles}
+    </div>
+  );
+}
+
+function renderQoderPlanUsageState(
+  report: QoderPlanUsageReport | null,
+  loading: boolean,
+  error: string | null
+) {
+  if (loading && !report) {
+    return <InlineEmpty label="Loading Qoder plan usage…" />;
+  }
+
+  if (error && !report) {
+    return (
+      <div className="px-4 py-4 text-[12px] text-[var(--error)]">
+        <span className="font-medium">Unable to load Qoder plan usage.</span> {error}
+      </div>
+    );
+  }
+
+  if (!report) {
+    return <InlineEmpty label="No Qoder plan usage data available. Sign in to qodercli first." />;
+  }
+
+  return null;
+}
+
+function qoderPlanWindowToTile(report: QoderPlanUsageReport): CodexRateLimitWindow | null {
+  const usedPercent = report.totalUsagePercentage ?? report.userQuota?.percentage ?? null;
+  if (usedPercent === null) {
+    return null;
+  }
+  return {
+    usedPercent,
+    remainingPercent: 100 - usedPercent,
+    windowDurationMins: null,
+    resetsAt: report.expiresAt,
+  };
+}
+
+function formatQoderQuotaValue(bucket: NonNullable<QoderPlanUsageReport['userQuota']>): string {
+  if (bucket.used !== null) {
+    return bucket.used.toLocaleString();
+  }
+  if (bucket.percentage !== null) {
+    return `${Math.round(bucket.percentage)}%`;
+  }
+  return '—';
+}
+
+function formatQoderQuotaSubtitle(bucket: NonNullable<QoderPlanUsageReport['userQuota']>): string {
+  const unit = bucket.unit ? ` ${bucket.unit}` : '';
+  if (bucket.total !== null) {
+    return `of ${bucket.total.toLocaleString()}${unit} used`;
+  }
+  if (bucket.remaining !== null) {
+    return `${bucket.remaining.toLocaleString()}${unit} remaining`;
+  }
+  return 'Used';
 }
 
 function CodexRateLimitsPanel({

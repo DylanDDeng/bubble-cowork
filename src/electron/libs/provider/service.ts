@@ -15,6 +15,7 @@ import type { PermissionResult } from '../../../shared/types';
 import type {
   ProviderComposerCapabilities,
   CodexRateLimitReport,
+  QoderPlanUsageReport,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
   ProviderListSkillsInput,
@@ -181,6 +182,15 @@ class ProviderServiceImpl implements ProviderService {
     }
 
     return adapter.getRateLimits();
+  }
+
+  async getPlanUsage(provider: ProviderKind): Promise<QoderPlanUsageReport | null> {
+    const adapter = registry.getAdapter(provider);
+    if (!adapter?.getPlanUsage) {
+      return null;
+    }
+
+    return adapter.getPlanUsage();
   }
 
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {

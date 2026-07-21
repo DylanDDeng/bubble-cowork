@@ -176,6 +176,7 @@ declare global {
     getCodexRateLimits: () => Promise<CodexRateLimitReport>;
     getClaudePlanUsage: () => Promise<import('./shared/types').ClaudePlanUsageReport>;
     getGrokPlanUsage: () => Promise<import('./shared/types').GrokPlanUsageReport>;
+    getQoderPlanUsage: () => Promise<import('./shared/types').QoderPlanUsageReport | null>;
     getSessionUserPrompts: (
       sessionId: string
     ) => Promise<import('./shared/types').SessionUserPromptSummary[]>;
