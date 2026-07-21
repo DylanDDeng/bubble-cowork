@@ -7,6 +7,7 @@ import { sendEvent } from '../hooks/useIPC';
 import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { createStreamingWorkstreamModel, groupSubagentMessagesByParent } from '../utils/workstream';
+import { evaluateAutoFill, initialAutoFillState } from '../../shared/history-autofill';
 import { deriveTurnPhase, hasRunningToolInMessages } from '../utils/turn-utils';
 import {
   getMessageContentBlocks,
@@ -953,6 +954,8 @@ export function ChatPane({
   const {
     historyNavigationTarget,
     loadOlderSessionHistory,
+    requestSessionHydration,
+    retrySessionHydration,
     setHistoryNavigationTarget,
     removePermissionRequest,
     openReviewDiff,
@@ -965,6 +968,8 @@ export function ChatPane({
     useShallow((s) => ({
       historyNavigationTarget: s.historyNavigationTarget,
       loadOlderSessionHistory: s.loadOlderSessionHistory,
+      requestSessionHydration: s.requestSessionHydration,
+      retrySessionHydration: s.retrySessionHydration,
       setHistoryNavigationTarget: s.setHistoryNavigationTarget,
       removePermissionRequest: s.removePermissionRequest,
       openReviewDiff: s.openReviewDiff,
@@ -978,7 +983,6 @@ export function ChatPane({
   const session = useAppStore((s) => (sessionId ? s.sessions[sessionId] ?? null : null));
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const historyRequested = useRef(new Set<string>());
   const scrollUpdateStateRef = useRef<{ key: string; messageCount: number } | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const scrollHeightBeforeLoadRef = useRef<number>(0);
@@ -1374,14 +1378,13 @@ export function ChatPane({
       return;
     }
 
-    if (!session.hydrated && !historyRequested.current.has(sessionId)) {
-      historyRequested.current.add(sessionId);
-      sendEvent({
-        type: 'session.history',
-        payload: { sessionId },
-      });
+    if (!session.hydrated) {
+      // Store-owned dedupe/retry (hydrationPending + bounded attempts) — a
+      // per-component ref here never retried a failed request and left the
+      // session unhydrated for the whole app run.
+      requestSessionHydration(sessionId);
     }
-  }, [session, sessionId]);
+  }, [session, sessionId, requestSessionHydration]);
 
   useLayoutEffect(() => {
     const container = scrollContainerRef.current;
@@ -1395,19 +1398,24 @@ export function ChatPane({
     const isNewScrollTarget = previous?.key !== scrollPositionKey;
     if (isNewScrollTarget) {
       restoreChatScrollPosition(scrollPositionKey, container);
+      scrollHeightBeforeLoadRef.current = 0;
     } else if (count > previous.messageCount && scrollHeightBeforeLoadRef.current > 0) {
       const delta = container.scrollHeight - scrollHeightBeforeLoadRef.current;
       if (delta > 0) {
         container.scrollTop += delta;
       }
+      scrollHeightBeforeLoadRef.current = 0;
     } else if (shouldStickToBottomRef.current) {
       container.scrollTop = container.scrollHeight;
     }
 
     rememberChatScrollPosition(scrollPositionKey, container);
     shouldStickToBottomRef.current = isNearScrollBottom(container);
+    // The prepend anchor is cleared only by the branches that consumed or
+    // invalidated it: this effect also re-runs on streaming deltas, and an
+    // unconditional clear here wiped a pending anchor while its page load
+    // was still in flight (the compensation then never ran).
     scrollUpdateStateRef.current = { key: scrollPositionKey, messageCount: count };
-    scrollHeightBeforeLoadRef.current = 0;
   }, [
     scrollPositionKey,
     session?.messages.length,
@@ -1418,10 +1426,67 @@ export function ChatPane({
     showPartialMessage,
   ]);
 
+  const autoFillStateRef = useRef(initialAutoFillState());
+  // Manual Load-earlier feedback: a prepended page can render zero new rows
+  // (it merges into an existing collapsed work group), which would make the
+  // button look broken — report the raw prepended count instead.
+  const manualLoadBaselineRef = useRef<number | null>(null);
+  const [manualLoadFeedback, setManualLoadFeedback] = useState<string | null>(null);
+
   useEffect(() => {
     scrollHeightBeforeLoadRef.current = 0;
     setHighlightedHistoryAnchor(null);
+    autoFillStateRef.current = initialAutoFillState();
+    manualLoadBaselineRef.current = null;
+    setManualLoadFeedback(null);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (session?.loadingMoreHistory) return;
+    const baseline = manualLoadBaselineRef.current;
+    if (baseline === null || !session) return;
+    manualLoadBaselineRef.current = null;
+    const added = session.messages.length - baseline;
+    if (added > 0) {
+      setManualLoadFeedback(`Loaded ${added} earlier ${added === 1 ? 'message' : 'messages'}`);
+      const timer = window.setTimeout(() => setManualLoadFeedback(null), 2500);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [session, session?.loadingMoreHistory, session?.messages.length]);
+
+  // Viewport fill: a page of tool-heavy history collapses into a few
+  // "Show work" rows and can render shorter than the viewport — no
+  // scrollbar means the scroll-driven loader below is unreachable. Keep
+  // loading older pages until the transcript overflows, within the pure
+  // helper's page/stall caps (past them the Load-earlier button takes over).
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !sessionId || !session) return;
+    const { load, nextState } = evaluateAutoFill(autoFillStateRef.current, {
+      hydrated: session.hydrated,
+      hasMoreHistory: session.hasMoreHistory === true,
+      loadingMoreHistory: session.loadingMoreHistory === true,
+      scrollHeight: container.scrollHeight,
+      clientHeight: container.clientHeight,
+      messageCount: session.messages.length,
+      historyCursor: session.historyCursor ?? null,
+    });
+    autoFillStateRef.current = nextState;
+    if (load) {
+      scrollHeightBeforeLoadRef.current = container.scrollHeight;
+      loadOlderSessionHistory(sessionId);
+    }
+  }, [
+    sessionId,
+    session,
+    session?.hydrated,
+    session?.messages.length,
+    session?.hasMoreHistory,
+    session?.loadingMoreHistory,
+    session?.historyCursor,
+    loadOlderSessionHistory,
+  ]);
 
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1731,11 +1796,40 @@ export function ChatPane({
                 </div>
               )}
 
-              {session.hasMoreHistory && session.loadingMoreHistory && (
-                <div className="mb-4 flex justify-center">
-                  <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)]">
-                    Loading older messages…
-                  </div>
+              {(session.hasMoreHistory || session.hydrationError) && (
+                <div className="mb-4 flex flex-col items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={session.loadingMoreHistory}
+                    onClick={() => {
+                      if (!sessionId) return;
+                      if (session.hydrationError && !session.hydrated) {
+                        retrySessionHydration(sessionId);
+                        return;
+                      }
+                      const container = scrollContainerRef.current;
+                      if (container) {
+                        scrollHeightBeforeLoadRef.current = container.scrollHeight;
+                      }
+                      manualLoadBaselineRef.current = session.messages.length;
+                      loadOlderSessionHistory(sessionId);
+                    }}
+                    className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors duration-150 hover:text-[var(--text-primary)] disabled:opacity-70"
+                  >
+                    {session.loadingMoreHistory ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Loading earlier messages…
+                      </>
+                    ) : session.hydrationError && !session.hydrated ? (
+                      'Retry loading history'
+                    ) : (
+                      'Load earlier messages'
+                    )}
+                  </button>
+                  {manualLoadFeedback && !session.loadingMoreHistory ? (
+                    <span className="text-[11px] text-[var(--text-muted)]">{manualLoadFeedback}</span>
+                  ) : null}
                 </div>
               )}
 

@@ -259,6 +259,11 @@ export interface SessionView {
   historyCursor?: string | null;
   hasMoreHistory?: boolean;
   loadingMoreHistory?: boolean;
+  /** A hydration request is in flight (store-owned; components never dedupe). */
+  hydrationPending?: boolean;
+  /** Hydration failed after the bounded retry — surfaced as a manual Retry. */
+  hydrationError?: boolean;
+  hydrationAttempts?: number;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
   streaming: SessionStreamingState;
   runtimeNotice?: 'completed' | 'error';
@@ -458,6 +463,8 @@ export interface AppActions {
   ) => string;
   removeDraftSession: (sessionId: string) => void;
   loadOlderSessionHistory: (sessionId: string) => void;
+  requestSessionHydration: (sessionId: string) => void;
+  retrySessionHydration: (sessionId: string) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;
   // 搜索 Actions
   setSidebarSearchQuery: (query: string) => void;

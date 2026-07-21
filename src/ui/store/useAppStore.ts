@@ -800,6 +800,47 @@ export const useAppStore = create<Store>()(
       globalError: null,
       pendingStart: false,
       pendingDraftSessionId: null,
+      // Hydration lives in the store (single owner): components used to keep
+      // per-instance "already requested" refs that never retried on failure
+      // and double-requested across App/ChatPane — a failed first request
+      // left the session permanently unhydrated for the app run.
+      requestSessionHydration: (sessionId) => {
+        const session = get().sessions[sessionId];
+        if (!session || session.hydrated || session.hydrationPending) {
+          return;
+        }
+        set((state) => {
+          const current = state.sessions[sessionId];
+          if (!current) return state;
+          return {
+            sessions: {
+              ...state.sessions,
+              [sessionId]: {
+                ...current,
+                hydrationPending: true,
+                hydrationAttempts: (current.hydrationAttempts ?? 0) + 1,
+              },
+            },
+          };
+        });
+        // Direct call (not useIPC's sendEvent) — useIPC imports this store.
+        window.electron.sendClientEvent({ type: 'session.history', payload: { sessionId } });
+      },
+
+      retrySessionHydration: (sessionId) => {
+        set((state) => {
+          const current = state.sessions[sessionId];
+          if (!current) return state;
+          return {
+            sessions: {
+              ...state.sessions,
+              [sessionId]: { ...current, hydrationError: false, hydrationAttempts: 0 },
+            },
+          };
+        });
+        get().requestSessionHydration(sessionId);
+      },
+
       loadOlderSessionHistory: (sessionId) => {
         const session = get().sessions[sessionId];
         if (!session?.historyCursor || session.loadingMoreHistory) {
@@ -994,9 +1035,37 @@ export const useAppStore = create<Store>()(
         });
         break;
 
-      case 'runner.error':
+      case 'runner.error': {
         set({ globalError: event.payload.message, pendingStart: false, pendingDraftSessionId: null });
+        // Session-scoped hydration failure: retry once automatically, then
+        // surface the manual Retry affordance. Gated on hydrationPending so
+        // unrelated runner errors don't consume hydration attempts.
+        const errorSessionId = (event.payload as { sessionId?: string }).sessionId;
+        if (errorSessionId) {
+          const failed = get().sessions[errorSessionId];
+          if (failed && !failed.hydrated && failed.hydrationPending) {
+            const attempts = failed.hydrationAttempts ?? 1;
+            set((state) => {
+              const current = state.sessions[errorSessionId];
+              if (!current) return state;
+              return {
+                sessions: {
+                  ...state.sessions,
+                  [errorSessionId]: {
+                    ...current,
+                    hydrationPending: false,
+                    hydrationError: attempts >= 2,
+                  },
+                },
+              };
+            });
+            if (attempts < 2) {
+              get().requestSessionHydration(errorSessionId);
+            }
+          }
+        }
         break;
+      }
 
       case 'codex.modelCatalogUpdated':
         // The app-server pushed the authoritative model catalog; the codex
@@ -2369,6 +2438,9 @@ function handleSessionList(
       historyCursor: existing?.historyCursor ?? null,
       hasMoreHistory: existing?.hasMoreHistory ?? false,
       loadingMoreHistory: false,
+      hydrationPending: existing?.hydrationPending ?? false,
+      hydrationError: existing?.hydrationError ?? false,
+      hydrationAttempts: existing?.hydrationAttempts ?? 0,
       permissionRequests: existing?.permissionRequests || [],
       streaming: existing?.streaming || createEmptyStreamingState(),
       runtimeNotice: existing?.runtimeNotice,
@@ -2720,6 +2792,9 @@ function handleSessionHistory(
           historyCursor: cursor ?? null,
           hasMoreHistory: hasMore === true,
           loadingMoreHistory: false,
+          hydrationPending: false,
+          hydrationError: false,
+          hydrationAttempts: 0,
           streaming: createEmptyStreamingState(),
         },
       },

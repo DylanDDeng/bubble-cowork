@@ -72,7 +72,6 @@ import {
   normalizeToolResultBlock,
   normalizeToolUseBlock,
 } from './utils/message-content';
-import { aggregateMessages } from './utils/aggregated-messages';
 import { resolveCodexModel } from './utils/codex-model';
 import { startQueueAutoFlush } from './lib/queue-auto-flush';
 import {
@@ -200,8 +199,6 @@ export function App() {
   const {
     connected,
     activeSessionId,
-    historyNavigationTarget,
-    loadOlderSessionHistory,
     activeWorkspace,
     chatLayoutMode,
     savedSplitVisible,
@@ -241,13 +238,10 @@ export function App() {
     themeState,
     uiFontFamily,
     chatCodeFontFamily,
-    setHistoryNavigationTarget,
   } = useAppStore(
     useShallow((s) => ({
       connected: s.connected,
       activeSessionId: s.activeSessionId,
-      historyNavigationTarget: s.historyNavigationTarget,
-      loadOlderSessionHistory: s.loadOlderSessionHistory,
       activeWorkspace: s.activeWorkspace,
       chatLayoutMode: s.chatLayoutMode,
       savedSplitVisible: s.savedSplitVisible,
@@ -287,12 +281,9 @@ export function App() {
       themeState: s.themeState,
       uiFontFamily: s.uiFontFamily,
       chatCodeFontFamily: s.chatCodeFontFamily,
-      setHistoryNavigationTarget: s.setHistoryNavigationTarget,
     }))
   );
 
-  // Track history requests (prevent duplicates)
-  const historyRequested = useRef(new Set<string>());
   const sessionStatusSnapshotRef = useRef(new Map<string, SessionStatus>());
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
@@ -344,8 +335,6 @@ export function App() {
   const refreshEnvironmentGit = useCallback(async () => {
     await gitEnvironment.refresh();
   }, [gitEnvironment.refresh]);
-  const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
-  const historyHighlightTimerRef = useRef<number | null>(null);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!activeSession) {
@@ -363,9 +352,6 @@ export function App() {
     activeSession?.streaming.isStreaming,
   ]);
 
-  // Messages list ref (for scrolling)
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Tool status and results maps
   const { toolStatusMap, toolResultsMap } = useMemo(() => {
@@ -412,37 +398,6 @@ export function App() {
 
     return deriveTurnPhase(activeSession.messages, isRunning, hasRunningTool, isStreaming);
   }, [activeSession?.messages, activeSession?.status, toolStatusMap, showPartialMessage]);
-  const aggregatedMessages = useMemo(
-    () => (activeSession ? aggregateMessages(activeSession.messages) : []),
-    [activeSession?.messages]
-  );
-  const historyNavigationAnchor = useMemo(() => {
-    if (!activeSessionId || !historyNavigationTarget || historyNavigationTarget.sessionId !== activeSessionId) {
-      return null;
-    }
-
-    for (const item of aggregatedMessages) {
-      if (
-        item.type === 'message' &&
-        item.message.createdAt === historyNavigationTarget.messageCreatedAt
-      ) {
-        return String(item.originalIndex);
-      }
-
-      if (
-        item.type === 'tool_batch' &&
-        item.messages.some((message) => message.createdAt === historyNavigationTarget.messageCreatedAt)
-      ) {
-        return String(item.originalIndices[0]);
-      }
-    }
-
-    return null;
-  }, [activeSessionId, aggregatedMessages, historyNavigationTarget]);
-  const historyNavigationPending =
-    !!historyNavigationTarget &&
-    historyNavigationTarget.sessionId === activeSessionId &&
-    !historyNavigationAnchor;
   const streamingWorkstreamModel = useMemo(
     () =>
       createStreamingWorkstreamModel({
@@ -788,140 +743,6 @@ export function App() {
       chatCodeFontFamily,
     });
   }, [chatCodeFontFamily, theme, themeState, uiFontFamily]);
-
-  // Request history when switching sessions
-  useEffect(() => {
-    if (!activeSessionId) return;
-
-    if (!activeSession) return;
-
-    // If session not hydrated and not yet requested, fetch history
-    if (!activeSession.hydrated && !historyRequested.current.has(activeSessionId)) {
-      historyRequested.current.add(activeSessionId);
-      sendEvent({
-        type: 'session.history',
-        payload: { sessionId: activeSessionId },
-      });
-    }
-  }, [activeSessionId, activeSession]);
-
-  // Auto-scroll to bottom
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: showPartialMessage ? 'auto' : 'smooth' });
-  }, [
-    activeSessionId,
-    activeSession?.messages.length,
-    activeSession?.streaming.isStreaming,
-    partialMessage,
-    partialThinking,
-    showPartialMessage,
-  ]);
-
-  // Reset scroll tracking on session change
-  const prevMessageCountRef = useRef<number>(0);
-  const scrollHeightBeforeLoadRef = useRef<number>(0);
-  useEffect(() => {
-    prevMessageCountRef.current = 0;
-    scrollHeightBeforeLoadRef.current = 0;
-  }, [activeSessionId]);
-
-  // Preserve scroll position after prepending older messages
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    const count = activeSession?.messages.length ?? 0;
-    const prevCount = prevMessageCountRef.current;
-    if (container && count > prevCount && prevCount > 0 && scrollHeightBeforeLoadRef.current > 0) {
-      const delta = container.scrollHeight - scrollHeightBeforeLoadRef.current;
-      if (delta > 0) {
-        container.scrollTop += delta;
-      }
-    }
-    prevMessageCountRef.current = count;
-    scrollHeightBeforeLoadRef.current = 0;
-  }, [activeSession?.messages.length]);
-
-  // Infinite scroll: load older messages when scrolled near top
-  const handleScroll = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container || !activeSessionId || !activeSession?.hasMoreHistory || activeSession?.loadingMoreHistory) return;
-    if (container.scrollTop < 200) {
-      scrollHeightBeforeLoadRef.current = container.scrollHeight;
-      loadOlderSessionHistory(activeSessionId);
-    }
-  }, [activeSessionId, activeSession?.hasMoreHistory, activeSession?.loadingMoreHistory, loadOlderSessionHistory]);
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [handleScroll]);
-
-  useEffect(() => {
-    if (!historyNavigationTarget || !activeSessionId || historyNavigationTarget.sessionId !== activeSessionId) {
-      return;
-    }
-
-    if (!activeSession?.hydrated) {
-      return;
-    }
-
-    if (!historyNavigationAnchor) {
-      if (activeSession.hasMoreHistory && !activeSession.loadingMoreHistory) {
-        if (scrollContainerRef.current) {
-          scrollHeightBeforeLoadRef.current = scrollContainerRef.current.scrollHeight;
-        }
-        loadOlderSessionHistory(activeSessionId);
-        return;
-      }
-
-      if (!activeSession.hasMoreHistory && !activeSession.loadingMoreHistory) {
-        toast.error('Could not locate the selected message in session history.');
-        setHistoryNavigationTarget(null);
-      }
-      return;
-    }
-
-    const selector = `[data-message-index="${historyNavigationAnchor}"]`;
-    const messageEl = document.querySelector(selector);
-    if (!messageEl) {
-      return;
-    }
-
-    messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const wantsHighlight = historyNavigationTarget.highlight !== false;
-    setHistoryNavigationTarget(null);
-    if (!wantsHighlight) {
-      return;
-    }
-    setHighlightedHistoryAnchor(historyNavigationAnchor);
-
-    if (historyHighlightTimerRef.current !== null) {
-      window.clearTimeout(historyHighlightTimerRef.current);
-    }
-
-    historyHighlightTimerRef.current = window.setTimeout(() => {
-      setHighlightedHistoryAnchor((current) => (current === historyNavigationAnchor ? null : current));
-      historyHighlightTimerRef.current = null;
-    }, 2400);
-  }, [
-    activeSession?.hydrated,
-    activeSession?.hasMoreHistory,
-    activeSession?.loadingMoreHistory,
-    activeSessionId,
-    historyNavigationAnchor,
-    historyNavigationTarget,
-    loadOlderSessionHistory,
-    setHistoryNavigationTarget,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      if (historyHighlightTimerRef.current !== null) {
-        window.clearTimeout(historyHighlightTimerRef.current);
-      }
-    };
-  }, []);
 
   // Global error notification
   useEffect(() => {

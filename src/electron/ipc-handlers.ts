@@ -1989,6 +1989,11 @@ function sanitizeStoredClaudeHistory(sessionId: string, messages: StreamMessage[
 } {
   const sanitized = sanitizeClaudeHistory(messages);
   if (sanitized.changed) {
+    // CALLERS MUST PASS THE FULL STORED HISTORY: replaceSessionHistory
+    // deletes every message row (and unreferenced artifacts) before
+    // reinserting what it is given — persisting a page slice here would
+    // permanently truncate the session to that page. Paged call sites use
+    // sanitizeStoredClaudeHistoryPage instead.
     sessions.replaceSessionHistory(sessionId, sanitized.messages);
     sessions.setClaudeSessionId(sessionId, null);
   }
@@ -1997,6 +2002,25 @@ function sanitizeStoredClaudeHistory(sessionId: string, messages: StreamMessage[
     messages: sanitized.messages,
     hadInvalidThinking: sanitized.hadInvalidThinking,
   };
+}
+
+/**
+ * Page-safe variant for the paged history endpoints (hydrate, load-older,
+ * load-around): sanitizes only the returned slice, never persists it. When
+ * the slice reveals invalid thinking, the repair runs over the FULL stored
+ * history — persisting the cleaned transcript and resetting
+ * claude_session_id exactly like the full-history sites do (prewarm depends
+ * on that hydrate-time reset to avoid resuming a poisoned CLI session).
+ */
+function sanitizeStoredClaudeHistoryPage(
+  sessionId: string,
+  pageMessages: StreamMessage[]
+): StreamMessage[] {
+  const sanitized = sanitizeClaudeHistory(pageMessages);
+  if (sanitized.changed) {
+    sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId));
+  }
+  return sanitized.messages;
 }
 
 function buildHistoryTranscript(history: StreamMessage[]): string {
@@ -5443,7 +5467,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     const page = await source.loadBefore(unifiedSession, cursor, Math.max(1, Math.min(200, Math.trunc(limit || 100))));
     const finalMessages =
       session.provider === 'claude' && session.session_origin === 'aegis'
-        ? sanitizeStoredClaudeHistory(sessionId, page.messages).messages
+        ? sanitizeStoredClaudeHistoryPage(sessionId, page.messages)
         : page.messages;
 
     return {
@@ -5488,7 +5512,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       );
       const finalMessages =
         session.provider === 'claude' && session.session_origin === 'aegis'
-          ? sanitizeStoredClaudeHistory(sessionId, page.messages).messages
+          ? sanitizeStoredClaudeHistoryPage(sessionId, page.messages)
           : page.messages;
 
       return {
@@ -10189,7 +10213,7 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
     const messages = page.messages;
     const finalMessages =
       session.provider === 'claude' && session.session_origin === 'aegis'
-        ? sanitizeStoredClaudeHistory(sessionId, messages).messages
+        ? sanitizeStoredClaudeHistoryPage(sessionId, messages)
         : messages;
 
     broadcast(mainWindow, {
