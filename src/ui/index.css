@@ -792,8 +792,8 @@ body {
   border: 1px solid color-mix(in srgb, var(--code-inline-border) 62%, transparent);
   border-radius: 0.34rem;
   background: color-mix(in srgb, var(--code-inline-bg) 68%, transparent);
-  color: color-mix(in srgb, var(--code-inline-text) 90%, var(--text-primary));
-  font-family: var(--font-mono), 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  color: var(--accent);
+  font-family: inherit;
   font-size: 0.82em;
   font-weight: 500;
   line-height: 1.25;
@@ -808,7 +808,7 @@ button.md-inline-file-code {
 button.md-inline-file-code:hover {
   border-color: color-mix(in srgb, var(--code-inline-border) 78%, transparent);
   background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
-  color: var(--text-primary);
+  color: var(--accent);
 }
 
 .markdown-content .md-inline-file-code-icon,
@@ -827,7 +827,7 @@ button.md-inline-file-code:hover {
 
 .markdown-content .md-inline-file-code-line {
   flex: 0 0 auto;
-  color: var(--text-muted);
+  color: inherit;
   font-size: 0.92em;
   font-weight: 450;
 }
@@ -1125,7 +1125,7 @@ button.md-inline-file-code:hover {
   padding: 0.01rem 0.08rem 0.02rem 0.05rem;
   border: 0;
   background: transparent;
-  color: var(--text-primary);
+  color: var(--accent);
 }
 
 .markdown-content .md-file-link .md-inline-code {
@@ -1133,6 +1133,7 @@ button.md-inline-file-code:hover {
   background: transparent;
   color: inherit;
   padding: 0;
+  font-family: inherit;
   font-size: inherit;
   font-weight: inherit;
 }
@@ -1145,7 +1146,7 @@ button.md-inline-file-code:hover {
 }
 
 .markdown-content a.md-file-link:hover {
-  color: var(--text-primary);
+  color: var(--accent);
   text-decoration: none;
   background: transparent;
 }
@@ -1187,7 +1188,7 @@ button.md-inline-file-code:hover {
 
 .markdown-content .md-file-link-line {
   flex: 0 0 auto;
-  color: var(--text-muted);
+  color: inherit;
   font-size: 0.92em;
   font-weight: 450;
 }

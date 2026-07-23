@@ -17,6 +17,7 @@ import {
   BrandVercel,
   BrandX,
   Check,
+  Code2,
   Copy,
   type IconComponent,
 } from '../components/icons';
@@ -25,6 +26,8 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { FileTypeIcon } from '../components/FileTypeIcon';
 import { HighlightedCode } from '../components/HighlightedCode';
 import { useAppStore } from '../store/useAppStore';
+import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
+import { resolveProjectTreeFile } from '../utils/resolve-tree-file';
 
 interface MDContentProps {
   content: string;
@@ -298,7 +301,10 @@ function getInlineProjectFileCode(text: string): ProjectFileLink | null {
   if (!basename || /^\.[^.]+$/.test(basename)) {
     return null;
   }
-  if (!/\.[A-Za-z0-9][A-Za-z0-9_-]{0,12}$/.test(basename)) {
+  // Versioned directory names such as `test-gpt-5.6` end in a numeric
+  // segment, but that does not make them files. Requiring an alphabetic
+  // extension keeps those names as plain, non-interactive inline code.
+  if (!/\.[A-Za-z][A-Za-z0-9_-]{0,12}$/.test(basename)) {
     return null;
   }
 
@@ -310,6 +316,8 @@ function useProjectFileNavigation() {
     activeSessionId,
     sessions,
     projectCwd,
+    projectTree,
+    projectTreeCwd,
     openRightUtilityTab,
   } = useAppStore();
   const session = activeSessionId ? sessions[activeSessionId] : null;
@@ -321,10 +329,39 @@ function useProjectFileNavigation() {
   const openProjectFile = (projectFile: ProjectFileLink) => {
     if (!cwd && !projectFile.external) return;
 
-    // HTML chips open in the file panel showing source, like every other
-    // file; the panel's open handler resolves partial paths via
-    // resolveProjectTreeFile, and the rendered page is reachable from the
-    // preview header's Open-with dropdown (browsers are in that list).
+    // HTML references in an agent response are result-oriented: clicking one
+    // opens the rendered page in the built-in browser. Clicking the same file
+    // in the Files panel remains source-oriented and follows its own handler.
+    if (
+      cwd &&
+      activeSessionId &&
+      !projectFile.external &&
+      isHtmlFilePath(projectFile.path)
+    ) {
+      void (async () => {
+        try {
+          let tree = projectTreeCwd === cwd ? projectTree : null;
+          if (!tree) {
+            tree = await window.electron.getProjectTree(cwd);
+          }
+          const resolvedPath = tree
+            ? resolveProjectTreeFile(tree, projectFile.path) ?? projectFile.path
+            : projectFile.path;
+          await openHtmlFileInBrowserTab({
+            cwd,
+            filePath: resolvedPath,
+            sessionId: activeSessionId,
+          });
+          openRightUtilityTab('browser', { instantReveal: true });
+        } catch (error) {
+          toast.error(`Failed to open HTML preview: ${error}`);
+        }
+      })();
+      return;
+    }
+
+    // Non-HTML references continue to open as source in the Files panel. The
+    // panel resolves partial paths before reading the file.
     // instantReveal: content-driven opens skip the width tween — animating
     // layout width reflows the whole transcript every frame (jank).
     openRightUtilityTab('files', { instantReveal: true });
@@ -364,6 +401,7 @@ function MarkdownAnchor({
 
   if (projectFile) {
     const showLine = shouldShowLineSuffix(children, projectFile.line);
+    const isHtmlFile = isHtmlFilePath(projectFile.path);
     const title = projectFile.line
       ? `Open ${projectFile.path} at line ${projectFile.line}`
       : `Open ${projectFile.path}`;
@@ -375,12 +413,16 @@ function MarkdownAnchor({
         onClick={handleClick}
         title={title}
       >
-        <FileTypeIcon
-          name={projectFile.path}
-          className="md-file-link-icon"
-          fallbackClassName="md-file-link-fallback-icon"
-          useCurrentColor
-        />
+        {isHtmlFile ? (
+          <Code2 className="md-file-link-icon" aria-hidden="true" />
+        ) : (
+          <FileTypeIcon
+            name={projectFile.path}
+            className="md-file-link-icon"
+            fallbackClassName="md-file-link-fallback-icon"
+            useCurrentColor
+          />
+        )}
         <span className="md-link-label">{children}</span>
         {showLine && <span className="md-file-link-line">(line {projectFile.line})</span>}
       </a>
@@ -425,17 +467,22 @@ function MarkdownAnchor({
 
 function InlineProjectFileCode({ projectFile }: { projectFile: ProjectFileLink }) {
   const { cwd, openProjectFile } = useProjectFileNavigation();
+  const isHtmlFile = isHtmlFilePath(projectFile.path);
   const title = projectFile.line
     ? `Open ${projectFile.path} at line ${projectFile.line}`
     : `Open ${projectFile.path}`;
   const content = (
     <>
-      <FileTypeIcon
-        name={projectFile.path}
-        className="md-inline-file-code-icon"
-        fallbackClassName="md-inline-file-code-fallback-icon"
-        useCurrentColor
-      />
+      {isHtmlFile ? (
+        <Code2 className="md-inline-file-code-icon" aria-hidden="true" />
+      ) : (
+        <FileTypeIcon
+          name={projectFile.path}
+          className="md-inline-file-code-icon"
+          fallbackClassName="md-inline-file-code-fallback-icon"
+          useCurrentColor
+        />
+      )}
       <span className="md-inline-file-code-label">{projectFile.path}</span>
       {projectFile.line ? (
         <span className="md-inline-file-code-line">(line {projectFile.line})</span>
