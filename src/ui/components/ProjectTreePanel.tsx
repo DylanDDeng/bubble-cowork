@@ -48,6 +48,9 @@ const PROJECT_ENTRY_DRAG_MIME = 'application/x-aegis-project-entry';
 const PROJECT_TREE_INDENT_PX = 18;
 const PROJECT_TREE_ROW_PADDING_LEFT_PX = 4;
 const PROJECT_TREE_GUIDE_OFFSET_PX = 12;
+const FILE_PREVIEW_LOADING_DELAY_MS = 150;
+const HTML_PREVIEW_CACHE_LIMIT = 12;
+const HTML_PREVIEW_CACHE_MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 function parseStoredPanelWidth(
   stored: string | null,
@@ -138,6 +141,37 @@ type ProjectFilePreview =
       ext: string;
       message: string;
     };
+
+// HTML files are intentionally source-only in the Files panel, so they do not
+// enter the editable-tab cache below. Keep a small session cache for them and
+// refresh from disk in the background whenever they are selected again.
+const htmlPreviewCache = new Map<string, ProjectFilePreview>();
+
+function getCachedHtmlPreview(cwd: string, filePath: string): ProjectFilePreview | null {
+  const key = getProjectFileTabId(cwd, filePath);
+  const preview = htmlPreviewCache.get(key);
+  if (preview?.kind !== 'html') return null;
+
+  // Refresh insertion order so frequently used files remain cached.
+  htmlPreviewCache.delete(key);
+  htmlPreviewCache.set(key, preview);
+  return preview;
+}
+
+function cacheHtmlPreview(cwd: string, filePath: string, preview: ProjectFilePreview): void {
+  const key = getProjectFileTabId(cwd, filePath);
+  if (preview.kind !== 'html' || preview.size > HTML_PREVIEW_CACHE_MAX_FILE_BYTES) {
+    htmlPreviewCache.delete(key);
+    return;
+  }
+
+  htmlPreviewCache.delete(key);
+  htmlPreviewCache.set(key, preview);
+  if (htmlPreviewCache.size > HTML_PREVIEW_CACHE_LIMIT) {
+    const oldestKey = htmlPreviewCache.keys().next().value;
+    if (oldestKey !== undefined) htmlPreviewCache.delete(oldestKey);
+  }
+}
 
 type EditableProjectFilePreview = {
   kind: 'markdown' | 'text';
@@ -620,6 +654,7 @@ export function ProjectTreePanel({
   const [mdxRevealTarget, setMdxRevealTarget] = useState<{ line: number; token: number } | null>(null);
   const mdxRevealTokenRef = useRef(0);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [showPreviewLoading, setShowPreviewLoading] = useState(false);
   const previewRequestIdRef = useRef(0);
   const [draftText, setDraftText] = useState('');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -763,6 +798,21 @@ export function ProjectTreePanel({
   useEffect(() => {
     activeFileTabIdRef.current = activeFileTabId;
   }, [activeFileTabId]);
+
+  // Local text reads usually finish within a frame. Rendering a loading label
+  // immediately makes that fast path look slower than it is, so only reveal it
+  // when a preview request is genuinely taking noticeable time.
+  useEffect(() => {
+    if (!previewLoading) {
+      setShowPreviewLoading(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowPreviewLoading(true);
+    }, FILE_PREVIEW_LOADING_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [previewLoading]);
 
   // Keep the latest callbacks in refs so identity changes from the parent
   // (inline arrows in App) do not re-fire effects. Re-running on every parent
@@ -1200,13 +1250,15 @@ export function ProjectTreePanel({
       return;
     }
 
+    const cachedHtmlPreview = getCachedHtmlPreview(cwd, filePath);
+
     setSelectedFilePath(filePath);
     setSelectedFileCwd(cwd);
     expandParentsForPath(filePath);
     setViewMode('view');
     setMdxRevealTarget(null);
-    setPreviewLoading(true);
-    setSelectedPreview(null);
+    setPreviewLoading(!cachedHtmlPreview);
+    setSelectedPreview(cachedHtmlPreview);
     setDraftTextSynced('');
     setSaveStateSynced('idle');
     setSaveErrorSynced(null);
@@ -1230,6 +1282,7 @@ export function ProjectTreePanel({
     try {
       const preview = (await reader(cwd, filePath)) as ProjectFilePreview;
       if (previewRequestIdRef.current !== requestId) return;
+      cacheHtmlPreview(cwd, filePath, preview);
       setSelectedPreview(preview);
       if (preview.kind === 'text' && preview.ext === '.mdx') {
         setDraftTextSynced(preview.text);
@@ -2424,6 +2477,9 @@ export function ProjectTreePanel({
   const isSpreadsheetPreviewSurface =
     !previewLoading &&
     (selectedPreview?.kind === 'csv' || selectedPreview?.kind === 'xlsx');
+  const isImagePreviewSurface =
+    !previewLoading &&
+    selectedPreview?.kind === 'image';
   const isMdxCodePreviewSurface =
     isMdxFilePreview &&
     viewMode === 'code';
@@ -3082,10 +3138,12 @@ export function ProjectTreePanel({
                     ? 'bg-[var(--bg-primary)] p-0'
                     : isMarkdownPreviewSurface
                       ? 'bg-[var(--bg-primary)] p-0'
+                    : isImagePreviewSurface
+                      ? 'bg-[var(--bg-primary)] p-3'
                     : 'rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3'
                 }`}
               >
-                {previewLoading && (
+                {previewLoading && showPreviewLoading && (
                   <div className="text-sm text-[var(--text-muted)]">Loading...</div>
                 )}
 

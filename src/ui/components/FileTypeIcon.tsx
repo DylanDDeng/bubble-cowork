@@ -1,84 +1,138 @@
-import { useMemo, useState } from 'react';
-import { File } from './icons';
-import defaultFileIconUrl from '../assets/vscode-icons/default_file.svg';
-import audioIconUrl from '../assets/vscode-icons/file_type_audio.svg';
-import cssIconUrl from '../assets/vscode-icons/file_type_css.svg';
-import excelIconUrl from '../assets/vscode-icons/file_type_excel.svg';
-import htmlIconUrl from '../assets/vscode-icons/file_type_html.svg';
-import imageIconUrl from '../assets/vscode-icons/file_type_image.svg';
-import jsIconUrl from '../assets/vscode-icons/file_type_js.svg';
-import jsonIconUrl from '../assets/vscode-icons/file_type_json.svg';
-import markdownIconUrl from '../assets/vscode-icons/file_type_markdown.svg';
-import pdfIconUrl from '../assets/vscode-icons/file_type_pdf.svg';
-import powerpointIconUrl from '../assets/vscode-icons/file_type_powerpoint.svg';
-import pythonIconUrl from '../assets/vscode-icons/file_type_python.svg';
-import reactJsIconUrl from '../assets/vscode-icons/file_type_reactjs.svg';
-import reactTsIconUrl from '../assets/vscode-icons/file_type_reactts.svg';
-import scssIconUrl from '../assets/vscode-icons/file_type_scss.svg';
-import svgIconUrl from '../assets/vscode-icons/file_type_svg.svg';
-import textIconUrl from '../assets/vscode-icons/file_type_text.svg';
-import typescriptIconUrl from '../assets/vscode-icons/file_type_typescript.svg';
-import videoIconUrl from '../assets/vscode-icons/file_type_video.svg';
-import wordIconUrl from '../assets/vscode-icons/file_type_word.svg';
-import yamlIconUrl from '../assets/vscode-icons/file_type_yaml.svg';
-import zipIconUrl from '../assets/vscode-icons/file_type_zip.svg';
+import { createFileTreeIconResolver, getBuiltInSpriteSheet } from '@pierre/trees';
+import type { CSSProperties } from 'react';
 
-const FILE_ICON_URL_BY_EXTENSION: Record<string, string> = {
-  ts: typescriptIconUrl,
-  tsx: reactTsIconUrl,
-  js: jsIconUrl,
-  jsx: reactJsIconUrl,
-  json: jsonIconUrl,
-  md: markdownIconUrl,
-  html: htmlIconUrl,
-  htm: htmlIconUrl,
-  css: cssIconUrl,
-  scss: scssIconUrl,
-  yml: yamlIconUrl,
-  yaml: yamlIconUrl,
-  svg: svgIconUrl,
-  png: imageIconUrl,
-  jpg: imageIconUrl,
-  jpeg: imageIconUrl,
-  gif: imageIconUrl,
-  webp: imageIconUrl,
-  bmp: imageIconUrl,
-  ico: imageIconUrl,
-  ppt: powerpointIconUrl,
-  pptx: powerpointIconUrl,
-  py: pythonIconUrl,
-  pyw: pythonIconUrl,
-  pdf: pdfIconUrl,
-  doc: wordIconUrl,
-  docx: wordIconUrl,
-  xls: excelIconUrl,
-  xlsx: excelIconUrl,
-  csv: excelIconUrl,
-  zip: zipIconUrl,
-  tar: zipIconUrl,
-  gz: zipIconUrl,
-  tgz: zipIconUrl,
-  rar: zipIconUrl,
-  '7z': zipIconUrl,
-  mp4: videoIconUrl,
-  mov: videoIconUrl,
-  webm: videoIconUrl,
-  mkv: videoIconUrl,
-  avi: videoIconUrl,
-  mp3: audioIconUrl,
-  wav: audioIconUrl,
-  flac: audioIconUrl,
-  ogg: audioIconUrl,
-  m4a: audioIconUrl,
-  txt: textIconUrl,
-  log: textIconUrl,
+// Built-in file icons and filename rules come from @pierre/trees (Apache-2.0).
+const iconResolver = createFileTreeIconResolver({ set: 'complete', colored: true });
+const builtInSpriteSheet = getBuiltInSpriteSheet('complete');
+
+type BuiltInSymbol = {
+  dataUrl: string;
+  viewBox: string;
 };
 
+type FileIconVisual = BuiltInSymbol & {
+  color: string;
+  token: string;
+};
+
+const ICON_COLOR_BY_FAMILY = {
+  gray: 'color-mix(in srgb, var(--text-secondary) 82%, var(--text-primary))',
+  red: 'color-mix(in srgb, var(--error) 88%, var(--text-primary))',
+  vermilion: 'color-mix(in srgb, var(--warning) 78%, var(--error))',
+  orange: 'var(--warning)',
+  yellow: 'color-mix(in srgb, var(--warning) 72%, #f5c84b)',
+  green: 'var(--success)',
+  teal: 'color-mix(in srgb, var(--success) 58%, var(--accent))',
+  cyan: 'color-mix(in srgb, var(--accent) 62%, #38bdf8)',
+  blue: 'color-mix(in srgb, var(--accent) 72%, #3b82f6)',
+  indigo: 'var(--accent)',
+  purple: 'color-mix(in srgb, var(--accent) 82%, #c026d3)',
+  pink: 'color-mix(in srgb, var(--accent) 46%, #ec4899)',
+  mauve: 'color-mix(in srgb, var(--text-secondary) 76%, var(--accent))',
+} as const;
+
+type IconColorFamily = keyof typeof ICON_COLOR_BY_FAMILY;
+
+const ICON_COLOR_FAMILY_BY_TOKEN: Record<string, IconColorFamily> = {
+  astro: 'purple',
+  babel: 'yellow',
+  bash: 'green',
+  biome: 'blue',
+  bootstrap: 'indigo',
+  browserslist: 'yellow',
+  bun: 'mauve',
+  c: 'blue',
+  claude: 'orange',
+  cpp: 'blue',
+  css: 'indigo',
+  database: 'purple',
+  default: 'gray',
+  docker: 'blue',
+  eslint: 'indigo',
+  font: 'pink',
+  git: 'vermilion',
+  go: 'cyan',
+  graphql: 'pink',
+  html: 'orange',
+  image: 'pink',
+  javascript: 'yellow',
+  json: 'orange',
+  markdown: 'green',
+  mcp: 'teal',
+  nextjs: 'gray',
+  npm: 'red',
+  oxc: 'cyan',
+  postcss: 'red',
+  prettier: 'teal',
+  python: 'blue',
+  react: 'cyan',
+  ruby: 'red',
+  rust: 'orange',
+  sass: 'pink',
+  stylelint: 'indigo',
+  svelte: 'red',
+  svg: 'orange',
+  svgo: 'green',
+  swift: 'orange',
+  table: 'teal',
+  tailwind: 'cyan',
+  terraform: 'indigo',
+  text: 'gray',
+  typescript: 'blue',
+  vite: 'purple',
+  vscode: 'blue',
+  vue: 'green',
+  wasm: 'indigo',
+  webpack: 'blue',
+  yml: 'red',
+  zig: 'orange',
+  zip: 'orange',
+};
+
+function buildSymbolRegistry(spriteSheet: string): Map<string, BuiltInSymbol> {
+  const symbols = new Map<string, BuiltInSymbol>();
+  const symbolPattern = /<symbol id="([^"]+)" viewBox="([^"]+)">([\s\S]*?)<\/symbol>/g;
+
+  for (const match of spriteSheet.matchAll(symbolPattern)) {
+    const [, id, viewBox, contents] = match;
+    const standaloneSvg = [
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">`,
+      contents.replaceAll('currentColor', '#000').replaceAll('currentcolor', '#000'),
+      '</svg>',
+    ].join('');
+
+    symbols.set(id, {
+      dataUrl: `data:image/svg+xml,${encodeURIComponent(standaloneSvg)}`,
+      viewBox,
+    });
+  }
+
+  return symbols;
+}
+
+const builtInSymbols = buildSymbolRegistry(builtInSpriteSheet);
+const fallbackSymbol = builtInSymbols.get('file-tree-builtin-default');
+
+export function getFileTypeIconVisual(name: string): FileIconVisual | null {
+  const resolved = iconResolver.resolveIcon('file-tree-icon-file', name);
+  const symbol = builtInSymbols.get(resolved.name) ?? fallbackSymbol;
+  if (!symbol) return null;
+
+  const token = resolved.token ?? 'default';
+  const colorFamily = ICON_COLOR_FAMILY_BY_TOKEN[token] ?? 'gray';
+  return {
+    ...symbol,
+    color: ICON_COLOR_BY_FAMILY[colorFamily],
+    token,
+  };
+}
+
+/**
+ * Retained for non-React consumers. Prefer getFileTypeIconVisual() when the
+ * icon needs to follow the active theme.
+ */
 export function getFileTypeIconUrl(name: string): string {
-  const lower = name.toLowerCase();
-  const parts = lower.split('.');
-  const extension = parts.length > 1 ? parts[parts.length - 1] : '';
-  return FILE_ICON_URL_BY_EXTENSION[extension] || defaultFileIconUrl;
+  return getFileTypeIconVisual(name)?.dataUrl ?? '';
 }
 
 export function FileTypeIcon({
@@ -92,41 +146,31 @@ export function FileTypeIcon({
   fallbackClassName?: string;
   useCurrentColor?: boolean;
 }) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const iconUrl = useMemo(() => getFileTypeIconUrl(name), [name]);
+  const visual = getFileTypeIconVisual(name);
 
-  if (failedUrl === iconUrl) {
-    return <File className={fallbackClassName} strokeWidth={1.9} />;
+  if (!visual) {
+    return <span aria-hidden="true" className={fallbackClassName} />;
   }
 
-  if (useCurrentColor) {
-    return (
-      <span
-        aria-hidden="true"
-        className={className}
-        style={{
-          backgroundColor: 'currentColor',
-          WebkitMaskImage: `url("${iconUrl}")`,
-          WebkitMaskPosition: 'center',
-          WebkitMaskRepeat: 'no-repeat',
-          WebkitMaskSize: 'contain',
-          maskImage: `url("${iconUrl}")`,
-          maskPosition: 'center',
-          maskRepeat: 'no-repeat',
-          maskSize: 'contain',
-        }}
-      />
-    );
-  }
+  const style: CSSProperties = {
+    backgroundColor: 'currentColor',
+    color: useCurrentColor ? 'currentColor' : visual.color,
+    WebkitMaskImage: `url("${visual.dataUrl}")`,
+    WebkitMaskPosition: 'center',
+    WebkitMaskRepeat: 'no-repeat',
+    WebkitMaskSize: 'contain',
+    maskImage: `url("${visual.dataUrl}")`,
+    maskPosition: 'center',
+    maskRepeat: 'no-repeat',
+    maskSize: 'contain',
+  };
 
   return (
-    <img
-      src={iconUrl}
-      alt=""
+    <span
       aria-hidden="true"
-      className={className}
-      loading="lazy"
-      onError={() => setFailedUrl(iconUrl)}
+      className={`inline-block shrink-0 ${className}`}
+      data-file-icon-token={visual.token}
+      style={style}
     />
   );
 }

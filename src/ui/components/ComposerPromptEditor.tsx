@@ -10,7 +10,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { getFileTypeIconUrl } from './FileTypeIcon';
+import { getFileTypeIconVisual } from './FileTypeIcon';
 import { extractProjectFileMentions } from '../utils/project-file-mentions';
 import { extractKnownSiteLinkTokens, getKnownSiteIconSvg } from '../utils/known-site-links';
 import {
@@ -356,21 +356,32 @@ function createMentionNode(path: string, rawText: string): HTMLSpanElement {
   chip.style.backgroundColor = 'var(--composer-mention-chip-bg)';
   chip.style.color = 'var(--composer-mention-chip-text)';
 
-  const icon = document.createElement('img');
-  icon.src = getFileTypeIconUrl(basenameOfPath(path));
-  icon.alt = '';
+  const icon = document.createElement('span');
+  const iconVisual = getFileTypeIconVisual(basenameOfPath(path));
   icon.setAttribute('aria-hidden', 'true');
   icon.className = 'h-3.5 w-3.5 shrink-0';
-  icon.loading = 'lazy';
-  icon.onerror = () => {
-    icon.remove();
-  };
+  if (iconVisual) {
+    const maskImage = `url("${iconVisual.dataUrl}")`;
+    icon.style.color = iconVisual.color;
+    icon.style.backgroundColor = 'currentColor';
+    icon.style.setProperty('-webkit-mask-image', maskImage);
+    icon.style.setProperty('-webkit-mask-position', 'center');
+    icon.style.setProperty('-webkit-mask-repeat', 'no-repeat');
+    icon.style.setProperty('-webkit-mask-size', 'contain');
+    icon.style.maskImage = maskImage;
+    icon.style.maskPosition = 'center';
+    icon.style.maskRepeat = 'no-repeat';
+    icon.style.maskSize = 'contain';
+  }
 
   const label = document.createElement('span');
   label.className = 'truncate font-mono text-[11px]';
   label.textContent = `@${basenameOfPath(path)}`;
 
-  chip.append(icon, label);
+  if (iconVisual) {
+    chip.append(icon);
+  }
+  chip.append(label);
   return chip;
 }
 
