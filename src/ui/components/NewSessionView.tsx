@@ -21,6 +21,7 @@ import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
+import { QoderPermissionModePicker } from './QoderPermissionModePicker';
 import { FolderOpen } from './icons';
 import { NewThreadLanding } from './NewThreadLanding';
 import { ComposerContextPills } from './ComposerContextPills';
@@ -283,6 +284,10 @@ export function NewSessionView() {
         opencodePermissionMode:
           agentSelection.provider === 'opencode'
             ? agentSelection.opencodePermissionMode
+            : undefined,
+        qoderPermissionMode:
+          agentSelection.provider === 'qoder'
+            ? agentSelection.qoderPermissionMode
             : undefined,
         teamMode: 'solo',
         teamId: null,
@@ -642,6 +647,14 @@ export function NewSessionView() {
                       <KimiPermissionModePicker
                         value={agentSelection.kimiPermissionMode}
                         onChange={agentSelection.setKimiPermissionMode}
+                        menuSide="bottom"
+                      />
+                    )}
+                    {agentSelection.provider === 'qoder' && (
+                      <QoderPermissionModePicker
+                        value={agentSelection.qoderPermissionMode}
+                        onChange={agentSelection.setQoderPermissionMode}
+                        disabled={pendingStart}
                         menuSide="bottom"
                       />
                     )}

@@ -44,6 +44,7 @@ import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
+import { QoderPermissionModePicker } from './QoderPermissionModePicker';
 import {
   useComposerAgentSelection,
   type ComposerModelOption,
@@ -723,6 +724,10 @@ export function PromptInput({
             runtimeProvider === 'opencode'
               ? agentSelection.opencodePermissionMode
               : undefined,
+          qoderPermissionMode:
+            runtimeProvider === 'qoder'
+              ? agentSelection.qoderPermissionMode
+              : undefined,
           teamMode: 'solo',
           teamId: null,
         },
@@ -814,6 +819,10 @@ export function PromptInput({
         opencodePermissionMode:
           runtimeProvider === 'opencode'
             ? agentSelection.opencodePermissionMode
+            : undefined,
+        qoderPermissionMode:
+          runtimeProvider === 'qoder'
+            ? agentSelection.qoderPermissionMode
             : undefined,
         teamMode: 'solo',
         teamId: null,
@@ -1406,6 +1415,14 @@ export function PromptInput({
                 <KimiPermissionModePicker
                   value={agentSelection.kimiPermissionMode}
                   onChange={agentSelection.setKimiPermissionMode}
+                  menuSide={menuSide}
+                />
+              )}
+              {agentSelection.provider === 'qoder' && (
+                <QoderPermissionModePicker
+                  value={agentSelection.qoderPermissionMode}
+                  onChange={agentSelection.setQoderPermissionMode}
+                  disabled={isBusy}
                   menuSide={menuSide}
                 />
               )}

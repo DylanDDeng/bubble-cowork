@@ -41,6 +41,7 @@ import {
   KimiPermissionMode,
   KimiThinking,
   OpenCodePermissionMode,
+  QoderPermissionMode,
 } from '../../shared/types';
 import {
   getDefaultCodexReasoningEffort,
@@ -87,6 +88,10 @@ import {
   loadPreferredOpencodePermissionMode,
   savePreferredOpencodePermissionMode,
 } from '../utils/opencode-permission';
+import {
+  loadPreferredQoderPermissionMode,
+  savePreferredQoderPermissionMode,
+} from '../utils/qoder-permission';
 const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
 const GROK_MODEL_STORAGE_KEY = 'cowork.preferredGrokModel';
 const PI_MODEL_STORAGE_KEY = 'cowork.preferredPiModel';
@@ -1069,6 +1074,11 @@ export function useComposerAgentSelection(input?: {
   const [opencodePermissionMode, setOpencodePermissionModeState] = useState<OpenCodePermissionMode>(() =>
     input?.opencodePermissionMode || loadPreferredOpencodePermissionMode()
   );
+  // Qoder keeps no per-session mode (the main process never persists one), so
+  // the composer preference is the single source — same as kimi/grok.
+  const [qoderPermissionMode, setQoderPermissionModeState] = useState<QoderPermissionMode>(() =>
+    loadPreferredQoderPermissionMode()
+  );
 
   useEffect(() => {
     setClaudePermissionModeState(
@@ -1110,6 +1120,11 @@ export function useComposerAgentSelection(input?: {
     savePreferredOpencodePermissionMode(mode);
   }, []);
 
+  const setQoderPermissionMode = useCallback((mode: QoderPermissionMode) => {
+    setQoderPermissionModeState(mode);
+    savePreferredQoderPermissionMode(mode);
+  }, []);
+
   return {
     provider,
     model,
@@ -1146,5 +1161,7 @@ export function useComposerAgentSelection(input?: {
     kimiModels: kimiModelConfig.availableModels,
     opencodePermissionMode,
     setOpencodePermissionMode,
+    qoderPermissionMode,
+    setQoderPermissionMode,
   };
 }

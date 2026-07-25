@@ -94,6 +94,7 @@ export type {
   GrokModelConfig,
   PiModelConfig,
   QoderModelConfig,
+  QoderPermissionMode,
   KimiPermissionMode,
   KimiThinking,
   KimiRuntimeStatus,
