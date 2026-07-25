@@ -1,140 +1,171 @@
 <p align="center">
-  <img src="build/icon.png" alt="Aegis logo" width="96" height="96" />
+  <img src="build/icon.png" alt="Aegis logo" width="104" height="104" />
 </p>
 
 <h1 align="center">Aegis</h1>
 
 <p align="center">
-  A desktop AI workspace for running real project work with Claude, Codex, MCP tools, and local files.
+  <strong>A desktop workspace for coding agents, project files, and real development work.</strong>
 </p>
 
 <p align="center">
-  English | <a href="./README.zh-CN.md">简体中文</a>
+  Run Claude Code, Codex, Kimi Code, OpenCode, Grok, Pi, and Qoder without losing sight of the project around them.
 </p>
 
-## What Aegis Does
+<p align="center">
+  <a href="https://github.com/DylanDDeng/bubble-cowork/stargazers"><img src="https://img.shields.io/github/stars/DylanDDeng/bubble-cowork?style=flat-square" alt="GitHub stars" /></a>
+  <a href="https://github.com/DylanDDeng/bubble-cowork/releases/latest"><img src="https://img.shields.io/github/v/release/DylanDDeng/bubble-cowork?style=flat-square" alt="Latest release" /></a>
+  <img src="https://img.shields.io/badge/macOS-primary-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS primary platform" />
+  <img src="https://img.shields.io/badge/Windows-experimental-2563eb?style=flat-square&logo=windows&logoColor=white" alt="Windows experimental support" />
+</p>
 
-Aegis turns a local project folder into an AI operating surface. Instead of treating chats, generated files, and tool activity as separate steps, it keeps them in one desktop workflow:
+<p align="center">
+  <strong>English</strong> · <a href="./README.zh-CN.md">简体中文</a>
+</p>
 
-* Start and organize multiple AI work sessions around real project directories
+Aegis turns a local project directory into a visual workspace for AI-assisted development. Conversations, tool calls, files, diffs, terminals, browser sessions, permissions, skills, and generated artifacts stay together instead of being scattered across separate apps.
 
-* Switch between Claude Code, Codex, OpenCode, Kimi, Grok, Pi, and Qoder from the same interface
+> Aegis is an early personal project. It is useful today, but parts of the product may still change quickly.
 
-* Connect Anthropic-compatible providers such as MiniMax, Zhipu, Moonshot, and DeepSeek
+## Quick Links
 
-* Use MCP servers and Claude skills alongside normal prompts
+- [Download the latest release](https://github.com/DylanDDeng/bubble-cowork/releases/latest)
+- [Core features](#core-features)
+- [Supported agent runtimes](#supported-agent-runtimes)
+- [Development](#development)
+- [Open an issue](https://github.com/DylanDDeng/bubble-cowork/issues)
 
-* Browse project files, preview outputs, and inspect generated artifacts without leaving the app
+## Why Aegis
 
-* Keep project context visible through session grouping, file panels, and usage surfaces
+Coding agents are powerful, but the work around them is often fragmented: one window for chat, another for files, another for the terminal, and another for reviewing changes. Aegis brings those surfaces into one desktop environment:
 
-## Core Capabilities
+- Organize agent sessions around actual project directories.
+- Switch between supported coding-agent runtimes from one composer.
+- Keep files, changes, browser output, terminals, and artifacts visible while an agent works.
+- Review permission requests and execution traces in context.
+- Reuse local skills, plugins, MCP servers, models, and existing CLI authentication.
 
-### Multi-session AI workspace
+## Core Features
 
-* Create separate sessions for different tasks and projects
+- **Multiple coding agents** — Work with Claude Code, Codex, Kimi Code, OpenCode, Grok, Pi, and Qoder from the same interface.
+- **Project-first sessions** — Create, resume, search, pin, fork, and group threads by working directory or Git worktree.
+- **Live project workspace** — Browse files, preview common document formats, inspect changes, review diffs, and open generated artifacts.
+- **Browser and Design Mode** — Open project pages inside Aegis, select page elements, attach visual context, and send change requests back to an agent.
+- **Skills, plugins, and MCP** — Discover local capabilities and use them alongside normal prompts.
+- **Permission and execution controls** — Choose provider-specific permission modes and inspect tool activity before allowing sensitive actions.
+- **Developer utilities** — Use integrated terminals, pull-request views, usage dashboards, and scheduled automations without leaving the workspace.
 
-* Resume, search, pin, and group work by project folder
+## Supported Agent Runtimes
 
-* Track tool traces, thinking output, and intermediate results in context
+| Runtime | Integration |
+| --- | --- |
+| Claude Code | Local Claude Code runtime, skills, plugins, permissions, usage, and session controls |
+| Codex | Codex app-server sessions, models, reasoning controls, skills, plugins, and reviews |
+| Kimi Code | Local Kimi runtime with models, thinking controls, skills, queueing, and session resume |
+| OpenCode | OpenCode sessions with model and permission controls |
+| Grok | Grok Build sessions, reasoning controls, slash commands, and usage information |
+| Pi | Pi agent sessions through the local runtime |
+| Qoder | Qoder SDK sessions with model and permission controls |
 
-### Local project-first workflow
+Runtime availability depends on the corresponding CLI, account, and local configuration. Aegis reuses your existing local setup whenever possible.
 
-* Bind every session to a working directory
+## Download
 
-* Browse files from the right-side project panel
+Desktop builds are published on [GitHub Releases](https://github.com/DylanDDeng/bubble-cowork/releases/latest).
 
-* Open, reveal, and preview common output formats including HTML, Markdown, PDF, images, and PPTX
+| Platform | Status | Builds |
+| --- | --- | --- |
+| macOS Apple Silicon | Primary | DMG and ZIP |
+| macOS Intel | Primary | DMG and ZIP |
+| Windows x64 | Experimental | Installer and portable EXE |
+| Linux x64 | Experimental | AppImage |
 
-### Claude and provider routing
+### macOS: “Aegis is damaged and can’t be opened”
 
-* Use Claude Code directly
+Current macOS builds are not signed and notarized. Gatekeeper may quarantine the downloaded app and show a misleading damaged-app warning.
 
-* Route Claude-style requests through compatible providers
-
-* Configure model selection, access mode, and runtime health from Settings
-
-### Skills, MCP, and extensibility
-
-* Discover local Claude skills from user and project scopes
-
-* Browse and install marketplace skills from within the app
-
-* Configure MCP servers globally or per project
-
-### Desktop polish
-
-* Theme families, appearance modes, and typography controls
-
-* In-app update checks that open GitHub Releases for manual download
-
-* Context usage indicator in the composer for Claude sessions
-
-## Typical Use Cases
-
-* Explore a repository with AI while keeping files and outputs visible
-
-* Generate deliverables such as PPTX, PDF, or DOCX from project context
-
-* Run repeatable prompt workflows with Claude skills and MCP servers
-
-* Compare model/provider behavior without leaving the same desktop environment
-
-## Tech Stack
-
-* Electron
-
-* React
-
-* Vite
-
-* TypeScript
-
-* Tailwind CSS
-
-* better-sqlite3
-
-## Installation
-
-Download the latest build for your platform from [GitHub Releases](https://github.com/DylanDDeng/bubble-cowork/releases).
-
-### macOS: "app is damaged" warning
-
-Release builds are not code-signed, so after installing macOS Gatekeeper may report the app as damaged and refuse to open it. Remove the quarantine attribute once and it will open normally:
+Install Aegis in `/Applications`, then run:
 
 ```bash
 xattr -cr /Applications/Aegis.app
 ```
 
-This is required again after each update, since every downloaded copy is re-quarantined.
+You may need to repeat this after downloading an update.
 
-## Getting Started
+### Windows support
+
+Windows builds are produced by CI, but I do not own a Windows computer and cannot guarantee that installation or every feature works correctly on Windows. Windows bug reports, fixes, and compatibility PRs are especially welcome.
+
+## Design Inspiration
+
+I genuinely enjoy using Codex, especially its interface design. Aegis is my attempt to learn how an application with a similar sense of clarity and focus can be designed and built. You will therefore notice that some parts of Aegis feel familiar to Codex users.
+
+Aegis is an independent learning project. It is not affiliated with or endorsed by OpenAI.
+
+## Built with Vibe Coding
+
+This project has been developed entirely through a vibe-coding workflow. It is both a working tool and an ongoing experiment in building software with coding agents.
+
+That also means the project will have rough edges and decisions worth revisiting. If something feels wrong, incomplete, or unnecessarily complicated, please [open an issue](https://github.com/DylanDDeng/bubble-cowork/issues), submit a pull request, or fork the repository and take it in your own direction.
+
+## Development
+
+### Requirements
+
+- Node.js 22
+- npm
+- The local coding-agent CLIs you want to use, installed and authenticated
+
+### Run locally
 
 ```bash
+git clone https://github.com/DylanDDeng/bubble-cowork.git
+cd bubble-cowork
 npm install
 npm run dev
 ```
 
-For a production build:
+### Test and build
+
+```bash
+npm test
+npm run build
+```
+
+Create local desktop packages with:
 
 ```bash
 npm run dist
 ```
 
-## Project Structure
+## Architecture
+
+Aegis is an Electron application with a React renderer and a TypeScript main process. Privileged filesystem, terminal, Git, browser, and runtime operations stay in the main process and are exposed to the renderer through a preload bridge and IPC.
 
 ```text
-.
-├── src/            # Electron main process and React UI
-├── dist-react/     # Built frontend output
-├── dist-electron/  # Built Electron output
-├── release/        # Packaged app artifacts
-└── build/          # App icons and build resources
+src/
+├── electron/       # Main process, IPC, persistence, and runtime adapters
+├── shared/         # Shared contracts and types
+└── ui/             # React application and desktop workspace
+
+scripts/            # Verification, probes, and development tooling
+build/              # Application icons and packaging resources
 ```
 
-## Notes
+The main technologies are Electron, React, Vite, TypeScript, Tailwind CSS, Zustand, and better-sqlite3.
 
-* Aegis currently supports manual update installation through GitHub Releases
+## Contributing
 
-* macOS artifacts are produced from the current release setup; Windows packaging depends on a compatible build environment
+Issues and pull requests are welcome. For larger changes, opening an issue first makes it easier to agree on the problem and direction before implementation.
 
+When contributing, please:
+
+- Keep changes focused and explain the user-facing reason behind them.
+- Add or update verification coverage for runtime and state-management changes.
+- Avoid committing local credentials, generated probe reports, or account metadata.
+- Use concise commit messages in the `<type>: <subject>` format.
+
+## Acknowledgements
+
+- [Codex](https://openai.com/codex/) for the product and interface inspiration described above.
+- The teams and communities behind Claude Code, Kimi Code, OpenCode, Grok, Pi, Qoder, MCP, and the broader coding-agent ecosystem.
