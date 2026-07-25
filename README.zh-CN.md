@@ -28,6 +28,12 @@ Aegis 把一个本地项目目录变成可视化的 AI 开发工作台。对话�
 
 > Aegis 目前仍是一个早期个人项目。它已经可以承担真实工作，但产品形态和部分功能仍会快速变化。
 
+<p align="center">
+  <img src="docs/images/aegis-new-chat.png" alt="Aegis 新任务工作台" />
+  <br />
+  <sub>在同一个界面选择 Agent、模型、权限模式、项目目录、运行环境与 Git 分支，然后开始任务。</sub>
+</p>
+
 ## 快速入口
 
 - [下载最新版本](https://github.com/DylanDDeng/bubble-cowork/releases/latest)

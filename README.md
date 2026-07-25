@@ -28,6 +28,12 @@ Aegis turns a local project directory into a visual workspace for AI-assisted de
 
 > Aegis is an early personal project. It is useful today, but parts of the product may still change quickly.
 
+<p align="center">
+  <img src="docs/images/aegis-new-chat.png" alt="Aegis new task workspace" />
+  <br />
+  <sub>Start a task with the agent, model, permission mode, project, runtime, and Git branch visible in one place.</sub>
+</p>
+
 ## Quick Links
 
 - [Download the latest release](https://github.com/DylanDDeng/bubble-cowork/releases/latest)
