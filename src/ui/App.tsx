@@ -123,7 +123,7 @@ function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUti
   if (isProjectUtilityFileTab(target)) return 'files';
   if (isProjectUtilityBrowserTab(target)) return 'browser';
   if (isProjectUtilitySubagentTab(target)) return 'subagent';
-  return target;
+  return target as ProjectUtilityPanelKind;
 }
 
 function getBrowserUtilityLabel(

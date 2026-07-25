@@ -6,7 +6,15 @@ import { setupIPCHandlers, cleanup } from './ipc-handlers';
 import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
 import { registerDesignModeIpc } from './design-mode-ipc';
 import { browserManager } from './browserManager';
-import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
+import {
+  assertTrustedIpcSender,
+  isDev,
+  getPreloadPath,
+  getUIPath,
+  DEV_SERVER_URL,
+  ipcMainHandle,
+  ipcMainOn,
+} from './util';
 import { ensureShellEnvironment } from './libs/shell-environment';
 import { preloadClaudeAgentSdk } from './libs/runner';
 import { listRunningSessions } from './libs/session-store';
@@ -202,7 +210,13 @@ function requestProjectEditorFlush(
       ipcMain.removeListener(PROJECT_EDITOR_FLUSH_RESPONSE_CHANNEL, handleResponse);
       resolve(result);
     };
-    const handleResponse = (_event: Electron.IpcMainEvent, response: ProjectEditorFlushResponse) => {
+    const handleResponse = (event: Electron.IpcMainEvent, response: ProjectEditorFlushResponse) => {
+      try {
+        assertTrustedIpcSender(event);
+      } catch {
+        return;
+      }
+      if (event.sender !== win.webContents) return;
       if (!response || response.requestId !== requestId) return;
       finish({
         ok: response.ok !== false,
@@ -577,8 +591,7 @@ function createWindow(): void {
       preload: getPreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
-      plugins: true,
-      sandbox: false, // required by better-sqlite3
+      sandbox: true,
       // Keep debounce timers running in the background so editor autosave
       // still fires when the user switches away and immediately quits.
       backgroundThrottling: false,
@@ -1000,45 +1013,45 @@ app.whenReady().then(() => {
   ipcMainHandle('get-ui-resume-state', async () => {
     return latestUiResumeState;
   });
-  ipcMain.on('get-ui-resume-state-sync', (event) => {
+  ipcMainOn('get-ui-resume-state-sync', (event) => {
     event.returnValue = latestUiResumeState;
   });
   ipcMainHandle('save-ui-resume-state', async (_event, state: import('../shared/types').UiResumeState) => {
     saveUiResumeState(state);
     return { ok: true };
   });
-  ipcMain.on('save-ui-resume-state-sync', (event, state: import('../shared/types').UiResumeState) => {
+  ipcMainOn('save-ui-resume-state-sync', (event, state: import('../shared/types').UiResumeState) => {
     saveUiResumeState(state);
     event.returnValue = { ok: true };
   });
   // Origin-independent renderer state. The preload snapshots the full map
   // synchronously at page load (mirrors how localStorage hydrates), then
   // forwards writes here.
-  ipcMain.on('renderer-state:get-all-sync', (event) => {
+  ipcMainOn('renderer-state:get-all-sync', (event) => {
     event.returnValue = loadRendererState();
   });
-  ipcMain.on('renderer-state:set', (_event, key: string, value: string) => {
+  ipcMainOn('renderer-state:set', (_event, key: string, value: string) => {
     if (typeof key !== 'string' || typeof value !== 'string') return;
     loadRendererState()[key] = value;
     scheduleRendererStateWrite();
   });
-  ipcMain.on('renderer-state:remove', (_event, key: string) => {
+  ipcMainOn('renderer-state:remove', (_event, key: string) => {
     if (typeof key !== 'string') return;
     delete loadRendererState()[key];
     scheduleRendererStateWrite();
   });
   // Keep the pending editor draft mirrored in the main process. Normal edits
   // use async IPC; blur/unload paths use sync IPC before the renderer freezes.
-  ipcMain.on('project-editor-draft-update', (_event, draft: PendingProjectEditorDraft | null) => {
+  ipcMainOn('project-editor-draft-update', (_event, draft: PendingProjectEditorDraft | null) => {
     setPendingProjectEditorDraft(draft);
   });
-  ipcMain.on('project-editor-draft-update-sync', (event, draft: PendingProjectEditorDraft | null) => {
+  ipcMainOn('project-editor-draft-update-sync', (event, draft: PendingProjectEditorDraft | null) => {
     setPendingProjectEditorDraft(draft);
     event.returnValue = { ok: true };
   });
   // Called from beforeunload/pagehide to synchronously finish the file write
   // without depending on close/before-quit ordering or in-flight async IPC.
-  ipcMain.on('write-project-text-file-sync', (event, draft: PendingProjectEditorDraft | null) => {
+  ipcMainOn('write-project-text-file-sync', (event, draft: PendingProjectEditorDraft | null) => {
     setPendingProjectEditorDraft(draft);
     flushPendingProjectEditorDraftSync();
     event.returnValue = { ok: true };

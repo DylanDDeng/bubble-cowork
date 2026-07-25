@@ -1,5 +1,6 @@
-import { app, ipcMain, IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 // 判断是否为开发环境
 export function isDev(): boolean {
@@ -31,7 +32,59 @@ export function getDevServerUrl(): string {
 
 export const DEV_SERVER_URL = getDevServerUrl();
 
-// IPC invoke 包装器（带 frame 校验）
+type IpcSenderEvent = Pick<IpcMainEvent | IpcMainInvokeEvent, 'sender' | 'senderFrame'>;
+
+function isPathWithinRoot(root: string, target: string): boolean {
+  const relativePath = path.relative(root, target);
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith(`..${path.sep}`) &&
+      relativePath !== '..' &&
+      !path.isAbsolute(relativePath))
+  );
+}
+
+function isTrustedRendererUrl(frameUrl: string): boolean {
+  try {
+    const parsed = new URL(frameUrl);
+    const devUrl = new URL(getDevServerUrl());
+    if (isDev() && parsed.protocol === devUrl.protocol && parsed.origin === devUrl.origin) {
+      return true;
+    }
+
+    if (parsed.protocol !== 'file:') {
+      return false;
+    }
+    const uiRoot = path.resolve(app.getAppPath(), 'dist-react');
+    return isPathWithinRoot(uiRoot, path.resolve(fileURLToPath(parsed)));
+  } catch {
+    return false;
+  }
+}
+
+export function assertTrustedIpcSender(event: IpcSenderEvent): void {
+  const frame = event.senderFrame;
+  if (!frame || frame !== event.sender.mainFrame) {
+    throw new Error('Unauthorized IPC sender frame');
+  }
+  if (!isTrustedRendererUrl(frame.url)) {
+    throw new Error(`Unauthorized IPC sender URL: ${frame.url}`);
+  }
+}
+
+export function normalizeExternalUrl(url: string): string | null {
+  try {
+    const parsed = new URL(String(url ?? '').trim());
+    if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+// IPC invoke 包装器（带主 frame 与来源校验）
 export function ipcMainHandle<T>(
   channel: string,
   handler: (event: IpcMainInvokeEvent, ...args: any[]) => Promise<T> | T
@@ -39,20 +92,24 @@ export function ipcMainHandle<T>(
   // 先移除旧的 handler（避免 macOS 上窗口重新激活时重复注册）
   ipcMain.removeHandler(channel);
   ipcMain.handle(channel, async (event, ...args) => {
-    // Frame 校验
-    const frame = event.senderFrame;
-    if (!frame) {
-      throw new Error('Invalid sender frame');
-    }
-
-    const frameUrl = frame.url;
-    const isValidDev = frameUrl.startsWith(getDevServerUrl());
-    const isValidFileUi = frameUrl.startsWith('file://') && frameUrl.includes('dist-react');
-
-    if (!isValidDev && !isValidFileUi) {
-      throw new Error(`Unauthorized frame: ${frameUrl}`);
-    }
-
+    assertTrustedIpcSender(event);
     return handler(event, ...args);
+  });
+}
+
+export function ipcMainOn(
+  channel: string,
+  listener: (event: IpcMainEvent, ...args: any[]) => void | Promise<void>
+): void {
+  ipcMain.on(channel, (event, ...args) => {
+    try {
+      assertTrustedIpcSender(event);
+      void Promise.resolve(listener(event, ...args)).catch((error) => {
+        console.error(`[IPC] ${channel} failed:`, error);
+      });
+    } catch (error) {
+      console.warn(`[IPC] Blocked ${channel}:`, error);
+      event.returnValue = { ok: false, message: 'Unauthorized IPC sender.' };
+    }
   });
 }

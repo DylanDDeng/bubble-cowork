@@ -901,7 +901,10 @@ function buildKimiRailStatus(status: KimiRuntimeStatus, loading: boolean) {
 }
 
 function buildQoderRailStatus(
-  entry: { state: 'ready' | 'needs_login' | 'missing' | 'error' | 'checking'; summary: string } | undefined,
+  entry: {
+    state: 'ready' | 'needs_login' | 'needs_config' | 'missing' | 'error' | 'checking';
+    summary: string;
+  } | undefined,
   loading: boolean
 ) {
   if (loading || !entry || entry.state === 'checking') {

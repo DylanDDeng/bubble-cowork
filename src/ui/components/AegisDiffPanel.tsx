@@ -147,12 +147,12 @@ export function AegisDiffPanel({
   const [renderMode, setRenderMode] = useState<AegisDiffRenderMode>('unified');
   const [copied, setCopied] = useState(false);
   const { expandedKeys, toggleFile, collapseAll, expandAll } = useExpandedFiles(data.files, data.selection);
-  const activeTurn = useMemo(
-    () => data.selection.source.kind === 'turn'
-      ? data.turns.find((entry) => entry.key === data.selection.source.turnKey) || null
-      : null,
-    [data.selection, data.turns]
-  );
+  const activeTurn = useMemo(() => {
+    const source = data.selection.source;
+    return source.kind === 'turn'
+      ? data.turns.find((entry) => entry.key === source.turnKey) || null
+      : null;
+  }, [data.selection, data.turns]);
 
   const filteredFiles = useMemo(() => {
     const needle = query.trim().toLowerCase();

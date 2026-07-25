@@ -19,6 +19,8 @@ Thumbs.db
 
 # Local app artifacts
 .aegis/
+.aegis-preview-samples/
+dev-fixtures/qoder-m0/probe-report*.json
 
 # Logs
 *.log

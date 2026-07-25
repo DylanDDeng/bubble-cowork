@@ -294,7 +294,7 @@ function normalizeChatLayoutMode(value: unknown): ChatLayoutMode {
 }
 
 function normalizeChatPanes(
-  panes: import('../shared/types').UiResumeState['chatPanes'] | undefined,
+  panes: import('../../shared/types').UiResumeState['chatPanes'] | undefined,
   fallbackSessionId: string | null,
   layoutMode: ChatLayoutMode
 ): Record<ChatPaneId, ChatPaneState> {
@@ -319,15 +319,21 @@ function normalizeChatPanes(
 let rightUtilityFileTabCounter = 0;
 let rightUtilityBrowserTabCounter = 0;
 
-function isRightUtilityFileTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+function isRightUtilityFileTab(
+  target: ProjectUtilityPanelTarget | null | undefined
+): target is ProjectUtilityPanelTarget {
   return target === 'files' || Boolean(target?.startsWith('files:'));
 }
 
-function isRightUtilityBrowserTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+function isRightUtilityBrowserTab(
+  target: ProjectUtilityPanelTarget | null | undefined
+): target is ProjectUtilityPanelTarget {
   return target === 'browser' || Boolean(target?.startsWith('browser:'));
 }
 
-function isRightUtilitySubagentTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+function isRightUtilitySubagentTab(
+  target: ProjectUtilityPanelTarget | null | undefined
+): target is ProjectUtilityPanelTarget {
   return target === 'subagent' || Boolean(target?.startsWith('subagent:'));
 }
 
@@ -337,7 +343,7 @@ function getRightUtilityTabKind(
   if (isRightUtilityFileTab(target)) return 'files';
   if (isRightUtilityBrowserTab(target)) return 'browser';
   if (isRightUtilitySubagentTab(target)) return 'subagent';
-  return target;
+  return target as ProjectUtilityPanelKind;
 }
 
 function createRightUtilityFileTabId(): ProjectUtilityPanelTarget {
@@ -414,7 +420,7 @@ function addRightUtilityTab(
 }
 
 function getInitialRightUtilityTab(
-  resumeState: import('../shared/types').UiResumeState | null
+  resumeState: import('../../shared/types').UiResumeState | null
 ): ProjectUtilityPanelTarget | null {
   if (resumeState?.projectTreeCollapsed === false) {
     return normalizeProjectPanelView(resumeState.projectPanelView) === 'changes'
@@ -462,12 +468,15 @@ function persistUiResumeStateSnapshot(state: Pick<
     chatLayoutMode: state.chatLayoutMode,
     savedSplitVisible: state.savedSplitVisible,
     activePaneId: state.activePaneId,
-    chatPanes: state.chatPanes,
+    chatPanes: {
+      primary: { ...state.chatPanes.primary, id: 'primary' },
+      secondary: { ...state.chatPanes.secondary, id: 'secondary' },
+    },
     chatSplitRatio: state.chatSplitRatio,
   });
 }
 
-function getInitialUiResumeState(): import('../shared/types').UiResumeState | null {
+function getInitialUiResumeState(): import('../../shared/types').UiResumeState | null {
   if (typeof window === 'undefined' || !window.electron?.getUiResumeStateSync) {
     return null;
   }
@@ -516,7 +525,7 @@ function layoutPatch(layout: WorkspaceLayout) {
 // Build a fresh (unhydrated) SessionView from a server SessionInfo — used when a
 // session appears outside the normal session.list flow (e.g. forking). History
 // is loaded lazily by ChatPane once the pane mounts.
-function freshSessionViewFromInfo(info: import('../shared/types').SessionInfo): SessionView {
+function freshSessionViewFromInfo(info: import('../../shared/types').SessionInfo): SessionView {
   return {
     id: info.id,
     title: info.title,
@@ -654,7 +663,7 @@ function createDraftSessionView(
 }
 
 function normalizeProjectPanelView(
-  value: import('../shared/types').UiResumeState['projectPanelView'] | 'git' | null | undefined
+  value: import('../../shared/types').UiResumeState['projectPanelView'] | 'git' | null | undefined
 ): import('../types').ProjectPanelView {
   if (value === 'changes') {
     return value;
@@ -663,13 +672,14 @@ function normalizeProjectPanelView(
 }
 
 function resolveInitialTerminalDrawerOpen(
-  resumeState: import('../shared/types').UiResumeState | null
+  resumeState: import('../../shared/types').UiResumeState | null
 ): boolean {
   if (!resumeState) {
     return false;
   }
 
-  if (resumeState.projectPanelView === 'terminal') {
+  // Older persisted blobs used "terminal" before the drawer had its own flag.
+  if ((resumeState.projectPanelView as string) === 'terminal') {
     return true;
   }
 
@@ -728,7 +738,7 @@ function sanitizeHistoryMessages(messages: StreamMessage[]): StreamMessage[] {
 function extractLatestClaudeModelUsage(
   messages: StreamMessage[],
   preferredModel?: string | null
-): import('../shared/types').LatestClaudeModelUsage | undefined {
+): import('../../shared/types').LatestClaudeModelUsage | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message.type !== 'result' || !message.modelUsage) {
@@ -765,7 +775,7 @@ function extractLatestClaudeModelUsage(
 }
 
 export const useAppStore = create<Store>()(
-  persist(
+  persist<Store, [], [], unknown>(
     (set, get) => ({
       // 状态
       connected: false,
@@ -2925,7 +2935,7 @@ function handleStreamMessage(
     const incoming: McpServerStatus[] =
       message.type === 'mcp_status'
         ? message.servers
-        : message.mcp_servers.map((s) => ({
+        : (message.mcp_servers ?? []).map((s) => ({
             name: s.name,
             status: s.status,
             ...(s.error ? { error: s.error } : {}),

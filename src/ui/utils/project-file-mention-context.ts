@@ -89,7 +89,9 @@ function buildPreviewSection(mentionPath: string, preview: ProjectFilePreview): 
     return `File: ${mentionPath}\n[Referenced binary or unsupported file type: not inlined.]`;
   }
 
-  return `File: ${mentionPath}\n[Failed to resolve file: ${preview.message || 'Unknown error'}]`;
+  return `File: ${mentionPath}\n[Failed to resolve file: ${
+    preview.kind === 'error' ? preview.message || 'Unknown error' : 'Unknown error'
+  }]`;
 }
 
 export async function buildPromptWithProjectFileMentions(params: {

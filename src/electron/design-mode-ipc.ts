@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { designModeService } from './design-mode-service';
+import { ipcMainHandle } from './util';
 import type { DesignModeTarget } from '../shared/design-mode-types';
 
 // All IPC channels live here so both the main process and the preload bridge
@@ -35,13 +36,13 @@ export function registerDesignModeIpc(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMain.handle(DESIGN_CHANNELS.enable, (_event, input: DesignModeTarget & { projectRoot: string }) =>
+  ipcMainHandle(DESIGN_CHANNELS.enable, (_event, input: DesignModeTarget & { projectRoot: string }) =>
     designModeService.enable(input)
   );
-  ipcMain.handle(DESIGN_CHANNELS.disable, (_event, input: DesignModeTarget) =>
+  ipcMainHandle(DESIGN_CHANNELS.disable, (_event, input: DesignModeTarget) =>
     designModeService.disable(input)
   );
-  ipcMain.handle(DESIGN_CHANNELS.measureSelection, (_event, input: DesignModeTarget) =>
+  ipcMainHandle(DESIGN_CHANNELS.measureSelection, (_event, input: DesignModeTarget) =>
     designModeService.measureSelection(input)
   );
 }

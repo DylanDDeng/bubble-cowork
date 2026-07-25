@@ -89,10 +89,11 @@ export function useAegisDiffPanelData({
   }, [session?.messages]);
 
   const turnData = useMemo(() => {
-    if (effectiveSelection.source.kind !== 'turn') {
+    const source = effectiveSelection.source;
+    if (source.kind !== 'turn') {
       return null;
     }
-    const liveTurn = turnOptions.find((entry) => entry.key === effectiveSelection.source.turnKey);
+    const liveTurn = turnOptions.find((entry) => entry.key === source.turnKey);
     return parseRecordPatch(liveTurn?.summary.records || getTurnRecords(effectiveSelection));
   }, [effectiveSelection, turnOptions]);
 

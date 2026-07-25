@@ -19,7 +19,8 @@ import type {
 } from './types';
 import {
   loadPiSdk,
-  createPiAuthAndRegistry,
+  createPiModelRuntimeAndRegistry,
+  resolvePiAgentDir,
   type PiAgentMessage,
   type PiAgentSession,
   type PiAgentSessionEvent,
@@ -325,14 +326,14 @@ export class PiSdkAdapter implements ProviderAdapter {
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
     const cwd = input.cwd || process.cwd();
     const sdk = await loadPiSdk();
-    const { authStorage, modelRegistry } = createPiAuthAndRegistry(sdk);
+    const { modelRuntime, modelRegistry } = await createPiModelRuntimeAndRegistry(sdk);
     const selectedModel = this.resolveModel(modelRegistry, input.model);
     const sessionManager = await this.createSessionManager(input.resumeSessionId, cwd, sdk.SessionManager);
 
     const { session: piSession } = await sdk.createAgentSession({
       cwd,
-      authStorage,
-      modelRegistry,
+      agentDir: resolvePiAgentDir(),
+      modelRuntime,
       sessionManager,
       tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'],
       ...(selectedModel ? { model: selectedModel } : {}),
@@ -533,7 +534,7 @@ export class PiSdkAdapter implements ProviderAdapter {
       return;
     }
     const sdk = await loadPiSdk();
-    const { modelRegistry } = createPiAuthAndRegistry(sdk);
+    const { modelRegistry } = await createPiModelRuntimeAndRegistry(sdk);
     const selectedModel = this.resolveModel(modelRegistry, model);
     if (!selectedModel) {
       session.model = model;

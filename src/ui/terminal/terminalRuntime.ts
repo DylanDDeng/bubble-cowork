@@ -650,7 +650,7 @@ export function resizeRuntime(
 
 export function searchRuntime(entry: TerminalRuntimeEntry, query: string): boolean {
   if (!query) return false;
-  return entry.searchAddon.findNext(query, { decorations: true });
+  return entry.searchAddon.findNext(query);
 }
 
 export function clearRuntime(entry: TerminalRuntimeEntry): void {

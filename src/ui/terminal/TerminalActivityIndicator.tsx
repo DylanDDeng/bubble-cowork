@@ -10,5 +10,5 @@ function activityClass(activity: TerminalActivityState | null): string | null {
 export function TerminalActivityIndicator({ activity }: { activity: TerminalActivityState | null }) {
   const className = activityClass(activity);
   if (!className) return null;
-  return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${className}`} title={activity} aria-hidden="true" />;
+  return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${className}`} title={activity ?? undefined} aria-hidden="true" />;
 }

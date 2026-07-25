@@ -30,6 +30,7 @@ import type {
   BrowserTabState,
   SessionBrowserState,
 } from '../shared/browser-types';
+import { normalizeExternalUrl } from './util';
 
 const ABOUT_BLANK_URL = 'about:blank';
 const BROWSER_SESSION_PARTITION = 'persist:coworker-browser';
@@ -856,7 +857,10 @@ export class BrowserManager {
         this.navigate({ sessionId, tabId, url });
         return { action: 'deny' };
       }
-      void shell.openExternal(url);
+      const externalUrl = normalizeExternalUrl(url);
+      if (externalUrl) {
+        void shell.openExternal(externalUrl);
+      }
       return { action: 'deny' };
     });
 

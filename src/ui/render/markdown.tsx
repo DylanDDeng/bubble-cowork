@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
+import rehypeSanitize from 'rehype-sanitize';
 import type { Components } from 'react-markdown';
 import {
   BrandFigma,
@@ -662,7 +663,7 @@ function MDContentImpl({ content, className = '', allowHtml = false }: MDContent
 
   const rehypePlugins = useMemo(() => {
     const plugins: Parameters<typeof ReactMarkdown>[0]['rehypePlugins'] = allowHtml
-      ? [rehypeRaw, rehypeKatex]
+      ? [rehypeRaw, rehypeSanitize, rehypeKatex]
       : [rehypeKatex];
     return plugins;
   }, [allowHtml]);

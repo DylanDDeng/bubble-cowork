@@ -1,7 +1,12 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { PiModelConfig } from '../../shared/types';
-import { loadPiSdk, createPiAuthAndRegistry, resolvePiAgentDir, type PiModel } from './provider/pi-sdk-loader';
+import {
+  loadPiSdk,
+  createPiModelRuntimeAndRegistry,
+  resolvePiAgentDir,
+  type PiModel,
+} from './provider/pi-sdk-loader';
 
 type PiAvailableModel = PiModelConfig['availableModels'][number];
 
@@ -66,7 +71,7 @@ export async function getPiModelConfig(): Promise<PiModelConfig> {
     const sdk = await loadPiSdk();
     // Bind to the user's real Pi agent dir (see resolvePiAgentDir) rather than any empty
     // per-session overlay injected via PI_CODING_AGENT_DIR.
-    const { modelRegistry } = createPiAuthAndRegistry(sdk);
+    const { modelRegistry } = await createPiModelRuntimeAndRegistry(sdk);
     // getAvailable() returns only models with valid credentials configured.
     const registry = modelRegistry as unknown as {
       getAvailable?: () => Promise<PiModel[]> | PiModel[];

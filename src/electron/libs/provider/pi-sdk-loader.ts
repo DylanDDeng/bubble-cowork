@@ -66,19 +66,23 @@ export type PiAgentSession = {
 };
 
 export type PiSessionManager = unknown;
-export type PiAuthStorage = unknown;
 export type PiModelRegistry = {
   find(provider: string, modelId: string): PiModel | undefined;
+  getAvailable(): PiModel[];
+};
+export type PiModelRuntime = {
+  getModel(provider: string, modelId: string): PiModel | undefined;
 };
 
 export type PiSdkModule = {
   createAgentSession(options?: Record<string, unknown>): Promise<{ session: PiAgentSession }>;
-  AuthStorage: {
-    create(authPath?: string): PiAuthStorage;
+  ModelRuntime: {
+    create(options?: {
+      authPath?: string;
+      modelsPath?: string;
+    }): Promise<PiModelRuntime>;
   };
-  ModelRegistry: {
-    create(authStorage: PiAuthStorage, modelsJsonPath?: string): PiModelRegistry;
-  };
+  ModelRegistry: new (modelRuntime: PiModelRuntime) => PiModelRegistry;
   SessionManager: {
     create(cwd: string, sessionDir?: string, options?: { id?: string }): PiSessionManager;
     open(path: string, sessionDir?: string, cwdOverride?: string): PiSessionManager;
@@ -91,6 +95,7 @@ const importEsm = new Function('specifier', 'return import(specifier)') as (
 ) => Promise<PiSdkModule>;
 
 let sdkPromise: Promise<PiSdkModule> | null = null;
+let modelRuntimePromise: Promise<PiModelRuntime> | null = null;
 
 function ensurePiSdkNodeCompat(): void {
   try {
@@ -134,17 +139,30 @@ export function resolvePiAgentDir(): string {
   return join(homedir(), '.pi', 'agent');
 }
 
-// Create Pi's AuthStorage + ModelRegistry bound to the real agent dir (see resolvePiAgentDir).
-export function createPiAuthAndRegistry(sdk: PiSdkModule): {
-  authStorage: PiAuthStorage;
+// Create Pi's canonical ModelRuntime + compatibility registry bound to the real
+// agent dir (see resolvePiAgentDir). Pi 0.80 removed AuthStorage from its public
+// SDK and now requires callers to pass the shared runtime into each session.
+export async function createPiModelRuntimeAndRegistry(sdk: PiSdkModule): Promise<{
+  modelRuntime: PiModelRuntime;
   modelRegistry: PiModelRegistry;
-} {
+}> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { join } = require('node:path') as { join: (...parts: string[]) => string };
   const agentDir = resolvePiAgentDir();
-  const authStorage = sdk.AuthStorage.create(join(agentDir, 'auth.json'));
-  const modelRegistry = sdk.ModelRegistry.create(authStorage, join(agentDir, 'models.json'));
-  return { authStorage, modelRegistry };
+  if (!modelRuntimePromise) {
+    modelRuntimePromise = sdk.ModelRuntime.create({
+      authPath: join(agentDir, 'auth.json'),
+      modelsPath: join(agentDir, 'models.json'),
+    });
+    modelRuntimePromise.catch(() => {
+      modelRuntimePromise = null;
+    });
+  }
+  const modelRuntime = await modelRuntimePromise;
+  return {
+    modelRuntime,
+    modelRegistry: new sdk.ModelRegistry(modelRuntime),
+  };
 }
 
 let proxyDispatcherApplied = false;

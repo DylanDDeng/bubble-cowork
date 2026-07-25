@@ -220,7 +220,7 @@ function validateManagedWrapper() {
   assert.equal(fs.existsSync(path.join(prepared.zshDotDir, '.zshenv')), true);
 
   const codex = spawnSync(path.join(prepared.wrapperBinDir, 'codex'), [], {
-    env: prepared.env,
+    env: { ...prepared.env, AEGIS_TERMINAL_OSC_STDOUT: '1' },
     encoding: 'utf8',
   });
   assert.equal(codex.status, 0);
@@ -229,7 +229,7 @@ function validateManagedWrapper() {
   assert.equal(codex.stdout.includes('FAKE_codex'), true);
 
   const claude = spawnSync(path.join(prepared.wrapperBinDir, 'claude'), [], {
-    env: prepared.env,
+    env: { ...prepared.env, AEGIS_TERMINAL_OSC_STDOUT: '1' },
     encoding: 'utf8',
   });
   assert.equal(claude.status, 0);

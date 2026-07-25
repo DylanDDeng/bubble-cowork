@@ -133,7 +133,7 @@ import {
   searchSkillMarket,
 } from './libs/skill-market';
 import * as folderConfig from './libs/folder-config';
-import { ipcMainHandle, isDev } from './util';
+import { ipcMainHandle, ipcMainOn, isDev, normalizeExternalUrl } from './util';
 import { getHistorySourceForSession, toUnifiedSessionRecord } from './libs/history/registry';
 import {
   SESSION_SUMMARY_CHUNK_MAX_CHARS,
@@ -4891,7 +4891,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   // 处理客户端事件
   ipcMain.removeAllListeners('client-event');
-  ipcMain.on('client-event', async (_, eventJson: string) => {
+  ipcMainOn('client-event', async (_, eventJson: string) => {
     try {
       const event: ClientEvent = JSON.parse(eventJson);
       await handleClientEvent(mainWindow, event);
@@ -7908,8 +7908,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('open-external-url', async (_event, url: string) => {
+    const externalUrl = normalizeExternalUrl(url);
+    if (!externalUrl) {
+      return { ok: false, message: 'Only HTTP, HTTPS, and mailto links can be opened.' };
+    }
     try {
-      await shell.openExternal(url);
+      await shell.openExternal(externalUrl);
       return { ok: true };
     } catch (error) {
       return { ok: false, message: String(error) };

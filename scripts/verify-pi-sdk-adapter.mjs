@@ -18,6 +18,8 @@ assert.ok(
     loader.includes('@earendil-works/pi-coding-agent') &&
     loader.includes('createAgentSession') &&
     loader.includes('SessionManager') &&
+    loader.includes('ModelRuntime.create') &&
+    loader.includes('new sdk.ModelRegistry(modelRuntime)') &&
     loader.includes('markAsUncloneable'),
   'Pi SDK loader must dynamically import the SDK and expose session APIs'
 );
@@ -25,8 +27,10 @@ assert.ok(
 const adapter = read('src/electron/libs/provider/pi-sdk-adapter.ts');
 assert.ok(
   adapter.includes("readonly provider: ProviderKind = 'pi'") &&
-    adapter.includes("tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']"),
-  'Pi adapter must register provider=pi and pass the SDK tool allowlist'
+    adapter.includes("tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']") &&
+    adapter.includes('modelRuntime') &&
+    adapter.includes('agentDir: resolvePiAgentDir()'),
+  'Pi adapter must register provider=pi and pass the SDK runtime, agent dir, and tool allowlist'
 );
 assert.ok(
   adapter.includes('SessionManager.list(cwd)') &&

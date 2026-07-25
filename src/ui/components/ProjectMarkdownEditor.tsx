@@ -25,6 +25,7 @@ import {
   historyKeymap,
 } from '@codemirror/commands';
 import {
+  ChevronDown,
   ChevronUp,
   Plus,
   X,

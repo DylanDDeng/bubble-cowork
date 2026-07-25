@@ -108,7 +108,7 @@ fi
 
 aegis_terminal_osc_event() {
   event="$1"
-  if [ -e /dev/tty ]; then
+  if [ "\${AEGIS_TERMINAL_OSC_STDOUT:-0}" != "1" ] && [ -e /dev/tty ]; then
     { printf '\\033]${OSC_PREFIX}%s\\007' "$event" > /dev/tty; } 2>/dev/null || printf '\\033]${OSC_PREFIX}%s\\007' "$event"
   else
     printf '\\033]${OSC_PREFIX}%s\\007' "$event"
@@ -268,7 +268,7 @@ export AEGIS_REAL_AGENT_CLI=${shellQuote(realExecutable)}
 
 aegis_terminal_osc_event() {
   event="$1"
-  if [ -e /dev/tty ]; then
+  if [ "\${AEGIS_TERMINAL_OSC_STDOUT:-0}" != "1" ] && [ -e /dev/tty ]; then
     { printf '\\033]${OSC_PREFIX}%s\\007' "$event" > /dev/tty; } 2>/dev/null || printf '\\033]${OSC_PREFIX}%s\\007' "$event"
   else
     printf '\\033]${OSC_PREFIX}%s\\007' "$event"

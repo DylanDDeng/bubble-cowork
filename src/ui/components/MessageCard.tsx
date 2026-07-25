@@ -67,6 +67,7 @@ interface MessageCardProps {
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
     onResend: (prompt: string, attachments?: Attachment[]) => void;
+    onRewind?: () => void;
   };
 }
 

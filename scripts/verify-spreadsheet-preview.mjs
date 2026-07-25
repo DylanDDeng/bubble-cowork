@@ -54,6 +54,9 @@ assert.ok(parserRun.stdout.includes('parser assertions passed'), 'parser test mu
 
 const xlsxTest = `
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import ExcelJS from 'exceljs';
 import { workbookToSheets } from ${JSON.stringify(
   path.join(root, 'src/ui/utils/xlsx-preview.ts')
@@ -83,6 +86,18 @@ assert.equal(sheets[0].rows[2][0], 'bold-part');
 assert.equal(sheets[0].rows[2][1], '6');
 assert.equal(sheets[1].name, 'Empty');
 assert.deepEqual(sheets[1].rows, []);
+
+// ExcelJS still calls the pre-v8 archiver API. The install-time compatibility
+// patch must preserve streaming workbook output with the secured dependency.
+const streamPath = path.join(os.tmpdir(), \`aegis-exceljs-\${process.pid}.xlsx\`);
+const streamWb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: streamPath });
+const streamSheet = streamWb.addWorksheet('Stream');
+streamSheet.addRow(['ok']).commit();
+await streamWb.commit();
+const streamed = new ExcelJS.Workbook();
+await streamed.xlsx.readFile(streamPath);
+assert.equal(streamed.getWorksheet('Stream').getCell('A1').value, 'ok');
+await fs.unlink(streamPath);
 
 console.log('xlsx roundtrip passed');
 `;

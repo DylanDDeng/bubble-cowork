@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { sendEvent } from './useIPC';
 import { useAppStore } from '../store/useAppStore';
 import type { ClaudeSkillSummary, StreamMessage } from '../types';
-import type { ClaudeSlashSuggestion } from '../utils/claude-slash';
+import type { ClaudeSlashCommand, ClaudeSlashSuggestion } from '../utils/claude-slash';
 import {
   parseSelectedSkillPrompt,
   getSessionSkillNames,
@@ -43,10 +43,10 @@ function formatCapabilityDisplayName(skill: ClaudeSkillSummary): string {
 }
 
 function mergeSlashCommands(
-  commands: ClaudeSlashSuggestion['command'][]
-): ClaudeSlashSuggestion['command'][] {
+  commands: ClaudeSlashCommand[]
+): ClaudeSlashCommand[] {
   const seen = new Set<string>();
-  const result: ClaudeSlashSuggestion['command'][] = [];
+  const result: ClaudeSlashCommand[] = [];
 
   for (const command of commands) {
     const key = normalizeCapabilityName(command.name);

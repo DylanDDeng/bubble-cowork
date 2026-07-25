@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { browserManager } from './browserManager';
 import { designModeService } from './design-mode-service';
+import { ipcMainHandle } from './util';
 import type {
   BrowserNavigateInput,
   BrowserNewTabInput,
@@ -75,59 +76,59 @@ export function registerBrowserIpc(mainWindow: BrowserWindow): void {
     browserManager.setWindow(null);
   });
 
-  ipcMain.handle(BROWSER_CHANNELS.open, (_event, input: BrowserOpenInput) =>
+  ipcMainHandle(BROWSER_CHANNELS.open, (_event, input: BrowserOpenInput) =>
     browserManager.open(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.close, async (_event, input: BrowserSessionInput) => {
+  ipcMainHandle(BROWSER_CHANNELS.close, async (_event, input: BrowserSessionInput) => {
     // Drain design mode first: close destroys the WebContentsView, and a
     // just-submitted annotation would die in the in-page queue with it.
     await designModeService.disableForBrowserSession(input.sessionId);
     return browserManager.close(input);
   });
-  ipcMain.handle(BROWSER_CHANNELS.hide, (_event, input: BrowserSessionInput) => {
+  ipcMainHandle(BROWSER_CHANNELS.hide, (_event, input: BrowserSessionInput) => {
     browserManager.hide(input);
     return browserManager.getState(input);
   });
-  ipcMain.handle(BROWSER_CHANNELS.getState, (_event, input: BrowserSessionInput) =>
+  ipcMainHandle(BROWSER_CHANNELS.getState, (_event, input: BrowserSessionInput) =>
     browserManager.getState(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.setPanelBounds, (_event, input: BrowserSetPanelBoundsInput) =>
+  ipcMainHandle(BROWSER_CHANNELS.setPanelBounds, (_event, input: BrowserSetPanelBoundsInput) =>
     browserManager.setPanelBounds(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.navigate, async (_event, input: BrowserNavigateInput) => {
+  ipcMainHandle(BROWSER_CHANNELS.navigate, async (_event, input: BrowserNavigateInput) => {
     await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
     return browserManager.navigate(input);
   });
-  ipcMain.handle(BROWSER_CHANNELS.reload, async (_event, input: BrowserTabInput) => {
+  ipcMainHandle(BROWSER_CHANNELS.reload, async (_event, input: BrowserTabInput) => {
     await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
     return browserManager.reload(input);
   });
-  ipcMain.handle(BROWSER_CHANNELS.goBack, async (_event, input: BrowserTabInput) => {
+  ipcMainHandle(BROWSER_CHANNELS.goBack, async (_event, input: BrowserTabInput) => {
     await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
     return browserManager.goBack(input);
   });
-  ipcMain.handle(BROWSER_CHANNELS.goForward, async (_event, input: BrowserTabInput) => {
+  ipcMainHandle(BROWSER_CHANNELS.goForward, async (_event, input: BrowserTabInput) => {
     await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
     return browserManager.goForward(input);
   });
-  ipcMain.handle(BROWSER_CHANNELS.newTab, (_event, input: BrowserNewTabInput) =>
+  ipcMainHandle(BROWSER_CHANNELS.newTab, (_event, input: BrowserNewTabInput) =>
     browserManager.newTab(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.closeTab, async (_event, input: BrowserTabInput) => {
+  ipcMainHandle(BROWSER_CHANNELS.closeTab, async (_event, input: BrowserTabInput) => {
     await designModeService.disableForBrowserSession(input.sessionId, input.tabId);
     return browserManager.closeTab(input);
   });
-  ipcMain.handle(BROWSER_CHANNELS.selectTab, (_event, input: BrowserTabInput) =>
+  ipcMainHandle(BROWSER_CHANNELS.selectTab, (_event, input: BrowserTabInput) =>
     browserManager.selectTab(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.openDevTools, (_event, input: BrowserTabInput) => {
+  ipcMainHandle(BROWSER_CHANNELS.openDevTools, (_event, input: BrowserTabInput) => {
     browserManager.openDevTools(input);
     return browserManager.getState({ sessionId: input.sessionId });
   });
-  ipcMain.handle(BROWSER_CHANNELS.capture, (_event, input: BrowserTabInput) =>
+  ipcMainHandle(BROWSER_CHANNELS.capture, (_event, input: BrowserTabInput) =>
     browserManager.capturePage(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.readPage, (_event, input: BrowserTabInput) =>
+  ipcMainHandle(BROWSER_CHANNELS.readPage, (_event, input: BrowserTabInput) =>
     browserManager.readPageContent(input)
   );
 }

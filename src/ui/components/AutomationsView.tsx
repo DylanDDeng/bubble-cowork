@@ -244,7 +244,7 @@ export function AutomationsView() {
     });
   }, []);
 
-  const modelOptions = useMemo(() => {
+  const modelOptions = useMemo<Partial<Record<AgentProvider, string[]>>>(() => {
     const unique = (items: Array<string | null | undefined>) =>
       Array.from(new Set(items.map((item) => item?.trim()).filter((item): item is string => Boolean(item))));
     return {
@@ -265,7 +265,7 @@ export function AutomationsView() {
         ...opencodeConfig.options,
       ]),
       grok: unique([]),
-    } satisfies Record<AgentProvider, string[]>;
+    };
   }, [claudeConfig, codexConfig, kimiConfig, opencodeConfig]);
 
   const projectOptions = useMemo(
@@ -274,7 +274,7 @@ export function AutomationsView() {
   );
 
   const openNewDialog = (template?: (typeof TEMPLATES)[number]) => {
-    const defaultModel = modelOptions.claude[0] || '';
+    const defaultModel = modelOptions.claude?.[0] || '';
     setForm({
       ...createEmptyForm(projectCwd || projectOptions[0] || '', defaultModel),
       ...(template
