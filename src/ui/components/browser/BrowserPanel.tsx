@@ -1,6 +1,6 @@
 // Per-session in-app browser panel.
 //
-// Architecture (adapted from dpcode's BrowserPanel.tsx):
+// Architecture (adapted from Synara's, formerly dpcode, BrowserPanel.tsx):
 // - Main process owns the actual Chromium WebContentsView. This component only
 //   renders chrome (address bar, tab strip, buttons) and reserves a viewport
 //   div whose bounds are forwarded to the main process so the native view is

@@ -1,5 +1,6 @@
 // Address bar sync rules and navigation normalization for the in-app browser.
-// Ported from dpcode (Emanuele-web04/dpcode) BrowserPanel.logic.ts.
+// Adapted from Synara (formerly dpcode; Emanuele-web04/synara)
+// BrowserPanel.logic.ts.
 
 import type { BrowserTabState } from '../../../shared/browser-types';
 

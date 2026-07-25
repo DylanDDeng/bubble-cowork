@@ -223,7 +223,7 @@ export class CodexAdapter implements ProviderAdapter {
   private static readonly STREAMING_TEXT_COALESCE_MS = 100;
   // Per-thread streaming accumulator. Codex emits agent text as token-level
   // deltas; expose those deltas through one stable assistant message id so the
-  // transcript grows in place like dpcode instead of replacing full snapshots.
+  // transcript grows in place like Synara instead of replacing full snapshots.
   private streamingText = new Map<string, StreamingTextState>();
   private streamingThinking = new Map<string, StreamingThinkingState>();
   // Latest context-window occupancy per thread, so a compaction event can

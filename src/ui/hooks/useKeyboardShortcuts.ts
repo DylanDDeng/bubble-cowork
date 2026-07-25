@@ -33,7 +33,7 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Cmd/Ctrl + B: 切换左侧 thread sidebar，和 dpcode 的 sidebar.toggle 行为保持一致
+      // Cmd/Ctrl + B: 切换左侧 thread sidebar，与 Synara 的 sidebar.toggle 行为保持一致
       if (isMod && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         setSidebarCollapsed(!sidebarCollapsed);

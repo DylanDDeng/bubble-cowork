@@ -4,7 +4,7 @@ import { rendererStateStorage } from '../utils/renderer-state-storage';
 
 // Stores lightweight browser metadata per session (tabs list, recent history)
 // so the chrome can render immediately on session switch before the main
-// process sends its live state. Based on dpcode's browserStateStore.
+// process sends its live state. Adapted from Synara's browserStateStore.
 const BROWSER_STATE_STORAGE_KEY = 'coworker:browser-state:v1';
 const BROWSER_HISTORY_LIMIT = 12;
 

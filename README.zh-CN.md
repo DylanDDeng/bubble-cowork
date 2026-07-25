@@ -169,8 +169,11 @@ build/              # 应用图标与打包资源
 ## 许可证
 
 Aegis 使用 [MIT License](LICENSE) 发布。
+第三方代码与来源声明记录在
+[第三方声明](THIRD_PARTY_NOTICES.md) 中。
 
 ## 致谢
 
 - [Codex](https://openai.com/codex/)：感谢它带来的产品与界面设计灵感。
+- [Synara](https://github.com/Emanuele-web04/synara)（原 dpcode）：感谢其在 Aegis 部分功能中使用的开源实现思路。
 - 感谢 Claude Code、Kimi Code、OpenCode、Grok、Pi、Qoder、MCP 以及整个 Coding Agent 生态中的开发者和社区。

@@ -169,8 +169,11 @@ When contributing, please:
 ## License
 
 Aegis is released under the [MIT License](LICENSE).
+Third-party code and attributions are documented in
+[Third-Party Notices](THIRD_PARTY_NOTICES.md).
 
 ## Acknowledgements
 
 - [Codex](https://openai.com/codex/) for the product and interface inspiration described above.
+- [Synara](https://github.com/Emanuele-web04/synara), formerly dpcode, for open-source implementation patterns used in parts of Aegis.
 - The teams and communities behind Claude Code, Kimi Code, OpenCode, Grok, Pi, Qoder, MCP, and the broader coding-agent ecosystem.

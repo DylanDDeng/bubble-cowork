@@ -1,5 +1,5 @@
 // 浏览器面板共享类型（主进程 + 渲染进程通用）
-// 设计参考 dpcode (Emanuele-web04/dpcode) 的 ThreadBrowserState，
+// 基于 Synara（原 dpcode，Emanuele-web04/synara）的 ThreadBrowserState 适配，
 // 并与本项目以 sessionId 为粒度的会话绑定。
 
 export type BrowserTabStatus = 'live' | 'suspended';

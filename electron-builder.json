@@ -9,6 +9,8 @@
     "dist-electron/**/*",
     "dist-react/**/*",
     "package.json",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "node_modules/**/*",
     "!node_modules/@anthropic-ai/claude-agent-sdk-*",
     "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",

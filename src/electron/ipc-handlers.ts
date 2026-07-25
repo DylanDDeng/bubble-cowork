@@ -2047,7 +2047,7 @@ function buildHistoryTranscript(history: StreamMessage[]): string {
   return entries.join('\n\n').trim();
 }
 
-// Provider-handoff bootstrap (ported from synara's thread handoff): the first
+// Provider-handoff bootstrap (adapted from Synara's thread handoff): the first
 // prompt of a handoff session carries the imported transcript — recent turns
 // nearly verbatim, earlier turns as one-line bullets — inside a char budget.
 const HANDOFF_RECENT_MESSAGE_COUNT = 6;
@@ -5096,7 +5096,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   // Provider handoff: sessions are locked to one agent; switching creates a
   // new session for the target provider that imports the transcript and
-  // injects it as context on the first prompt (synara-style thread handoff).
+  // injects it as context on the first prompt (Synara-style thread handoff).
   ipcMainHandle(
     'session-handoff',
     async (

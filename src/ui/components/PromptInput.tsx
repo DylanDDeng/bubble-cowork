@@ -327,7 +327,7 @@ export function PromptInput({
 
   // Sessions are locked to their agent once a conversation exists — switching
   // goes through an explicit handoff that carries the transcript to a new
-  // session for the target provider (synara-style thread handoff).
+  // session for the target provider (Synara-style thread handoff).
   const [handoffTarget, setHandoffTarget] = useState<AgentProvider | null>(null);
   const [handoffBusy, setHandoffBusy] = useState(false);
   const sessionProviderLocked = Boolean(

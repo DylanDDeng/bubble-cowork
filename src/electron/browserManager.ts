@@ -1,6 +1,7 @@
 // Per-session in-app browser manager.
 //
-// Based on dpcode (Emanuele-web04/dpcode) DesktopBrowserManager design but
+// Adapted from Synara (formerly dpcode; Emanuele-web04/synara)
+// DesktopBrowserManager, but
 // scoped to `sessionId` (each browser page has its own WebContentsView
 // lifecycle). Adds screenshot + page readout (text / links / selection) for
 // Agent integration.

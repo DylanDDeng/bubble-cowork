@@ -937,7 +937,7 @@ function ErrorRow({
   );
 }
 
-// ── Tool/task/memory row (the compact dpcode-style line) ────────────────────
+// ── Tool/task/memory row (the compact Synara-style line) ────────────────────
 
 function ToolRow({
   entry,

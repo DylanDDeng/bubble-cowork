@@ -1,7 +1,7 @@
 /**
  * Provider Adapter Architecture
  *
- * Inspired by T3Code/dpcode's ProviderAdapter pattern, adapted for Aegis's
+ * Adapted from Synara's (formerly dpcode) ProviderAdapter pattern for Aegis's
  * Electron architecture without Effect-TS.
  *
  * Core concepts:

@@ -82,7 +82,7 @@ export function getToolSummary(name: string, input: unknown): string {
 // ── Readable display ────────────────────────────────────────────────────────
 // Humanized "verb + target" rendering for tool calls. Verb conjugates with
 // status so the live spinner reads "Reading file.ts" while the completed entry
-// reads "Read file.ts". Inspired by dpcode's deriveReadableCommandDisplay.
+// reads "Read file.ts". Inspired by Synara's deriveReadableCommandDisplay.
 
 export interface ReadableToolDisplay {
   verb: string;
