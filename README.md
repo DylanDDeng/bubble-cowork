@@ -15,6 +15,7 @@
 <p align="center">
   <a href="https://github.com/DylanDDeng/bubble-cowork/stargazers"><img src="https://img.shields.io/github/stars/DylanDDeng/bubble-cowork?style=flat-square" alt="GitHub stars" /></a>
   <a href="https://github.com/DylanDDeng/bubble-cowork/releases/latest"><img src="https://img.shields.io/github/v/release/DylanDDeng/bubble-cowork?style=flat-square" alt="Latest release" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/DylanDDeng/bubble-cowork?style=flat-square" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/macOS-primary-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS primary platform" />
   <img src="https://img.shields.io/badge/Windows-experimental-2563eb?style=flat-square&logo=windows&logoColor=white" alt="Windows experimental support" />
 </p>
@@ -164,6 +165,10 @@ When contributing, please:
 - Add or update verification coverage for runtime and state-management changes.
 - Avoid committing local credentials, generated probe reports, or account metadata.
 - Use concise commit messages in the `<type>: <subject>` format.
+
+## License
+
+Aegis is released under the [MIT License](LICENSE).
 
 ## Acknowledgements
 

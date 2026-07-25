@@ -15,6 +15,7 @@
 <p align="center">
   <a href="https://github.com/DylanDDeng/bubble-cowork/stargazers"><img src="https://img.shields.io/github/stars/DylanDDeng/bubble-cowork?style=flat-square" alt="GitHub stars" /></a>
   <a href="https://github.com/DylanDDeng/bubble-cowork/releases/latest"><img src="https://img.shields.io/github/v/release/DylanDDeng/bubble-cowork?style=flat-square" alt="Latest release" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/DylanDDeng/bubble-cowork?style=flat-square" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/macOS-主要平台-111827?style=flat-square&logo=apple&logoColor=white" alt="macOS 主要平台" />
   <img src="https://img.shields.io/badge/Windows-实验性支持-2563eb?style=flat-square&logo=windows&logoColor=white" alt="Windows 实验性支持" />
 </p>
@@ -164,6 +165,10 @@ build/              # 应用图标与打包资源
 - Runtime 与状态管理相关改动应补充或更新验证覆盖。
 - 不要提交本地凭据、生成的探测报告或账号元数据。
 - 使用简洁的 `<type>: <subject>` 格式编写 Commit Message。
+
+## 许可证
+
+Aegis 使用 [MIT License](LICENSE) 发布。
 
 ## 致谢
 
