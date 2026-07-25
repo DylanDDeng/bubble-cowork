@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import { readFileSync } from 'fs';
 import { createServer } from 'net';
@@ -97,6 +97,7 @@ export interface KimiServerTransport {
   fetchImpl?: typeof fetch;
   createWebSocket?: (url: string, headers: Record<string, string>) => KimiWebSocketLike;
   spawnDaemon?: (binary: string, args: string[]) => KimiDaemonChildLike;
+  resolveDaemonArgs?: (binary: string, port: number) => Promise<string[]>;
   resolveBinary?: () => Promise<string | null>;
   readTokenFile?: () => string | null;
 }
@@ -112,6 +113,91 @@ const TOKEN_LINE_REGEX = /^\s*Token:\s+(\S+)\s*$/m;
 const ALREADY_RUNNING_REGEX = /server already running \(pid=(\d+), port=(\d+)/;
 
 export const KIMI_SERVER_TOKEN_PATH = path.join(homedir(), '.kimi-code', 'server.token');
+
+export type KimiDaemonCommandKind = 'web' | 'legacy-server';
+
+export interface KimiDaemonCommandProbeOutcome {
+  definitive: boolean;
+  capable: boolean;
+  command: KimiDaemonCommandKind | null;
+}
+
+export interface KimiCommandHelpResult {
+  ok: boolean;
+  definitive: boolean;
+  output: string;
+}
+
+export type KimiCommandHelpRunner = (binary: string, args: string[]) => Promise<KimiCommandHelpResult>;
+
+function defaultKimiCommandHelpRunner(binary: string, args: string[]): Promise<KimiCommandHelpResult> {
+  return new Promise((resolve) => {
+    execFile(binary, args, { timeout: 5_000, env: buildKimiEnv() }, (error, stdout, stderr) => {
+      const output = `${stdout || ''}${stderr || ''}`;
+      if (!error) {
+        resolve({ ok: true, definitive: true, output });
+        return;
+      }
+      const err = error as NodeJS.ErrnoException & { killed?: boolean };
+      resolve({
+        ok: false,
+        definitive: typeof err.code === 'number' && err.killed !== true,
+        output,
+      });
+    });
+  });
+}
+
+/**
+ * Detect the foreground REST/WS command exposed by the installed CLI.
+ * Kimi Code 0.28 replaced `server run --foreground` with `web --no-open`;
+ * the deprecated `server --help` still exits successfully and mentions the
+ * word "run" in prose, so capability checks must match command rows/flags.
+ */
+export async function probeKimiDaemonCommand(
+  binary: string,
+  runHelp: KimiCommandHelpRunner = defaultKimiCommandHelpRunner
+): Promise<KimiDaemonCommandProbeOutcome> {
+  const web = await runHelp(binary, ['web', '--help']);
+  if (web.ok && web.output.includes('--port') && web.output.includes('--no-open')) {
+    return { definitive: true, capable: true, command: 'web' };
+  }
+
+  const legacy = await runHelp(binary, ['server', '--help']);
+  if (legacy.ok && /^\s*run(?:\s|$)/m.test(legacy.output)) {
+    return { definitive: true, capable: true, command: 'legacy-server' };
+  }
+
+  return {
+    definitive: web.definitive && legacy.definitive,
+    capable: false,
+    command: null,
+  };
+}
+
+export function buildKimiDaemonArgs(command: KimiDaemonCommandKind, port: number): string[] {
+  if (command === 'web') {
+    return ['web', '--no-open', '--port', String(port)];
+  }
+  return ['server', 'run', '--foreground', '--port', String(port)];
+}
+
+async function defaultResolveDaemonArgs(binary: string, port: number): Promise<string[]> {
+  const probe = await probeKimiDaemonCommand(binary);
+  if (!probe.definitive) {
+    throw new KimiServerTransportError(
+      'daemon_unavailable',
+      'could not determine the installed Kimi Code local-server command'
+    );
+  }
+  if (!probe.capable || !probe.command) {
+    throw new KimiServerTransportError(
+      'daemon_unavailable',
+      'the installed Kimi Code CLI exposes neither `kimi web` nor the legacy `kimi server run` command'
+    );
+  }
+  return buildKimiDaemonArgs(probe.command, port);
+}
 
 function defaultReadTokenFile(): string | null {
   try {
@@ -216,6 +302,7 @@ export class KimiServerManager extends EventEmitter {
   private readonly fetchImpl: typeof fetch;
   private readonly createWebSocketImpl: (url: string, headers: Record<string, string>) => KimiWebSocketLike;
   private readonly spawnDaemonImpl: (binary: string, args: string[]) => KimiDaemonChildLike;
+  private readonly resolveDaemonArgsImpl: (binary: string, port: number) => Promise<string[]>;
   private readonly resolveBinaryImpl: () => Promise<string | null>;
   private readonly readTokenFileImpl: () => string | null;
 
@@ -235,6 +322,13 @@ export class KimiServerManager extends EventEmitter {
           env: buildKimiEnv(),
           stdio: ['ignore', 'pipe', 'pipe'],
         }) as unknown as KimiDaemonChildLike);
+    // Injected daemon spawners are test seams built around the legacy argv.
+    // Production probes the installed CLI so 0.28+ selects `kimi web`.
+    this.resolveDaemonArgsImpl =
+      transport.resolveDaemonArgs ||
+      (transport.spawnDaemon
+        ? async (_binary, port) => buildKimiDaemonArgs('legacy-server', port)
+        : defaultResolveDaemonArgs);
     this.resolveBinaryImpl = transport.resolveBinary || resolveKimiBinary;
     this.readTokenFileImpl = transport.readTokenFile || defaultReadTokenFile;
   }
@@ -278,13 +372,8 @@ export class KimiServerManager extends EventEmitter {
     if (this.stopped) {
       throw new KimiServerTransportError('daemon_unavailable', 'manager stopped');
     }
-    const child = this.spawnDaemonImpl(binary, [
-      'server',
-      'run',
-      '--foreground',
-      '--port',
-      String(port),
-    ]);
+    const daemonArgs = await this.resolveDaemonArgsImpl(binary, port);
+    const child = this.spawnDaemonImpl(binary, daemonArgs);
     this.pendingSpawnChild = child;
 
     let stdout = '';

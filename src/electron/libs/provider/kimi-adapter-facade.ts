@@ -1,9 +1,8 @@
-import { execFile } from 'child_process';
 import { EventEmitter } from 'events';
 import { KimiAcpAdapter } from './kimi-acp-adapter';
 import { KimiServerAdapter } from './kimi-server-adapter';
-import type { KimiServerTransport } from './kimi-server-manager';
-import { buildKimiEnv, resolveKimiBinary } from '../kimi-cli';
+import { probeKimiDaemonCommand, type KimiServerTransport } from './kimi-server-manager';
+import { resolveKimiBinary } from '../kimi-cli';
 import type {
   ProviderAdapter,
   ProviderAdapterCapabilities,
@@ -29,10 +28,10 @@ import type {
  * created it — the ACP↔server session spaces are disjoint (M0 probe D).
  *
  * The default runtime for NEW threads is capability-based and deterministic:
- * `kimi server` subcommand present ⇒ server; `AEGIS_KIMI_RUNTIME=acp|server`
- * overrides (dev-only escape hatch). A transient boot failure of a capable
- * CLI surfaces an error — it must NOT flip the thread to ACP (flapping
- * corrupts resume ids).
+ * `kimi web` or legacy `kimi server run` present ⇒ server;
+ * `AEGIS_KIMI_RUNTIME=acp|server` overrides (dev-only escape hatch). A
+ * transient boot failure of a capable CLI surfaces an error — it must NOT
+ * flip the thread to ACP (flapping corrupts resume ids).
  */
 
 export type KimiRuntimeKind = 'acp' | 'server';
@@ -59,7 +58,7 @@ let serverCapableProbe: Promise<KimiCapabilityProbeOutcome> | null = null;
 let lastDefinitiveServerCapable: boolean | null = null;
 let probeImpl: KimiCapabilityProbeFn = defaultCapabilityProbe;
 
-/** Test seam (L1): replace/restore the execFile-backed probe. */
+/** Test seam (L1): replace/restore the CLI-backed probe. */
 export function setKimiCapabilityProbeForTests(impl: KimiCapabilityProbeFn | null): void {
   probeImpl = impl || defaultCapabilityProbe;
   serverCapableProbe = null;
@@ -74,26 +73,8 @@ function defaultCapabilityProbe(): Promise<KimiCapabilityProbeOutcome> {
       // re-probe on the next ask instead of pinning a stale verdict.
       return { definitive: false, capable: false };
     }
-    return new Promise<KimiCapabilityProbeOutcome>((resolve) => {
-      execFile(
-        binary,
-        ['server', '--help'],
-        { timeout: 5_000, env: buildKimiEnv() },
-        (error, stdout, stderr) => {
-          const output = `${stdout || ''}${stderr || ''}`;
-          if (!error) {
-            resolve({ definitive: true, capable: /\brun\b/.test(output) });
-            return;
-          }
-          const err = error as NodeJS.ErrnoException & { killed?: boolean };
-          // A clean non-zero exit (numeric code) means the CLI ran and
-          // rejected the subcommand — a definitive NO for old CLIs. Timeouts
-          // (killed) and spawn errors (string code / no code) prove nothing.
-          const definitive = typeof err.code === 'number' && err.killed !== true;
-          resolve({ definitive, capable: false });
-        }
-      );
-    });
+    const outcome = await probeKimiDaemonCommand(binary);
+    return { definitive: outcome.definitive, capable: outcome.capable };
   })();
 }
 
@@ -121,9 +102,10 @@ function runCapabilityProbe(): Promise<KimiCapabilityProbeOutcome> {
 }
 
 /**
- * Deterministic capability probe: does this CLI ship the `server` subcommand?
- * (Not a version allowlist — unknown versions pass if the capability exists.)
- * Soft form: indeterminate reads as `false` for THIS call but is not cached.
+ * Deterministic capability probe: does this CLI ship `kimi web` or the
+ * legacy `kimi server run` command? (Not a version allowlist — unknown
+ * versions pass if the capability exists.) Soft form: indeterminate reads as
+ * `false` for THIS call but is not cached.
  */
 export async function isKimiServerCapable(): Promise<boolean> {
   return (await runCapabilityProbe()).capable;

@@ -26,6 +26,8 @@ const {
   KimiServerManager,
   KimiServerApiError,
   KimiServerTransportError,
+  probeKimiDaemonCommand,
+  buildKimiDaemonArgs,
 } = require('../dist-electron/electron/libs/provider/kimi-server-manager.js');
 const {
   KimiServerAdapter,
@@ -1783,6 +1785,53 @@ async function l1CapabilityProbeCache() {
   ok('capability probe: indeterminate never cached, loud start fail, sync default (F7/F12)');
 }
 
+async function l1DaemonCommandCompatibility() {
+  const webCalls = [];
+  const web = await probeKimiDaemonCommand('/fake/kimi', async (_binary, args) => {
+    webCalls.push(args);
+    return {
+      ok: true,
+      definitive: true,
+      output: 'Options:\n  --port <port>\n  --no-open\n',
+    };
+  });
+  assert.deepEqual(web, { definitive: true, capable: true, command: 'web' });
+  assert.deepEqual(webCalls, [['web', '--help']], 'web-capable CLIs do not need the legacy probe');
+  assert.deepEqual(buildKimiDaemonArgs(web.command, 43210), ['web', '--no-open', '--port', '43210']);
+
+  const legacy = await probeKimiDaemonCommand('/fake/kimi', async (_binary, args) => {
+    if (args[0] === 'web') {
+      return { ok: false, definitive: true, output: 'unknown command web' };
+    }
+    return { ok: true, definitive: true, output: 'Commands:\n  run  Start the server\n  kill Stop it\n' };
+  });
+  assert.deepEqual(legacy, { definitive: true, capable: true, command: 'legacy-server' });
+  assert.deepEqual(buildKimiDaemonArgs(legacy.command, 43211), [
+    'server',
+    'run',
+    '--foreground',
+    '--port',
+    '43211',
+  ]);
+
+  const deprecated = await probeKimiDaemonCommand('/fake/kimi', async (_binary, args) => {
+    if (args[0] === 'web') {
+      return { ok: true, definitive: true, output: 'Usage: kimi web\\n' };
+    }
+    return {
+      ok: true,
+      definitive: true,
+      output: 'Deprecated — use `kimi web` instead. Servers started by `kimi web` run in the foreground.\\nCommands:\\n  kill\\n',
+    };
+  });
+  assert.deepEqual(
+    deprecated,
+    { definitive: true, capable: false, command: null },
+    'deprecated prose containing "run" is not mistaken for a legacy run command'
+  );
+  ok('daemon command probe supports kimi web and legacy server argv');
+}
+
 // F1/F13 at the agent-loop level: a two-phase-stopped runner is detached at
 // settle, so the replacement's permission requests reach the USER, not the
 // stale-handle auto-deny.
@@ -1933,6 +1982,7 @@ const suites = [
   ['L1: spawn failure reaps child (F3/F5)', l1SpawnFailureReapsChild],
   ['L1: request timeout isolated (F4)', l1RequestTimeoutIsolated],
   ['L1: capability probe cache (F7/F12)', l1CapabilityProbeCache],
+  ['L1: daemon command compatibility', l1DaemonCommandCompatibility],
   ['L1: agent-loop stop detach (F1/F13)', l1AgentLoopStopDetachPermission],
   ['L2: clean boot', l2CleanBoot],
   ['L2: delayed token', l2DelayedToken],
