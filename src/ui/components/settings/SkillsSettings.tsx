@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
-import { Check, LoaderCircle, RefreshCw, Search, SkillStack, X } from '../icons';
+import { Check, LoaderCircle, RefreshCw, Search, X } from '../icons';
 import { sendEvent } from '../../hooks/useIPC';
 import { MDContent } from '../../render/markdown';
 import { useAppStore } from '../../store/useAppStore';
 import type { ClaudeSkillSummary } from '../../types';
-import { formatSeeMoreNames, inferSkillGlyph, SkillCubeMark } from './CodexPluginLibrary';
+import { formatSeeMoreNames, SkillTile } from './CodexPluginLibrary';
 
 const COLLAPSED_SECTION_ROWS = 6;
 
@@ -328,7 +328,7 @@ function ClaudeSkillRow({
       className="group flex cursor-pointer items-center gap-3 rounded-[14px] px-2 py-2 transition-colors hover:bg-[var(--bg-secondary)]"
       aria-label={`Open ${title} skill detail`}
     >
-      <ClaudeSkillTile name={skill.name} />
+      <SkillTile name={skill.name} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[14px] font-medium text-[var(--text-primary)]">{title}</div>
         <div className="truncate text-[13px] text-[var(--text-muted)]" title={skill.description}>
@@ -337,22 +337,6 @@ function ClaudeSkillRow({
       </div>
       <Check className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-label="Available" />
     </div>
-  );
-}
-
-function ClaudeSkillTile({ name }: { name: string }) {
-  const Glyph = inferSkillGlyph(name);
-  return (
-    <span
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[color-mix(in_srgb,var(--border)_55%,transparent)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
-      aria-hidden="true"
-    >
-      {Glyph === SkillStack ? (
-        <SkillCubeMark className="h-[22px] w-[22px]" />
-      ) : (
-        <Glyph className="h-[18px] w-[18px]" />
-      )}
-    </span>
   );
 }
 
@@ -397,7 +381,7 @@ function SkillDetailDialog({
           ) : (
             <>
               <div className="flex items-start justify-between gap-3 px-7 pt-6">
-                <ClaudeSkillTile name={skill.name} />
+                <SkillTile name={skill.name} />
                 <Dialog.Close asChild>
                   <button
                     type="button"

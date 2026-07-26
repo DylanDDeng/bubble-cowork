@@ -1328,6 +1328,26 @@ export function inferSkillGlyph(name: string): typeof SkillStack {
 }
 
 /**
+ * The neutral rounded tile every skill surface uses (provider libraries and the
+ * marketplace), holding either an inferred glyph or the default cube mark.
+ */
+export function SkillTile({ name, className }: { name: string; className?: string }) {
+  const Glyph = inferSkillGlyph(name);
+  return (
+    <span
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[color-mix(in_srgb,var(--border)_55%,transparent)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] ${className || ''}`}
+      aria-hidden="true"
+    >
+      {Glyph === SkillStack ? (
+        <SkillCubeMark className="h-[22px] w-[22px]" />
+      ) : (
+        <Glyph className="h-[18px] w-[18px]" />
+      )}
+    </span>
+  );
+}
+
+/**
  * The unified default skill mark from the codex app: an isometric cube with
  * amber / violet / orange faces on a neutral tile.
  */

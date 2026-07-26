@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
 import {
   CheckCircle2,
@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { SkillMarketDetail, SkillMarketItem } from '../../types';
-import { CodexPluginLibraryContent } from './CodexPluginLibrary';
+import { CodexPluginLibraryContent, SkillTile } from './CodexPluginLibrary';
 import { ClaudeLibraryContent } from './ClaudePluginLibrary';
 import { OpenCodeSkillLibraryContent } from './OpenCodeSkillLibrary';
 import { KimiSkillLibraryContent } from './KimiSkillLibrary';
@@ -388,7 +388,8 @@ function MarketDetailDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(920px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+        {/* Same shell as the provider skill dialogs (see SkillsSettings). */}
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[86vh] w-[min(860px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
           <MarketDetailContent
             detail={detail}
             detailLoading={detailLoading}
@@ -438,116 +439,87 @@ function MarketDetailContent({
     );
   }
 
+  const installing = installingId === detail.id;
+  const installed = installedSkillNames.has(detail.skillId);
+
   return (
     <>
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5">
-        <div className="min-w-0 flex-1 space-y-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="truncate text-[30px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
-                {detail.name}
-              </div>
-              {installedSkillNames.has(detail.skillId) && (
-                <span className="inline-flex items-center gap-1 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent)]">
-                  <CheckCircle2 className="h-3 w-3" />
-                  <span>Installed</span>
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-[14px] text-[var(--text-muted)]">
-              <span>{detail.source}</span>
-              <a
-                href={detail.repoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 transition-colors hover:text-[var(--text-primary)]"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                <span>Repo</span>
-              </a>
-              {detail.weeklyInstallsLabel && <span>{detail.weeklyInstallsLabel}</span>}
-            </div>
-          </div>
-        </div>
+      <div className="flex items-start justify-between gap-3 px-7 pt-6">
+        <SkillTile name={detail.skillId || detail.name} />
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          aria-label="Close skill detail"
+          title="Close"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void onInstall(detail)}
-            disabled={installingId === detail.id}
-            className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] bg-[var(--accent)] px-4 py-2 text-[14px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {installingId === detail.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            <span>{installingId === detail.id ? 'Installing...' : 'Install'}</span>
-          </button>
+      <div className="space-y-1 px-7 pb-5 pt-4">
+        <h4 className="flex flex-wrap items-center gap-2 break-words text-[22px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+          <span>
+            {detail.name} <span className="font-normal text-[var(--text-muted)]">Skill</span>
+          </span>
+          {installed && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">
+              <CheckCircle2 className="h-3 w-3" />
+              <span>Installed</span>
+            </span>
+          )}
+        </h4>
+        {detail.description && (
+          <p className="break-words text-sm leading-6 text-[var(--text-secondary)]">
+            {detail.description}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 text-[13px] text-[var(--text-muted)]">
+          <span className="truncate">{detail.source}</span>
+          <span aria-hidden="true">·</span>
           <a
-            href={detail.detailUrl}
+            href={detail.repoUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] px-3 py-2 text-[14px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+            className="inline-flex items-center gap-1 transition-colors hover:text-[var(--text-primary)]"
           >
-            <ExternalLink className="h-4 w-4" />
-            <span>Open</span>
+            <ExternalLink className="h-3.5 w-3.5" />
+            <span>Repo</span>
           </a>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-            aria-label="Close skill detail"
-            title="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        <div className="space-y-6">
-          <section className="space-y-3">
-            <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-              Overview
-            </div>
-            <p className="text-[16px] leading-8 text-[var(--text-primary)]">
-              {detail.description}
-            </p>
+      <div className="min-h-0 flex-1 overflow-y-auto px-7">
+        <div className="space-y-5 rounded-[16px] border border-[color-mix(in_srgb,var(--border)_75%,transparent)] bg-[var(--bg-primary)] px-6 py-5">
+          <section className="space-y-2">
+            <DetailSectionLabel>Install</DetailSectionLabel>
+            <code className="block break-words rounded-[10px] bg-[var(--bg-secondary)] px-3.5 py-2.5 font-mono text-[12.5px] leading-6 text-[var(--text-primary)]">
+              {detail.installCommand}
+            </code>
           </section>
 
-          <section className="space-y-3">
-            <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-              Install
-            </div>
-            <div className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
-              <code className="block break-words font-mono text-[13px] leading-6 text-[var(--text-primary)]">
-                {detail.installCommand}
-              </code>
-            </div>
-          </section>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <DetailPanelCard label="Repo" value={detail.repo} />
-            <DetailPanelCard
+          <section className="grid grid-cols-1 gap-4 border-t border-[color-mix(in_srgb,var(--border)_60%,transparent)] pt-4 sm:grid-cols-2">
+            <DetailField label="Repo" value={detail.repo} />
+            <DetailField
               label="Weekly installs"
               value={detail.weeklyInstallsLabel || formatInstallCount(detail.installs)}
             />
-          </div>
-
-          {detail.originalSource && detail.originalSource !== detail.source && (
-            <div className="text-[14px] text-[var(--text-secondary)]">
-              Originally from <span className="font-medium text-[var(--text-primary)]">{detail.originalSource}</span>
-            </div>
-          )}
+            {detail.originalSource && detail.originalSource !== detail.source && (
+              <DetailField label="Originally from" value={detail.originalSource} />
+            )}
+          </section>
 
           {detail.securityAudits && detail.securityAudits.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+            <section className="space-y-2 border-t border-[color-mix(in_srgb,var(--border)_60%,transparent)] pt-4">
+              <DetailSectionLabel>
                 <ShieldCheck className="h-3.5 w-3.5" />
                 <span>Security audits</span>
-              </div>
+              </DetailSectionLabel>
               <div className="flex flex-wrap gap-2">
                 {detail.securityAudits.map((audit) => (
                   <span
                     key={`${audit.name}-${audit.status}`}
-                    className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"
+                    className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"
                   >
                     {audit.name}: {audit.status}
                   </span>
@@ -556,19 +528,59 @@ function MarketDetailContent({
             </section>
           )}
 
-          {installOutput && installingId !== detail.id && (
-            <section className="space-y-3">
-              <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                Last install output
-              </div>
-              <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-[13px] text-[var(--text-secondary)]">
+          {installOutput && !installing && (
+            <section className="space-y-2 border-t border-[color-mix(in_srgb,var(--border)_60%,transparent)] pt-4">
+              <DetailSectionLabel>Last install output</DetailSectionLabel>
+              <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[10px] bg-[var(--bg-secondary)] p-3.5 font-mono text-[12.5px] text-[var(--text-secondary)]">
                 {installOutput}
               </pre>
             </section>
           )}
         </div>
       </div>
+
+      <div className="flex items-center justify-between gap-3 px-7 py-5">
+        <a
+          href={detail.detailUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--border)] px-3.5 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Open on Skills.sh
+        </a>
+        <button
+          type="button"
+          onClick={() => void onInstall(detail)}
+          disabled={installing}
+          className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--text-primary)] px-4 text-[13px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {installing ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+          {installing ? 'Installing...' : installed ? 'Reinstall' : 'Install'}
+        </button>
+      </div>
     </>
+  );
+}
+
+function DetailSectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
+      {children}
+    </div>
+  );
+}
+
+function DetailField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <DetailSectionLabel>{label}</DetailSectionLabel>
+      <div className="break-words text-[14px] text-[var(--text-primary)]">{value}</div>
+    </div>
   );
 }
 
@@ -592,44 +604,29 @@ function MarketSkillCard({
           onSelect();
         }
       }}
-      className="cursor-pointer rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)] transition-colors hover:bg-[var(--bg-tertiary)]"
+      // Same internals as the provider skill rows: tile, title + source, one
+      // trailing stat.
+      className="flex cursor-pointer items-center gap-3 rounded-[14px] border border-[color-mix(in_srgb,var(--border)_60%,transparent)] bg-[var(--bg-secondary)] px-3 py-2.5 transition-colors hover:bg-[var(--bg-tertiary)]"
       aria-label={`Open ${item.name} skill detail`}
     >
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="flex items-center gap-2">
-            <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
-              {item.name}
-            </h5>
-            {installed && (
-              <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" />
-            )}
-          </div>
-          <p className="line-clamp-2 text-sm leading-6 text-[var(--text-secondary)]">
-            {item.source}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex max-w-[180px] items-center rounded-full bg-[var(--bg-tertiary)] px-3 py-1 text-[10px] leading-4 text-[var(--text-muted)]">
-              {item.skillId}
-            </span>
-            <span className="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-3 py-1 text-[10px] leading-4 text-[var(--text-muted)]">
-              {formatInstallCount(item.installs)}
-            </span>
-          </div>
+      <SkillTile name={item.skillId || item.name} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <h5 className="truncate text-[14px] font-medium text-[var(--text-primary)]">
+            {item.name}
+          </h5>
+          {installed && (
+            <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" />
+          )}
+        </div>
+        <div className="truncate text-[13px] text-[var(--text-muted)]" title={item.source}>
+          {item.source}
         </div>
       </div>
+      <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-muted)]">
+        {formatInstallCount(item.installs)}
+      </span>
     </article>
-  );
-}
-
-function DetailPanelCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
-        {label}
-      </div>
-      <div className="mt-2 break-words text-[15px] font-medium text-[var(--text-primary)]">{value}</div>
-    </div>
   );
 }
 
