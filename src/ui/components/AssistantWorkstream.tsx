@@ -31,8 +31,8 @@ import {
   extractUnifiedDiffFilePath,
   parseUnifiedDiff,
   type UnifiedDiffHunk,
-  type UnifiedDiffLine,
 } from '../utils/unified-diff';
+import { DiffHunkView } from './UnifiedDiffView';
 import { TodoProgressCard } from './TodoProgressCard';
 import { DiffStatLabel } from './DiffStatLabel';
 import { useTurnDiffContext } from './TurnDiffContext';
@@ -1251,47 +1251,6 @@ function buildWritePreviewHunks(content: string): UnifiedDiffHunk[] {
       })),
     },
   ];
-}
-
-function DiffHunkView({ hunk }: { hunk: UnifiedDiffHunk }) {
-  return (
-    <div className="border-t border-[var(--border)]/50 first:border-t-0">
-      <div className="px-3 py-1 font-mono text-[11px] text-[var(--text-muted)]">
-        {`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`}
-      </div>
-      {hunk.lines.map((line, index) => (
-        <DiffLineView key={`${hunk.oldStart}-${hunk.newStart}-${index}`} line={line} />
-      ))}
-    </div>
-  );
-}
-
-function DiffLineView({ line }: { line: UnifiedDiffLine }) {
-  const containerClass =
-    line.type === 'addition'
-      ? 'bg-emerald-500/10'
-      : line.type === 'deletion'
-        ? 'bg-rose-500/10'
-        : 'bg-transparent';
-  const markerClass =
-    line.type === 'addition'
-      ? 'text-emerald-400'
-      : line.type === 'deletion'
-        ? 'text-rose-400'
-        : 'text-[var(--text-muted)]';
-  const marker = line.type === 'addition' ? '+' : line.type === 'deletion' ? '-' : ' ';
-  return (
-    <div
-      className={`grid grid-cols-[56px_56px_18px_minmax(0,1fr)] items-start gap-0 font-mono text-[12px] leading-6 ${containerClass}`}
-    >
-      <div className="px-2 text-right text-[var(--text-muted)]">{line.oldLineNumber ?? ''}</div>
-      <div className="px-2 text-right text-[var(--text-muted)]">{line.newLineNumber ?? ''}</div>
-      <div className={`px-1 text-center ${markerClass}`}>{marker}</div>
-      <div className="min-w-0 whitespace-pre-wrap break-words px-2 text-[var(--text-primary)]">
-        {line.text || ' '}
-      </div>
-    </div>
-  );
 }
 
 // ── Live "Working for Xs" footer (used by ChatPane below the trace) ─────────
