@@ -60,8 +60,11 @@ function agentLabel(provider: AgentProvider): string {
   return PROVIDERS.find((item) => item.id === provider)?.label || 'Agent';
 }
 
+// `composer-pill-trigger` (index.css) supplies the hover wash plus the
+// press animation — the wash widens and the label nudges right before the
+// menu opens.
 const triggerClassName =
-  'flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[12px] text-[var(--text-secondary)] outline-none transition-colors hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50';
+  'composer-pill-trigger relative flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[12px] text-[var(--text-secondary)] outline-none transition-colors hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50';
 
 function readinessDotClass(state: AgentReadinessState): string {
   switch (state) {
