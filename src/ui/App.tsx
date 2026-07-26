@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback, type ReactNode } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
+import { ConfirmDialogHost } from '@/ui/components/ui/confirm-dialog';
 import { Toaster, toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -1010,6 +1011,9 @@ export function App() {
       {/* Design-mode annotate delivery: app-level so a note submitted right
           before the browser panel closes still reaches the composer. */}
       <DesignAnnotateBridge />
+
+      {/* Themed replacement for window.confirm() — see confirmDialog() */}
+      <ConfirmDialogHost />
 
       {/* Toast notifications */}
       <Toaster

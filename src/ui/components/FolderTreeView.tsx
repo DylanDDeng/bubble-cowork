@@ -10,6 +10,7 @@ import {
   SquarePen,
   Trash2,
 } from './icons';
+import { confirmDialog } from './ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -246,7 +247,7 @@ export function FolderTreeView({
 
   // 项目本身不是持久实体（由 session 分组推导），"移除项目"= 删除组内全部
   // thread；外部只读会话（claude_remote）删不掉，保留并提示
-  const removeProjectGroup = (group: ProjectGroup) => {
+  const removeProjectGroup = async (group: ProjectGroup) => {
     const deletable = group.sessions.filter((session) => session.source !== 'claude_remote');
     const remoteCount = group.sessions.length - deletable.length;
 
@@ -264,7 +265,12 @@ export function FolderTreeView({
           `${remoteCount} external Claude ${remoteCount === 1 ? 'session is' : 'sessions are'} read-only and will stay.`
         );
       }
-      if (!window.confirm(`Remove "${group.label}" from the list? ${details.join(' ')}`)) {
+      const confirmed = await confirmDialog({
+        title: `Remove ${group.label}?`,
+        description: details.join(' '),
+        confirmLabel: 'Remove project',
+      });
+      if (!confirmed) {
         return;
       }
       for (const session of deletable) {
@@ -387,7 +393,7 @@ export function FolderTreeView({
                   )}
                   <DropdownMenuItem
                     className="gap-2 cursor-pointer text-[var(--error)]"
-                    onSelect={() => removeProjectGroup(group)}
+                    onSelect={() => void removeProjectGroup(group)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     <span>Remove</span>
@@ -687,17 +693,18 @@ function SessionItem({
   };
 
   const handleDiscardWorktree = () => {
-    // confirm 推迟到菜单关闭之后，避免阻塞时菜单残留在弹窗背后
+    // confirm 推迟到菜单关闭之后，避免弹窗和菜单抢焦点
     window.setTimeout(() => {
       const branchName = session.associatedWorktreeBranch;
-      if (
-        !window.confirm(
-          `Remove this worktree${branchName ? ` and delete branch ${branchName}` : ''}? All uncommitted changes in it are lost. The conversation stays.`
-        )
-      ) {
-        return;
-      }
       void (async () => {
+        const confirmed = await confirmDialog({
+          title: branchName ? `Remove this worktree and branch ${branchName}?` : 'Remove this worktree?',
+          description: 'All uncommitted changes in it are lost. The conversation stays.',
+          confirmLabel: 'Remove worktree',
+        });
+        if (!confirmed) {
+          return;
+        }
         setWorktreeAction('discard');
         try {
           const discarded = await window.electron.discardWorktreeChanges(session.id);
@@ -715,10 +722,17 @@ function SessionItem({
 
   const handleDelete = () => {
     window.setTimeout(() => {
-      const detail = session.status === 'running' ? ' The running task will be stopped.' : '';
-      if (window.confirm(`Delete "${session.title}"? This permanently removes the conversation.${detail}`)) {
-        sendEvent({ type: 'session.delete', payload: { sessionId: session.id } });
-      }
+      void (async () => {
+        const detail = session.status === 'running' ? ' The running task will be stopped.' : '';
+        const confirmed = await confirmDialog({
+          title: `Delete ${session.title}?`,
+          description: `This permanently removes the conversation.${detail}`,
+          confirmLabel: 'Delete conversation',
+        });
+        if (confirmed) {
+          sendEvent({ type: 'session.delete', payload: { sessionId: session.id } });
+        }
+      })();
     }, 0);
   };
 
