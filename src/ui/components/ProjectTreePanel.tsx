@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, X, Maximize2, Minimize2, File, Files, FileAddIcon, FolderAddIcon } from './icons';
+import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, Search, X, Maximize2, Minimize2, File, Files, FileAddIcon, FolderAddIcon } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -253,6 +253,71 @@ function basenameOfPath(filePath: string): string {
 
 function getProjectFileTabId(cwd: string, filePath: string): string {
   return `${normalizeProjectPath(cwd)}::${normalizeProjectPath(filePath)}`;
+}
+
+interface FilteredProjectTree {
+  nodes: ProjectTreeNode[];
+  /** Dirs kept only because a descendant matched — opened so the hits show. */
+  expandedPaths: Set<string>;
+  matchCount: number;
+}
+
+/**
+ * Prunes the tree down to nodes matching `query`.
+ *
+ * A directory whose own name matches is kept whole (filter to a folder); one
+ * that only contains matches is kept as a path to them and force-expanded.
+ * Queries containing "/" match against the root-relative path instead of the
+ * bare name, so "ui/utils" works.
+ */
+function filterProjectTree(
+  nodes: ProjectTreeNode[],
+  rootPath: string,
+  query: string
+): FilteredProjectTree {
+  const expandedPaths = new Set<string>();
+  let matchCount = 0;
+  const matchOnPath = query.includes('/');
+  const root = normalizeProjectPath(rootPath);
+
+  const haystackOf = (node: ProjectTreeNode): string => {
+    if (!matchOnPath) return node.name.toLowerCase();
+    const normalized = normalizeProjectPath(node.path);
+    const relative = normalized.startsWith(`${root}/`)
+      ? normalized.slice(root.length + 1)
+      : normalized;
+    return relative.toLowerCase();
+  };
+
+  const walk = (list: ProjectTreeNode[]): ProjectTreeNode[] => {
+    const kept: ProjectTreeNode[] = [];
+    for (const node of list) {
+      const selfMatch = haystackOf(node).includes(query);
+
+      if (node.kind === 'file') {
+        if (selfMatch) {
+          matchCount += 1;
+          kept.push(node);
+        }
+        continue;
+      }
+
+      if (selfMatch) {
+        matchCount += 1;
+        kept.push(node);
+        continue;
+      }
+
+      const children = walk(node.children || []);
+      if (children.length > 0) {
+        expandedPaths.add(node.path);
+        kept.push({ ...node, children });
+      }
+    }
+    return kept;
+  };
+
+  return { nodes: walk(nodes), expandedPaths, matchCount };
 }
 
 function isEditableProjectFilePreview(preview: ProjectFilePreview | null): preview is EditableProjectFilePreview {
@@ -630,6 +695,7 @@ export function ProjectTreePanel({
   const [projectTreeError, setProjectTreeError] = useState<string | null>(null);
   const prevCwdRef = useRef<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [treeFilter, setTreeFilter] = useState('');
   const initRootRef = useRef<string | null>(null);
   const [panelWidth, setPanelWidth] = useState(defaultRailWidth);
   const panelResizingRef = useRef(false);
@@ -1116,8 +1182,23 @@ export function ProjectTreePanel({
   );
   const canUseProjectTree = Boolean(cwd && visibleTree && !projectTreeError);
 
+  const normalizedTreeFilter = treeFilter.trim().toLowerCase();
+  const isFilteringTree = normalizedTreeFilter.length > 0;
+  const filteredTree = useMemo(() => {
+    if (!visibleTree || !isFilteringTree) return null;
+    return filterProjectTree(visibleNodes, visibleTree.path, normalizedTreeFilter);
+  }, [visibleTree, visibleNodes, isFilteringTree, normalizedTreeFilter]);
+  const treeNodes = filteredTree ? filteredTree.nodes : visibleNodes;
+  // While filtering, the dirs leading to a hit are opened on top of whatever
+  // the user had expanded, so results are visible without any clicking.
+  const treeExpandedPaths = useMemo(() => {
+    if (!filteredTree) return expandedPaths;
+    return new Set([...expandedPaths, ...filteredTree.expandedPaths]);
+  }, [expandedPaths, filteredTree]);
+
   useEffect(() => {
     setExpandedPaths(new Set());
+    setTreeFilter('');
     initRootRef.current = null;
     setSelectedFilePath(null);
     setSelectedFileCwd(null);
@@ -2520,7 +2601,10 @@ export function ProjectTreePanel({
   const isProjectRootDropTarget =
     !!projectRootDropHoverId && projectDropHoverId === projectRootDropHoverId;
   const isProjectRootExpanded =
-    !!visibleTree && (expandedPaths.has(visibleTree.path) || initRootRef.current !== visibleTree.path);
+    !!visibleTree &&
+    (isFilteringTree ||
+      expandedPaths.has(visibleTree.path) ||
+      initRootRef.current !== visibleTree.path);
   const projectRootName = visibleTree
     ? visibleTree.name || basenameOfPath(visibleTree.path)
     : cwd ? basenameOfPath(cwd) : 'Project';
@@ -2715,6 +2799,40 @@ export function ProjectTreePanel({
           >
             {activeTab === 'files' && (
               <>
+                {cwd && visibleTree && !projectTreeError && (
+                  <div className="sticky top-0 z-10 -mx-2.5 mb-1 bg-[var(--bg-primary)] px-2.5 pb-1.5 pt-1">
+                    <div className="flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2">
+                      <Search className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                      <input
+                        type="text"
+                        value={treeFilter}
+                        onChange={(event) => setTreeFilter(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setTreeFilter('');
+                          }
+                        }}
+                        placeholder="Filter files..."
+                        spellCheck={false}
+                        aria-label="Filter files"
+                        className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                      />
+                      {treeFilter ? (
+                        <button
+                          type="button"
+                          onClick={() => setTreeFilter('')}
+                          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-[5px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                          aria-label="Clear filter"
+                          title="Clear filter"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
                 {!cwd && (
                   <div className="text-sm text-[var(--text-muted)] px-1 py-2">
                     Select a folder to view files.
@@ -2767,7 +2885,7 @@ export function ProjectTreePanel({
                     </div>
                   </div>
                 )}
-                {cwd && visibleTree && isProjectRootExpanded && visibleNodes.length > 0 && (
+                {cwd && visibleTree && isProjectRootExpanded && treeNodes.length > 0 && (
                   <div className="relative">
                     <span
                       className="pointer-events-none absolute bottom-1 top-0 w-px bg-[var(--tree-item-border)] opacity-[0.55]"
@@ -2785,13 +2903,13 @@ export function ProjectTreePanel({
                         onCancel={cancelCreateEntry}
                       />
                     ) : null}
-                    {visibleNodes.map((node) => (
+                    {treeNodes.map((node) => (
                       <TreeNode
                         key={node.path}
                         node={node}
                         depth={1}
                         parentPath={visibleTree.path}
-                        expandedPaths={expandedPaths}
+                        expandedPaths={treeExpandedPaths}
                         onToggle={togglePath}
                         onSelectFile={selectFile}
                         onOpenContextMenu={openProjectTreeContextMenu}
@@ -2828,7 +2946,12 @@ export function ProjectTreePanel({
                     {projectTreeError}
                   </div>
                 )}
-                {cwd && !loading && !projectTreeError && (!visibleTree || (isProjectRootExpanded && visibleNodes.length === 0)) && !createDraft && (
+                {cwd && !projectTreeError && isFilteringTree && treeNodes.length === 0 && (
+                  <div className="px-1 py-2 text-sm text-[var(--text-muted)]">
+                    No files match “{treeFilter.trim()}”.
+                  </div>
+                )}
+                {cwd && !loading && !projectTreeError && !isFilteringTree && (!visibleTree || (isProjectRootExpanded && visibleNodes.length === 0)) && !createDraft && (
                   <div className="text-sm text-[var(--text-muted)] px-1 py-2">
                     No files found.
                   </div>
