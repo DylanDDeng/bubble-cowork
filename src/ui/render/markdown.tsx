@@ -20,6 +20,8 @@ import {
   Check,
   Code2,
   Copy,
+  TextWrap,
+  TextWrapDisabled,
   type IconComponent,
 } from '../components/icons';
 import { toast } from 'sonner';
@@ -554,6 +556,7 @@ function CodeBlock({
   children: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
+  const [wrapLines, setWrapLines] = useState(false);
   const rawCode = extractTextContent(children).replace(/\n$/, '');
   const showLanguageLabel = shouldDisplayLanguageLabel(language);
   const languageLabel = showLanguageLabel ? formatLanguageLabel(language!) : 'text';
@@ -571,22 +574,40 @@ function CodeBlock({
   return (
     <div className="md-code-block">
       <div className="md-code-header">
-        <div className="md-code-meta">
-          <span className="md-code-language">{languageLabel}</span>
+        <span className="md-code-language">{languageLabel}</span>
+        <div className="md-code-actions">
+          <button
+            type="button"
+            onClick={() => setWrapLines((current) => !current)}
+            className="md-code-action"
+            title={wrapLines ? 'Disable word wrap' : 'Enable word wrap'}
+            aria-label={wrapLines ? 'Disable word wrap' : 'Enable word wrap'}
+            aria-pressed={wrapLines}
+          >
+            {wrapLines ? (
+              <TextWrapDisabled className="h-4 w-4" />
+            ) : (
+              <TextWrap className="h-4 w-4" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            className="md-code-action"
+            title={copied ? 'Copied' : 'Copy code'}
+            aria-label={copied ? 'Copied' : 'Copy code'}
+          >
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleCopy()}
-          className="md-code-copy"
-          title={copied ? 'Copied' : 'Copy code'}
-          aria-label={copied ? 'Copied' : 'Copy code'}
-        >
-          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          <span className="md-code-copy-label">{copied ? 'Copied' : 'Copy'}</span>
-        </button>
       </div>
 
-      <HighlightedCode code={rawCode} language={language} showLineNumbers />
+      <HighlightedCode
+        code={rawCode}
+        language={language}
+        showLineNumbers={false}
+        wrapLongLines={wrapLines}
+      />
     </div>
   );
 }

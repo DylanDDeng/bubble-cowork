@@ -832,23 +832,20 @@ button.md-inline-file-code:hover {
   font-weight: 450;
 }
 
+/* Code blocks read as a soft slab on the message surface: no border, no
+   header divider, no line-number gutter — just a language caption, hover
+   actions in the top-right, and the code itself. */
 .markdown-content .md-code-block {
-  --md-code-surface: color-mix(in srgb, var(--preview-surface) 92%, var(--bg-tertiary));
-  --md-code-header-surface: color-mix(in srgb, var(--preview-surface) 88%, var(--bg-tertiary));
-  --md-code-gutter-surface: color-mix(in srgb, var(--bg-tertiary) 74%, var(--preview-surface));
-  --md-code-border-color: color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
-  --md-code-label-bg: color-mix(in srgb, var(--accent-light) 64%, var(--preview-surface));
-  --md-code-label-color: color-mix(in srgb, var(--accent) 78%, var(--text-primary));
-  --md-code-meta-color: color-mix(in srgb, var(--text-secondary) 70%, var(--text-primary));
-  --md-code-copy-color: color-mix(in srgb, var(--text-secondary) 82%, var(--code-block-text));
-  --md-code-copy-hover-bg: var(--code-copy-hover);
-  --md-code-copy-hover-color: color-mix(in srgb, var(--text-primary) 86%, var(--accent));
+  --md-code-surface: color-mix(in srgb, var(--text-primary) 5%, var(--bg-primary));
+  --md-code-label-color: var(--text-muted);
+  --md-code-action-color: var(--text-muted);
+  --md-code-action-hover-bg: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  --md-code-action-hover-color: var(--text-primary);
+  position: relative;
   margin: 0.9rem 0;
-  border-radius: 6px;
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid var(--md-code-border-color);
   background: var(--md-code-surface);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 
 /* header inherits code-block bg; HighlightedCode renders the body */
@@ -861,62 +858,56 @@ button.md-inline-file-code:hover {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  min-height: 38px;
-  padding: 8px 13px 7px 16px;
-  border-bottom: 1px solid var(--md-code-border-color);
-  background: var(--md-code-header-surface);
-}
-
-.markdown-content .md-code-meta {
-  display: flex;
-  align-items: center;
-  min-width: 0;
+  min-height: 30px;
+  padding: 10px 10px 2px 18px;
 }
 
 .markdown-content .md-code-language {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  min-height: 24px;
-  padding: 2px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 8%, transparent);
-  border-radius: 5px;
-  background: var(--md-code-label-bg);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0;
+  font-weight: 450;
   color: var(--md-code-label-color);
-  text-transform: none;
 }
 
-.markdown-content .md-code-copy {
+.markdown-content .md-code-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.markdown-content .md-code-block:hover .md-code-actions,
+.markdown-content .md-code-actions:focus-within {
+  opacity: 1;
+}
+
+.markdown-content .md-code-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  min-width: 24px;
+  width: 26px;
   height: 26px;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
-  color: var(--md-code-copy-color);
-  border-radius: 4px;
-  padding: 0 7px;
+  color: var(--md-code-action-color);
+  border-radius: 8px;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
-.markdown-content .md-code-copy-label {
-  font-size: 12px;
-  font-weight: 500;
+.markdown-content .md-code-action:hover {
+  background: var(--md-code-action-hover-bg);
+  color: var(--md-code-action-hover-color);
 }
 
-.markdown-content .md-code-copy:hover {
-  background: var(--md-code-copy-hover-bg);
-  color: var(--md-code-copy-hover-color);
-}
-
+/* Touch devices get no hover, so the actions stay visible there. */
 @media (hover: none) {
-  .markdown-content .md-code-copy {
+  .markdown-content .md-code-actions {
     opacity: 1;
   }
 }
@@ -926,6 +917,25 @@ button.md-inline-file-code:hover {
   color: var(--code-block-text);
   font-size: 12.5px;
   line-height: 1.7;
+}
+
+/* Markdown code body: roomier than the file-tree previews, and the per-line
+   hover tint is dropped — with no gutter it reads as a stray highlight. */
+.markdown-content .md-code-block > .highlighted-code-block {
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+
+.markdown-content .md-code-block .highlighted-code-lines {
+  padding: 2px 0 14px;
+}
+
+.markdown-content .md-code-block .highlighted-code-content {
+  padding: 0 18px;
+}
+
+.markdown-content .md-code-block .highlighted-code-line:hover {
+  background: transparent;
 }
 
 .highlighted-code-block.project-markdown-code-preview {
@@ -1466,42 +1476,11 @@ button.md-inline-file-code:hover {
   font-size: 0.88em;
 }
 
+/* The file-panel preview shares the chat code-block look; it only sits on a
+   different surface, so the slab is mixed against that one. */
 .project-markdown-preview .md-code-block {
+  --md-code-surface: color-mix(in srgb, var(--text-primary) 5%, var(--preview-surface));
   margin: 0.9rem 0 1rem;
-  border-color: var(--md-code-border-color);
-  border-radius: 6px;
-  background: var(--md-code-surface);
-}
-
-.project-markdown-preview .md-code-header {
-  min-height: 38px;
-  padding: 8px 13px 7px 16px;
-  border-bottom: 1px solid var(--md-code-border-color);
-  background: var(--md-code-header-surface);
-}
-
-.project-markdown-preview .md-code-language,
-.project-markdown-preview .md-code-copy-label {
-  font-size: 12px;
-}
-
-.project-markdown-preview .highlighted-code-block {
-  font-size: 12.5px;
-  line-height: 1.7;
-}
-
-.project-markdown-preview .highlighted-code-lines {
-  padding: 6px 0;
-}
-
-.project-markdown-preview .highlighted-code-gutter {
-  padding-left: 15px;
-  padding-right: 11px;
-  border-right-color: var(--md-code-border-color);
-}
-
-.project-markdown-preview .highlighted-code-content {
-  padding: 0 16px;
 }
 
 .project-markdown-preview table {
