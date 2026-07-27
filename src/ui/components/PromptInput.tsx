@@ -277,17 +277,23 @@ export function PromptInput({
     compatibleProviderId: agentSelection.compatibleProviderId,
     claudeAccessMode: agentSelection.claudePermissionMode,
     claudeReasoningEffort: agentSelection.claudeReasoningEffort,
+    grokPermissionMode: agentSelection.kimiPermissionMode,
+    grokReasoningEffort: agentSelection.grokReasoningEffort,
   });
   prewarmConfigRef.current = {
     model: selectedModel,
     compatibleProviderId: agentSelection.compatibleProviderId,
     claudeAccessMode: agentSelection.claudePermissionMode,
     claudeReasoningEffort: agentSelection.claudeReasoningEffort,
+    grokPermissionMode: agentSelection.kimiPermissionMode,
+    grokReasoningEffort: agentSelection.grokReasoningEffort,
   };
   const hasComposerActivity = prompt.trim().length > 0;
   useEffect(() => {
     if (!hasComposerActivity || !targetSessionId) return;
-    if (runtimeProvider !== 'claude') return;
+    // Grok pays the same shape of cold start (ACP initialize + session/new)
+    // in front of a thread's first message.
+    if (runtimeProvider !== 'claude' && runtimeProvider !== 'grok') return;
     if (!activeSession || activeSession.isDraft || activeSession.readOnly) return;
     if (activeSession.status === 'running') return;
     if (prewarmedSessionRef.current === targetSessionId) return;
@@ -303,11 +309,19 @@ export function PromptInput({
         type: 'runner.prewarm',
         payload: {
           sessionId: targetSessionId,
+          provider: runtimeProvider,
           model: cfg.model || undefined,
-          compatibleProviderId: cfg.compatibleProviderId || undefined,
-          claudeAccessMode: cfg.claudeAccessMode,
-          claudeExecutionMode: cfg.claudeAccessMode === 'plan' ? 'plan' : 'execute',
-          claudeReasoningEffort: cfg.claudeReasoningEffort || undefined,
+          ...(runtimeProvider === 'grok'
+            ? {
+                grokPermissionMode: cfg.grokPermissionMode,
+                grokReasoningEffort: cfg.grokReasoningEffort || undefined,
+              }
+            : {
+                compatibleProviderId: cfg.compatibleProviderId || undefined,
+                claudeAccessMode: cfg.claudeAccessMode,
+                claudeExecutionMode: cfg.claudeAccessMode === 'plan' ? 'plan' : 'execute',
+                claudeReasoningEffort: cfg.claudeReasoningEffort || undefined,
+              }),
         },
       });
     }, 300);

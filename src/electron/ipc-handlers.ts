@@ -3541,7 +3541,10 @@ let claudeRunnerReapTimer: NodeJS.Timeout | null = null;
 function snapshotClaudeRunners(): ClaudeRunnerSnapshot[] {
   const snapshots: ClaudeRunnerSnapshot[] = [];
   for (const [sessionId, entry] of runnerHandles) {
-    if (entry.provider !== 'claude') continue;
+    // Claude runners plus every speculative runner: a prewarm the user never
+    // sent to must not hold its process forever. Idle non-claude runners the
+    // user actually used keep their handle for connection reuse.
+    if (entry.provider !== 'claude' && entry.prewarmed !== true) continue;
     snapshots.push({
       sessionId,
       inFlightTurns: entry.inFlightTurns ?? 0,
@@ -3559,7 +3562,8 @@ function sweepIdleClaudeRunners(): void {
   for (const sessionId of victims) {
     const entry = runnerHandles.get(sessionId);
     // Re-check liveness: a turn may have been dispatched since the snapshot.
-    if (!entry || entry.provider !== 'claude' || (entry.inFlightTurns ?? 0) > 0) continue;
+    if (!entry || (entry.provider !== 'claude' && entry.prewarmed !== true)) continue;
+    if ((entry.inFlightTurns ?? 0) > 0) continue;
     entry.handle.abort();
     runnerHandles.delete(sessionId);
   }
@@ -9813,7 +9817,23 @@ function startRunner(
       // drop is only allowed while nothing live is lost: with a follow-up
       // turn dispatched after the stop, the error must surface normally or
       // that turn would vanish with the session stuck on 'running'.
+      // A speculative runner that failed before the user ever sent to it owes
+      // nothing: flipping the session to error and toasting would report a
+      // failure for an action the user did not take. `prewarmed` is cleared
+      // the moment a real send reuses the entry, so a live turn still
+      // surfaces its errors normally.
       const mappedEntry = runnerHandles.get(session.id);
+      if (
+        mappedEntry?.handle === handle &&
+        mappedEntry.prewarmed === true &&
+        (mappedEntry.inFlightTurns ?? 0) === 0
+      ) {
+        clearStopFallbackTimer(mappedEntry);
+        mappedEntry.handle.abort();
+        runnerHandles.delete(session.id);
+        return;
+      }
+
       if (
         provider === 'claude' &&
         mappedEntry?.handle === handle &&
@@ -10049,7 +10069,9 @@ function countIdlePrewarmedRunners(): { count: number; oldest: string | null } {
   let oldest: string | null = null;
   let oldestAt = Number.POSITIVE_INFINITY;
   for (const [sessionId, entry] of runnerHandles) {
-    if (entry.provider !== 'claude' || entry.prewarmed !== true) continue;
+    // The cap covers every speculative runner, whatever its provider: each one
+    // is a real process tree that the user never asked for.
+    if (entry.prewarmed !== true) continue;
     if ((entry.inFlightTurns ?? 0) > 0) continue;
     count += 1;
     const anchor = entry.lastTurnEndedAt ?? 0;
@@ -10059,6 +10081,91 @@ function countIdlePrewarmedRunners(): { count: number; oldest: string | null } {
     }
   }
   return { count, oldest };
+}
+
+/**
+ * Grok prewarm: the ACP handshake plus session/new costs ~3.2s, and the send
+ * path pays it in front of the first message of every thread. Boot it while
+ * the user is still typing instead.
+ *
+ * The reuse check for grok aborts a live runner when the model or reasoning
+ * effort changed, so a prewarm booted with anything else is a net loss (a
+ * wasted spawn AND the cold start). Only prewarm when the composer's values
+ * match the row the send will compare against.
+ */
+async function prewarmGrokRunner(
+  mainWindow: BrowserWindow,
+  sessionId: string,
+  payload: import('../shared/types').RunnerPrewarmPayload
+): Promise<void> {
+  const runtimeStatus = await getGrokRuntimeStatus();
+  if (!runtimeStatus.ready) return;
+
+  // SYNC re-check after the await: a real send may have started meanwhile,
+  // and startRunner would abort it. Nothing below may await before startRunner.
+  const session = sessions.getSession(sessionId);
+  if (!session || session.status === 'running') return;
+  if (runnerHandles.has(sessionId)) return;
+
+  // The send's model check compares against the session ROW, so an unsaved
+  // model change in the composer would abort this runner on the first send —
+  // a wasted spawn on top of the cold start. Reasoning effort has no row: the
+  // send compares it against the runner entry, so booting with the composer's
+  // current value is what makes the runner reusable.
+  const rowModel = normalizeModel(session.model ?? undefined);
+  const nextModel = normalizeModel(payload.model ?? session.model ?? undefined);
+  if (nextModel !== rowModel) {
+    return;
+  }
+  const nextEffort = normalizeGrokReasoningEffort(payload.grokReasoningEffort);
+
+  const { count, oldest } = countIdlePrewarmedRunners();
+  if (count >= MAX_PREWARMED_RUNNERS && oldest) {
+    const evicted = runnerHandles.get(oldest);
+    if (evicted) {
+      clearStopFallbackTimer(evicted);
+      userStoppedRunnerHandles.add(evicted.handle);
+      evicted.handle.abort();
+      runnerHandles.delete(oldest);
+    }
+  }
+
+  if (isDev()) {
+    console.log('[Runner Prewarm] grok', { sessionId, model: nextModel, effort: nextEffort });
+  }
+
+  startRunner(
+    mainWindow,
+    session,
+    '', // empty prompt — creates the ACP session without dispatching a turn
+    session.grok_session_id ?? undefined,
+    undefined,
+    'grok',
+    nextModel,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    normalizeGrokPermissionMode(payload.grokPermissionMode) ?? undefined,
+    nextEffort ?? undefined,
+    undefined,
+    undefined,
+    null,
+    undefined,
+    null,
+    false,
+    true // prewarmRunner
+  );
+  // Speculative runners are reaped on an idle TTL — without the sweeper a
+  // grok prewarm the user never sends to would hold its process until quit.
+  ensureClaudeRunnerReaper();
 }
 
 // 预热 Claude runner(P3):在用户开始输入时投机启动 CLI,把 spawn +
@@ -10072,13 +10179,24 @@ async function handleRunnerPrewarm(
 
   const initial = sessions.getSession(sessionId);
   if (!initial) return;
-  // Claude only — other providers run through adapter sessions with
-  // different lifecycles.
-  if ((initial.provider || 'claude') !== 'claude') return;
+  const prewarmProvider = initial.provider || 'claude';
+  // The composer can carry an unsaved provider switch. The send routes on the
+  // payload's provider, so warming the row's would be aborted on the first
+  // send — a wasted spawn on top of the cold start it was meant to hide.
+  if (payload.provider && payload.provider !== prewarmProvider) return;
+  // Claude and Grok only. Both pay a cold start the user waits on (CLI boot /
+  // ACP initialize + session/new); the rest either boot cheaply or have
+  // lifecycles a speculative session would disturb.
+  if (prewarmProvider !== 'claude' && prewarmProvider !== 'grok') return;
   // External Claude sessions are read-only; never spawn for them.
   if (initial.session_origin === 'claude_remote') return;
   if (initial.status === 'running') return;
   if (runnerHandles.has(sessionId)) return;
+
+  if (prewarmProvider === 'grok') {
+    await prewarmGrokRunner(mainWindow, sessionId, payload);
+    return;
+  }
 
   // History-bootstrap guard: a session WITH recorded history but WITHOUT a
   // live claude_session_id relies on the send path's

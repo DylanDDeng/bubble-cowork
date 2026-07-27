@@ -947,12 +947,15 @@ export interface SessionContinuePayload {
  */
 export interface RunnerPrewarmPayload {
   sessionId: string;
+  provider?: AgentProvider;
   model?: string;
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
   claudeReasoningEffort?: ClaudeReasoningEffort;
+  grokPermissionMode?: GrokPermissionMode;
+  grokReasoningEffort?: GrokReasoningEffort;
 }
 
 export type SessionScope = 'project' | 'dm';
