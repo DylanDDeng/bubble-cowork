@@ -629,6 +629,12 @@ export class KimiAcpAdapter implements ProviderAdapter {
     const name = getString(update.title) || 'KimiTool';
     const rawInput = getRecord(update.rawInput) || {};
     const existing = session.toolCalls.get(id);
+    // A new tool call closes the current text/thinking block, matching the
+    // Kimi server adapter (see its emitToolCall). Only a first-seen id
+    // flushes; a repeat is an input update for a call already in flight.
+    if (!existing) {
+      this.finalizeStreaming(session);
+    }
     const createdAt = existing?.createdAt || Date.now();
     session.toolCalls.set(id, {
       name,

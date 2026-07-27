@@ -1003,6 +1003,15 @@ export class GrokAcpAdapter implements ProviderAdapter {
     const name = getString(update.title) || 'GrokTool';
     const rawInput = getRecord(update.rawInput) || {};
     const existing = session.toolCalls.get(id);
+    // A new tool call closes the current text/thinking block: Grok narrates
+    // between calls, and one buffer per turn would stamp the whole turn's
+    // prose at the first chunk — the narration then rides into the final
+    // answer and sorts in among the tool rows. Only a first-seen id flushes;
+    // a repeat is an input update for a call already in flight and must not
+    // split the prose mid-sentence.
+    if (!existing) {
+      this.finalizeStreaming(session);
+    }
     const createdAt = existing?.createdAt || Date.now();
     session.toolCalls.set(id, {
       name,

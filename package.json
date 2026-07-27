@@ -38,6 +38,7 @@
     "verify:composer-link-chip": "node scripts/verify-composer-link-chip.mjs",
     "verify:fork-session": "node scripts/verify-fork-session.mjs",
     "verify:markdown-editor": "node scripts/verify-markdown-editor.mjs",
+    "verify:acp-narration": "npx tsx scripts/tests/acp-narration-split.test.ts",
     "verify:review-diff-panel": "node scripts/verify-review-diff-panel.mjs",
     "verify:workstream-stages": "node scripts/verify-workstream-stages.mjs",
     "verify:workstream-preamble-order": "node scripts/verify-workstream-preamble-order.mjs",
