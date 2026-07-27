@@ -136,8 +136,24 @@ export function getLatestClaudeTurnUsage(
   messages: StreamMessage[],
   preferredModel?: string | null
 ): ClaudeTurnUsage | null {
+  // A compact boundary newer than the latest per-call usage means that usage
+  // describes the PRE-compact context. When the runtime reports the post-compact
+  // occupancy, use it for `contextTokens` so the ring drops immediately instead
+  // of staying stale until the next turn.
+  let compactedContextTokens: number | null = null;
+
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+    if (
+      compactedContextTokens === null &&
+      message.type === 'system' &&
+      message.subtype === 'compact_boundary' &&
+      typeof message.compactMetadata.postTokens === 'number' &&
+      message.compactMetadata.postTokens > 0
+    ) {
+      compactedContextTokens = message.compactMetadata.postTokens;
+      continue;
+    }
     if (message.type !== 'assistant') {
       continue;
     }
@@ -172,7 +188,19 @@ export function getLatestClaudeTurnUsage(
       outputTokens: usage.output_tokens || 0,
       cacheReadTokens,
       cacheCreationTokens,
-      contextTokens,
+      // Detail rows keep the real per-call numbers; only the occupancy is
+      // overridden when a compaction happened after this call.
+      contextTokens: compactedContextTokens ?? contextTokens,
+    };
+  }
+
+  if (compactedContextTokens !== null) {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      contextTokens: compactedContextTokens,
     };
   }
 

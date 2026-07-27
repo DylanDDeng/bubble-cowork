@@ -1091,6 +1091,29 @@ export function ChatPane({
     return -1;
   }, [session?.messages]);
 
+  // Compaction produces no stream messages until its boundary lands, so the
+  // generic "Working" footer is all the user would see. Walk backwards to the
+  // most recent compaction marker: a compact_status (PreCompact hook) newer
+  // than the latest compact_boundary means compaction is in flight; a manual
+  // "/compact" prompt covers the gap before the hook fires.
+  const isCompacting = useMemo(() => {
+    if (!session || session.status !== 'running') return false;
+    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
+      const message = session.messages[i];
+      if (!message) continue;
+      if (message.type === 'system' && message.subtype === 'compact_status') {
+        return true;
+      }
+      if (message.type === 'system' && message.subtype === 'compact_boundary') {
+        return false;
+      }
+      if (message.type === 'user_prompt') {
+        return /^\/compact\b/.test((message.prompt || '').trim());
+      }
+    }
+    return false;
+  }, [session?.messages, session?.status]);
+
   // ── Claude rewind ──────────────────────────────────────────────────────────
   const [rewindTarget, setRewindTarget] = useState<ClaudeRewindTarget | null>(null);
 
@@ -2030,7 +2053,12 @@ export function ChatPane({
                 if (streamingWorkstreamModel) return null;
                 if (hasActiveTimelineWork) return null;
                 if (turnPhase === 'complete') return null;
-                return <WorkingFooter startedAt={activeTurnStartedAt} />;
+                return (
+                  <WorkingFooter
+                    startedAt={activeTurnStartedAt}
+                    label={isCompacting ? 'Compacting conversation' : 'Working'}
+                  />
+                );
               })()}
 
               <div />

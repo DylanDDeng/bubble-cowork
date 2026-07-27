@@ -1338,6 +1338,8 @@ export type StreamMessageBase = {
 export interface CompactMetadata {
   trigger: 'manual' | 'auto';
   preTokens: number;
+  /** Context occupancy right after compaction, when the runtime reports it. */
+  postTokens?: number;
 }
 
 export interface AvailableCommandInput {
@@ -1382,6 +1384,17 @@ export type StreamMessage =
       uuid: string;
       session_id: string;
       compactMetadata: CompactMetadata;
+    })
+  // Emitted when the runtime starts compacting (PreCompact hook), so the UI
+  // can show a live "Compacting…" status. The matching compact_boundary marks
+  // the end of the compaction.
+  | (StreamMessageBase & {
+      type: 'system';
+      subtype: 'compact_status';
+      uuid: string;
+      session_id: string;
+      status: 'started';
+      trigger: 'manual' | 'auto';
     })
   | (StreamMessageBase & {
       type: 'system';

@@ -148,14 +148,14 @@ function CompactBoundaryCard({
 }) {
   const [open, setOpen] = useState(false);
   const isAuto = message.compactMetadata.trigger === 'auto';
-  const label = isAuto ? '对话已自动压缩' : '对话已压缩';
+  const label = isAuto ? 'Conversation auto-compacted' : 'Conversation compacted';
   const tokensLabel =
     message.compactMetadata.preTokens > 0
       ? formatCompactTokens(message.compactMetadata.preTokens)
       : null;
   const explanation = isAuto
-    ? '上下文接近模型上限，较早的对话已被自动总结为摘要以腾出空间。AI 仍保留这些内容的要点，但逐字细节可能已省略。'
-    : '你手动压缩了对话，较早的内容已被总结为摘要以腾出上下文空间。';
+    ? 'The context was close to the model limit, so earlier messages were automatically summarized to free up space. The AI keeps the key points, but verbatim details may be omitted.'
+    : 'You compacted the conversation manually. Earlier messages were summarized to free up context space.';
 
   return (
     <div className="my-6 flex justify-center">
@@ -172,7 +172,7 @@ function CompactBoundaryCard({
             <button
               type="button"
               className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
-              aria-label={`${label}${tokensLabel ? ` · 压缩前 ${tokensLabel} tokens` : ''}`}
+              aria-label={`${label}${tokensLabel ? ` · ${tokensLabel} tokens before compaction` : ''}`}
             >
               <ArchiveIcon />
               <span>{label}</span>
@@ -186,7 +186,7 @@ function CompactBoundaryCard({
                 {explanation}
                 {tokensLabel ? (
                   <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[11px] text-[var(--text-muted)]">
-                    压缩前上下文约 {tokensLabel} tokens
+                    Context was about {tokensLabel} tokens before compaction
                   </div>
                 ) : null}
               </div>

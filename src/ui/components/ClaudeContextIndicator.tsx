@@ -106,8 +106,8 @@ export function ClaudeContextIndicator({
                   }}
                 >
                   {percent >= CONTEXT_CRITICAL_PERCENT
-                    ? `已用 ${percent}% · 即将自动压缩较早的对话`
-                    : `已用 ${percent}% · 接近上限，稍后会自动压缩`}
+                    ? `${percent}% used · earlier messages will auto-compact soon`
+                    : `${percent}% used · nearing the limit, auto-compact will run later`}
                 </div>
               ) : null}
               <Divider />

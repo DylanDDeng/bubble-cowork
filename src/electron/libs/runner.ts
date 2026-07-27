@@ -83,6 +83,7 @@ interface SDKMessage {
   compact_metadata?: {
     trigger?: 'manual' | 'auto';
     pre_tokens?: number;
+    post_tokens?: number;
   };
   result?: string;
   event?: {
@@ -805,6 +806,29 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             ? CLAUDE_SETTING_SOURCES
             : OFFICIAL_CLAUDE_SETTING_SOURCES,
           mcpServers: mcpServers as Record<string, SDKMcpServerConfig>,
+          // Compaction runs silently (no stream messages until the boundary),
+          // so surface its start to the UI for a live "Compacting…" status.
+          hooks: {
+            PreCompact: [
+              {
+                hooks: [
+                  async (input) => {
+                    if (input.hook_event_name === 'PreCompact') {
+                      onMessage?.({
+                        type: 'system',
+                        subtype: 'compact_status',
+                        uuid: uuidv4(),
+                        session_id: currentSessionId,
+                        status: 'started',
+                        trigger: input.trigger === 'manual' ? 'manual' : 'auto',
+                      } as StreamMessage);
+                    }
+                    return { continue: true };
+                  },
+                ],
+              },
+            ],
+          },
           // 自定义工具权限处理
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
             const memoryTools = ['remember_search', 'remember_get', 'remember_write', 'remember_recent'];
@@ -1264,6 +1288,10 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
           compactMetadata: {
             trigger: message.compact_metadata?.trigger === 'manual' ? 'manual' : 'auto',
             preTokens: message.compact_metadata?.pre_tokens || 0,
+            postTokens:
+              typeof message.compact_metadata?.post_tokens === 'number'
+                ? message.compact_metadata.post_tokens
+                : undefined,
           },
         };
       }
