@@ -38,7 +38,7 @@ const {
   KIMI_SERVER_ID_PREFIX,
   isKimiServerCapable,
   requireKimiServerCapability,
-  getKimiDefaultRuntime,
+  isKimiServerRuntimeConfirmed,
   setKimiCapabilityProbeForTests,
 } = require('../dist-electron/electron/libs/provider/kimi-adapter-facade.js');
 const { runAgentLoop, ensureProviderService } = require('../dist-electron/electron/libs/agent-loop.js');
@@ -910,40 +910,9 @@ async function l1TokenRotationRetry() {
 
 // ── Facade (provenance routing) ─────────────────────────────────────────────
 
-function stubAcp(facade) {
-  const acp = facade.acp;
-  const calls = { start: [], sendTurn: [], stop: [] };
-  const threads = new Set();
-  acp.startSession = async (input) => {
-    calls.start.push(input);
-    threads.add(input.threadId);
-    return {
-      threadId: input.threadId,
-      provider: 'kimi',
-      providerSessionId: 'acp_session_1',
-      status: 'running',
-    };
-  };
-  acp.sendTurn = async (input) => calls.sendTurn.push(input);
-  acp.stopSession = async (threadId) => {
-    calls.stop.push(threadId);
-    threads.delete(threadId);
-  };
-  acp.hasSession = (threadId) => threads.has(threadId);
-  acp.listSessions = () =>
-    Array.from(threads).map((threadId) => ({
-      threadId,
-      provider: 'kimi',
-      providerSessionId: 'acp_session_1',
-      status: 'running',
-    }));
-  return calls;
-}
-
 async function l1FacadeForkRoundTrip() {
   const t = makeTransport();
   const facade = new KimiAdapterFacade(t.transport);
-  stubAcp(facade);
   // Server-provenance id: prefix stripped for the REST call, re-stamped on
   // the returned fork id (stored verbatim for resume routing).
   const forked = await facade.forkThread({ cwd: '/tmp', providerThreadId: `${KIMI_SERVER_ID_PREFIX}session_src_1` });
@@ -960,141 +929,96 @@ async function l1FacadeForkRoundTrip() {
 }
 
 async function l1FacadeProvenanceRouting() {
-  // Escape hatch semantics: under AEGIS_KIMI_RUNTIME=acp, bare ids stay on
-  // the legacy runtime (no adoption) while server: ids route to the server
-  // regardless of the override.
-  process.env.AEGIS_KIMI_RUNTIME = 'acp';
-  try {
-    const t = makeTransport();
-    const facade = new KimiAdapterFacade(t.transport);
-    const acpCalls = stubAcp(facade);
-    const events = collectEvents(facade);
+  // A stored `server:` id keeps its prefix through start, system_init, and
+  // the session listing — that round-trip is what persistence resumes on.
+  const t = makeTransport();
+  const facade = new KimiAdapterFacade(t.transport);
+  const events = collectEvents(facade);
 
-    const acpSession = await facade.startSession({
-      provider: 'kimi',
-      threadId: 'thread-acp',
-      cwd: '/tmp',
-      prompt: '',
-      resumeSessionId: 'raw_acp_id_123',
-    });
-    assert.equal(acpCalls.start.length, 1);
-    assert.equal(acpCalls.start[0].resumeSessionId, 'raw_acp_id_123');
-    assert.equal(acpSession.providerSessionId, 'acp_session_1');
+  const serverSession = await facade.startSession({
+    provider: 'kimi',
+    threadId: 'thread-server',
+    cwd: '/tmp',
+    prompt: '',
+    resumeSessionId: `${KIMI_SERVER_ID_PREFIX}session_test_9`,
+  });
+  assert.ok(serverSession.providerSessionId.startsWith(KIMI_SERVER_ID_PREFIX));
+  const init = events.byType('system_init').find((event) => event.threadId === 'thread-server');
+  assert.ok(init.sessionId.startsWith(KIMI_SERVER_ID_PREFIX), 'system_init persists the provenance prefix');
+  assert.ok(
+    facade.listSessions().every((session) => session.providerSessionId.startsWith(KIMI_SERVER_ID_PREFIX)),
+    'listSessions reports prefixed ids'
+  );
+  assert.equal(facade.hasSession('thread-server'), true);
 
-    // server: prefix → server runtime even under the acp override.
-    const serverSession = await facade.startSession({
-      provider: 'kimi',
-      threadId: 'thread-server',
-      cwd: '/tmp',
-      prompt: '',
-      resumeSessionId: `${KIMI_SERVER_ID_PREFIX}session_test_9`,
-    });
-    assert.ok(serverSession.providerSessionId.startsWith(KIMI_SERVER_ID_PREFIX));
-    const init = events.byType('system_init').find((event) => event.threadId === 'thread-server');
-    assert.ok(init.sessionId.startsWith(KIMI_SERVER_ID_PREFIX), 'system_init persists the provenance prefix');
-
-    // Provenance stickiness on sendTurn.
-    await facade.sendTurn({ threadId: 'thread-acp', prompt: 'hello acp' });
-    assert.equal(acpCalls.sendTurn.length, 1, 'ACP thread stays on ACP');
-    ok('facade provenance under acp override: bare → ACP, server: → server, sticky');
-  } finally {
-    delete process.env.AEGIS_KIMI_RUNTIME;
-  }
+  await facade.sendTurn({ threadId: 'thread-server', prompt: 'hello' });
+  await assert.rejects(
+    facade.sendTurn({ threadId: 'thread-unknown', prompt: 'hi' }),
+    /No Kimi session found/,
+    'unknown threads fail loudly'
+  );
+  ok('facade provenance: server: prefix round-trips through start, init, and listing');
 }
 
 async function l1FacadeLegacyAdoption() {
-  process.env.AEGIS_KIMI_RUNTIME = 'server';
-  try {
-    // Default path: a bare legacy id is ADOPTED by the server runtime — the
-    // subscribe is accepted, the same id round-trips with the provenance
-    // prefix (that prefixed system_init is what rewrites the DB id), and
-    // the ACP stub is never touched.
-    const t = makeTransport();
-    const facade = new KimiAdapterFacade(t.transport);
-    const acpCalls = stubAcp(facade);
-    const events = collectEvents(facade);
-    const session = await facade.startSession({
-      provider: 'kimi',
-      threadId: 'thread-migrate',
-      cwd: '/tmp',
-      prompt: '',
-      resumeSessionId: 'raw_acp_id_123',
-    });
-    assert.equal(acpCalls.start.length, 0, 'ACP is not consulted on the default path');
-    assert.equal(session.providerSessionId, `${KIMI_SERVER_ID_PREFIX}raw_acp_id_123`, 'same id, prefixed');
-    const init = events.byType('system_init').find((event) => event.threadId === 'thread-migrate');
-    assert.equal(init.sessionId, `${KIMI_SERVER_ID_PREFIX}raw_acp_id_123`, 'rewrite rides system_init');
-    assert.ok(
-      !t.fetchImpl.calls.some((call) => call.path === '/api/v1/sessions' && call.method === 'POST'),
-      'adoption creates no new session'
-    );
+  // A bare legacy id is ADOPTED by the server: the subscribe is accepted, the
+  // same id round-trips with the provenance prefix (that prefixed system_init
+  // is what rewrites the DB id), and no new session is created.
+  const t = makeTransport();
+  const facade = new KimiAdapterFacade(t.transport);
+  const events = collectEvents(facade);
+  const session = await facade.startSession({
+    provider: 'kimi',
+    threadId: 'thread-migrate',
+    cwd: '/tmp',
+    prompt: '',
+    resumeSessionId: 'raw_legacy_id_123',
+  });
+  assert.equal(session.providerSessionId, `${KIMI_SERVER_ID_PREFIX}raw_legacy_id_123`, 'same id, prefixed');
+  const init = events.byType('system_init').find((event) => event.threadId === 'thread-migrate');
+  assert.equal(init.sessionId, `${KIMI_SERVER_ID_PREFIX}raw_legacy_id_123`, 'rewrite rides system_init');
+  assert.ok(
+    !t.fetchImpl.calls.some((call) => call.path === '/api/v1/sessions' && call.method === 'POST'),
+    'adoption creates no new session'
+  );
 
-    // Adoption REFUSED (server does not know the id — subscribe not_found
-    // AND REST-confirmed 40401): the thread stays on the legacy runtime and
-    // the bare id is never destroyed.
-    const t2 = makeTransport();
-    t2.state.missingSessions = ['raw_dead_id_9'];
-    t2.wsFactory.onSubscribe = (msg) => ({
-      type: 'ack',
-      id: msg.id,
-      code: 0,
-      msg: 'success',
-      payload: { accepted: [], not_found: msg.payload.session_ids, resync_required: [], cursors: {} },
-    });
-    const facade2 = new KimiAdapterFacade(t2.transport);
-    const acpCalls2 = stubAcp(facade2);
-    const refused = await facade2.startSession({
-      provider: 'kimi',
-      threadId: 'thread-stay',
-      cwd: '/tmp',
-      prompt: '',
-      resumeSessionId: 'raw_dead_id_9',
-    });
-    assert.equal(acpCalls2.start.length, 1, 'refused adoption falls back to the legacy runtime');
-    assert.equal(acpCalls2.start[0].resumeSessionId, 'raw_dead_id_9', 'bare id passed through untouched');
-    assert.equal(refused.providerSessionId, 'acp_session_1', 'no server session was created or persisted');
-    ok('legacy adoption: accepted → server with same prefixed id; refused → ACP, id preserved');
-  } finally {
-    delete process.env.AEGIS_KIMI_RUNTIME;
-  }
-}
-
-async function l1FacadeDefaultRuntime() {
-  process.env.AEGIS_KIMI_RUNTIME = 'acp';
-  try {
-    const t = makeTransport();
-    const facade = new KimiAdapterFacade(t.transport);
-    const acpCalls = stubAcp(facade);
-    await facade.startSession({ provider: 'kimi', threadId: 'thread-n1', cwd: '/tmp', prompt: '' });
-    assert.equal(acpCalls.start.length, 1, 'override=acp routes new threads to ACP');
-  } finally {
-    process.env.AEGIS_KIMI_RUNTIME = 'server';
-  }
+  // Adoption REFUSED (server does not know the id — subscribe not_found AND
+  // REST-confirmed 40401). With no second runtime to fall back to, the thread
+  // continues on a FRESH server session rather than dead-ending.
   const t2 = makeTransport();
+  t2.state.missingSessions = ['raw_dead_id_9'];
+  // Only the dead id is unknown — the replacement session must still subscribe.
+  t2.wsFactory.onSubscribe = (msg) => ({
+    type: 'ack',
+    id: msg.id,
+    code: 0,
+    msg: 'success',
+    payload: msg.payload.session_ids.includes('raw_dead_id_9')
+      ? { accepted: [], not_found: ['raw_dead_id_9'], resync_required: [], cursors: {} }
+      : t2.wsFactory.defaultSubscribe(msg).payload,
+  });
   const facade2 = new KimiAdapterFacade(t2.transport);
-  stubAcp(facade2);
-  const session = await facade2.startSession({ provider: 'kimi', threadId: 'thread-n2', cwd: '/tmp', prompt: '' });
-  assert.ok(session.providerSessionId.startsWith(KIMI_SERVER_ID_PREFIX), 'override=server routes new threads to server');
-  delete process.env.AEGIS_KIMI_RUNTIME;
-  ok('AEGIS_KIMI_RUNTIME picks the runtime for NEW threads only');
-}
-
-async function l1FacadeAcpStopSettles() {
-  process.env.AEGIS_KIMI_RUNTIME = 'acp';
-  try {
-    const t = makeTransport();
-    const facade = new KimiAdapterFacade(t.transport);
-    stubAcp(facade);
-    const events = collectEvents(facade);
-    await facade.startSession({ provider: 'kimi', threadId: 'thread-a', cwd: '/tmp', prompt: '' });
-    await facade.stopSession('thread-a');
-    const settle = events.byType('stop_settled')[0];
-    assert.ok(settle, 'ACP stop emits a synthetic settle');
-    assert.equal(settle.confirmed, true);
-    ok('ACP-runtime stop settles synthetically so the ipc two-phase gate never hangs');
-  } finally {
-    delete process.env.AEGIS_KIMI_RUNTIME;
-  }
+  const refused = await facade2.startSession({
+    provider: 'kimi',
+    threadId: 'thread-stay',
+    cwd: '/tmp',
+    prompt: '',
+    resumeSessionId: 'raw_dead_id_9',
+  });
+  assert.ok(
+    refused.providerSessionId.startsWith(KIMI_SERVER_ID_PREFIX),
+    'the fresh session is persisted with server provenance'
+  );
+  assert.notEqual(
+    refused.providerSessionId,
+    `${KIMI_SERVER_ID_PREFIX}raw_dead_id_9`,
+    'the unknown id is not reused'
+  );
+  assert.ok(
+    t2.fetchImpl.calls.some((call) => call.path === '/api/v1/sessions' && call.method === 'POST'),
+    'a refused adoption creates a new session'
+  );
+  ok('legacy adoption: accepted → same id prefixed; refused → fresh server session');
 }
 
 // ═══════════════════════════════ L2 tests ═══════════════════════════════════
@@ -1759,12 +1683,12 @@ async function l1CapabilityProbeCache() {
     return outcomes.shift() || { definitive: false, capable: false };
   });
   try {
-    assert.equal(getKimiDefaultRuntime(), 'acp', 'unresolved probe defaults to legacy (steer-safe)');
+    assert.equal(isKimiServerRuntimeConfirmed(), false, 'unresolved probe reads unconfirmed (steer-safe)');
     outcomes.push({ definitive: false, capable: false });
     assert.equal(await isKimiServerCapable(), false, 'indeterminate reads false for this call');
     outcomes.push({ definitive: true, capable: true });
     assert.equal(await isKimiServerCapable(), true, 'not cached: next call re-probes');
-    assert.equal(getKimiDefaultRuntime(), 'server', 'definitive verdict flips the sync default');
+    assert.equal(isKimiServerRuntimeConfirmed(), true, 'definitive verdict flips the sync read');
     const before = probeCalls;
     assert.equal(await isKimiServerCapable(), true);
     assert.equal(probeCalls, before, 'definitive verdict is cached');
@@ -1773,16 +1697,12 @@ async function l1CapabilityProbeCache() {
     await assert.rejects(requireKimiServerCapability(), /could not determine/i, 'loud fail after two indeterminates');
 
     setKimiCapabilityProbeForTests(async () => ({ definitive: true, capable: false }));
-    assert.equal(await requireKimiServerCapability(), false, 'definitive no routes to ACP');
-    assert.equal(getKimiDefaultRuntime(), 'acp');
-
-    process.env.AEGIS_KIMI_RUNTIME = 'server';
-    assert.equal(getKimiDefaultRuntime(), 'server', 'env override wins');
+    assert.equal(await requireKimiServerCapability(), false, 'definitive no is reported, not thrown');
+    assert.equal(isKimiServerRuntimeConfirmed(), false);
   } finally {
-    delete process.env.AEGIS_KIMI_RUNTIME;
     setKimiCapabilityProbeForTests(PINNED_CAPABLE_PROBE);
   }
-  ok('capability probe: indeterminate never cached, loud start fail, sync default (F7/F12)');
+  ok('capability probe: indeterminate never cached, loud start fail, sync read (F7/F12)');
 }
 
 async function l1DaemonCommandCompatibility() {
@@ -1836,8 +1756,7 @@ async function l1DaemonCommandCompatibility() {
 // settle, so the replacement's permission requests reach the USER, not the
 // stale-handle auto-deny.
 async function l1AgentLoopStopDetachPermission() {
-  process.env.AEGIS_KIMI_RUNTIME = 'server';
-  try {
+  {
     ensureProviderService();
     const service = getProviderService();
     const base = makeTransport();
@@ -1921,8 +1840,6 @@ async function l1AgentLoopStopDetachPermission() {
       baselineListeners,
       'no leaked service listeners after both runners retired (F1)'
     );
-  } finally {
-    delete process.env.AEGIS_KIMI_RUNTIME;
   }
   ok('agent-loop: detached stop → replacement approvals reach the user (F1/F13)');
 }
@@ -1960,8 +1877,6 @@ const suites = [
   ['L1: facade fork round-trip', l1FacadeForkRoundTrip],
   ['L1: facade provenance routing', l1FacadeProvenanceRouting],
   ['L1: facade legacy adoption', l1FacadeLegacyAdoption],
-  ['L1: facade default runtime override', l1FacadeDefaultRuntime],
-  ['L1: facade ACP stop settles', l1FacadeAcpStopSettles],
   ['L1: stop in submit window (F10)', l1StopSubmitWindow],
   ['L1: stop during in-flight submit (F10)', l1StopDuringInflightSubmit],
   ['L1: stop vs natural completion (F11)', l1StopVsNaturalCompletion],

@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events';
-import { KimiAcpAdapter } from './kimi-acp-adapter';
 import { KimiServerAdapter } from './kimi-server-adapter';
 import { probeKimiDaemonCommand, type KimiServerTransport } from './kimi-server-manager';
 import { resolveKimiBinary } from '../kimi-cli';
@@ -20,28 +19,16 @@ import type {
 } from '../../../shared/types';
 
 /**
- * Facade adapter for `kimi`: routes each thread to the ACP or server runtime
- * by PROVENANCE, not by a global flag (docs/kimi-server-adapter-plan.md,
- * Rollout). Provenance rides in the persisted session id: server-runtime ids
- * are stored as `server:<session_id>`; bare ids are ACP threads (all
- * pre-facade history). A thread only ever resumes on the runtime that
- * created it — the ACP↔server session spaces are disjoint (M0 probe D).
+ * Facade adapter for `kimi`. Every thread runs on the local Kimi server; the
+ * ACP runtime it used to route to is gone.
  *
- * The default runtime for NEW threads is capability-based and deterministic:
- * `kimi web` or legacy `kimi server run` present ⇒ server;
- * `AEGIS_KIMI_RUNTIME=acp|server` overrides (dev-only escape hatch). A
- * transient boot failure of a capable CLI surfaces an error — it must NOT
- * flip the thread to ACP (flapping corrupts resume ids).
+ * The persisted session id still carries provenance: server ids are stored as
+ * `server:<session_id>`, bare ids are pre-server history. A bare id is adopted
+ * onto the server (which loads legacy-store sessions with their history) and
+ * rewritten to the prefixed form once the adoption is accepted.
  */
 
-export type KimiRuntimeKind = 'acp' | 'server';
-
 export const KIMI_SERVER_ID_PREFIX = 'server:';
-
-export function resolveKimiRuntimeOverride(): KimiRuntimeKind | null {
-  const env = (process.env.AEGIS_KIMI_RUNTIME || '').trim().toLowerCase();
-  return env === 'acp' || env === 'server' ? env : null;
-}
 
 interface KimiCapabilityProbeOutcome {
   /** True when the probe actually answered (CLI ran to a clean verdict);
@@ -54,7 +41,7 @@ type KimiCapabilityProbeFn = () => Promise<KimiCapabilityProbeOutcome>;
 
 let serverCapableProbe: Promise<KimiCapabilityProbeOutcome> | null = null;
 /** Last DEFINITIVE probe verdict; null until one lands. Sync consumers
- * (session serializer, respawn predicate) read it via getKimiDefaultRuntime. */
+ * (session serializer, respawn predicate) read it via isKimiServerRuntimeConfirmed. */
 let lastDefinitiveServerCapable: boolean | null = null;
 let probeImpl: KimiCapabilityProbeFn = defaultCapabilityProbe;
 
@@ -113,8 +100,8 @@ export async function isKimiServerCapable(): Promise<boolean> {
 
 /**
  * Loud form for the session-start path: retries one indeterminate outcome,
- * then THROWS instead of silently creating an ACP thread — only a definitive
- * "no server subcommand" may route new threads to the legacy runtime.
+ * then THROWS rather than reporting a CLI incapable on a probe that never
+ * answered.
  */
 export async function requireKimiServerCapability(): Promise<boolean> {
   let outcome = await runCapabilityProbe();
@@ -130,15 +117,13 @@ export async function requireKimiServerCapability(): Promise<boolean> {
 }
 
 /**
- * Sync default runtime for id-less threads (session serializer, composer
- * capability gates). Unresolved probe reports 'acp' — the safe direction:
- * worst case the steer UI stays disabled until the warm probe settles,
- * versus steering into an ACP adapter that cannot take concurrent prompts.
+ * Sync answer for id-less threads (session serializer, composer capability
+ * gates): has the probe definitively confirmed the server runtime? An
+ * unresolved probe reports false — the safe direction, since the affordances
+ * behind this gate (steering a live turn) need a confirmed server.
  */
-export function getKimiDefaultRuntime(): KimiRuntimeKind {
-  const override = resolveKimiRuntimeOverride();
-  if (override) return override;
-  return lastDefinitiveServerCapable ? 'server' : 'acp';
+export function isKimiServerRuntimeConfirmed(): boolean {
+  return lastDefinitiveServerCapable === true;
 }
 
 /** Resolves when the warm capability probe settles (F12 push-not-poll). */
@@ -154,21 +139,15 @@ export class KimiAdapterFacade implements ProviderAdapter {
   readonly displayName = 'Kimi Code';
   readonly events = new EventEmitter();
 
-  private readonly acp: KimiAcpAdapter;
   private readonly server: KimiServerAdapter;
 
   constructor(serverTransport: KimiServerTransport = {}) {
-    this.acp = new KimiAcpAdapter();
     this.server = new KimiServerAdapter(serverTransport);
 
-    // Warm the capability probe so getKimiDefaultRuntime() has a definitive
-    // verdict before (or shortly after) the first session list renders.
+    // Warm the capability probe so isKimiServerRuntimeConfirmed() has a
+    // definitive verdict before (or shortly after) the first list renders.
     void warmKimiCapabilityProbe();
 
-    // ACP events pass through untouched (bare ids = ACP provenance).
-    this.acp.events.on('event', (event: ProviderRuntimeEvent) => {
-      this.events.emit('event', event);
-    });
     // Server events get the provenance prefix stamped onto every surface that
     // carries a provider session id, so persistence round-trips it.
     this.server.events.on('event', (event: ProviderRuntimeEvent) => {
@@ -189,33 +168,25 @@ export class KimiAdapterFacade implements ProviderAdapter {
     });
   }
 
-  /**
-   * Advertised for the DEFAULT runtime of new threads. Old ACP threads keep
-   * working; server-only affordances (fork/compact/model switch) fail loudly
-   * on them rather than silently downgrading new threads.
-   */
   get capabilities(): ProviderAdapterCapabilities {
-    return getKimiDefaultRuntime() === 'acp' ? this.acp.capabilities : this.server.capabilities;
+    return this.server.capabilities;
   }
 
   getComposerCapabilities(): ProviderComposerCapabilities {
-    return getKimiDefaultRuntime() === 'acp'
-      ? this.acp.getComposerCapabilities()
-      : this.server.getComposerCapabilities();
+    return this.server.getComposerCapabilities();
   }
 
   private runtimeFor(threadId: string): ProviderAdapter | null {
-    if (this.server.hasSession(threadId)) return this.server;
-    if (this.acp.hasSession(threadId)) return this.acp;
-    return null;
+    return this.server.hasSession(threadId) ? this.server : null;
   }
 
-  private async pickRuntimeForNewThread(): Promise<KimiRuntimeKind> {
-    const override = resolveKimiRuntimeOverride();
-    if (override) return override;
-    // Loud form: a transient probe failure throws instead of silently
-    // creating an ACP thread (bare persisted id = provenance corruption).
-    return (await requireKimiServerCapability()) ? 'server' : 'acp';
+  /** Throws when the CLI cannot run the server runtime — there is no fallback. */
+  private async requireServerRuntime(): Promise<void> {
+    if (!(await requireKimiServerCapability())) {
+      throw new Error(
+        'The detected kimi executable does not expose the server runtime. Update Kimi Code, then restart Aegis.'
+      );
+    }
   }
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
@@ -230,44 +201,43 @@ export class KimiAdapterFacade implements ProviderAdapter {
       return { ...session, providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId };
     }
     if (resumeId) {
-      // Legacy (bare-id) thread. Default path: ADOPT it on the server
-      // runtime — the server loads legacy-store sessions with full history
-      // (probed on 0.27.0, incl. a 2026-07-03 session). The bare id is only
-      // rewritten (via the prefixed system_init) after the adoption
-      // subscribe is ACCEPTED; when the server does not know the id
-      // (not_found), the thread stays on the legacy runtime with its id
-      // untouched — a still-valid legacy id is never destroyed. A daemon
-      // boot failure on a capable CLI throws loudly instead of flapping to
-      // the legacy runtime (provenance corruption guard).
-      if ((await this.pickRuntimeForNewThread()) === 'server') {
-        // resolveResume verifies + retries; it throws (id untouched) when
-        // the session exists but cannot be attached right now.
-        const adoption = await this.server.manager.resolveResume(resumeId);
-        if (adoption === 'accepted') {
-          let session: ProviderSession;
-          try {
-            session = await this.server.startSession({ ...input, resumeSessionId: resumeId });
-          } catch (error) {
-            // Don't leak the pre-check subscription: an orphan registry
-            // entry gets resubscribed on every reconnect forever.
-            this.server.manager.unsubscribeSession(resumeId);
-            throw error;
-          }
-          console.info(
-            `[KimiAdapterFacade] adopted legacy kimi thread ${input.threadId} onto the server runtime (${resumeId})`
-          );
-          return { ...session, providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId };
+      // Legacy (bare-id) thread: ADOPT it on the server runtime, which loads
+      // legacy-store sessions with their history. The bare id is only
+      // rewritten (via the prefixed system_init) once the adoption subscribe
+      // is ACCEPTED. A daemon boot failure on a capable CLI throws loudly
+      // rather than quietly abandoning a still-valid id.
+      await this.requireServerRuntime();
+      // resolveResume verifies + retries; it throws (id untouched) when the
+      // session exists but cannot be attached right now.
+      const adoption = await this.server.manager.resolveResume(resumeId);
+      if (adoption === 'accepted') {
+        let session: ProviderSession;
+        try {
+          session = await this.server.startSession({ ...input, resumeSessionId: resumeId });
+        } catch (error) {
+          // Don't leak the pre-check subscription: an orphan registry
+          // entry gets resubscribed on every reconnect forever.
+          this.server.manager.unsubscribeSession(resumeId);
+          throw error;
         }
+        console.info(
+          `[KimiAdapterFacade] adopted legacy kimi thread ${input.threadId} onto the server runtime (${resumeId})`
+        );
+        return { ...session, providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId };
       }
-      return this.acp.startSession(input);
+      // The server does not know this id. There is no second runtime to fall
+      // back to, so continue the thread on a fresh server session: the
+      // transcript stays, only the agent-side context is gone.
+      console.info(
+        `[KimiAdapterFacade] legacy kimi id ${resumeId} is unknown to the server — starting a fresh session for thread ${input.threadId}`
+      );
+      const fresh = await this.server.startSession({ ...input, resumeSessionId: undefined });
+      return { ...fresh, providerSessionId: KIMI_SERVER_ID_PREFIX + fresh.providerSessionId };
     }
 
-    const runtime = await this.pickRuntimeForNewThread();
-    if (runtime === 'server') {
-      const session = await this.server.startSession(input);
-      return { ...session, providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId };
-    }
-    return this.acp.startSession(input);
+    await this.requireServerRuntime();
+    const session = await this.server.startSession(input);
+    return { ...session, providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId };
   }
 
   async sendTurn(input: ProviderSendTurnInput): Promise<void> {
@@ -279,41 +249,20 @@ export class KimiAdapterFacade implements ProviderAdapter {
   }
 
   disposeSession(_threadId: string): boolean {
-    // Policy no-op (both runtimes): kimi has its own zombie handling
-    // (kimiSessionReleased respawn guard keyed on hasSession) and the
-    // binding must survive an errored turn — do NOT delegate to the inner
-    // adapters here.
+    // Policy no-op: kimi has its own zombie handling (kimiSessionReleased
+    // respawn guard keyed on hasSession) and the binding must survive an
+    // errored turn — do NOT delegate to the inner adapter here.
     return false;
   }
 
   async stopSession(threadId: string): Promise<void> {
-    if (this.server.hasSession(threadId)) {
-      await this.server.stopSession(threadId);
-      return;
-    }
-    if (this.acp.hasSession(threadId)) {
-      // The ACP runtime has no interrupt confirmation — stopping kills the
-      // child process, which IS the definitive stop. Emit the settle here so
-      // the ipc two-phase stop gate works for both kimi runtimes.
-      const providerThreadId =
-        this.acp.listSessions().find((session) => session.threadId === threadId)
-          ?.providerSessionId || '';
-      await this.acp.stopSession(threadId);
-      this.events.emit('event', {
-        type: 'stop_settled',
-        threadId,
-        providerThreadId,
-        generation: 0,
-        confirmed: true,
-      } satisfies ProviderRuntimeEvent);
-      return;
-    }
-    // Unknown thread: still settle so a stop gate can never hang on kimi.
+    // Unknown threads go through too: the server settles the stop gate, which
+    // must never hang on kimi.
     await this.server.stopSession(threadId);
   }
 
   async stopAll(): Promise<void> {
-    await Promise.all([this.acp.stopAll(), this.server.stopAll()]);
+    await this.server.stopAll();
   }
 
   /** Synchronous best-effort daemon kill for before-quit. */
@@ -322,17 +271,14 @@ export class KimiAdapterFacade implements ProviderAdapter {
   }
 
   listSessions(): ProviderSession[] {
-    return [
-      ...this.acp.listSessions(),
-      ...this.server.listSessions().map((session) => ({
-        ...session,
-        providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId,
-      })),
-    ];
+    return this.server.listSessions().map((session) => ({
+      ...session,
+      providerSessionId: KIMI_SERVER_ID_PREFIX + session.providerSessionId,
+    }));
   }
 
   hasSession(threadId: string): boolean {
-    return this.acp.hasSession(threadId) || this.server.hasSession(threadId);
+    return this.server.hasSession(threadId);
   }
 
   async respondToRequest(threadId: string, requestId: string, decision: PermissionResult): Promise<void> {
@@ -355,7 +301,7 @@ export class KimiAdapterFacade implements ProviderAdapter {
    * upgrades.
    */
   async getServerModels(): Promise<Array<Record<string, unknown>> | null> {
-    if (resolveKimiRuntimeOverride() === 'acp' || !(await isKimiServerCapable())) {
+    if (!(await isKimiServerCapable())) {
       return null;
     }
     if (this.serverModelCache && Date.now() - this.serverModelCache.fetchedAt < 60_000) {
@@ -372,9 +318,8 @@ export class KimiAdapterFacade implements ProviderAdapter {
     }
   }
 
-  /** Skill discovery is server-runtime only (the ACP surface has none). */
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
-    if (resolveKimiRuntimeOverride() !== 'acp' && (await isKimiServerCapable())) {
+    if (await isKimiServerCapable()) {
       return this.server.listSkills(input);
     }
     return { skills: [], source: 'unsupported', cached: false };
@@ -394,69 +339,11 @@ export class KimiAdapterFacade implements ProviderAdapter {
   async runOneShot(
     input: ProviderSessionStartInput
   ): Promise<{ text: string; sessionId?: string; model?: string }> {
-    if ((await this.pickRuntimeForNewThread()) === 'server') {
-      const result = await this.server.runOneShot(input);
-      return {
-        ...result,
-        sessionId: result.sessionId ? KIMI_SERVER_ID_PREFIX + result.sessionId : undefined,
-      };
-    }
-    return this.runAcpOneShot(input);
-  }
-
-  /** Generic collect-until-result loop over the ACP runtime (no native one-shot). */
-  private async runAcpOneShot(
-    input: ProviderSessionStartInput
-  ): Promise<{ text: string; sessionId?: string; model?: string }> {
-    let text = '';
-    let sessionId: string | undefined;
-    let model: string | undefined;
-
-    const done = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(new Error('Kimi ACP one-shot prompt timed out.'));
-      }, 300_000);
-      timer.unref?.();
-      const listener = (event: ProviderRuntimeEvent) => {
-        if (event.threadId !== input.threadId) return;
-        if (event.type === 'system_init') {
-          sessionId = event.sessionId;
-          model = event.model || model;
-          return;
-        }
-        if (event.type === 'message' && event.message.type === 'assistant' && !event.message.streaming) {
-          for (const block of event.message.message.content) {
-            if (block.type === 'text' && block.text) {
-              text += block.text;
-            }
-          }
-          return;
-        }
-        if (event.type === 'message' && event.message.type === 'result') {
-          cleanup();
-          if (event.message.subtype === 'success') resolve();
-          else reject(new Error('Kimi ACP one-shot turn failed.'));
-          return;
-        }
-        if (event.type === 'error') {
-          cleanup();
-          reject(event.error);
-        }
-      };
-      const cleanup = () => {
-        clearTimeout(timer);
-        this.acp.events.off('event', listener);
-      };
-      this.acp.events.on('event', listener);
-    });
-
-    try {
-      await this.acp.startSession(input);
-      await done;
-      return { text: text.trim(), sessionId, model };
-    } finally {
-      await this.acp.stopSession(input.threadId).catch(() => {});
-    }
+    await this.requireServerRuntime();
+    const result = await this.server.runOneShot(input);
+    return {
+      ...result,
+      sessionId: result.sessionId ? KIMI_SERVER_ID_PREFIX + result.sessionId : undefined,
+    };
   }
 }

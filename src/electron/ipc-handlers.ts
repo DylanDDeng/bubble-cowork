@@ -204,7 +204,7 @@ import type {
 } from '../shared/types';
 import { buildSessionUserPromptSummaries } from '../shared/outline-summary';
 import { getProviderService } from './libs/provider/service';
-import { getKimiDefaultRuntime, warmKimiCapabilityProbe } from './libs/provider/kimi-adapter-facade';
+import { isKimiServerRuntimeConfirmed, warmKimiCapabilityProbe } from './libs/provider/kimi-adapter-facade';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
 import { disposeTerminalTransportServer } from './libs/terminal-transport-server';
 
@@ -8092,10 +8092,9 @@ function buildSessionInfoFromRow(
           ? row.kimi_session_id.startsWith('server:')
             ? ('server' as const)
             : ('legacy' as const)
-          : // Id-less rows follow the probed default, not blanket optimism:
-            // 'server' here enables the steer UI, and steering into the ACP
-            // adapter (no concurrent prompts) clobbers the streaming turn.
-            getKimiDefaultRuntime() === 'server'
+          : // Id-less rows wait for the probe, not blanket optimism: 'server'
+            // here enables the steer UI, which needs a confirmed runtime.
+            isKimiServerRuntimeConfirmed()
             ? ('server' as const)
             : ('legacy' as const)
         : undefined,
@@ -8943,15 +8942,15 @@ async function handleSessionContinue(
   // Same rule for kimi SERVER-runtime threads: the runtime takes `model` per
   // prompt, so a steered/queued send carries the new model natively — an
   // abort here would kill the streaming turn. Scoped to server provenance:
-  // legacy ACP threads cannot take a mid-turn prompt at all, so config drift
-  // there keeps the abort-and-respawn behavior. Id-less rows follow the
-  // probed default runtime (matching the serializer's steer gate).
+  // a legacy thread has not been adopted onto the server yet, so config drift
+  // there keeps the abort-and-respawn behavior. Id-less rows wait for the
+  // probe (matching the serializer's steer gate).
   const kimiMidTurn =
     nextProvider === 'kimi' &&
     session.status === 'running' &&
     (session.kimi_session_id
       ? session.kimi_session_id.startsWith('server:')
-      : getKimiDefaultRuntime() === 'server');
+      : isKimiServerRuntimeConfirmed());
   // A kimi runner whose adapter session was released while idle (daemon
   // exit, session_gone) is a zombie: reusing its handle throws "No Kimi
   // session found" at send time with a toast and a dropped message. Respawn

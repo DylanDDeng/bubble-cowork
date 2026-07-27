@@ -24,7 +24,6 @@ async function waitFor(predicate, timeoutMs, label) {
   throw new Error(`timed out waiting for ${label}`);
 }
 
-process.env.AEGIS_KIMI_RUNTIME = 'server';
 const facade = new KimiAdapterFacade();
 const events = [];
 facade.events.on('event', (event) => events.push(event));

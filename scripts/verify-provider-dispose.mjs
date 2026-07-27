@@ -132,19 +132,18 @@ function methodBlock(source, marker, label) {
   ok('pi dispose: unsubscribe + SDK dispose + delete, silent');
 }
 
-// ── Policy no-ops: codex + all three kimi classes return false ─────────────
+// ── Policy no-ops: codex + both kimi classes return false ──────────────────
 {
   for (const file of [
     'src/electron/libs/provider/codex-adapter.ts',
     'src/electron/libs/provider/kimi-adapter-facade.ts',
-    'src/electron/libs/provider/kimi-acp-adapter.ts',
     'src/electron/libs/provider/kimi-server-adapter.ts',
   ]) {
     const block = methodBlock(read(file), 'disposeSession(', file);
     assert.match(block, /return false;/, `${file} dispose must be a policy no-op returning false`);
     assert.ok(!block.includes('this.emit('), `${file} dispose must not emit`);
   }
-  ok('codex + kimi (facade, acp, server) dispose are documented no-ops returning false');
+  ok('codex + kimi (facade, server) dispose are documented no-ops returning false');
 }
 
 console.log(`\nverify:provider-dispose OK (${passed} pins)`);

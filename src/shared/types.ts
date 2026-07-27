@@ -256,7 +256,6 @@ export interface KimiRuntimeStatus {
   cliAvailable: boolean;
   cliPath: string | null;
   cliVersion: string | null;
-  acpAvailable: boolean;
   /** The CLI ships the `kimi server` runtime (REST + WS daemon). */
   serverAvailable: boolean;
   authState: KimiRuntimeAuthState;

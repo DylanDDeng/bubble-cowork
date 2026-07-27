@@ -4,7 +4,6 @@ export * from './directory';
 export * from './service';
 export { CodexAppServerManager } from './codex-app-server-manager';
 export { CodexAdapter } from './codex-adapter';
-export { KimiAcpAdapter } from './kimi-acp-adapter';
 export { KimiServerManager, KimiServerApiError, KimiServerTransportError } from './kimi-server-manager';
 export { KimiServerAdapter, KimiThreadBindingError } from './kimi-server-adapter';
 export { KimiAdapterFacade, isKimiServerCapable } from './kimi-adapter-facade';

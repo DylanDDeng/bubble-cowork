@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import { GrokAcpAdapter } from '../../src/electron/libs/provider/grok-acp-adapter';
-import { KimiAcpAdapter } from '../../src/electron/libs/provider/kimi-acp-adapter';
 import { deriveTranscriptTimelineItems } from '../../src/ui/utils/transcript-timeline';
 import type { StreamMessage } from '../../src/ui/types';
 
 /**
- * Grok/Kimi narrate between tool calls. One text buffer per turn stamped at the
+ * Grok narrates between tool calls. One text buffer per turn stamped at the
  * first chunk made that narration ride into the final answer and sort in among
  * the tool rows; a new tool call now closes the open text block.
  */
@@ -76,10 +75,7 @@ function assistantTexts(messages: StreamMessage[]): string[] {
     .filter(Boolean);
 }
 
-for (const [label, adapter] of [
-  ['grok', new GrokAcpAdapter()],
-  ['kimi', new KimiAcpAdapter()],
-] as const) {
+for (const [label, adapter] of [['grok', new GrokAcpAdapter()]] as const) {
   const { send, messages } = harness(adapter);
 
   send(text('narration one'));
@@ -133,4 +129,4 @@ for (const [label, adapter] of [
 }
 
 Date.now = realNow;
-console.log('ACP narration split (grok + kimi) OK');
+console.log('ACP narration split (grok) OK');
