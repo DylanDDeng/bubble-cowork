@@ -6,7 +6,18 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
-export const GROK_DEFAULT_BINARY_PATH = path.join(homedir(), '.grok', 'bin', 'grok');
+export const GROK_HOME_DIR = path.join(homedir(), '.grok');
+export const GROK_DEFAULT_BINARY_PATH = path.join(GROK_HOME_DIR, 'bin', 'grok');
+
+/**
+ * Cheap "probably signed in" hint: the CLI writes its credentials to
+ * ~/.grok/auth.json. Only ever used to skip the expensive auth probe — a miss
+ * falls through to asking the agent itself, so a future storage change costs
+ * one extra round trip rather than a wrong answer.
+ */
+export function hasGrokStoredCredentials(): boolean {
+  return existsSync(path.join(GROK_HOME_DIR, 'auth.json'));
+}
 
 function isExecutableCandidate(filePath: string | undefined | null): filePath is string {
   return Boolean(filePath && filePath.trim() && existsSync(filePath));

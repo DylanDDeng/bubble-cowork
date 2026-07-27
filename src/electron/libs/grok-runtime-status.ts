@@ -1,15 +1,34 @@
 import { execFile, spawn } from 'child_process';
 import type { GrokRuntimeStatus } from '../../shared/types';
-import { buildGrokEnv, buildGrokLoginCommand, resolveGrokBinary } from './grok-cli';
+import {
+  buildGrokEnv,
+  buildGrokLoginCommand,
+  hasGrokStoredCredentials,
+  resolveGrokBinary,
+} from './grok-cli';
 
 const PROBE_TIMEOUT_MS = 5000;
+const SESSION_PROBE_TIMEOUT_MS = 6000;
+
+type JsonRpcError = { code?: number; message?: string; data?: unknown };
 
 type JsonRpcResponse = {
   jsonrpc: '2.0';
   id: number;
   result?: unknown;
-  error?: { code?: number; message?: string };
+  error?: JsonRpcError;
 };
+
+type InitializeResult = {
+  authMethods?: unknown;
+  _meta?: { defaultAuthMethodId?: unknown };
+};
+
+function isAuthError(error: JsonRpcError | undefined): boolean {
+  const data = typeof error?.data === 'string' ? error.data : '';
+  const text = `${error?.message || ''} ${data}`.toLowerCase();
+  return text.includes('auth') || text.includes('login') || text.includes('sign in');
+}
 
 function execFileText(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -46,6 +65,17 @@ function send(proc: ReturnType<typeof spawn>, id: number, method: string, params
   proc.stdin?.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
 }
 
+/**
+ * Grok's `initialize` succeeds while signed out — it just advertises its
+ * auth methods — so a bare handshake says nothing about credentials. Cheap
+ * signals decide when they can (no auth methods offered, a default method
+ * already selected, credentials on disk); otherwise the only definitive check
+ * is asking for a session, which fails with "Authentication required" when the
+ * login is gone.
+ *
+ * Only a real auth error downgrades the state: `ready` gates session starts,
+ * so an unrelated failure must not lock the provider out.
+ */
 async function probeGrokAuth(binaryPath: string): Promise<GrokRuntimeStatus['authState']> {
   return new Promise((resolve) => {
     const proc = spawn(binaryPath, ['agent', 'stdio'], {
@@ -107,15 +137,31 @@ async function probeGrokAuth(binaryPath: string): Promise<GrokRuntimeStatus['aut
         }
         if (msg.id === 1) {
           if (msg.error) {
-            const message = msg.error.message || '';
-            finish(
-              message.toLowerCase().includes('auth') || message.toLowerCase().includes('login')
-                ? 'login_required'
-                : 'error'
-            );
-          } else {
-            finish('ready');
+            finish(isAuthError(msg.error) ? 'login_required' : 'error');
+            continue;
           }
+
+          const result = (msg.result || {}) as InitializeResult;
+          const authMethods = Array.isArray(result.authMethods) ? result.authMethods : [];
+          const defaultAuthMethodId = result._meta?.defaultAuthMethodId;
+
+          if (authMethods.length === 0 || defaultAuthMethodId || hasGrokStoredCredentials()) {
+            finish('ready');
+            continue;
+          }
+
+          if (timeout) {
+            clearTimeout(timeout);
+          }
+          // A slow session start is not evidence of a missing login.
+          timeout = setTimeout(() => finish('ready'), SESSION_PROBE_TIMEOUT_MS);
+          timeout.unref?.();
+          send(proc, 2, 'session/new', { cwd: process.cwd(), mcpServers: [] });
+          continue;
+        }
+
+        if (msg.id === 2) {
+          finish(msg.error && isAuthError(msg.error) ? 'login_required' : 'ready');
         }
       }
     });
