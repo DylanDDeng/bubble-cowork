@@ -55,6 +55,7 @@ import {
   updateThemePack,
 } from '../theme/themes';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import { getMessageContentBlocks } from '../utils/message-content';
 import { loadPreferredProvider } from '../utils/provider';
 import {
   DEFAULT_SIDEBAR_WIDTH,
@@ -258,6 +259,15 @@ function shouldPreserveStreamingStateForMessage(
   if (message.parentToolUseId) {
     return true;
   }
+  // Grok interleaves tool calls, tool results and command-list pushes with the
+  // text it is still streaming. Only the COMMIT of that text (or of the
+  // reasoning) may clear the buffer — anything else arriving mid-answer would
+  // wipe the visible partial, leaving the trace alone until the turn ends and
+  // the committed message re-rendered the answer from scratch.
+  if (provider === 'grok') {
+    return !isGrokStreamCommit(message);
+  }
+
   return (
     (provider === 'codex' &&
       ((message.type === 'assistant' && message.streaming === true) ||
@@ -265,6 +275,16 @@ function shouldPreserveStreamingStateForMessage(
     // Kimi (server runtime) emits token_usage mid-turn between steps; it must
     // not reset the in-flight streaming buffer either.
     (provider === 'kimi' && message.type === 'system' && message.subtype === 'token_usage')
+  );
+}
+
+/** The non-streaming assistant message that lands a finished text/thinking block. */
+function isGrokStreamCommit(message: StreamMessage): boolean {
+  if (message.type !== 'assistant' || message.streaming === true) {
+    return false;
+  }
+  return getMessageContentBlocks(message).some(
+    (block) => block.type === 'text' || block.type === 'thinking'
   );
 }
 
