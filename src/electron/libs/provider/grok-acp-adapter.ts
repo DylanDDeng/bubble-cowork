@@ -51,8 +51,12 @@ interface ActiveGrokSession {
   model?: string;
   proc: ChildProcessWithoutNullStreams;
   rpc: AcpJsonRpcClient;
-  currentAssistant?: { uuid: string; text: string; createdAt: number };
-  currentThinking?: { uuid: string; thinking: string; createdAt: number };
+  currentAssistant?: { uuid: string; text: string; createdAt: number; blockIndex: number };
+  currentThinking?: { uuid: string; thinking: string; createdAt: number; blockIndex: number };
+  /** Content-block counter for the stream events the renderer coalesces on. */
+  nextBlockIndex: number;
+  /** Serialized last command list, to skip re-broadcasting an identical one. */
+  lastCommandsSignature?: string;
   /** Latest skills seen in available_commands_update; see listSkills. */
   skills?: ProviderSkillDescriptor[];
   toolCalls: Map<string, { name: string; input: Record<string, unknown>; createdAt: number }>;
@@ -268,6 +272,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
 
   private sessions = new Map<string, ActiveGrokSession>();
   private skillsCache = new Map<string, { skills: ProviderSkillDescriptor[]; fetchedAt: number }>();
+  private skillsProbes = new Map<string, Promise<ProviderSkillDescriptor[]>>();
   private pendingPermissions = new Map<
     string,
     {
@@ -374,6 +379,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
       permissionMode,
       reasoningEffort,
       terminals: new Map(),
+      nextBlockIndex: 0,
     };
     // Never orphan a previous session for the same thread — an undisposed
     // predecessor would leak its grok child process.
@@ -598,9 +604,27 @@ export class GrokAcpAdapter implements ProviderAdapter {
       return { skills: cached.skills, source: 'grok-acp', cached: true };
     }
 
-    const skills = await this.probeSkills(cwd);
-    this.skillsCache.set(cwd, { skills, fetchedAt: Date.now() });
-    return { skills, source: 'grok-acp', cached: false };
+    // Single-flight: the composer and every message card ask for this catalog,
+    // and the result cache only helps once the first probe has RESOLVED —
+    // without this, the callers that arrive during those seconds each boot
+    // their own agent.
+    const pending = this.skillsProbes.get(cwd);
+    if (pending && !input.forceReload) {
+      return { skills: await pending, source: 'grok-acp', cached: true };
+    }
+
+    const probe = this.probeSkills(cwd)
+      .then((skills) => {
+        this.skillsCache.set(cwd, { skills, fetchedAt: Date.now() });
+        return skills;
+      })
+      .finally(() => {
+        if (this.skillsProbes.get(cwd) === probe) {
+          this.skillsProbes.delete(cwd);
+        }
+      });
+    this.skillsProbes.set(cwd, probe);
+    return { skills: await probe, source: 'grok-acp', cached: false };
   }
 
   /** Opens a short-lived ACP session purely to collect its command list. */
@@ -1070,46 +1094,56 @@ export class GrokAcpAdapter implements ProviderAdapter {
     }
   }
 
+  /**
+   * Mid-turn text and reasoning ride Claude-shaped stream events carrying only
+   * the INCREMENT, which is what the renderer's delta coalescer batches.
+   * Re-emitting the whole buffer per chunk instead made the bytes grow with
+   * the square of the answer and bypassed coalescing entirely — a 300-char
+   * reply cost 9.6KB across 66 renders. The committed message still lands in
+   * finalizeStreaming, so the transcript and persistence are unchanged.
+   */
   private emitAssistantDelta(session: ActiveGrokSession, text: string): void {
     if (!text) return;
-    const current = session.currentAssistant || {
-      uuid: `grok-assistant:${session.threadId}:${uuidv4()}`,
-      text: '',
-      createdAt: Date.now(),
-    };
+    if (!session.currentAssistant) {
+      session.currentAssistant = {
+        uuid: `grok-assistant:${session.threadId}:${uuidv4()}`,
+        text: '',
+        createdAt: Date.now(),
+        blockIndex: session.nextBlockIndex++,
+      };
+    }
+    const current = session.currentAssistant;
     current.text += text;
-    session.currentAssistant = current;
-    this.emit({
-      type: 'message',
-      threadId: session.threadId,
-      message: {
-        type: 'assistant',
-        uuid: current.uuid,
-        createdAt: current.createdAt,
-        streaming: true,
-        message: { content: [{ type: 'text', text: current.text }] },
-      },
-    });
+    this.emitStreamDelta(session, current.blockIndex, { type: 'text_delta', text });
   }
 
   private emitThinkingDelta(session: ActiveGrokSession, thinking: string): void {
     if (!thinking) return;
-    const current = session.currentThinking || {
-      uuid: `grok-thinking:${session.threadId}:${uuidv4()}`,
-      thinking: '',
-      createdAt: Date.now(),
-    };
+    if (!session.currentThinking) {
+      session.currentThinking = {
+        uuid: `grok-thinking:${session.threadId}:${uuidv4()}`,
+        thinking: '',
+        createdAt: Date.now(),
+        blockIndex: session.nextBlockIndex++,
+      };
+    }
+    const current = session.currentThinking;
     current.thinking += thinking;
-    session.currentThinking = current;
+    this.emitStreamDelta(session, current.blockIndex, { type: 'thinking_delta', thinking });
+  }
+
+  private emitStreamDelta(
+    session: ActiveGrokSession,
+    index: number,
+    delta: { type: string; text?: string; thinking?: string }
+  ): void {
     this.emit({
       type: 'message',
       threadId: session.threadId,
       message: {
-        type: 'assistant',
-        uuid: current.uuid,
-        createdAt: current.createdAt,
-        streaming: true,
-        message: { content: [{ type: 'thinking', thinking: current.thinking }] },
+        type: 'stream_event',
+        parentToolUseId: null,
+        event: { type: 'content_block_delta', index, delta },
       },
     });
   }
@@ -1323,6 +1357,23 @@ export class GrokAcpAdapter implements ProviderAdapter {
           meta?: { scope?: string; path?: string };
         } => Boolean(command)
       );
+
+    // Grok re-pushes this list on its own schedule, and it is large (~49KB
+    // with 139 skills). An identical repeat would cross IPC, re-render the
+    // menu, and land another copy in the transcript store and the database.
+    // Compared order-insensitively: observed repeats carry the same commands
+    // in a different order, and the renderer sorts by name anyway.
+    const signature = JSON.stringify(
+      [...availableCommands].sort((left, right) => left.name.localeCompare(right.name))
+    );
+    const session = this.sessions.get(threadId);
+    if (session) {
+      if (session.lastCommandsSignature === signature) {
+        return;
+      }
+      session.lastCommandsSignature = signature;
+    }
+
     this.emit({
       type: 'message',
       threadId,
