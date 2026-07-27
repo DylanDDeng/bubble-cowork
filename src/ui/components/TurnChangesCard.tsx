@@ -160,7 +160,7 @@ function ChangedFileRow({
             // Not `disabled` — a disabled button swallows pointer events, which
             // would kill the hover preview for rows with no diff panel wired up.
             aria-disabled={!clickable}
-            className={`group flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
               clickable ? 'cursor-pointer hover:bg-[var(--bg-tertiary)]/40' : 'cursor-default'
             }`}
           >
@@ -168,11 +168,7 @@ function ChangedFileRow({
               name={basename(record.filePath)}
               className="h-4 w-4 shrink-0 opacity-80"
             />
-            <span
-              className={`min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--text-primary)] ${
-                clickable ? 'group-hover:text-[var(--accent)]' : ''
-              }`}
-            >
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--text-primary)]">
               {record.filePath}
             </span>
             <DiffStatLabel additions={record.addedLines} deletions={record.removedLines} />
