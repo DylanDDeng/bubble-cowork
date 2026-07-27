@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X } from './icons';
+import { FileText, X } from './icons';
 import type { Attachment } from '../types';
 import { FileTypeIcon } from './FileTypeIcon';
 
@@ -16,66 +16,79 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
-const PASTED_TEXT_PREVIEW_MAX_CHARS = 900;
+const PASTED_TEXT_LABEL_MAX_CHARS = 120;
 
-function normalizePreviewText(text: string): string {
-  const sample =
-    text.length > PASTED_TEXT_PREVIEW_MAX_CHARS
-      ? `${text.slice(0, PASTED_TEXT_PREVIEW_MAX_CHARS)}...`
-      : text;
+function pastedTextLabel(text: string): string {
+  const firstLine =
+    text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) || 'Pasted text';
 
-  return sample
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join('\n')
-    .trim();
+  return firstLine.length > PASTED_TEXT_LABEL_MAX_CHARS
+    ? `${firstLine.slice(0, PASTED_TEXT_LABEL_MAX_CHARS)}...`
+    : firstLine;
 }
 
-function PastedTextAttachmentCard({
+/**
+ * Composer pasted-text attachment: a compact horizontal chip — icon tile on
+ * the left, the pasted text's first line as the title, a "Pasted text"
+ * subtitle, and a floating remove badge on the corner.
+ */
+function PastedTextComposerChip({
   attachment,
   onRemove,
 }: {
   attachment: Attachment;
   onRemove?: (attachmentId: string) => void;
 }) {
-  const previewText = normalizePreviewText(attachment.previewText || '');
+  const label = pastedTextLabel(attachment.previewText || '');
 
   return (
     <div
-      className="relative w-[128px] rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 shadow-sm"
+      className="relative inline-flex max-w-[240px] items-center gap-2.5 rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] py-2 pl-2 pr-3 shadow-sm"
       title={attachment.path}
     >
-      <div
-        className="overflow-hidden text-[10px] leading-[1.45] text-[var(--text-secondary)]"
-        style={{
-          display: '-webkit-box',
-          WebkitBoxOrient: 'vertical',
-          WebkitLineClamp: 5,
-          minHeight: '72px',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-        }}
-      >
-        {previewText}
+      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] bg-[var(--bg-tertiary)]">
+        <FileText className="h-4.5 w-4.5 text-[var(--text-secondary)]" />
       </div>
 
-      <div className="mt-2 inline-flex rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">
-        PASTED
+      <div className="min-w-0">
+        <div className="truncate text-xs font-medium text-[var(--text-primary)]">{label}</div>
+        <div className="text-[10px] text-[var(--text-muted)]">Pasted text</div>
       </div>
 
       {onRemove && (
         <button
+          type="button"
           onClick={() => onRemove(attachment.id)}
-          className="absolute right-2 top-2 rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)]"
+          className="absolute -right-1.5 -top-1.5 inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] shadow-[0_1px_4px_rgba(0,0,0,0.28)] transition-opacity hover:opacity-85"
           title="Remove"
           aria-label="Remove attachment"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-2.5 w-2.5" />
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Sent-message pasted-text attachment: a single-line pill above the bubble —
+ * small icon plus the pasted text's truncated first line.
+ */
+function PastedTextMessagePill({ attachment }: { attachment: Attachment }) {
+  const label = pastedTextLabel(attachment.previewText || '');
+
+  return (
+    <div
+      className="inline-flex max-w-[320px] items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-1.5"
+      title={attachment.path}
+    >
+      <FileText className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+      <span className="truncate text-xs text-[var(--text-secondary)]">{label}</span>
     </div>
   );
 }
@@ -185,7 +198,11 @@ export function AttachmentChips({
     <div className="flex flex-wrap gap-2">
       {attachments.map((a) => {
         if (a.uiType === 'pasted_text' && a.previewText) {
-          return <PastedTextAttachmentCard key={a.id} attachment={a} onRemove={onRemove} />;
+          return variant === 'message' ? (
+            <PastedTextMessagePill key={a.id} attachment={a} />
+          ) : (
+            <PastedTextComposerChip key={a.id} attachment={a} onRemove={onRemove} />
+          );
         }
 
         const preview = a.kind === 'image' ? previews[a.id] || undefined : undefined;
