@@ -66,12 +66,13 @@ function send(proc: ReturnType<typeof spawn>, id: number, method: string, params
 }
 
 /**
- * Grok's `initialize` succeeds while signed out — it just advertises its
- * auth methods — so a bare handshake says nothing about credentials. Cheap
- * signals decide when they can (no auth methods offered, a default method
- * already selected, credentials on disk); otherwise the only definitive check
- * is asking for a session, which fails with "Authentication required" when the
- * login is gone.
+ * The fallback for when no credentials file is on disk — the caller answers
+ * the common case without spawning anything.
+ *
+ * Grok's `initialize` succeeds while signed out (it just advertises its auth
+ * methods), so the handshake alone proves nothing: either it offers no auth
+ * methods, or it names a default one, or we ask for a session, which fails
+ * with "Authentication required" when the login is gone.
  *
  * Only a real auth error downgrades the state: `ready` gates session starts,
  * so an unrelated failure must not lock the provider out.
@@ -145,7 +146,7 @@ async function probeGrokAuth(binaryPath: string): Promise<GrokRuntimeStatus['aut
           const authMethods = Array.isArray(result.authMethods) ? result.authMethods : [];
           const defaultAuthMethodId = result._meta?.defaultAuthMethodId;
 
-          if (authMethods.length === 0 || defaultAuthMethodId || hasGrokStoredCredentials()) {
+          if (authMethods.length === 0 || defaultAuthMethodId) {
             finish('ready');
             continue;
           }
@@ -185,7 +186,35 @@ async function probeGrokAuth(binaryPath: string): Promise<GrokRuntimeStatus['aut
   });
 }
 
+const STATUS_CACHE_TTL_MS = 10_000;
+let statusCache: { status: GrokRuntimeStatus; fetchedAt: number } | null = null;
+let inflight: Promise<GrokRuntimeStatus> | null = null;
+
+/**
+ * Several surfaces ask for this at once (model picker, settings rail, the
+ * gate in front of every turn). Cache briefly and share the in-flight probe,
+ * so one glance at the composer cannot fan out into several CLI spawns
+ * competing for the same machine.
+ */
 export async function getGrokRuntimeStatus(): Promise<GrokRuntimeStatus> {
+  if (statusCache && Date.now() - statusCache.fetchedAt < STATUS_CACHE_TTL_MS) {
+    return statusCache.status;
+  }
+  if (inflight) {
+    return inflight;
+  }
+  inflight = computeGrokRuntimeStatus()
+    .then((status) => {
+      statusCache = { status, fetchedAt: Date.now() };
+      return status;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
+}
+
+async function computeGrokRuntimeStatus(): Promise<GrokRuntimeStatus> {
   const cliPath = await resolveGrokBinary();
   const checkedAt = Date.now();
   if (!cliPath) {
@@ -207,8 +236,21 @@ export async function getGrokRuntimeStatus(): Promise<GrokRuntimeStatus> {
     getGrokVersion(cliPath),
     checkAcpAvailable(cliPath),
   ]);
-  const authState = acpAvailable ? await probeGrokAuth(cliPath) : 'error';
-  const ready = acpAvailable && authState === 'ready';
+
+  // Credentials on disk answer the common case for free — the same signal the
+  // Codex probe uses. Booting an agent just to shake hands costs ~2s, and
+  // Grok's handshake succeeds while signed out anyway, so it was paying a
+  // spawn for an answer the filesystem already had.
+  const authState: GrokRuntimeStatus['authState'] = !acpAvailable
+    ? 'error'
+    : hasGrokStoredCredentials()
+      ? 'ready'
+      : await probeGrokAuth(cliPath);
+  // Only a definitive "you are signed out" blocks the provider. An
+  // inconclusive probe (timeout, unexpected error) leaves it usable and lets
+  // the real failure speak at turn time — a slow handshake is not evidence of
+  // a broken install.
+  const ready = acpAvailable && authState !== 'login_required';
 
   return {
     ready,
