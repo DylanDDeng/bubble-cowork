@@ -80,6 +80,52 @@ function PastedTextAttachmentCard({
   );
 }
 
+/**
+ * Composer image attachment: a plain square thumbnail with a floating remove
+ * badge on its corner — no chip frame, no filename, no size (the picture is
+ * the label).
+ */
+function ImageAttachmentThumb({
+  attachment,
+  preview,
+  onRemove,
+  onPreviewError,
+}: {
+  attachment: Attachment;
+  preview?: string;
+  onRemove?: (attachmentId: string) => void;
+  onPreviewError: () => void;
+}) {
+  return (
+    <div className="relative" title={attachment.path}>
+      <div className="h-[84px] w-[84px] overflow-hidden rounded-[12px] border border-[var(--border)] bg-white">
+        {preview ? (
+          <img
+            src={preview}
+            className="h-full w-full object-cover"
+            alt={attachment.name || 'Image attachment'}
+            onError={onPreviewError}
+          />
+        ) : (
+          <div className="h-full w-full bg-[var(--bg-secondary)]" />
+        )}
+      </div>
+
+      {onRemove && (
+        <button
+          type="button"
+          onClick={() => onRemove(attachment.id)}
+          className="absolute right-1 top-1 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] shadow-[0_1px_4px_rgba(0,0,0,0.28)] transition-opacity hover:opacity-85"
+          title="Remove"
+          aria-label="Remove attachment"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function AttachmentChips({
   attachments,
   onRemove,
@@ -143,6 +189,19 @@ export function AttachmentChips({
         }
 
         const preview = a.kind === 'image' ? previews[a.id] || undefined : undefined;
+
+        if (a.kind === 'image' && variant === 'composer') {
+          return (
+            <ImageAttachmentThumb
+              key={a.id}
+              attachment={a}
+              preview={preview}
+              onRemove={onRemove}
+              onPreviewError={() => setPreviews((prev) => ({ ...prev, [a.id]: null }))}
+            />
+          );
+        }
+
         return (
           <div
             key={a.id}
