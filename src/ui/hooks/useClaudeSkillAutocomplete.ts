@@ -149,7 +149,12 @@ export function useComposerCapabilityMenu({
       if (!enableSkills) {
         return [];
       }
-      if (provider === 'codex' || provider === 'kimi' || provider === 'qoder') {
+      if (
+        provider === 'codex' ||
+        provider === 'kimi' ||
+        provider === 'qoder' ||
+        provider === 'grok'
+      ) {
         return providerSlashSkills;
       }
       if (provider === 'claude') {
@@ -233,11 +238,19 @@ export function useComposerCapabilityMenu({
       includeSkills:
         triggerKind === 'skill' ||
         (triggerKind === 'slash-command' &&
-          (provider === 'claude' || provider === 'codex' || provider === 'kimi' || provider === 'qoder')),
-      // Codex/Kimi/Qoder match the codex app: `/` reaches the full skill
+          (provider === 'claude' ||
+            provider === 'codex' ||
+            provider === 'kimi' ||
+            provider === 'qoder' ||
+            provider === 'grok')),
+      // Codex/Kimi/Qoder/Grok match the codex app: `/` reaches the full skill
       // catalog, same budget as the `$` menu (Claude keeps the compact
-      // 8-slot mix).
-      skillLimit: provider === 'codex' || provider === 'kimi' || provider === 'qoder' ? 80 : undefined,
+      // 8-slot mix). Grok invokes its skills as slash commands, so `/` is the
+      // only way in.
+      skillLimit:
+        provider === 'codex' || provider === 'kimi' || provider === 'qoder' || provider === 'grok'
+          ? 80
+          : undefined,
     });
   }, [availableCommands, availableSkills, enabled, provider, query, triggerKind]);
 

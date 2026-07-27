@@ -42,8 +42,14 @@ function testSessionAcpCommandsMergeAndEnrich() {
           input: { hint: 'optional context about what to preserve' },
         },
         {
+          name: 'btw',
+          description: 'Send an aside without interrupting the current task',
+        },
+        {
+          // Skills ride the same ACP list; `_meta.path` is what marks them.
           name: 'my-skill',
           description: 'A user skill advertised as a slash command',
+          meta: { scope: 'user', path: '/Users/me/.agents/skills/my-skill/SKILL.md' },
         },
       ],
     },
@@ -53,9 +59,17 @@ function testSessionAcpCommandsMergeAndEnrich() {
   const commands = buildProviderSlashCommands('grok', sessionCommands);
   const byName = new Map(commands.map((command) => [command.name, command]));
 
-  // ACP skill retained
-  assert.equal(byName.get('my-skill')?.source, 'acp');
-  assert.equal(byName.get('my-skill')?.description, 'A user skill advertised as a slash command');
+  // File-backed entries are skills: they render from the skill catalog, so the
+  // command list must not carry a duplicate.
+  assert.equal(byName.has('my-skill'), false, 'skills are not listed as commands');
+
+  // Everything the agent reports without a file behind it is a built-in —
+  // classification comes from the payload, not from the local title table.
+  assert.equal(byName.get('btw')?.source, 'default');
+  assert.equal(
+    byName.get('btw')?.description,
+    'Send an aside without interrupting the current task'
+  );
 
   // ACP compact enriched with static title/hint
   assert.equal(byName.get('compact')?.title, '/compact');

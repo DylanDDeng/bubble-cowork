@@ -404,13 +404,21 @@ function fromAvailableCommand(command: AvailableCommand): ClaudeSlashCommand | n
     return null;
   }
 
+  // A command backed by a file is a skill, and skills render from the provider
+  // skill catalog (with their scope and detail body). Dropping them here keeps
+  // one entry per name instead of a command/skill pair.
+  if (command.meta?.path) {
+    return null;
+  }
+
   const grokFallback = GROK_COMMAND_DEFINITIONS[normalized];
   return {
     name: normalized,
     title: grokFallback?.title || `/${normalized}`,
     description: command.description || grokFallback?.description || 'ACP slash command',
-    // Known Grok builtins use the same "Built-in" group as Claude/OpenCode defaults.
-    source: grokFallback ? 'default' : 'acp',
+    // Everything the agent reports without a file behind it is a built-in; the
+    // local table only supplies nicer titles and input hints.
+    source: 'default',
     submitOnSelect: grokFallback?.submitOnSelect,
     inputHint: command.input?.hint || grokFallback?.inputHint,
   };

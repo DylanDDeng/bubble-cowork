@@ -1299,10 +1299,18 @@ export class GrokAcpAdapter implements ProviderAdapter {
         const description = getString(record?.description) || 'Grok Build slash command';
         const inputRecord = getRecord(record?.input);
         const hint = getString(inputRecord?.hint);
+        // Skills ride this same list; their `_meta` (SKILL.md path + scope) is
+        // what tells the composer they are skills rather than built-ins.
+        const metaRecord = getRecord(record?._meta);
+        const path = getString(metaRecord?.path).trim();
+        const scope = getString(metaRecord?.scope).trim();
         return {
           name,
           description,
           ...(hint ? { input: { hint } } : {}),
+          ...(path || scope
+            ? { meta: { ...(path ? { path } : {}), ...(scope ? { scope } : {}) } }
+            : {}),
         };
       })
       .filter(
@@ -1312,6 +1320,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
           name: string;
           description: string;
           input?: { hint: string };
+          meta?: { scope?: string; path?: string };
         } => Boolean(command)
       );
     this.emit({

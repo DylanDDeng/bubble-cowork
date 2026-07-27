@@ -1345,6 +1345,12 @@ export interface AvailableCommand {
   name: string;
   description: string;
   input?: AvailableCommandInput;
+  /**
+   * Provider metadata for commands backed by a file (Grok ships skills and
+   * built-ins in one ACP list; only skills carry a path). Lets the composer
+   * classify an entry from what the agent reported instead of a local list.
+   */
+  meta?: { scope?: string; path?: string };
 }
 
 export type StreamMessage =
