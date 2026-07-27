@@ -23,6 +23,9 @@ import type {
   PermissionResult,
   PlanStepStatus,
   ProviderComposerCapabilities,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
+  ProviderSkillDescriptor,
   StreamMessage,
 } from '../../../shared/types';
 
@@ -50,6 +53,8 @@ interface ActiveGrokSession {
   rpc: AcpJsonRpcClient;
   currentAssistant?: { uuid: string; text: string; createdAt: number };
   currentThinking?: { uuid: string; thinking: string; createdAt: number };
+  /** Latest skills seen in available_commands_update; see listSkills. */
+  skills?: ProviderSkillDescriptor[];
   toolCalls: Map<string, { name: string; input: Record<string, unknown>; createdAt: number }>;
   permissionMode?: GrokPermissionMode;
   reasoningEffort?: GrokReasoningEffort;
@@ -83,6 +88,36 @@ function getRecord(value: unknown): Record<string, unknown> | null {
 
 function getArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+/**
+ * Grok ships skills and built-in slash commands in one available_commands
+ * list. A skill is the entry that carries `_meta.path` — the SKILL.md it was
+ * loaded from; builtins (compact, context, …) have no `_meta`. Reading the
+ * agent's own list beats re-deriving its discovery rules, which span
+ * ~/.grok/skills, ~/.agents/skills, bundled skills inside the install, and a
+ * compatibility scan of ~/.claude/skills.
+ */
+function extractSkillsFromCommands(availableCommands: unknown): ProviderSkillDescriptor[] {
+  const skills = getArray(availableCommands).flatMap((command): ProviderSkillDescriptor[] => {
+    const record = getRecord(command);
+    const meta = getRecord(record?._meta);
+    const path = getString(meta?.path).trim();
+    const name = getString(record?.name).replace(/^\//, '').trim();
+    if (!path || !name) return [];
+    const description = getString(record?.description).trim();
+    const scope = getString(meta?.scope).trim();
+    return [
+      {
+        name,
+        path,
+        enabled: true,
+        ...(description ? { description } : {}),
+        ...(scope ? { scope } : {}),
+      },
+    ];
+  });
+  return skills.sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function extractTextContent(content: unknown): string {
@@ -211,6 +246,10 @@ function buildPromptBlocks(prompt: string, attachments?: Attachment[]): PromptBl
   return blocks;
 }
 
+const SKILLS_CACHE_TTL_MS = 5 * 60 * 1000;
+/** Cold probes wait on the agent booting its MCP servers before it lists commands. */
+const SKILLS_PROBE_TIMEOUT_MS = 45_000;
+
 function buildGrokAgentArgs(effort?: GrokReasoningEffort): string[] {
   // `--reasoning-effort` is an `agent`-level flag that must precede the
   // `stdio` subcommand. After `stdio` the CLI rejects extra flags.
@@ -228,6 +267,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
   readonly events = new EventEmitter();
 
   private sessions = new Map<string, ActiveGrokSession>();
+  private skillsCache = new Map<string, { skills: ProviderSkillDescriptor[]; fetchedAt: number }>();
   private pendingPermissions = new Map<
     string,
     {
@@ -534,6 +574,108 @@ export class GrokAcpAdapter implements ProviderAdapter {
         ? { outcome: 'selected', optionId }
         : { outcome: 'cancelled' },
     });
+  }
+
+  /**
+   * Skills come from the agent itself: Grok pushes available_commands_update
+   * right after session/new, and every skill entry carries its SKILL.md path.
+   * A live session for this cwd answers instantly; otherwise a throwaway
+   * session is opened just to read the list, which is slow (the agent boots
+   * the configured MCP servers first), so results are cached per cwd and the
+   * library's Refresh button is the way to bypass it.
+   */
+  async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
+    const cwd = input.cwd?.trim() || process.cwd();
+
+    for (const session of this.sessions.values()) {
+      if (session.cwd === cwd && session.skills && session.skills.length > 0) {
+        return { skills: session.skills, source: 'grok-acp', cached: false };
+      }
+    }
+
+    const cached = this.skillsCache.get(cwd);
+    if (!input.forceReload && cached && Date.now() - cached.fetchedAt < SKILLS_CACHE_TTL_MS) {
+      return { skills: cached.skills, source: 'grok-acp', cached: true };
+    }
+
+    const skills = await this.probeSkills(cwd);
+    this.skillsCache.set(cwd, { skills, fetchedAt: Date.now() });
+    return { skills, source: 'grok-acp', cached: false };
+  }
+
+  /** Opens a short-lived ACP session purely to collect its command list. */
+  private async probeSkills(cwd: string): Promise<ProviderSkillDescriptor[]> {
+    const binary = await resolveGrokBinary();
+    if (!binary) {
+      throw new Error('Grok Build CLI was not found. Install Grok Build or set GROK_CODE_PATH.');
+    }
+
+    const proc = spawn(binary, buildGrokAgentArgs(undefined), {
+      cwd,
+      env: buildGrokEnv(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    proc.stderr.resume();
+
+    let collected: ProviderSkillDescriptor[] = [];
+    let onSkills: (() => void) | null = null;
+    const rpc = new AcpJsonRpcClient(
+      proc,
+      (method, params) => {
+        if (method !== 'session/update') return;
+        const update = getRecord(getRecord(params)?.update);
+        if (!update || update.sessionUpdate !== 'available_commands_update') return;
+        const skills = extractSkillsFromCommands(update.availableCommands);
+        if (skills.length > 0) {
+          collected = skills;
+          onSkills?.();
+        }
+      },
+      // A probe session never runs tools, so nothing should call back into us;
+      // answer anything that does with an error rather than hanging the CLI.
+      (request) => {
+        try {
+          rpc.respond(request.id, undefined, {
+            code: -32601,
+            message: 'Aegis skill probe does not service requests.',
+          });
+        } catch {
+          // The process may already be gone.
+        }
+      },
+      () => {
+        // Ignore unparsable lines: the probe only cares about one notification.
+      }
+    );
+
+    try {
+      await rpc.request('initialize', {
+        protocolVersion: 1,
+        clientInfo: { name: 'aegis', title: 'Aegis', version: '0.0.32' },
+        clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: true },
+      });
+      await rpc.request('session/new', { cwd, mcpServers: [] });
+
+      if (collected.length === 0) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, SKILLS_PROBE_TIMEOUT_MS);
+          timer.unref?.();
+          onSkills = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+      }
+    } finally {
+      onSkills = null;
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        // already gone
+      }
+    }
+
+    return collected;
   }
 
   getComposerCapabilities(): ProviderComposerCapabilities {
@@ -912,9 +1054,14 @@ export class GrokAcpAdapter implements ProviderAdapter {
       case 'plan':
         this.emitPlan(threadId, update);
         break;
-      case 'available_commands_update':
+      case 'available_commands_update': {
+        const skills = extractSkillsFromCommands(update.availableCommands);
+        if (skills.length > 0) {
+          session.skills = skills;
+        }
         this.emitAvailableCommands(threadId, session.providerSessionId, update);
         break;
+      }
       case 'config_option_update':
         session.model = extractModelFromConfigOptions(update.configOptions) || session.model;
         break;

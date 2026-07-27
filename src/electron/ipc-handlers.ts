@@ -5760,6 +5760,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     });
   });
 
+  ipcMainHandle('grok-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'grok',
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
+    });
+  });
+
   ipcMainHandle('codex-list-plugins', async (_event, input?: Omit<ProviderListPluginsInput, 'provider'>) => {
     ensureProviderService();
     const result = await getProviderService().listPlugins({

@@ -17,6 +17,7 @@ import { CodexPluginLibraryContent, SkillTile } from './CodexPluginLibrary';
 import { ClaudeLibraryContent } from './ClaudePluginLibrary';
 import { OpenCodeSkillLibraryContent } from './OpenCodeSkillLibrary';
 import { KimiSkillLibraryContent } from './KimiSkillLibrary';
+import { GrokSkillLibraryContent } from './GrokSkillLibrary';
 import { QoderSkillLibraryContent } from './QoderSkillLibrary';
 
 const DEFAULT_HOT_LIMIT = 60;
@@ -50,7 +51,7 @@ export function SkillMarketSettingsContent() {
     claudeUserSkills,
     claudeProjectSkills,
   } = useAppStore();
-  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode' | 'kimi' | 'qoder'>('skills');
+  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'qoder'>('skills');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SkillMarketItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -240,6 +241,15 @@ export function SkillMarketSettingsContent() {
             <button
               type="button"
               role="tab"
+              aria-selected={view === 'grok'}
+              onClick={() => setView('grok')}
+              className={getTopTabClassName('grok')}
+            >
+              Grok Build
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={view === 'qoder'}
               onClick={() => setView('qoder')}
               className={getTopTabClassName('qoder')}
@@ -258,6 +268,8 @@ export function SkillMarketSettingsContent() {
         <OpenCodeSkillLibraryContent />
       ) : view === 'kimi' ? (
         <KimiSkillLibraryContent />
+      ) : view === 'grok' ? (
+        <GrokSkillLibraryContent />
       ) : view === 'qoder' ? (
         <QoderSkillLibraryContent />
       ) : (
