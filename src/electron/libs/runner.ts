@@ -86,6 +86,10 @@ interface SDKMessage {
     pre_tokens?: number;
     post_tokens?: number;
   };
+  attempt?: number;
+  max_retries?: number;
+  retry_delay_ms?: number;
+  error_status?: number | null;
   result?: string;
   event?: {
     type?: string;
@@ -1318,6 +1322,20 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
           slash_commands: message.slash_commands,
           skills: message.skills,
           mcp_servers: message.mcp_servers,
+        };
+      }
+      if (message.subtype === 'api_retry' && message.uuid && message.session_id) {
+        return {
+          type: 'system',
+          subtype: 'api_retry',
+          uuid: message.uuid,
+          session_id: message.session_id,
+          // Stamped here so the UI can anchor the "next attempt" countdown.
+          createdAt: Date.now(),
+          attempt: message.attempt || 0,
+          maxRetries: message.max_retries || 0,
+          delayMs: message.retry_delay_ms || 0,
+          errorStatus: typeof message.error_status === 'number' ? message.error_status : null,
         };
       }
       if (message.subtype === 'compact_boundary' && message.uuid && message.session_id) {

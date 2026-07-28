@@ -1114,6 +1114,49 @@ export function ChatPane({
     return false;
   }, [session?.messages, session?.status]);
 
+  // The runtime retries failed API calls silently (rate limits, overload,
+  // connection drops) — surface the latest api_retry as a transient status.
+  // Any later substantive message means the retry resolved.
+  const apiRetry = useMemo(() => {
+    if (!session || session.status !== 'running') return null;
+    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
+      const message = session.messages[i];
+      if (!message) continue;
+      if (message.type === 'system' && message.subtype === 'api_retry') {
+        return message;
+      }
+      if (
+        message.type === 'assistant' ||
+        message.type === 'stream_event' ||
+        message.type === 'result' ||
+        message.type === 'user' ||
+        message.type === 'user_prompt'
+      ) {
+        return null;
+      }
+    }
+    return null;
+  }, [session?.messages, session?.status]);
+
+  const workingLabel = useMemo(() => {
+    if (apiRetry) {
+      const status = apiRetry.errorStatus;
+      const kind =
+        status === 429
+          ? 'Rate limited'
+          : status === 503 || status === 529
+            ? 'Server overloaded'
+            : status === null
+              ? 'Connection issue'
+              : `API error (${status})`;
+      const attempts = apiRetry.maxRetries > 0 ? ` ${apiRetry.attempt}/${apiRetry.maxRetries}` : '';
+      const delaySeconds = Math.max(1, Math.round(apiRetry.delayMs / 1000));
+      return `${kind} · retrying${attempts} in ${delaySeconds}s`;
+    }
+    if (isCompacting) return 'Compacting conversation';
+    return 'Working';
+  }, [apiRetry, isCompacting]);
+
   // ── Claude rewind ──────────────────────────────────────────────────────────
   const [rewindTarget, setRewindTarget] = useState<ClaudeRewindTarget | null>(null);
 
@@ -2055,8 +2098,10 @@ export function ChatPane({
                 if (turnPhase === 'complete') return null;
                 return (
                   <WorkingFooter
-                    startedAt={activeTurnStartedAt}
-                    label={isCompacting ? 'Compacting conversation' : 'Working'}
+                    // During a retry the elapsed timer reads as stalled; drop
+                    // it and show the retry status with pulsing dots instead.
+                    startedAt={apiRetry ? undefined : activeTurnStartedAt}
+                    label={workingLabel}
                   />
                 );
               })()}

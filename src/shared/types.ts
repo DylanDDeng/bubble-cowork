@@ -1418,6 +1418,21 @@ export type StreamMessage =
       status: 'started';
       trigger: 'manual' | 'auto';
     })
+  // Emitted when an API request failed with a retryable error and the runtime
+  // will retry after a delay. Rendered as a transient status on the working
+  // indicator, never as a transcript card; any later substantive message
+  // (assistant/stream/result) means the retry resolved.
+  | (StreamMessageBase & {
+      type: 'system';
+      subtype: 'api_retry';
+      uuid: string;
+      session_id: string;
+      attempt: number;
+      maxRetries: number;
+      delayMs: number;
+      /** HTTP status of the failed request; null for connection errors. */
+      errorStatus: number | null;
+    })
   // Emitted right after a turn's `result`: unified diff of the whole working
   // tree across that turn (git tree snapshot before vs after). Captures file
   // edits made outside Edit/Write tools (MCP servers, terminal commands),
