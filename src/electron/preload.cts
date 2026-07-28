@@ -836,6 +836,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-patch', cwd, scope);
   },
 
+  getGitCommits: (cwd: string, limit?: number) => {
+    return ipcRenderer.invoke('get-git-commits', cwd, limit);
+  },
+
+  getGitCommitPatch: (cwd: string, sha: string) => {
+    return ipcRenderer.invoke('get-git-commit-patch', cwd, sha);
+  },
+
   getGitBranch: (cwd: string) => {
     return ipcRenderer.invoke('get-git-branch', cwd);
   },

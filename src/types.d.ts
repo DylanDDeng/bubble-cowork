@@ -312,6 +312,14 @@ declare global {
       cwd: string,
       scope?: import('./shared/types').GitPatchScope
     ) => Promise<import('./shared/types').GitPatchResult>;
+    getGitCommits: (
+      cwd: string,
+      limit?: number
+    ) => Promise<import('./shared/types').GitCommitListResult>;
+    getGitCommitPatch: (
+      cwd: string,
+      sha: string
+    ) => Promise<import('./shared/types').GitCommitPatchResult>;
     getGitBranch: (cwd: string) => Promise<{ ok: boolean; branch: string | null; message?: string }>;
     getGitBranches: (cwd: string) => Promise<{
       ok: boolean;

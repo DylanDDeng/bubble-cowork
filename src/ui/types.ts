@@ -201,6 +201,12 @@ export type ReviewDiffSource =
       kind: 'workspace';
       scope: GitPatchScope;
       label?: string | null;
+    }
+  | {
+      kind: 'commit';
+      sha: string;
+      shortSha: string;
+      label: string;
     };
 
 export interface ReviewDiffSelection {

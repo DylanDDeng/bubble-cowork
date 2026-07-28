@@ -23,6 +23,7 @@ import {
 } from './claude-model-selection';
 import { getRequiredClaudeCodeRuntime } from './claude-runtime';
 import { createPromptCancellation } from './claude-prompt-cancellation';
+import { captureGitTreeSnapshot, diffGitTreeSnapshots } from './git-turn-snapshot';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 import {
@@ -761,6 +762,12 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       });
 
       const sessionCwd = session.cwd || process.cwd();
+      // Kick off the turn-boundary git snapshot in parallel with SDK init:
+      // the first turn's "before" tree must predate any agent file edits.
+      // Uses a throwaway GIT_INDEX_FILE, so the repo's real index is never
+      // touched. Resolves to null outside a git repo (turn diffs then fall
+      // back to tool-change records).
+      const initialTurnTreePromise = captureGitTreeSnapshot(sessionCwd);
       const memoryAppend = ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS
         ? [await buildMemoryContext(session.cwd ?? undefined), MEMORY_SYSTEM_PROMPT].filter(Boolean).join('\n\n')
         : '';
@@ -1082,6 +1089,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       const thinkingStartByIndex = new Map<number, number>();
       const thinkingDurationByIndex = new Map<number, number>();
 
+      // Turn-boundary git snapshots: chained end-to-end (each turn's "before"
+      // is the previous turn's "after"), so queued prompts attribute changes
+      // to the turn that actually ran, not the one that was enqueued first.
+      let previousTurnTree = await initialTurnTreePromise;
+
       // 流式处理消息
       for await (const message of result) {
         if (abortController.signal.aborted) {
@@ -1208,6 +1220,35 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           }
 
           onMessage(streamMessage);
+
+          // Turn complete: diff the working tree against the turn-start
+          // snapshot and surface it as a `turn_changes` transcript message.
+          // This captures edits made outside Edit/Write tools (MCP servers,
+          // Bash) that tool-change records never see. Runs after onMessage so
+          // the result lands in the transcript first. A null previousTurnTree
+          // means "not a git repo" and stays sticky; a transient snapshot
+          // failure keeps the old baseline so the changes roll into the next
+          // turn's diff instead of being lost.
+          if (streamMessage.type === 'result' && previousTurnTree) {
+            const afterTree = await captureGitTreeSnapshot(sessionCwd);
+            if (afterTree) {
+              const { patch, truncated } = await diffGitTreeSnapshots(
+                sessionCwd,
+                previousTurnTree,
+                afterTree
+              );
+              previousTurnTree = afterTree;
+              if (patch.trim()) {
+                onMessage({
+                  type: 'system',
+                  subtype: 'turn_changes',
+                  uuid: uuidv4(),
+                  session_id: currentSessionId,
+                  turnChanges: { patch, truncated },
+                });
+              }
+            }
+          }
         }
       }
     } catch (error: unknown) {

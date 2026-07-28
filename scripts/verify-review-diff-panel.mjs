@@ -35,10 +35,11 @@ expectIncludes(selection, 'getTurnDiffLabel', 'turn diff labels must come from a
 expectIncludes(selection, 'buildReviewTurnSelection', 'turn selection builder must be shared');
 expectIncludes(selection, 'buildWorkspaceReviewSelection', 'workspace selection builder must be shared');
 
-expectIncludes(panel, '<DropdownMenuLabel>Workspace</DropdownMenuLabel>', 'selector menu must group workspace sources');
-expectIncludes(panel, '<DropdownMenuLabel>Turns</DropdownMenuLabel>', 'selector menu must group turn sources');
+expectIncludes(panel, 'Last turn', 'selector menu must lead with the last turn source');
+expectIncludes(panel, '<DropdownMenuSubTrigger', 'committed history must live in a submenu');
 expectIncludes(panel, 'isWorkspaceSelection(data.selection, entry.scope)', 'workspace source must show selected state');
-expectIncludes(panel, 'isTurnSelection(data.selection, entry.key)', 'turn source must show selected state');
+expectIncludes(panel, 'isTurnSelection(data.selection, lastTurn.key)', 'last turn source must show selected state');
+expectIncludes(panel, 'isCommitSelection(data.selection, commit.sha)', 'commit source must show selected state');
 expectIncludes(panel, 'No files match filter', 'filtered empty state must not look like no changes');
 expectNotIncludes(panel, 'Show all', 'review panel must not expose a show-all source');
 
@@ -46,6 +47,7 @@ expectIncludes(dataHook, 'inFlightWorkspaceKeyRef', 'workspace diff loading must
 expectIncludes(dataHook, 'cacheKey', 'workspace diff data must be cached by cwd and scope');
 expectIncludes(dataHook, 'liveTurn?.summary.records || getTurnRecords(effectiveSelection)', 'turn diff must prefer live turn records and fall back to the selection snapshot');
 expectIncludes(dataHook, "window.electron.getGitPatch(cwd, workspaceScope)", 'only workspace selections should call git patch IPC');
+expectIncludes(dataHook, 'window.electron.getGitCommitPatch(cwd, commitSha', 'commit selections must load through the commit patch IPC');
 expectNotIncludes(dataHook, 'getGitPatch(cwd, effectiveSelection.source.scope)', 'workspace IPC must not depend on the full selection object');
 
 expectIncludes(chatPane, 'buildReviewTurnSelection(turn, sessionId, record)', 'chat file change clicks must open the whole owning turn');

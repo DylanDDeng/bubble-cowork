@@ -9,6 +9,13 @@ export interface TurnChangeSummary {
   lastMessageIndex: number;
   /** Records merged per file path. */
   records: ChangeRecord[];
+  /**
+   * Whole-working-tree unified diff captured by the runner across this turn
+   * (git tree snapshots), when the session cwd is a git repo. Covers edits
+   * made outside Edit/Write tools (MCP servers, terminal commands), which
+   * `records` never see. Null when unavailable or empty.
+   */
+  gitPatch: string | null;
   totalFiles: number;
   totalAdded: number;
   totalRemoved: number;
@@ -53,12 +60,25 @@ export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeCon
     }
 
     const merged = mergeRecordsByPath(records);
-    if (merged.length > 0 || records.length > 0) {
+
+    // The runner emits one `turn_changes` message per completed turn (git
+    // tree-snapshot diff); take the last one in this segment. A turn with a
+    // git patch but zero tool records (e.g. MCP-only edits) still counts as
+    // a turn with changes.
+    let gitPatch: string | null = null;
+    for (const msg of slice) {
+      if (msg.type === 'system' && msg.subtype === 'turn_changes' && msg.turnChanges.patch.trim()) {
+        gitPatch = msg.turnChanges.patch;
+      }
+    }
+
+    if (merged.length > 0 || records.length > 0 || gitPatch) {
       turns.push({
         turnIndex: pendingTurnIndex,
         firstMessageIndex: turnStart,
         lastMessageIndex: endExclusive - 1,
         records: merged,
+        gitPatch,
         totalFiles: merged.length,
         totalAdded: merged.reduce((sum, r) => sum + r.addedLines, 0),
         totalRemoved: merged.reduce((sum, r) => sum + r.removedLines, 0),

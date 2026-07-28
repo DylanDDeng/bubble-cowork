@@ -183,6 +183,9 @@ import type {
   ProviderSkillDescriptor,
   ProviderUninstallPluginInput,
   GitCheckoutBranchInput,
+  GitCommitListResult,
+  GitCommitPatchResult,
+  GitCommitSummary,
   GitCreateBranchInput,
   GitCreateWorktreeInput,
   GitPatchResult,
@@ -7214,6 +7217,73 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         ok: false,
         error: error instanceof Error ? error.message : 'git-error',
         scope,
+        patch: '',
+        repoRoot,
+        truncated: false,
+      };
+    }
+  });
+
+  ipcMainHandle('get-git-commits', async (_event, cwd: string, limitInput?: unknown): Promise<GitCommitListResult> => {
+    const limit = typeof limitInput === 'number' && Number.isFinite(limitInput)
+      ? Math.min(100, Math.max(1, Math.floor(limitInput)))
+      : 20;
+    if (!cwd) {
+      return { ok: false, error: 'no-cwd', commits: [] };
+    }
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        ['log', '-n', String(limit), '--format=%H%x00%h%x00%s%x00%cI'],
+        { cwd, timeout: 10000, maxBuffer: 4 * 1024 * 1024 }
+      );
+      const commits: GitCommitSummary[] = stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const [sha, shortSha, subject, committedAt] = line.split('\0');
+          return { sha: sha || '', shortSha: shortSha || '', subject: subject || '', committedAt: committedAt || '' };
+        })
+        .filter((commit) => commit.sha);
+      return { ok: true, error: null, commits };
+    } catch (error) {
+      // An empty repository (no commits yet) is a normal state, not an error.
+      const message = error instanceof Error ? error.message : 'git-error';
+      if (/does not have any commits yet|bad default revision/i.test(message)) {
+        return { ok: true, error: null, commits: [] };
+      }
+      return { ok: false, error: message, commits: [] };
+    }
+  });
+
+  ipcMainHandle('get-git-commit-patch', async (_event, cwd: string, shaInput?: unknown): Promise<GitCommitPatchResult> => {
+    const sha = typeof shaInput === 'string' ? shaInput.trim() : '';
+    if (!cwd || !/^[0-9a-f]{7,40}$/i.test(sha)) {
+      return { ok: false, error: !cwd ? 'no-cwd' : 'invalid-sha', sha, patch: '', repoRoot: null, truncated: false };
+    }
+    const repoRoot = await getGitTopLevel(cwd).catch(() => null);
+    try {
+      // `git show` handles root commits (no parent) where `diff sha^..sha` cannot.
+      const { stdout } = await execFileAsync(
+        'git',
+        ['-c', 'core.quotepath=false', 'show', sha, '--format=', '--no-color', '--no-ext-diff', '--unified=3'],
+        { cwd, timeout: 15000, maxBuffer: GIT_PATCH_MAX_BUFFER_BYTES }
+      );
+      const truncated = stdout.length > GIT_PATCH_MAX_CHARS;
+      return {
+        ok: true,
+        error: null,
+        sha,
+        patch: truncated ? stdout.slice(0, GIT_PATCH_MAX_CHARS) : stdout,
+        repoRoot,
+        truncated,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : 'git-error',
+        sha,
         patch: '',
         repoRoot,
         truncated: false,

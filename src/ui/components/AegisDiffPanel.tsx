@@ -6,6 +6,7 @@ import { useAppStore } from '../store/useAppStore';
 import { useAegisDiffPanelData, type AegisDiffTurnOption } from '../hooks/useAegisDiffPanelData';
 import {
   WORKSPACE_DIFF_SCOPES,
+  buildCommitReviewSelection,
   buildReviewTurnSelection,
   buildWorkspaceReviewSelection,
   getTurnDiffLabel,
@@ -21,7 +22,6 @@ import {
   ChevronRight,
   Copy,
   FileDiff as FileDiffIcon,
-  GitBranch,
   LayoutList,
   Loader2,
   Maximize2,
@@ -35,16 +35,26 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 
+// Matches the app's compact menus (13px, tight rows) instead of the roomier
+// DropdownMenuItem default.
+const MENU_ITEM_CLASS = 'rounded-md px-2.5 py-1 text-[13px]';
+const MENU_SEPARATOR_CLASS = 'my-0.5';
+
 function sourceLabel(selection: ReviewDiffSelection, turn?: AegisDiffTurnOption | null): string {
   if (selection.source.kind === 'turn') {
-    if (turn?.current) return 'Current turn changes';
+    if (turn?.current) return 'Last turn';
     if (turn) return getTurnDiffLabel(turn.summary);
     return selection.source.label;
+  }
+  if (selection.source.kind === 'commit') {
+    return selection.source.label || selection.source.shortSha;
   }
   return selection.source.label || getWorkspaceDiffLabel(selection.source.scope);
 }
@@ -59,6 +69,10 @@ function isWorkspaceSelection(selection: ReviewDiffSelection, scope: GitPatchSco
 
 function isTurnSelection(selection: ReviewDiffSelection, turnKey: string): boolean {
   return selection.source.kind === 'turn' && selection.source.turnKey === turnKey;
+}
+
+function isCommitSelection(selection: ReviewDiffSelection, sha: string): boolean {
+  return selection.source.kind === 'commit' && selection.source.sha === sha;
 }
 
 function statusLabel(file: AegisDiffFile): string {
@@ -88,7 +102,10 @@ function emptyMessage(
   if (selection.source.kind === 'turn') {
     return { title: 'No diff captured', detail: 'This turn has no renderable file changes.' };
   }
-  return { title: 'Working tree is clean', detail: 'No file changes are available for this scope.' };
+  if (selection.source.kind === 'commit') {
+    return { title: 'No changes in this commit', detail: 'This commit has no renderable file changes.' };
+  }
+  return { title: 'No changes', detail: 'No file changes are available for this scope.' };
 }
 
 function useExpandedFiles(files: AegisDiffFile[], selection: ReviewDiffSelection) {
@@ -153,6 +170,10 @@ export function AegisDiffPanel({
       ? data.turns.find((entry) => entry.key === source.turnKey) || null
       : null;
   }, [data.selection, data.turns]);
+  const lastTurn = useMemo(
+    () => data.turns.find((entry) => entry.current) || null,
+    [data.turns]
+  );
 
   const filteredFiles = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -185,6 +206,12 @@ export function AegisDiffPanel({
     setReviewDiffSelection(buildReviewTurnSelection(turn.summary, session?.id ?? null));
   }, [data.turns, session?.id, setReviewDiffSelection]);
 
+  const openCommit = useCallback((sha: string) => {
+    const commit = data.commits.find((entry) => entry.sha === sha);
+    if (!commit) return;
+    setReviewDiffSelection(buildCommitReviewSelection(commit));
+  }, [data.commits, setReviewDiffSelection]);
+
   const copyPatch = useCallback(async () => {
     if (!data.patch.trim()) return;
     try {
@@ -212,64 +239,94 @@ export function AegisDiffPanel({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="inline-flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
               >
-                <FileDiffIcon className="h-4 w-4 shrink-0 text-[var(--text-secondary)]" />
-                <span className="min-w-0 truncate font-medium">{sourceLabel(data.selection, activeTurn)}</span>
+                <span className="min-w-0 truncate">{sourceLabel(data.selection, activeTurn)}</span>
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[300px]">
+            <DropdownMenuContent align="start" className="min-w-[190px] p-1">
+              {lastTurn ? (
+                <DropdownMenuItem className={MENU_ITEM_CLASS} onSelect={() => openTurn(lastTurn.key)}>
+                  <span className="min-w-0 flex-1 truncate">Last turn</span>
+                  {isTurnSelection(data.selection, lastTurn.key) ? (
+                    <Check className="ml-3 h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" />
+                  ) : null}
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem className={MENU_ITEM_CLASS} disabled>
+                  <span className="text-[var(--text-muted)]">Last turn</span>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator className={MENU_SEPARATOR_CLASS} />
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-                {WORKSPACE_DIFF_SCOPES.map((entry) => {
+                {WORKSPACE_DIFF_SCOPES.filter((entry) => entry.scope !== 'branch').map((entry) => {
                   const active = isWorkspaceSelection(data.selection, entry.scope);
                   return (
-                    <DropdownMenuItem key={entry.scope} onSelect={() => openWorkspaceScope(entry.scope)}>
-                      <span className="mr-2 flex h-4 w-4 items-center justify-center text-[var(--accent)]">
-                        {active ? <Check className="h-3.5 w-3.5" /> : null}
-                      </span>
-                      <GitBranch className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
+                    <DropdownMenuItem
+                      key={entry.scope}
+                      className={MENU_ITEM_CLASS}
+                      onSelect={() => openWorkspaceScope(entry.scope)}
+                    >
                       <span className="min-w-0 flex-1 truncate">{entry.label}</span>
                       {active ? (
-                        <span className="ml-3 inline-flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                          <span>{fileCountLabel(data.summary.totalFiles)}</span>
-                          <DiffStatLabel additions={data.summary.addedLines} deletions={data.summary.removedLines} />
-                        </span>
+                        <Check className="ml-3 h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" />
                       ) : null}
                     </DropdownMenuItem>
                   );
                 })}
               </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Turns</DropdownMenuLabel>
-                {data.turns.length === 0 ? (
-                  <DropdownMenuItem disabled>
-                    <span className="mr-2 h-4 w-4" />
-                    <FileDiffIcon className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
-                    <span className="text-[var(--text-muted)]">No captured turns</span>
-                  </DropdownMenuItem>
-                ) : null}
-                {data.turns.map((entry) => {
-                  const active = isTurnSelection(data.selection, entry.key);
-                  return (
-                    <DropdownMenuItem key={entry.key} onSelect={() => openTurn(entry.key)}>
-                      <span className="mr-2 flex h-4 w-4 items-center justify-center text-[var(--accent)]">
-                        {active ? <Check className="h-3.5 w-3.5" /> : null}
-                      </span>
-                      <FileDiffIcon className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {entry.current ? `Current turn (${entry.label})` : entry.label}
-                      </span>
-                      <span className="ml-3 inline-flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                        <span>{fileCountLabel(entry.summary.totalFiles)}</span>
-                        <DiffStatLabel additions={entry.summary.totalAdded} deletions={entry.summary.totalRemoved} />
-                      </span>
+              <DropdownMenuSeparator className={MENU_SEPARATOR_CLASS} />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className={MENU_ITEM_CLASS}>
+                  <span className="min-w-0 flex-1 truncate">Committed</span>
+                  {data.selection.source.kind === 'commit' ? (
+                    <Check className="ml-3 h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" />
+                  ) : null}
+                  <ChevronRight className="ml-2 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-[320px] min-w-[260px] overflow-y-auto p-1">
+                  {data.commits.length === 0 ? (
+                    <DropdownMenuItem className={MENU_ITEM_CLASS} disabled>
+                      <span className="text-[var(--text-muted)]">No commits yet</span>
                     </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuGroup>
+                  ) : (
+                    data.commits.map((commit) => {
+                      const active = isCommitSelection(data.selection, commit.sha);
+                      return (
+                        <DropdownMenuItem
+                          key={commit.sha}
+                          className={MENU_ITEM_CLASS}
+                          onSelect={() => openCommit(commit.sha)}
+                        >
+                          <span className="mr-2 shrink-0 font-mono text-xs text-[var(--text-muted)]">
+                            {commit.shortSha}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{commit.subject}</span>
+                          {active ? (
+                            <Check className="ml-3 h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" />
+                          ) : null}
+                        </DropdownMenuItem>
+                      );
+                    })
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              {WORKSPACE_DIFF_SCOPES.filter((entry) => entry.scope === 'branch').map((entry) => {
+                const active = isWorkspaceSelection(data.selection, entry.scope);
+                return (
+                  <DropdownMenuItem
+                    key={entry.scope}
+                    className={MENU_ITEM_CLASS}
+                    onSelect={() => openWorkspaceScope(entry.scope)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                    {active ? (
+                      <Check className="ml-3 h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" />
+                    ) : null}
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -285,7 +342,7 @@ export function AegisDiffPanel({
             <button
               type="button"
               onClick={data.refresh}
-              disabled={data.loading || data.selection.source.kind !== 'workspace'}
+              disabled={data.loading || data.selection.source.kind === 'turn'}
               className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-40"
               title="Refresh"
               aria-label="Refresh"

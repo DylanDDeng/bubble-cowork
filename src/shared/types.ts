@@ -1048,6 +1048,28 @@ export interface GitPatchResult {
   truncated: boolean;
 }
 
+export interface GitCommitSummary {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  committedAt: string;
+}
+
+export interface GitCommitListResult {
+  ok: boolean;
+  error: string | null;
+  commits: GitCommitSummary[];
+}
+
+export interface GitCommitPatchResult {
+  ok: boolean;
+  error: string | null;
+  sha: string;
+  patch: string;
+  repoRoot: string | null;
+  truncated: boolean;
+}
+
 export type EnvironmentEditorId =
   | 'finder'
   | 'system'
@@ -1395,6 +1417,17 @@ export type StreamMessage =
       session_id: string;
       status: 'started';
       trigger: 'manual' | 'auto';
+    })
+  // Emitted right after a turn's `result`: unified diff of the whole working
+  // tree across that turn (git tree snapshot before vs after). Captures file
+  // edits made outside Edit/Write tools (MCP servers, terminal commands),
+  // which tool-change records alone cannot see.
+  | (StreamMessageBase & {
+      type: 'system';
+      subtype: 'turn_changes';
+      uuid: string;
+      session_id: string;
+      turnChanges: { patch: string; truncated: boolean };
     })
   | (StreamMessageBase & {
       type: 'system';
