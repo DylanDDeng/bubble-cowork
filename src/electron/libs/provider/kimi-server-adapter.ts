@@ -135,10 +135,19 @@ function buildContentBlocks(prompt: string, attachments?: Attachment[]): ServerC
   for (const attachment of attachments || []) {
     if (attachment.kind === 'image') {
       try {
+        // The server validates image parts as {type, source:{kind:'base64',
+        // media_type, data}} (Zod discriminated union on source.kind, every
+        // field min(1)); the ACP-style flat {mimeType, data} shape is
+        // rejected with 40001 "content.N.source: expected object".
+        const data = readFileSync(attachment.path).toString('base64');
+        if (!data) throw new Error('empty image file');
         blocks.push({
           type: 'image',
-          mimeType: attachment.mimeType || 'image/png',
-          data: readFileSync(attachment.path).toString('base64'),
+          source: {
+            kind: 'base64',
+            media_type: attachment.mimeType || 'image/png',
+            data,
+          },
         });
       } catch {
         blocks.push({ type: 'text', text: `Image attachment could not be read: ${attachment.path}` });

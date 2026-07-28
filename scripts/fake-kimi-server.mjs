@@ -134,6 +134,26 @@ const server = createServer((req, res) => {
         respond(40401, null);
         return;
       }
+      // Real server (0.26–0.28) Zod-validates content parts: image parts need
+      // source:{kind:'base64'|'url'|'file', ...}; ACP-flat {mimeType,data}
+      // gets 40001 "content.N.source: expected object, received undefined".
+      const invalidPart = (Array.isArray(json.content) ? json.content : []).findIndex(
+        (part) =>
+          !part ||
+          typeof part !== 'object' ||
+          (part.type === 'image' && (!part.source || typeof part.source !== 'object'))
+      );
+      if (invalidPart >= 0) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            code: 40001,
+            msg: `content.${invalidPart}.source: Invalid input: expected object, received undefined`,
+            data: null,
+          })
+        );
+        return;
+      }
       if (!json.model) {
         respond(0, { prompt_id: '', status: 'running' });
         emitSequence(sessionId, [

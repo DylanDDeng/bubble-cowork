@@ -18,6 +18,8 @@ process.env.AEGIS_KIMI_SERVER_RESUME_RETRY_MS = '20';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
+import { writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -163,12 +165,46 @@ function makeFakeWsFactory() {
   return factory;
 }
 
+// Mirror of the real server's Zod content schema (identical in 0.26–0.28):
+// image parts carry source:{kind:'base64'|'url'|'file', ...}, every field
+// min(1). The flat ACP-style {mimeType,data} shape must 40001 here exactly
+// like production did, so no test can pass while sending it.
+function invalidContentReason(content) {
+  if (!Array.isArray(content)) return null;
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (!part || typeof part !== 'object') return `content.${i}: Invalid input: expected object`;
+    if (part.type === 'text') {
+      if (typeof part.text !== 'string' || !part.text) return `content.${i}.text: Invalid input: expected non-empty string`;
+      continue;
+    }
+    if (part.type === 'image') {
+      const source = part.source;
+      if (!source || typeof source !== 'object') {
+        return `content.${i}.source: Invalid input: expected object, received ${source === undefined ? 'undefined' : typeof source}`;
+      }
+      if (source.kind === 'base64') {
+        if (!source.media_type || !source.data) return `content.${i}.source: media_type and data must be non-empty`;
+      } else if (source.kind === 'url') {
+        if (!source.url) return `content.${i}.source.url: Invalid input: expected non-empty string`;
+      } else if (source.kind === 'file') {
+        if (!source.file_id) return `content.${i}.source.file_id: Invalid input: expected non-empty string`;
+      } else {
+        return `content.${i}.source.kind: Invalid discriminator value`;
+      }
+      continue;
+    }
+    return `content.${i}.type: Invalid discriminator value`;
+  }
+  return null;
+}
+
 function makeFakeFetch(state) {
   const calls = [];
-  const respond = (code, data) => ({
+  const respond = (code, data, msg) => ({
     ok: true,
     status: 200,
-    json: async () => ({ code, msg: code === 0 ? 'success' : 'fake error', data }),
+    json: async () => ({ code, msg: msg ?? (code === 0 ? 'success' : 'fake error'), data }),
   });
   const fetchImpl = async (url, init = {}) => {
     const u = new URL(url);
@@ -205,6 +241,8 @@ function makeFakeFetch(state) {
         state.failSubmitOnce = false;
         return respond(50000, null);
       }
+      const invalidContent = invalidContentReason(body?.content);
+      if (invalidContent) return respond(40001, null, invalidContent);
       state.promptSeq = (state.promptSeq || 0) + 1;
       return respond(0, {
         prompt_id: `prompt_${state.promptSeq}`,
@@ -340,6 +378,40 @@ async function l1TurnCompleted() {
   const finals = t.events.messages('assistant').filter((m) => !m.streaming && m.message.content[0]?.type === 'text');
   assert.equal(finals[finals.length - 1].message.content[0].text, 'Hello', 'accumulator finalized');
   ok('turn.ended(completed) → exactly one success result; deltas accumulate in place');
+}
+
+async function l1ImageAttachmentSourceShape() {
+  const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const imagePath = join(tmpdir(), `verify-kimi-image-${process.pid}.png`);
+  writeFileSync(imagePath, imageBytes);
+  try {
+    const t = await startL1Session();
+    await t.adapter.sendTurn({
+      threadId: 'thread-1',
+      prompt: 'what is in this screenshot?',
+      model: 'm',
+      attachments: [
+        { id: 'att1', path: imagePath, name: 'shot.png', size: imageBytes.length, mimeType: 'image/png', kind: 'image' },
+      ],
+    });
+    const submit = t.fetchImpl.calls.find((call) => /\/prompts$/.test(call.path));
+    const [text, image] = submit.body.content;
+    assert.equal(text.type, 'text');
+    assert.equal(image.type, 'image');
+    assert.deepEqual(
+      image.source,
+      { kind: 'base64', media_type: 'image/png', data: imageBytes.toString('base64') },
+      'image parts must use the server source shape, not ACP flat {mimeType,data}'
+    );
+    assert.ok(!('mimeType' in image) && !('data' in image), 'no stray ACP fields beside source');
+    t.push('turn.started', { turnId: 1 });
+    t.push('turn.ended', { reason: 'completed' });
+    await waitFor(() => t.events.messages('result').length === 1, 2000, 'result');
+    assert.equal(t.events.messages('result')[0].subtype, 'success');
+    ok('image attachments submit as {type:image, source:{kind:base64,…}} (40001 regression guard)');
+  } finally {
+    rmSync(imagePath, { force: true });
+  }
 }
 
 async function l1TurnFailedOrder() {
@@ -1849,6 +1921,7 @@ async function l1AgentLoopStopDetachPermission() {
 const suites = [
   ['L1: permission mode mapping', l1PermissionModeMapping],
   ['L1: turn completed', l1TurnCompleted],
+  ['L1: image attachment source shape', l1ImageAttachmentSourceShape],
   ['L1: turn failed ordering', l1TurnFailedOrder],
   ['L1: error frame dedupe', l1ErrorFrameDedupe],
   ['L1: seq replay idempotence + volatile', l1SeqReplayIdempotence],
