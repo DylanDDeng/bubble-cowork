@@ -376,6 +376,30 @@
   height: 14px;
 }
 
+.composer-inline-chip__favicon {
+  display: block;
+  box-sizing: border-box;
+  padding: 1.5px;
+  border-radius: 3.5px;
+  /* 固定浅色底衬：GitHub / X 等深色透明 favicon 在暗色主题下仍可见 */
+  background: #fff;
+  object-fit: contain;
+}
+
+.composer-inline-chip__monogram {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3.5px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .composer-inline-chip__label {
   min-width: 0;
   overflow: hidden;
@@ -1260,10 +1284,20 @@ button.md-inline-file-code:hover {
 
 .markdown-content .md-file-link-icon,
 .markdown-content .md-file-link-fallback-icon,
-.markdown-content .md-app-link-icon {
+.markdown-content .md-app-link-favicon {
   width: 1em;
   height: 1em;
   flex: 0 0 auto;
+}
+
+.markdown-content .md-app-link-favicon {
+  display: block;
+  box-sizing: border-box;
+  padding: 0.12em;
+  border-radius: 0.22rem;
+  /* 固定浅色底衬：GitHub / X 等深色透明 favicon 在暗色主题下仍可见 */
+  background: #fff;
+  object-fit: contain;
 }
 
 .markdown-content .md-file-link-icon,

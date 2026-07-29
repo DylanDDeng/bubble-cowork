@@ -12,7 +12,8 @@ import {
 } from 'react';
 import { getFileTypeIconVisual } from './FileTypeIcon';
 import { extractProjectFileMentions } from '../utils/project-file-mentions';
-import { extractKnownSiteLinkTokens, getKnownSiteIconSvg } from '../utils/known-site-links';
+import { extractKnownSiteLinkTokens } from '../utils/known-site-links';
+import { faviconUrlForHostname, hostnameMonogram } from '../utils/link-favicons';
 import {
   removeLeadingSlashTokenAdjacentToCursor,
   splitPromptIntoComposerSegments,
@@ -385,7 +386,7 @@ function createMentionNode(path: string, rawText: string): HTMLSpanElement {
   return chip;
 }
 
-function createLinkNode(site: string, labelText: string, rawText: string): HTMLSpanElement {
+function createLinkNode(url: string, labelText: string, rawText: string): HTMLSpanElement {
   const chip = document.createElement('span');
   chip.dataset.segmentType = 'link';
   chip.dataset.rawText = rawText;
@@ -394,12 +395,33 @@ function createLinkNode(site: string, labelText: string, rawText: string): HTMLS
   chip.title = rawText;
   chip.className = 'composer-inline-chip composer-inline-chip--link';
 
-  const iconSvg = getKnownSiteIconSvg(site);
-  if (iconSvg) {
+  let hostname = '';
+  try {
+    hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    // Malformed URLs render without an icon.
+  }
+
+  if (hostname) {
     const iconBox = document.createElement('span');
     iconBox.className = 'composer-inline-chip__icon';
     iconBox.setAttribute('aria-hidden', 'true');
-    iconBox.innerHTML = iconSvg;
+
+    const favicon = document.createElement('img');
+    favicon.src = faviconUrlForHostname(hostname);
+    favicon.alt = '';
+    favicon.className = 'composer-inline-chip__favicon';
+    favicon.loading = 'lazy';
+    favicon.decoding = 'async';
+    favicon.referrerPolicy = 'no-referrer';
+    favicon.onerror = () => {
+      const monogram = document.createElement('span');
+      monogram.className = 'composer-inline-chip__monogram';
+      monogram.textContent = hostnameMonogram(hostname);
+      favicon.replaceWith(monogram);
+    };
+
+    iconBox.append(favicon);
     chip.append(iconBox);
   }
 
@@ -475,7 +497,7 @@ function renderSegments(
     }
 
     if (segment.type === 'link') {
-      root.append(createLinkNode(segment.site, segment.label, segment.text));
+      root.append(createLinkNode(segment.url, segment.label, segment.text));
       continue;
     }
 

@@ -7,22 +7,11 @@ import rehypeKatex from 'rehype-katex';
 import rehypeSanitize from 'rehype-sanitize';
 import type { Components } from 'react-markdown';
 import {
-  BrandFigma,
-  BrandGithub,
-  BrandGmail,
-  BrandGoogleDrive,
-  BrandNotion,
-  BrandOpenai,
-  BrandSlack,
-  BrandTwitter,
-  BrandVercel,
-  BrandX,
   Check,
   Code2,
   Copy,
   TextWrap,
   TextWrapDisabled,
-  type IconComponent,
 } from '../components/icons';
 import { toast } from 'sonner';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -30,6 +19,7 @@ import { FileTypeIcon } from '../components/FileTypeIcon';
 import { HighlightedCode } from '../components/HighlightedCode';
 import { useAppStore } from '../store/useAppStore';
 import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
+import { faviconUrlForHostname, hostnameMonogram } from '../utils/link-favicons';
 import { resolveProjectTreeFile } from '../utils/resolve-tree-file';
 
 interface MDContentProps {
@@ -43,13 +33,6 @@ interface ProjectFileLink {
   line?: number;
   /** 不在任何已知项目根下的真实绝对路径：面板按外部文件打开 */
   external?: boolean;
-}
-
-interface ExternalLinkApp {
-  kind: string;
-  label: string;
-  Icon?: IconComponent;
-  monogram?: string;
 }
 
 function extractTextContent(node: ReactNode): string {
@@ -222,61 +205,45 @@ function getProjectFileLink(
   return path && path !== '.' ? { path, line } : null;
 }
 
-function matchesHost(host: string, domain: string): boolean {
-  return host === domain || host.endsWith(`.${domain}`);
-}
-
-function getExternalLinkApp(href: string | undefined): ExternalLinkApp | null {
+/** Hostname for http(s) links, without leading www. */
+function getHttpLinkHostname(href: string | undefined): string | null {
   if (!href) return null;
-
-  let url: URL;
   try {
-    url = new URL(href);
+    const url = new URL(href);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    return host || null;
   } catch {
     return null;
   }
+}
 
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return null;
-  }
+function LinkFavicon({ hostname }: { hostname: string }) {
+  const [failed, setFailed] = useState(false);
+  const monogram = hostnameMonogram(hostname);
 
-  const host = url.hostname.toLowerCase().replace(/^www\./, '');
-
-  if (matchesHost(host, 'github.com')) {
-    return { kind: 'github', label: 'GitHub', Icon: BrandGithub };
-  }
-  if (matchesHost(host, 'figma.com')) {
-    return { kind: 'figma', label: 'Figma', Icon: BrandFigma };
-  }
-  if (matchesHost(host, 'notion.so') || matchesHost(host, 'notion.site')) {
-    return { kind: 'notion', label: 'Notion', Icon: BrandNotion };
-  }
-  if (matchesHost(host, 'linear.app')) {
-    return { kind: 'linear', label: 'Linear', monogram: 'L' };
-  }
-  if (matchesHost(host, 'x.com')) {
-    return { kind: 'x', label: 'X', Icon: BrandX };
-  }
-  if (matchesHost(host, 'twitter.com')) {
-    return { kind: 'twitter', label: 'Twitter', Icon: BrandTwitter };
-  }
-  if (matchesHost(host, 'openai.com') || matchesHost(host, 'chatgpt.com')) {
-    return { kind: 'openai', label: 'OpenAI', Icon: BrandOpenai };
-  }
-  if (matchesHost(host, 'slack.com')) {
-    return { kind: 'slack', label: 'Slack', Icon: BrandSlack };
-  }
-  if (matchesHost(host, 'vercel.com') || matchesHost(host, 'vercel.app')) {
-    return { kind: 'vercel', label: 'Vercel', Icon: BrandVercel };
-  }
-  if (host === 'mail.google.com' || matchesHost(host, 'gmail.com')) {
-    return { kind: 'gmail', label: 'Gmail', Icon: BrandGmail };
-  }
-  if (host === 'drive.google.com' || host === 'docs.google.com') {
-    return { kind: 'google-drive', label: 'Google Drive', Icon: BrandGoogleDrive };
+  if (failed) {
+    return (
+      <span className="md-app-link-monogram" aria-hidden="true">
+        {monogram}
+      </span>
+    );
   }
 
-  return null;
+  return (
+    <img
+      src={faviconUrlForHostname(hostname)}
+      alt=""
+      className="md-app-link-favicon"
+      aria-hidden="true"
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 function shouldShowLineSuffix(children: ReactNode, line: number | undefined): line is number {
@@ -392,7 +359,6 @@ function MarkdownAnchor({
 }) {
   const { cwd, roots, openProjectFile } = useProjectFileNavigation();
   const projectFile = getProjectFileLink(href, roots);
-  const externalLinkApp = projectFile ? null : getExternalLinkApp(href);
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (!projectFile || (!cwd && !projectFile.external)) return;
@@ -432,24 +398,18 @@ function MarkdownAnchor({
     );
   }
 
-  if (externalLinkApp) {
-    const Icon = externalLinkApp.Icon;
-
+  // External http(s) links: chip with the site's favicon (falls back to monogram).
+  const linkHostname = getHttpLinkHostname(href);
+  if (linkHostname) {
     return (
       <a
         href={href}
-        className={`md-app-link md-app-link-${externalLinkApp.kind}`}
+        className="md-app-link md-app-link-site"
         target="_blank"
         rel="noopener noreferrer"
-        title={`Open ${externalLinkApp.label}`}
+        title={href}
       >
-        {Icon ? (
-          <Icon className="md-app-link-icon" aria-hidden="true" />
-        ) : (
-          <span className="md-app-link-monogram" aria-hidden="true">
-            {externalLinkApp.monogram}
-          </span>
-        )}
+        <LinkFavicon hostname={linkHostname} />
         <span className="md-link-label">{children}</span>
       </a>
     );
