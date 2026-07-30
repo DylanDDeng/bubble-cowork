@@ -605,43 +605,27 @@ export function NewSessionView() {
                   autoFocus
                 />
 
-                {/* Control order mirrors PromptInput (model → permission → attach)
-                    so the first-run composer matches every later composer. */}
+                {/* Control order mirrors PromptInput: attach and permissions on
+                    the left; model and send on the right. */}
                 <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
                   <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
-                    <ComposerAgentModelPicker
-                      agentProvider={agentSelection.provider}
-                      modelLabel={agentSelection.selectedModelLabel}
-                      modelValue={agentSelection.model}
-                      allAgentModelOptions={agentSelection.allAgentModelOptions}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleAddAttachments();
+                      }}
                       disabled={pendingStart}
-                      onAgentChange={agentSelection.selectAgent}
-                      onModelChange={agentSelection.selectModel}
-                      codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
-                      claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
-                      onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
-                      codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
-                      onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
-                      grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
-                      onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
-                      codexFastMode={agentSelection.codexFastMode}
-                      onCodexFastModeChange={agentSelection.setCodexFastMode}
-                      kimiThinkingOptions={agentSelection.kimiThinkingOptions}
-                      kimiThinkingChecked={agentSelection.kimiThinkingChecked}
-                      onKimiThinkingChange={agentSelection.setKimiThinking}
-                      menuSide="bottom"
-                    />
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Add files or photos"
+                      aria-label="Add files or photos"
+                    >
+                      <PlusIcon />
+                    </button>
                     {agentSelection.provider === 'codex' && (
                       <CodexPermissionModePicker
                         value={agentSelection.codexPermissionMode}
                         onChange={agentSelection.setCodexPermissionMode}
                         menuSide="bottom"
-                      />
-                    )}
-                    {agentSelection.provider === 'claude' && agentSelection.claudeExecutionMode === 'plan' && (
-                      <ClaudePlanModePill
-                        onExit={() => agentSelection.setClaudeExecutionMode('execute')}
-                        disabled={pendingStart}
                       />
                     )}
                     {agentSelection.provider === 'claude' && (
@@ -650,6 +634,12 @@ export function NewSessionView() {
                         onChange={agentSelection.setClaudePermissionMode}
                         disabled={pendingStart}
                         menuSide="bottom"
+                      />
+                    )}
+                    {agentSelection.provider === 'claude' && agentSelection.claudeExecutionMode === 'plan' && (
+                      <ClaudePlanModePill
+                        onExit={() => agentSelection.setClaudeExecutionMode('execute')}
+                        disabled={pendingStart}
                       />
                     )}
                     {agentSelection.provider === 'opencode' && (
@@ -675,21 +665,31 @@ export function NewSessionView() {
                         menuSide="bottom"
                       />
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleAddAttachments();
-                      }}
-                      disabled={pendingStart}
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Add files or photos"
-                      aria-label="Add files or photos"
-                    >
-                      <PlusIcon />
-                    </button>
                   </div>
 
                   <div className="flex shrink-0 items-center gap-2">
+                    <ComposerAgentModelPicker
+                      agentProvider={agentSelection.provider}
+                      modelLabel={agentSelection.selectedModelLabel}
+                      modelValue={agentSelection.model}
+                      allAgentModelOptions={agentSelection.allAgentModelOptions}
+                      disabled={pendingStart}
+                      onAgentChange={agentSelection.selectAgent}
+                      onModelChange={agentSelection.selectModel}
+                      codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
+                      claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
+                      onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
+                      codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
+                      onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                      grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
+                      onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
+                      codexFastMode={agentSelection.codexFastMode}
+                      onCodexFastModeChange={agentSelection.setCodexFastMode}
+                      kimiThinkingOptions={agentSelection.kimiThinkingOptions}
+                      kimiThinkingChecked={agentSelection.kimiThinkingChecked}
+                      onKimiThinkingChange={agentSelection.setKimiThinking}
+                      menuSide="bottom"
+                    />
                     <button
                       onClick={handleStart}
                       disabled={!canStartTask}

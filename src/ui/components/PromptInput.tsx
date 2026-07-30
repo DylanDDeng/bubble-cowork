@@ -1396,44 +1396,23 @@ export function PromptInput({
 
           <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
-              <ComposerAgentModelPicker
-                agentProvider={runtimeProvider}
-                modelLabel={agentSelection.selectedModelLabel}
-                modelValue={selectedModel}
-                allAgentModelOptions={agentSelection.allAgentModelOptions}
+              <button
+                type="button"
+                onClick={() => {
+                  void handleAddAttachments();
+                }}
                 disabled={isBusy}
-                onAgentChange={handleAgentChange}
-                onModelChange={handleModelChange}
-                codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
-                claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
-                onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
-                codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
-                onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
-                grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
-                onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
-                codexFastMode={agentSelection.codexFastMode}
-                onCodexFastModeChange={agentSelection.setCodexFastMode}
-                kimiThinkingOptions={agentSelection.kimiThinkingOptions}
-                kimiThinkingChecked={agentSelection.kimiThinkingChecked}
-                onKimiThinkingChange={agentSelection.setKimiThinking}
-                menuSide={menuSide}
-              />
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+                title="Add files or photos"
+                aria-label="Add files or photos"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
               {agentSelection.provider === 'codex' && (
                 <CodexPermissionModePicker
                   value={agentSelection.codexPermissionMode}
                   onChange={agentSelection.setCodexPermissionMode}
                   menuSide={menuSide}
-                />
-              )}
-              {agentSelection.provider === 'claude' && agentSelection.claudeExecutionMode === 'plan' && (
-                <ClaudePlanModePill
-                  onExit={() => {
-                    agentSelection.setClaudeExecutionMode('execute');
-                    if (activeSession) {
-                      setSessionClaudeMode(activeSession.id, agentSelection.claudePermissionMode, 'execute');
-                    }
-                  }}
-                  disabled={isBusy}
                 />
               )}
               {agentSelection.provider === 'claude' && (
@@ -1447,6 +1426,17 @@ export function PromptInput({
                   }}
                   disabled={isBusy}
                   menuSide={menuSide}
+                />
+              )}
+              {agentSelection.provider === 'claude' && agentSelection.claudeExecutionMode === 'plan' && (
+                <ClaudePlanModePill
+                  onExit={() => {
+                    agentSelection.setClaudeExecutionMode('execute');
+                    if (activeSession) {
+                      setSessionClaudeMode(activeSession.id, agentSelection.claudePermissionMode, 'execute');
+                    }
+                  }}
+                  disabled={isBusy}
                 />
               )}
               {agentSelection.provider === 'opencode' && (
@@ -1472,18 +1462,6 @@ export function PromptInput({
                   menuSide={menuSide}
                 />
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  void handleAddAttachments();
-                }}
-                disabled={isBusy}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-                title="Add files or photos"
-                aria-label="Add files or photos"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -1516,6 +1494,28 @@ export function PromptInput({
                   providerLabel="Qoder"
                 />
               ) : null}
+              <ComposerAgentModelPicker
+                agentProvider={runtimeProvider}
+                modelLabel={agentSelection.selectedModelLabel}
+                modelValue={selectedModel}
+                allAgentModelOptions={agentSelection.allAgentModelOptions}
+                disabled={isBusy}
+                onAgentChange={handleAgentChange}
+                onModelChange={handleModelChange}
+                codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
+                claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
+                onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
+                codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
+                onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
+                onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
+                codexFastMode={agentSelection.codexFastMode}
+                onCodexFastModeChange={agentSelection.setCodexFastMode}
+                kimiThinkingOptions={agentSelection.kimiThinkingOptions}
+                kimiThinkingChecked={agentSelection.kimiThinkingChecked}
+                onKimiThinkingChange={agentSelection.setKimiThinking}
+                menuSide={menuSide}
+              />
               {/* While a steer-capable turn runs, the slot flips with composer
                   content: empty → stop square; typing → the normal send arrow
                   (which queues the follow-up), so the user sees they can send
