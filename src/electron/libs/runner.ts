@@ -535,6 +535,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     claudeAccessMode,
     claudeExecutionMode
   );
+  let currentAccessMode: ClaudeAccessMode = 'default';
+  if (claudeAccessMode && claudeAccessMode !== 'plan') {
+    currentAccessMode = claudeAccessMode;
+  }
 
   const updatePermissionMode = async (
     nextMode: ClaudeSdkPermissionMode
@@ -546,7 +550,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       await activeQuery.setPermissionMode(nextMode);
     }
     currentPermissionMode = nextMode;
-    onClaudeExecutionModeChange?.(executionModeForClaudePermissionMode(nextMode), nextMode);
+    const nextExecutionMode = executionModeForClaudePermissionMode(nextMode);
+    if (nextExecutionMode === 'execute') {
+      currentAccessMode = nextMode;
+    }
+    onClaudeExecutionModeChange?.(nextExecutionMode, currentAccessMode);
   };
 
   // Prompt sequencing for stop cancellation: preparing a prompt is async
@@ -887,8 +895,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                 };
               }
 
-              const nextAccessMode = claudeAccessMode === 'plan' ? 'default' : claudeAccessMode;
-              const nextMode = normalizeClaudeSdkPermissionMode(nextAccessMode, 'execute');
+              const nextMode = normalizeClaudeSdkPermissionMode(currentAccessMode, 'execute');
               await updatePermissionMode(nextMode);
               return {
                 behavior: 'allow' as const,

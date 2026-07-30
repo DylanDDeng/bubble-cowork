@@ -447,6 +447,7 @@ export function useComposerAgentSelection(input?: {
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
   // Accepts the wider access mode (includes 'fullAccess'); normalized internally.
   claudePermissionMode?: ClaudeAccessMode | null;
+  claudeExecutionMode?: import('../../shared/types').ClaudeExecutionMode | null;
   codexPermissionMode?: CodexPermissionMode | null;
   opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
@@ -1023,6 +1024,9 @@ export function useComposerAgentSelection(input?: {
   const [claudePermissionMode, setClaudePermissionModeState] = useState<ClaudePermissionMode>(() =>
     normalizeClaudePermissionMode(input?.claudePermissionMode || loadPreferredClaudePermissionMode())
   );
+  const [claudeExecutionMode, setClaudeExecutionMode] = useState<'execute' | 'plan'>(() =>
+    input?.claudeExecutionMode === 'plan' || input?.claudePermissionMode === 'plan' ? 'plan' : 'execute'
+  );
   const [codexPermissionMode, setCodexPermissionModeState] = useState<CodexPermissionMode>(() =>
     input?.codexPermissionMode || loadPreferredCodexPermissionMode()
   );
@@ -1084,7 +1088,12 @@ export function useComposerAgentSelection(input?: {
     setClaudePermissionModeState(
       normalizeClaudePermissionMode(input?.claudePermissionMode || loadPreferredClaudePermissionMode())
     );
-  }, [input?.claudePermissionMode, input?.selectionKey]);
+    setClaudeExecutionMode(
+      input?.claudeExecutionMode === 'plan' || input?.claudePermissionMode === 'plan'
+        ? 'plan'
+        : 'execute'
+    );
+  }, [input?.claudeExecutionMode, input?.claudePermissionMode, input?.selectionKey]);
 
   useEffect(() => {
     setCodexPermissionModeState(input?.codexPermissionMode || loadPreferredCodexPermissionMode());
@@ -1094,11 +1103,16 @@ export function useComposerAgentSelection(input?: {
     setOpencodePermissionModeState(input?.opencodePermissionMode || loadPreferredOpencodePermissionMode());
   }, [input?.opencodePermissionMode, input?.selectionKey]);
 
-  const setClaudePermissionMode = useCallback((mode: ClaudePermissionMode) => {
-    const normalized = normalizeClaudePermissionMode(mode);
-    setClaudePermissionModeState(normalized);
-    savePreferredClaudePermissionMode(normalized);
-  }, []);
+  const setClaudePermissionMode = useCallback(
+    (mode: ClaudePermissionMode, options?: { savePreference?: boolean }) => {
+      const normalized = normalizeClaudePermissionMode(mode);
+      setClaudePermissionModeState(normalized);
+      if (options?.savePreference !== false) {
+        savePreferredClaudePermissionMode(normalized);
+      }
+    },
+    []
+  );
 
   const setCodexPermissionMode = useCallback((mode: CodexPermissionMode) => {
     setCodexPermissionModeState(mode);
@@ -1148,6 +1162,8 @@ export function useComposerAgentSelection(input?: {
     setCodexFastMode,
     claudePermissionMode,
     setClaudePermissionMode,
+    claudeExecutionMode,
+    setClaudeExecutionMode,
     codexPermissionMode,
     setCodexPermissionMode,
     kimiPermissionMode,

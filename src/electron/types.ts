@@ -146,7 +146,7 @@ export interface RunnerOptions {
   onPermissionDismissed?: (toolUseId: string) => void;
   onClaudeExecutionModeChange?: (
     mode: import('../shared/types').ClaudeExecutionMode,
-    permissionMode: import('../shared/types').ClaudePermissionMode
+    permissionMode: import('../shared/types').ClaudeAccessMode
   ) => void;
 }
 

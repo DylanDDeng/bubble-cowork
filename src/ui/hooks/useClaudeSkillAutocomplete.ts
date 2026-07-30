@@ -94,6 +94,7 @@ export function useComposerCapabilityMenu({
   setPrompt,
   setCursorIndex,
   onAutoSubmitCommand,
+  onCommandSelect,
 }: {
   enabled: boolean;
   enableSkills?: boolean;
@@ -105,6 +106,7 @@ export function useComposerCapabilityMenu({
   setPrompt: (prompt: string) => void;
   setCursorIndex?: (index: number) => void;
   onAutoSubmitCommand?: (prompt: string) => void;
+  onCommandSelect?: (command: ClaudeSlashCommand, prompt: string) => boolean;
 }) {
   const { claudeUserSkills, claudeProjectSkills } = useAppStore();
   // Shared provider catalog (codex/kimi/qoder) — the same cache backs the
@@ -300,6 +302,10 @@ export function useComposerCapabilityMenu({
         fallbackPrefix: '/',
         name: suggestion.command.name,
       });
+      if (onCommandSelect?.(suggestion.command, next.prompt)) {
+        return;
+      }
+
       // Two-step flow by design: confirming a suggestion only writes the
       // command into the composer; a second Enter dispatches it from there.
       if (shouldAutoSubmitSlashCommand(suggestion.command) && onAutoSubmitCommand) {

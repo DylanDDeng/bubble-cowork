@@ -523,6 +523,12 @@ export function buildClaudeSlashCommands(
 // they are merged into every Claude session's suggestion list locally.
 const LOCAL_CLAUDE_UI_COMMANDS: ClaudeSlashCommand[] = [
   {
+    name: 'plan',
+    title: '/plan',
+    description: 'Switch into planning mode',
+    source: 'default',
+  },
+  {
     name: 'rewind',
     title: '/rewind',
     description: 'Rewind the conversation and/or files to an earlier checkpoint',
@@ -602,6 +608,21 @@ export function parseSelectedSlashCommandPrompt(
 export function buildPromptWithSlashCommand(commandName: string, remainder: string): string {
   const trimmedRemainder = remainder.trimStart();
   return trimmedRemainder ? `/${commandName} ${trimmedRemainder}` : `/${commandName}`;
+}
+
+export function removeSelectedSlashCommandPrompt(
+  prompt: string,
+  commandName: string
+): { prompt: string; cursorIndex: number } {
+  const token = parseComposerCapabilityToken(prompt, ['/']);
+  if (!token || token.name.toLowerCase() !== commandName.toLowerCase()) {
+    return { prompt, cursorIndex: prompt.length };
+  }
+
+  const before = prompt.slice(0, token.start).trimEnd();
+  const after = prompt.slice(token.end).trimStart();
+  const nextPrompt = before && after ? `${before} ${after}` : before || after;
+  return { prompt: nextPrompt, cursorIndex: nextPrompt.length };
 }
 
 export function filterClaudeSlashCommands(

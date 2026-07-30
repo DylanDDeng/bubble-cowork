@@ -422,6 +422,11 @@ export interface AppActions {
     sessionId: string,
     selection: import('./utils/session-model').AgentModelSelection
   ) => void;
+  setSessionClaudeMode: (
+    sessionId: string,
+    accessMode: import('../shared/types').ClaudeAccessMode,
+    executionMode: import('../shared/types').ClaudeExecutionMode
+  ) => void;
   setDraftStartMode: (sessionId: string, mode: 'local' | 'worktree') => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;

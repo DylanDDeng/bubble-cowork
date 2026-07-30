@@ -4,7 +4,6 @@ import { FullAccessPermissionIcon } from './FullAccessPermissionIcon';
 
 const CLAUDE_PERMISSION_MODES: ClaudePermissionMode[] = [
   'default',
-  'plan',
   'auto',
   'acceptEdits',
   'dontAsk',

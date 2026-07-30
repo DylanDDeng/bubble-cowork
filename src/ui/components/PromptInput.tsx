@@ -41,6 +41,7 @@ import * as Dialog from './ui/dialog';
 import { PROVIDERS } from '../utils/provider';
 import type { AgentProvider } from '../types';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
+import { ClaudePlanModePill } from './ClaudePlanModePill';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
@@ -58,6 +59,7 @@ import {
 } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
+import { removeSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import {
   getLongPromptAttachmentFallbackMessage,
   LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
@@ -120,6 +122,7 @@ export function PromptInput({
     draftStartMode,
     handoffSessionToProvider,
     setSessionAgentSelection,
+    setSessionClaudeMode,
   } = useAppStore(
     useShallow((s) => ({
       activeSessionId: s.activeSessionId,
@@ -134,6 +137,7 @@ export function PromptInput({
       draftStartMode: s.draftStartMode,
       handoffSessionToProvider: s.handoffSessionToProvider,
       setSessionAgentSelection: s.setSessionAgentSelection,
+      setSessionClaudeMode: s.setSessionClaudeMode,
     }))
   );
   const [prompt, setPrompt] = useState('');
@@ -249,6 +253,8 @@ export function PromptInput({
     compatibleProviderId: activeSession?.compatibleProviderId || null,
     claudePermissionMode:
       activeSession?.provider === 'claude' ? activeSession.claudeAccessMode || null : null,
+    claudeExecutionMode:
+      activeSession?.provider === 'claude' ? activeSession.claudeExecutionMode || null : null,
     codexPermissionMode:
       activeSession?.provider === 'codex' ? activeSession.codexPermissionMode || null : null,
     opencodePermissionMode:
@@ -276,6 +282,7 @@ export function PromptInput({
     model: selectedModel,
     compatibleProviderId: agentSelection.compatibleProviderId,
     claudeAccessMode: agentSelection.claudePermissionMode,
+    claudeExecutionMode: agentSelection.claudeExecutionMode,
     claudeReasoningEffort: agentSelection.claudeReasoningEffort,
     grokPermissionMode: agentSelection.kimiPermissionMode,
     grokReasoningEffort: agentSelection.grokReasoningEffort,
@@ -284,6 +291,7 @@ export function PromptInput({
     model: selectedModel,
     compatibleProviderId: agentSelection.compatibleProviderId,
     claudeAccessMode: agentSelection.claudePermissionMode,
+    claudeExecutionMode: agentSelection.claudeExecutionMode,
     claudeReasoningEffort: agentSelection.claudeReasoningEffort,
     grokPermissionMode: agentSelection.kimiPermissionMode,
     grokReasoningEffort: agentSelection.grokReasoningEffort,
@@ -319,7 +327,7 @@ export function PromptInput({
             : {
                 compatibleProviderId: cfg.compatibleProviderId || undefined,
                 claudeAccessMode: cfg.claudeAccessMode,
-                claudeExecutionMode: cfg.claudeAccessMode === 'plan' ? 'plan' : 'execute',
+                claudeExecutionMode: cfg.claudeExecutionMode,
                 claudeReasoningEffort: cfg.claudeReasoningEffort || undefined,
               }),
         },
@@ -487,6 +495,18 @@ export function PromptInput({
     sessionMessages: activeSession?.messages || [],
     setPrompt,
     setCursorIndex,
+    onCommandSelect: (command, nextPrompt) => {
+      if (runtimeProvider !== 'claude' || command.name !== 'plan' || !activeSession) {
+        return false;
+      }
+
+      agentSelection.setClaudeExecutionMode('plan');
+      setSessionClaudeMode(activeSession.id, agentSelection.claudePermissionMode, 'plan');
+      const next = removeSelectedSlashCommandPrompt(nextPrompt, command.name);
+      setPrompt(next.prompt);
+      setCursorIndex(next.cursorIndex);
+      return true;
+    },
   });
 
   const projectFileMentions = useProjectFileMentions({
@@ -706,11 +726,9 @@ export function PromptInput({
               ? agentSelection.claudePermissionMode
               : undefined,
           claudeExecutionMode:
-            runtimeProvider === 'claude' && agentSelection.claudePermissionMode === 'plan'
-              ? 'plan'
-              : runtimeProvider === 'claude'
-                ? 'execute'
-                : undefined,
+            runtimeProvider === 'claude'
+              ? agentSelection.claudeExecutionMode
+              : undefined,
           claudeReasoningEffort:
             runtimeProvider === 'claude'
               ? agentSelection.claudeReasoningEffort || undefined
@@ -802,11 +820,9 @@ export function PromptInput({
             ? agentSelection.claudePermissionMode
             : undefined,
         claudeExecutionMode:
-          runtimeProvider === 'claude' && agentSelection.claudePermissionMode === 'plan'
-            ? 'plan'
-            : runtimeProvider === 'claude'
-              ? 'execute'
-              : undefined,
+          runtimeProvider === 'claude'
+            ? agentSelection.claudeExecutionMode
+            : undefined,
         claudeReasoningEffort:
           runtimeProvider === 'claude'
             ? agentSelection.claudeReasoningEffort || undefined
@@ -1409,10 +1425,26 @@ export function PromptInput({
                   menuSide={menuSide}
                 />
               )}
+              {agentSelection.provider === 'claude' && agentSelection.claudeExecutionMode === 'plan' && (
+                <ClaudePlanModePill
+                  onExit={() => {
+                    agentSelection.setClaudeExecutionMode('execute');
+                    if (activeSession) {
+                      setSessionClaudeMode(activeSession.id, agentSelection.claudePermissionMode, 'execute');
+                    }
+                  }}
+                  disabled={isBusy}
+                />
+              )}
               {agentSelection.provider === 'claude' && (
                 <ClaudePermissionModePicker
                   value={agentSelection.claudePermissionMode}
-                  onChange={agentSelection.setClaudePermissionMode}
+                  onChange={(mode) => {
+                    agentSelection.setClaudePermissionMode(mode);
+                    if (activeSession) {
+                      setSessionClaudeMode(activeSession.id, mode, agentSelection.claudeExecutionMode);
+                    }
+                  }}
                   disabled={isBusy}
                   menuSide={menuSide}
                 />

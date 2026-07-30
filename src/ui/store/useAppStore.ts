@@ -1971,6 +1971,24 @@ export const useAppStore = create<Store>()(
       };
     }),
 
+  setSessionClaudeMode: (sessionId, claudeAccessMode, claudeExecutionMode) =>
+    set((state) => {
+      const session = state.sessions[sessionId];
+      if (!session || session.provider !== 'claude') {
+        return state;
+      }
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...session,
+            claudeAccessMode,
+            claudeExecutionMode,
+          },
+        },
+      };
+    }),
+
   createDraftSession: (cwd, channelId, workspace) => {
     const draftCwd = cwd ?? get().projectCwd;
     const draftProjectCwd = workspace?.projectCwd ?? draftCwd;

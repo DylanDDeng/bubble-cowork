@@ -18,6 +18,7 @@ import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './Compose
 import { SidebarHeaderTrigger } from './Sidebar';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
+import { ClaudePlanModePill } from './ClaudePlanModePill';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
@@ -32,6 +33,7 @@ import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
+import { removeSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import {
   getLongPromptAttachmentFallbackMessage,
   LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
@@ -83,6 +85,17 @@ export function NewSessionView() {
     projectPath: cwd || undefined,
     setPrompt,
     setCursorIndex,
+    onCommandSelect: (command, nextPrompt) => {
+      if (agentSelection.provider !== 'claude' || command.name !== 'plan') {
+        return false;
+      }
+
+      agentSelection.setClaudeExecutionMode('plan');
+      const next = removeSelectedSlashCommandPrompt(nextPrompt, command.name);
+      setPrompt(next.prompt);
+      setCursorIndex(next.cursorIndex);
+      return true;
+    },
   });
   const recentProjectOptions = useMemo(() => {
     if (!cwd) {
@@ -253,11 +266,9 @@ export function NewSessionView() {
             ? agentSelection.claudePermissionMode
             : undefined,
         claudeExecutionMode:
-          agentSelection.provider === 'claude' && agentSelection.claudePermissionMode === 'plan'
-            ? 'plan'
-            : agentSelection.provider === 'claude'
-              ? 'execute'
-              : undefined,
+          agentSelection.provider === 'claude'
+            ? agentSelection.claudeExecutionMode
+            : undefined,
         claudeReasoningEffort:
           agentSelection.provider === 'claude'
             ? agentSelection.claudeReasoningEffort || undefined
@@ -625,6 +636,12 @@ export function NewSessionView() {
                         value={agentSelection.codexPermissionMode}
                         onChange={agentSelection.setCodexPermissionMode}
                         menuSide="bottom"
+                      />
+                    )}
+                    {agentSelection.provider === 'claude' && agentSelection.claudeExecutionMode === 'plan' && (
+                      <ClaudePlanModePill
+                        onExit={() => agentSelection.setClaudeExecutionMode('execute')}
+                        disabled={pendingStart}
                       />
                     )}
                     {agentSelection.provider === 'claude' && (

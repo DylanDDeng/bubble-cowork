@@ -7,7 +7,6 @@ export function normalizeClaudePermissionMode(value: unknown): ClaudePermissionM
   switch (typeof value === 'string' ? value.trim() : '') {
     case 'acceptEdits':
     case 'bypassPermissions':
-    case 'plan':
     case 'dontAsk':
     case 'auto':
       return value as ClaudePermissionMode;
