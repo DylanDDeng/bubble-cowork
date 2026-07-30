@@ -58,7 +58,7 @@ export function QoderPermissionModePicker({
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
-            className={`popover-surface absolute left-0 z-20 flex min-w-[176px] flex-col gap-0.5 p-1.5 ${
+            className={`popover-surface absolute left-0 z-20 flex min-w-[176px] flex-col p-1 ${
               menuSide === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2'
             }`}
           >
@@ -125,7 +125,7 @@ function QoderPermissionModeOption({
     <button
       type="button"
       onClick={() => onSelect(mode)}
-      className={`rounded-lg px-3 py-2 text-left text-[13px] transition-colors ${
+      className={`rounded-lg px-3 py-1.5 text-left text-[13px] transition-colors ${
         active
           ? 'bg-[var(--bg-tertiary)] font-semibold text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
