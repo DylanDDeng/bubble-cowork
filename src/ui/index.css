@@ -522,12 +522,12 @@ body {
   background: var(--bg-tertiary);
 }
 
-/* Press: the wash stretches sideways and the label rides right, then the
-   menu opens. Faster in than out. */
+/* Press: the wash stretches to the left while its right edge stays anchored,
+   so right-aligned model controls do not expand toward the send button. */
 .composer-pill-trigger:active::before,
 .composer-pill-trigger[data-pressed]::before {
   left: -9px;
-  right: -9px;
+  right: 0;
   background: var(--bg-tertiary);
   transition:
     background-color 90ms ease,
@@ -537,7 +537,7 @@ body {
 
 .composer-pill-trigger:active > *,
 .composer-pill-trigger[data-pressed] > * {
-  transform: translateX(3px);
+  transform: none;
   transition: transform 110ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
