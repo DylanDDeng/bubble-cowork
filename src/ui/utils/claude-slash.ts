@@ -132,6 +132,10 @@ const CODEX_COMMAND_DEFINITIONS: Record<
     description: 'Summarize the conversation to free up context',
     submitOnSelect: true,
   },
+  plan: {
+    title: '/plan',
+    description: 'Switch into planning mode',
+  },
   review: {
     title: '/review',
     description: 'Review uncommitted changes, or a branch/commit/custom target',

@@ -427,6 +427,10 @@ export interface AppActions {
     accessMode: import('../shared/types').ClaudeAccessMode,
     executionMode: import('../shared/types').ClaudeExecutionMode
   ) => void;
+  setSessionCodexExecutionMode: (
+    sessionId: string,
+    executionMode: import('../shared/types').CodexExecutionMode
+  ) => void;
   setDraftStartMode: (sessionId: string, mode: 'local' | 'worktree') => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;

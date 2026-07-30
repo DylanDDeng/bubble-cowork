@@ -45,6 +45,15 @@ function testPlanIsNotAStoredPermissionPreference() {
   assert.equal(normalizeClaudePermissionMode('auto'), 'auto');
 }
 
+function testCodexPlanIsAvailable() {
+  const commands = buildProviderSlashCommands('codex');
+  const plan = commands.find((command) => command.name === 'plan');
+
+  assert.equal(plan?.title, '/plan');
+  assert.equal(plan?.description, 'Switch into planning mode');
+  assert.equal(shouldAutoSubmitSlashCommand(plan!), false);
+}
+
 function testOtherProvidersKeepTheirOwnPlanBehavior() {
   const grokCommands = buildProviderSlashCommands('grok');
   const parsed = parseSelectedSlashCommandPrompt('/plan inspect auth', grokCommands);
@@ -57,5 +66,6 @@ function testOtherProvidersKeepTheirOwnPlanBehavior() {
 testPlanIsAlwaysAvailableForClaude();
 testPlanTokenIsRemovedButTaskRemains();
 testPlanIsNotAStoredPermissionPreference();
+testCodexPlanIsAvailable();
 testOtherProvidersKeepTheirOwnPlanBehavior();
 console.log('claude-plan-slash-command.test.ts: ok');

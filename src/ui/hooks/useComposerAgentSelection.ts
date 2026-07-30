@@ -448,6 +448,7 @@ export function useComposerAgentSelection(input?: {
   // Accepts the wider access mode (includes 'fullAccess'); normalized internally.
   claudePermissionMode?: ClaudeAccessMode | null;
   claudeExecutionMode?: import('../../shared/types').ClaudeExecutionMode | null;
+  codexExecutionMode?: import('../../shared/types').CodexExecutionMode | null;
   codexPermissionMode?: CodexPermissionMode | null;
   opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
@@ -1027,6 +1028,9 @@ export function useComposerAgentSelection(input?: {
   const [claudeExecutionMode, setClaudeExecutionMode] = useState<'execute' | 'plan'>(() =>
     input?.claudeExecutionMode === 'plan' || input?.claudePermissionMode === 'plan' ? 'plan' : 'execute'
   );
+  const [codexExecutionMode, setCodexExecutionMode] = useState<'execute' | 'plan'>(() =>
+    input?.codexExecutionMode === 'plan' ? 'plan' : 'execute'
+  );
   const [codexPermissionMode, setCodexPermissionModeState] = useState<CodexPermissionMode>(() =>
     input?.codexPermissionMode || loadPreferredCodexPermissionMode()
   );
@@ -1096,8 +1100,9 @@ export function useComposerAgentSelection(input?: {
   }, [input?.claudeExecutionMode, input?.claudePermissionMode, input?.selectionKey]);
 
   useEffect(() => {
+    setCodexExecutionMode(input?.codexExecutionMode === 'plan' ? 'plan' : 'execute');
     setCodexPermissionModeState(input?.codexPermissionMode || loadPreferredCodexPermissionMode());
-  }, [input?.codexPermissionMode, input?.selectionKey]);
+  }, [input?.codexExecutionMode, input?.codexPermissionMode, input?.selectionKey]);
 
   useEffect(() => {
     setOpencodePermissionModeState(input?.opencodePermissionMode || loadPreferredOpencodePermissionMode());
@@ -1164,6 +1169,8 @@ export function useComposerAgentSelection(input?: {
     setClaudePermissionMode,
     claudeExecutionMode,
     setClaudeExecutionMode,
+    codexExecutionMode,
+    setCodexExecutionMode,
     codexPermissionMode,
     setCodexPermissionMode,
     kimiPermissionMode,

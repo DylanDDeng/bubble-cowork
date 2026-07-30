@@ -1989,6 +1989,23 @@ export const useAppStore = create<Store>()(
       };
     }),
 
+  setSessionCodexExecutionMode: (sessionId, codexExecutionMode) =>
+    set((state) => {
+      const session = state.sessions[sessionId];
+      if (!session || session.provider !== 'codex') {
+        return state;
+      }
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...session,
+            codexExecutionMode,
+          },
+        },
+      };
+    }),
+
   createDraftSession: (cwd, channelId, workspace) => {
     const draftCwd = cwd ?? get().projectCwd;
     const draftProjectCwd = workspace?.projectCwd ?? draftCwd;

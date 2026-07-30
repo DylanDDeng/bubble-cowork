@@ -86,11 +86,17 @@ export function NewSessionView() {
     setPrompt,
     setCursorIndex,
     onCommandSelect: (command, nextPrompt) => {
-      if (agentSelection.provider !== 'claude' || command.name !== 'plan') {
+      if (command.name !== 'plan') {
         return false;
       }
 
-      agentSelection.setClaudeExecutionMode('plan');
+      if (agentSelection.provider === 'claude') {
+        agentSelection.setClaudeExecutionMode('plan');
+      } else if (agentSelection.provider === 'codex') {
+        agentSelection.setCodexExecutionMode('plan');
+      } else {
+        return false;
+      }
       const next = removeSelectedSlashCommandPrompt(nextPrompt, command.name);
       setPrompt(next.prompt);
       setCursorIndex(next.cursorIndex);
@@ -274,6 +280,8 @@ export function NewSessionView() {
             ? agentSelection.claudeReasoningEffort || undefined
             : undefined,
         ...codexReferences,
+        codexExecutionMode:
+          agentSelection.provider === 'codex' ? agentSelection.codexExecutionMode : undefined,
         codexPermissionMode:
           agentSelection.provider === 'codex'
             ? agentSelection.codexPermissionMode
@@ -626,6 +634,12 @@ export function NewSessionView() {
                         value={agentSelection.codexPermissionMode}
                         onChange={agentSelection.setCodexPermissionMode}
                         menuSide="bottom"
+                      />
+                    )}
+                    {agentSelection.provider === 'codex' && agentSelection.codexExecutionMode === 'plan' && (
+                      <ClaudePlanModePill
+                        onExit={() => agentSelection.setCodexExecutionMode('execute')}
+                        disabled={pendingStart}
                       />
                     )}
                     {agentSelection.provider === 'claude' && (

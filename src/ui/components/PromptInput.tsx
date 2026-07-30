@@ -123,6 +123,7 @@ export function PromptInput({
     handoffSessionToProvider,
     setSessionAgentSelection,
     setSessionClaudeMode,
+    setSessionCodexExecutionMode,
   } = useAppStore(
     useShallow((s) => ({
       activeSessionId: s.activeSessionId,
@@ -138,6 +139,7 @@ export function PromptInput({
       handoffSessionToProvider: s.handoffSessionToProvider,
       setSessionAgentSelection: s.setSessionAgentSelection,
       setSessionClaudeMode: s.setSessionClaudeMode,
+      setSessionCodexExecutionMode: s.setSessionCodexExecutionMode,
     }))
   );
   const [prompt, setPrompt] = useState('');
@@ -255,6 +257,8 @@ export function PromptInput({
       activeSession?.provider === 'claude' ? activeSession.claudeAccessMode || null : null,
     claudeExecutionMode:
       activeSession?.provider === 'claude' ? activeSession.claudeExecutionMode || null : null,
+    codexExecutionMode:
+      activeSession?.provider === 'codex' ? activeSession.codexExecutionMode || null : null,
     codexPermissionMode:
       activeSession?.provider === 'codex' ? activeSession.codexPermissionMode || null : null,
     opencodePermissionMode:
@@ -496,12 +500,19 @@ export function PromptInput({
     setPrompt,
     setCursorIndex,
     onCommandSelect: (command, nextPrompt) => {
-      if (runtimeProvider !== 'claude' || command.name !== 'plan' || !activeSession) {
+      if (command.name !== 'plan' || !activeSession) {
         return false;
       }
 
-      agentSelection.setClaudeExecutionMode('plan');
-      setSessionClaudeMode(activeSession.id, agentSelection.claudePermissionMode, 'plan');
+      if (runtimeProvider === 'claude') {
+        agentSelection.setClaudeExecutionMode('plan');
+        setSessionClaudeMode(activeSession.id, agentSelection.claudePermissionMode, 'plan');
+      } else if (runtimeProvider === 'codex') {
+        agentSelection.setCodexExecutionMode('plan');
+        setSessionCodexExecutionMode(activeSession.id, 'plan');
+      } else {
+        return false;
+      }
       const next = removeSelectedSlashCommandPrompt(nextPrompt, command.name);
       setPrompt(next.prompt);
       setCursorIndex(next.cursorIndex);
@@ -734,6 +745,8 @@ export function PromptInput({
               ? agentSelection.claudeReasoningEffort || undefined
               : undefined,
           ...codexReferences,
+          codexExecutionMode:
+            runtimeProvider === 'codex' ? agentSelection.codexExecutionMode : undefined,
           codexPermissionMode:
             runtimeProvider === 'codex'
               ? agentSelection.codexPermissionMode
@@ -828,6 +841,8 @@ export function PromptInput({
             ? agentSelection.claudeReasoningEffort || undefined
             : undefined,
         ...outgoing.references,
+        codexExecutionMode:
+          runtimeProvider === 'codex' ? agentSelection.codexExecutionMode : undefined,
         codexPermissionMode:
           runtimeProvider === 'codex'
             ? agentSelection.codexPermissionMode
@@ -1413,6 +1428,17 @@ export function PromptInput({
                   value={agentSelection.codexPermissionMode}
                   onChange={agentSelection.setCodexPermissionMode}
                   menuSide={menuSide}
+                />
+              )}
+              {agentSelection.provider === 'codex' && agentSelection.codexExecutionMode === 'plan' && (
+                <ClaudePlanModePill
+                  onExit={() => {
+                    agentSelection.setCodexExecutionMode('execute');
+                    if (activeSession) {
+                      setSessionCodexExecutionMode(activeSession.id, 'execute');
+                    }
+                  }}
+                  disabled={isBusy}
                 />
               )}
               {agentSelection.provider === 'claude' && (
