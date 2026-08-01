@@ -75,6 +75,13 @@ assert.ok(
   'Bubble adapter must map SDK usage into unified token usage metadata'
 );
 assert.ok(
+  adapter.includes('resolveContextWindow') &&
+    adapter.includes('contextWindowCache') &&
+    adapter.includes('usage.context_window') &&
+    adapter.includes('target.context_window = usage.context_window'),
+  'Bubble adapter must resolve the model context window from the registry so the composer context indicator has a ceiling'
+);
+assert.ok(
   adapter.includes('sdk.stop(session.providerSessionId)') &&
     adapter.includes('abortController?.abort()'),
   'Bubble adapter must stop turns through sdk.stop + abort signal'

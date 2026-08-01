@@ -69,6 +69,8 @@ type ActiveBubbleSession = {
   cwd: string;
   model?: string;
   permissionMode?: BubblePermissionMode;
+  /** Model context window from the provider registry (Bubble's turn usage carries none). */
+  contextWindow?: number | null;
   turnActive: boolean;
   abortController: AbortController | null;
   pendingRequests: Map<string, PendingBubbleRequest>;
@@ -125,7 +127,10 @@ function parseToolArguments(raw: string): Record<string, unknown> {
   }
 }
 
-function usageFromBubble(usage: BubbleTokenUsage | undefined): Usage | null {
+function usageFromBubble(
+  usage: BubbleTokenUsage | undefined,
+  contextWindow?: number | null
+): Usage | null {
   if (!usage) {
     return null;
   }
@@ -140,7 +145,7 @@ function usageFromBubble(usage: BubbleTokenUsage | undefined): Usage | null {
     cache_read_input_tokens: cacheRead,
     cache_creation_input_tokens: cacheWrite,
     total_tokens: total !== undefined ? Math.round(total) : input + output + cacheRead + cacheWrite,
-    context_window: null,
+    context_window: contextWindow || null,
   };
 }
 
@@ -155,6 +160,9 @@ function addUsage(target: Usage, usage: Usage | null): void {
   target.cache_creation_input_tokens =
     (target.cache_creation_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
   target.total_tokens = (target.total_tokens || 0) + (usage.total_tokens || 0);
+  if (usage.context_window) {
+    target.context_window = usage.context_window;
+  }
 }
 
 function createEmptyUsage(): Usage {
@@ -531,6 +539,9 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         signal: abortController.signal,
         onStart: (info) => {
           session.model = info.model || session.model;
+          // Bubble's TokenUsage has no context window; resolve it from the
+          // registry catalog so the composer context indicator has a ceiling.
+          void this.resolveContextWindow(session, info.providerId, info.model);
           this.emit({
             type: 'system_init',
             threadId: session.threadId,
@@ -607,7 +618,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       case 'turn_end': {
         const turnEvent = event as Extract<BubbleAgentEvent, { type: 'turn_end' }>;
         this.flushAssistant(session);
-        addUsage(session.usage, usageFromBubble(turnEvent.usage));
+        addUsage(session.usage, usageFromBubble(turnEvent.usage, session.contextWindow));
         return;
       }
       case 'mode_changed': {
@@ -850,6 +861,47 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       }
     }
     session.pendingRequests.clear();
+  }
+
+  // ── Context window resolution ──────────────────────────────────────────
+
+  /** modelString → contextWindow (null = looked up, catalog has none). */
+  private static contextWindowCache = new Map<string, number | null>();
+
+  private async resolveContextWindow(
+    session: ActiveBubbleSession,
+    providerId: string,
+    model: string
+  ): Promise<void> {
+    const key = `${providerId}:${model}`;
+    const cached = BubbleSdkAdapter.contextWindowCache.get(key);
+    if (cached !== undefined) {
+      session.contextWindow = cached;
+      return;
+    }
+    let contextWindow: number | null = null;
+    try {
+      const sdk = await getBubbleSdk(session.cwd);
+      const profile = sdk.registry.getEnabled().find((entry) => entry.id === providerId);
+      if (profile) {
+        const models = (await sdk.registry.listModels(profile)) || [];
+        const bareModel = model.startsWith(`${providerId}:`)
+          ? model.slice(providerId.length + 1)
+          : model;
+        const match = models.find(
+          (entry) => entry.id === model || entry.id === bareModel
+        );
+        contextWindow =
+          typeof match?.contextWindow === 'number' && match.contextWindow > 0
+            ? match.contextWindow
+            : null;
+      }
+    } catch (error) {
+      console.warn('[BubbleSdkAdapter] failed to resolve model context window:', error);
+      return; // Leave uncached so a later turn can retry.
+    }
+    BubbleSdkAdapter.contextWindowCache.set(key, contextWindow);
+    session.contextWindow = contextWindow;
   }
 
   // ── Session resolution ─────────────────────────────────────────────────
