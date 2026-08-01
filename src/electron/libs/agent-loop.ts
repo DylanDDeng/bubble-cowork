@@ -6,6 +6,7 @@ import { KimiAdapterFacade } from './provider/kimi-adapter-facade';
 import { GrokAcpAdapter } from './provider/grok-acp-adapter';
 import { OpenCodeSdkAdapter } from './provider/opencode-sdk-adapter';
 import { PiSdkAdapter } from './provider/pi-sdk-adapter';
+import { BubbleSdkAdapter } from './provider/bubble-sdk-adapter';
 import { QoderSdkAdapter } from './provider/qoder-sdk-adapter';
 import { isDev } from '../util';
 
@@ -27,6 +28,7 @@ export function ensureProviderService(): void {
   service.registerAdapter(new KimiAdapterFacade());
   service.registerAdapter(new GrokAcpAdapter());
   service.registerAdapter(new PiSdkAdapter());
+  service.registerAdapter(new BubbleSdkAdapter());
   service.registerAdapter(new QoderSdkAdapter());
 
   if (isDev()) {
@@ -101,6 +103,15 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         // Status changes are handled implicitly through messages
         break;
       }
+      case 'permission_mode_changed': {
+        if (event.provider === 'bubble') {
+          const mode = event.mode;
+          if (mode === 'default' || mode === 'plan' || mode === 'bypassPermissions') {
+            options.onBubblePermissionModeChange?.(mode);
+          }
+        }
+        break;
+      }
     }
   };
 
@@ -151,6 +162,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       grokReasoningEffort: options.grokReasoningEffort,
       opencodePermissionMode: options.opencodePermissionMode,
       qoderPermissionMode: options.qoderPermissionMode,
+      bubblePermissionMode: options.bubblePermissionMode,
       codexSkills: options.codexSkills,
       codexMentions: options.codexMentions,
     });
@@ -274,6 +286,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
             opencodePermissionMode:
               sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
             qoderPermissionMode: sendOptions?.qoderPermissionMode ?? options.qoderPermissionMode,
+            bubblePermissionMode: sendOptions?.bubblePermissionMode ?? options.bubblePermissionMode,
             codexSkills,
             codexMentions,
           });

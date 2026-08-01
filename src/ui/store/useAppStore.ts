@@ -578,6 +578,7 @@ function freshSessionViewFromInfo(info: import('../../shared/types').SessionInfo
     grokPermissionMode: info.grokPermissionMode,
     grokReasoningEffort: info.grokReasoningEffort,
     opencodePermissionMode: info.opencodePermissionMode,
+    bubblePermissionMode: info.bubblePermissionMode,
     pinned: info.pinned || false,
     folderPath: info.folderPath || null,
     hiddenFromThreads: info.hiddenFromThreads === true,
@@ -2006,6 +2007,23 @@ export const useAppStore = create<Store>()(
       };
     }),
 
+  setSessionBubblePermissionMode: (sessionId, bubblePermissionMode) =>
+    set((state) => {
+      const session = state.sessions[sessionId];
+      if (!session || session.provider !== 'bubble') {
+        return state;
+      }
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...session,
+            bubblePermissionMode,
+          },
+        },
+      };
+    }),
+
   createDraftSession: (cwd, channelId, workspace) => {
     const draftCwd = cwd ?? get().projectCwd;
     const draftProjectCwd = workspace?.projectCwd ?? draftCwd;
@@ -2491,6 +2509,7 @@ function handleSessionList(
       grokPermissionMode: session.grokPermissionMode,
       grokReasoningEffort: session.grokReasoningEffort,
       opencodePermissionMode: session.opencodePermissionMode,
+      bubblePermissionMode: session.bubblePermissionMode,
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
       hiddenFromThreads: session.hiddenFromThreads === true,
@@ -2595,6 +2614,7 @@ function handleSessionStatus(
     grokPermissionMode?: SessionInfo['grokPermissionMode'];
     grokReasoningEffort?: SessionInfo['grokReasoningEffort'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
+    bubblePermissionMode?: SessionInfo['bubblePermissionMode'];
     hiddenFromThreads?: boolean;
     channelId?: string;
     teamMode?: SessionInfo['teamMode'];
@@ -2631,6 +2651,7 @@ function handleSessionStatus(
     grokPermissionMode,
     grokReasoningEffort,
     opencodePermissionMode,
+    bubblePermissionMode,
     hiddenFromThreads,
     channelId,
     teamMode,
@@ -2720,6 +2741,10 @@ function handleSessionStatus(
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
               : session.opencodePermissionMode,
+          bubblePermissionMode:
+            bubblePermissionMode !== undefined
+              ? bubblePermissionMode
+              : session.bubblePermissionMode,
           hiddenFromThreads:
             hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
           channelId:
@@ -2984,7 +3009,8 @@ function handleStreamMessage(
       provider === 'kimi' ||
       provider === 'grok' ||
       provider === 'pi' ||
-      provider === 'qoder'
+      provider === 'qoder' ||
+      provider === 'bubble'
         ? provider
         : undefined;
     const incoming: McpServerStatus[] =

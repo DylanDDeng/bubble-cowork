@@ -132,6 +132,18 @@ function methodBlock(source, marker, label) {
   ok('pi dispose: unsubscribe + SDK dispose + delete, silent');
 }
 
+// ── bubble dispose: abort + card dismissal + delete, no protocol events ────
+{
+  const bubble = read('src/electron/libs/provider/bubble-sdk-adapter.ts');
+  const block = methodBlock(bubble, 'disposeSession(threadId: string): boolean {', 'bubble');
+  assert.match(block, /session\.abortController\?\.abort\(\)/, 'bubble dispose must abort the in-flight turn');
+  assert.match(block, /this\.dismissAllRequests\(session\)/, 'bubble dispose must dismiss stranded cards');
+  assert.match(block, /this\.sessions\.delete\(threadId\)/, 'bubble dispose must drop the map entry');
+  assert.ok(!block.includes('status_change'), 'bubble dispose must not emit status_change');
+  assert.ok(!block.includes("type: 'result'"), 'bubble dispose must not synthesize turn results');
+  ok('bubble dispose: abort + dismissals + delete, no protocol side effects');
+}
+
 // ── Policy no-ops: codex + both kimi classes return false ──────────────────
 {
   for (const file of [

@@ -516,6 +516,11 @@ contextBridge.exposeInMainWorld('electron', {
   ): Promise<ProviderListSkillsResult> => {
     return ipcRenderer.invoke('qoder-list-skills', input);
   },
+  listBubbleSkills: (
+    input: Omit<ProviderListSkillsInput, 'provider'>
+  ): Promise<ProviderListSkillsResult> => {
+    return ipcRenderer.invoke('bubble-list-skills', input);
+  },
   listGrokSkills: (
     input: Omit<ProviderListSkillsInput, 'provider'>
   ): Promise<ProviderListSkillsResult> => {
@@ -589,6 +594,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   getPiModelConfig: () => {
     return ipcRenderer.invoke('get-pi-model-config');
+  },
+
+  getBubbleModelConfig: () => {
+    return ipcRenderer.invoke('get-bubble-model-config');
   },
 
   getQoderModelConfig: () => {

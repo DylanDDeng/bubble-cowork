@@ -21,6 +21,7 @@ import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
+import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
 import { Input } from './ui/input';
 
@@ -95,6 +96,9 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'pi') {
     return <PiLogo />;
+  }
+  if (provider === 'bubble') {
+    return <BubbleLogo />;
   }
   if (provider === 'qoder') {
     return <QoderLogo />;

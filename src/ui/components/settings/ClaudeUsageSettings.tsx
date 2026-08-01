@@ -6,6 +6,7 @@ import minimaxLogo from '../../assets/minimax-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import openaiLogo from '../../assets/openai.svg';
 import piLogo from '../../assets/pi-logo-auto.svg';
+import bubbleLogo from '../../assets/bubble-logo-auto.svg';
 import qoderLogo from '../../assets/qoder.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
@@ -52,6 +53,7 @@ const USAGE_PROVIDERS: Array<{ id: AgentProvider; title: string; logoSrc?: strin
   { id: 'grok', title: 'Grok', logoSrc: grokLogo },
   { id: 'pi', title: 'Pi', logoSrc: piLogo },
   { id: 'qoder', title: 'Qoder', logoSrc: qoderLogo },
+  { id: 'bubble', title: 'Bubble', logoSrc: bubbleLogo },
 ];
 
 const INITIAL_PROVIDER_USAGE: Record<AgentProvider, ProviderUsageState> = Object.fromEntries(
@@ -1787,6 +1789,10 @@ function getProviderLogoForModel(model: string): string | null {
 
   if (normalized === 'pi' || normalized.startsWith('pi-') || normalized.startsWith('inflection')) {
     return piLogo;
+  }
+
+  if (normalized === 'bubble' || normalized.startsWith('bubble')) {
+    return bubbleLogo;
   }
 
   // "K3" / "K2.7 Coding" are Kimi display labels (see relabelUsageReportModels).

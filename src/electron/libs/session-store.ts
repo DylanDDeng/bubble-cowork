@@ -221,7 +221,8 @@ function normalizeAutomationProvider(value?: string | null): AgentProvider {
     value === 'kimi' ||
     value === 'grok' ||
     value === 'pi' ||
-    value === 'qoder'
+    value === 'qoder' ||
+    value === 'bubble'
     ? value
     : 'claude';
 }
@@ -370,6 +371,7 @@ export function initialize(): void {
       grok_session_id TEXT,
       pi_session_id TEXT,
       qoder_session_id TEXT,
+      bubble_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       conversation_scope TEXT DEFAULT 'project',
@@ -521,6 +523,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'grok_session_id', 'TEXT');
   ensureColumn('sessions', 'pi_session_id', 'TEXT');
   ensureColumn('sessions', 'qoder_session_id', 'TEXT');
+  ensureColumn('sessions', 'bubble_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
@@ -780,6 +783,9 @@ function getSessionSourceOrigin(sessionId: string): SessionSource {
   if (row.provider === 'qoder') {
     return 'qoder_local';
   }
+  if (row.provider === 'bubble') {
+    return 'bubble_local';
+  }
   return 'aegis';
 }
 
@@ -1033,7 +1039,9 @@ function backfillMessageMetadata(): void {
                       ? 'pi_local'
                       : row.provider === 'qoder'
                         ? 'qoder_local'
-                        : 'aegis';
+                        : row.provider === 'bubble'
+                          ? 'bubble_local'
+                          : 'aegis';
         const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
         updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
         upsertSearchIndexStmt.run(row.id, row.session_id, sourceOrigin, searchText, row.created_at);
@@ -1160,7 +1168,7 @@ export function createSession(params: {
   associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
+  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -1777,8 +1785,25 @@ export function setQoderSessionId(sessionId: string, qoderSessionId: string | nu
   stmt.run(qoderSessionId, now, sessionId);
 }
 
+// 更新 Bubble Session ID
+export function updateBubbleSessionId(sessionId: string, bubbleSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET bubble_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(bubbleSessionId, now, sessionId);
+}
+
+export function setBubbleSessionId(sessionId: string, bubbleSessionId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET bubble_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(bubbleSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder'): void {
+export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?
@@ -3093,6 +3118,7 @@ const USAGE_PROVIDER_MODEL_FALLBACK: Partial<Record<AgentProvider, string>> = {
   grok: 'Grok',
   pi: 'Pi',
   qoder: 'Qoder',
+  bubble: 'Bubble',
 };
 
 function looksLikeClaudeModelAlias(value: string): boolean {

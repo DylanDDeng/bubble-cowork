@@ -23,6 +23,7 @@ import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
 import { QoderPermissionModePicker } from './QoderPermissionModePicker';
+import { BubblePermissionModePicker } from './BubblePermissionModePicker';
 import { FolderOpen } from './icons';
 import { NewThreadLanding } from './NewThreadLanding';
 import { ComposerContextPills } from './ComposerContextPills';
@@ -94,6 +95,8 @@ export function NewSessionView() {
         agentSelection.setClaudeExecutionMode('plan');
       } else if (agentSelection.provider === 'codex') {
         agentSelection.setCodexExecutionMode('plan');
+      } else if (agentSelection.provider === 'bubble') {
+        agentSelection.setBubbleExecutionMode('plan');
       } else {
         return false;
       }
@@ -307,6 +310,12 @@ export function NewSessionView() {
         qoderPermissionMode:
           agentSelection.provider === 'qoder'
             ? agentSelection.qoderPermissionMode
+            : undefined,
+        bubblePermissionMode:
+          agentSelection.provider === 'bubble'
+            ? agentSelection.bubbleExecutionMode === 'plan'
+              ? 'plan'
+              : agentSelection.bubblePermissionMode
             : undefined,
         teamMode: 'solo',
         teamId: null,
@@ -679,6 +688,21 @@ export function NewSessionView() {
                         menuSide="bottom"
                       />
                     )}
+                    {agentSelection.provider === 'bubble' && (
+                      <BubblePermissionModePicker
+                        value={agentSelection.bubblePermissionMode}
+                        onChange={agentSelection.setBubblePermissionMode}
+                        disabled={pendingStart}
+                        menuSide="bottom"
+                      />
+                    )}
+                    {agentSelection.provider === 'bubble' &&
+                      agentSelection.bubbleExecutionMode === 'plan' && (
+                        <ClaudePlanModePill
+                          onExit={() => agentSelection.setBubbleExecutionMode('execute')}
+                          disabled={pendingStart}
+                        />
+                      )}
                   </div>
 
                   <div className="flex shrink-0 items-center gap-2">

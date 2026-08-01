@@ -143,6 +143,17 @@ const CODEX_COMMAND_DEFINITIONS: Record<
   },
 };
 
+// Bubble UI-local commands (handled by the composer, never sent to the model).
+const BUBBLE_COMMAND_DEFINITIONS: Record<
+  string,
+  { title: string; description: string; submitOnSelect?: boolean; inputHint?: string }
+> = {
+  plan: {
+    title: '/plan',
+    description: 'Switch into planning mode',
+  },
+};
+
 // Grok Build shell builtins advertised over ACP (plus a few documented agent
 // commands users expect). Skills also arrive at runtime via
 // available_commands_update and are merged on top of this catalog.
@@ -583,6 +594,10 @@ export function buildProviderSlashCommands(
 
   if (provider === 'codex') {
     return buildDefaultCommandList(CODEX_COMMAND_DEFINITIONS);
+  }
+
+  if (provider === 'bubble') {
+    return buildDefaultCommandList(BUBBLE_COMMAND_DEFINITIONS);
   }
 
   return [];

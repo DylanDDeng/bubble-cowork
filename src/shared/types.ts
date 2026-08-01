@@ -56,7 +56,7 @@ export interface McpServerStatus {
   /** Codex: the server needs a fresh OAuth login (mcpServer/oauth/login). */
   failureReason?: 'reauthenticationRequired';
   /** Which agent reported this status. Used to avoid cross-agent name collisions. */
-  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
+  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
 }
 
 // Claude Skills 摘要
@@ -97,6 +97,8 @@ export type KimiThinking = string;
 export type GrokPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
+// Mirrors Bubble SDK's PermissionMode union (runTurn({ mode })).
+export type BubblePermissionMode = 'default' | 'plan' | 'bypassPermissions';
 export type QoderPermissionMode =
   | 'default'
   | 'acceptEdits'
@@ -193,6 +195,20 @@ export interface GrokModelConfig {
 }
 
 export interface PiModelConfig {
+  defaultModel: string | null;
+  options: string[];
+  availableModels: Array<{
+    name: string;
+    label?: string;
+    provider?: string | null;
+    enabled: boolean;
+    isDefault: boolean;
+    maxContextSize?: number | null;
+    capabilities?: string[];
+  }>;
+}
+
+export interface BubbleModelConfig {
   defaultModel: string | null;
   options: string[];
   availableModels: Array<{
@@ -461,7 +477,7 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
+export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
@@ -470,7 +486,8 @@ export type SessionSource =
   | 'kimi_local'
   | 'grok_local'
   | 'pi_local'
-  | 'qoder_local';
+  | 'qoder_local'
+  | 'bubble_local';
 
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;
@@ -872,6 +889,7 @@ export interface SessionStartPayload {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
+  bubblePermissionMode?: BubblePermissionMode;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
   hiddenFromThreads?: boolean;
@@ -935,6 +953,7 @@ export interface SessionContinuePayload {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
+  bubblePermissionMode?: BubblePermissionMode;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
 }
@@ -1191,6 +1210,7 @@ export interface SessionInfo {
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
+  bubblePermissionMode?: BubblePermissionMode;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
@@ -1245,6 +1265,7 @@ export interface SessionStatusPayload {
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
+  bubblePermissionMode?: BubblePermissionMode;
   hiddenFromThreads?: boolean;
   channelId?: string;
   teamMode?: SessionTeamMode;
@@ -1328,7 +1349,7 @@ export interface AcpPermissionOption {
 
 export interface AcpPermissionInput {
   kind: 'acp-permission';
-  provider: 'kimi' | 'grok' | 'opencode';
+  provider: 'kimi' | 'grok' | 'opencode' | 'bubble';
   question: string;
   title: string;
   toolName: string;

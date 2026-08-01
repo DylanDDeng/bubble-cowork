@@ -28,6 +28,7 @@ export type WarmSendOptions = Pick<
   | 'grokReasoningEffort'
   | 'opencodePermissionMode'
   | 'qoderPermissionMode'
+  | 'bubblePermissionMode'
 >;
 
 export function buildWarmSendOptions(next: WarmSendOptions): WarmSendOptions {
@@ -42,6 +43,7 @@ export function buildWarmSendOptions(next: WarmSendOptions): WarmSendOptions {
     grokReasoningEffort: next.grokReasoningEffort,
     opencodePermissionMode: next.opencodePermissionMode,
     qoderPermissionMode: next.qoderPermissionMode,
+    bubblePermissionMode: next.bubblePermissionMode,
   };
   return envelope;
 }

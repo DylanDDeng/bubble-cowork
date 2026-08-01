@@ -5,6 +5,7 @@ import grokLogo from '../../assets/grok.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import openaiLogo from '../../assets/openai.svg';
 import piLogo from '../../assets/pi-logo-auto.svg';
+import bubbleLogo from '../../assets/bubble-logo-auto.svg';
 import qoderLogo from '../../assets/qoder.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import { Check, Copy, ExternalLink, Loader2, RefreshCw } from '../icons';
@@ -21,6 +22,7 @@ const PROVIDER_LOGOS: Record<AgentProvider, ReactNode> = {
   grok: <img src={grokLogo} alt="" className="h-5 w-5" aria-hidden="true" />,
   pi: <img src={piLogo} alt="" className="h-5 w-5" aria-hidden="true" />,
   qoder: <img src={qoderLogo} alt="" className="h-5 w-5" aria-hidden="true" />,
+  bubble: <img src={bubbleLogo} alt="" className="h-5 w-5" aria-hidden="true" />,
 };
 
 /**

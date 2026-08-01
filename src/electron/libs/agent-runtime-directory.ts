@@ -13,6 +13,7 @@ import { getOpencodeRuntimeStatus } from './opencode-runtime-status';
 import { getKimiRuntimeStatus } from './kimi-runtime-status';
 import { getGrokRuntimeStatus } from './grok-runtime-status';
 import { resolvePiAgentDir } from './provider/pi-sdk-loader';
+import { resolveBubbleHome } from './provider/bubble-sdk-loader';
 import { findMachineQoderCli } from './provider/qoder-sdk-loader';
 
 // Static per-provider metadata for the onboarding/install guidance. Install
@@ -54,6 +55,11 @@ const PROVIDER_META: Record<
   },
   qoder: {
     title: 'Qoder',
+    installCommand: null,
+    docsUrl: null,
+  },
+  bubble: {
+    title: 'Bubble',
     installCommand: null,
     docsUrl: null,
   },
@@ -204,6 +210,41 @@ async function probePi(): Promise<AgentRuntimeEntry> {
   }
 }
 
+// The Bubble SDK ships with Aegis, so "installed" is a given; readiness is
+// about having at least one provider credential in Bubble's config.json.
+// File-existence checks only (probePi pattern): never load the SDK here.
+async function probeBubble(): Promise<AgentRuntimeEntry> {
+  try {
+    const configPath = join(resolveBubbleHome(), 'config.json');
+    if (existsSync(configPath)) {
+      const parsed = JSON.parse(readFileSync(configPath, 'utf-8')) as {
+        apiKey?: unknown;
+        providers?: Array<{ apiKey?: unknown }>;
+      };
+      const hasProviderKey =
+        Array.isArray(parsed.providers) &&
+        parsed.providers.some(
+          (provider) => typeof provider?.apiKey === 'string' && provider.apiKey.trim().length > 0
+        );
+      const hasLegacyKey = typeof parsed.apiKey === 'string' && parsed.apiKey.trim().length > 0;
+      if (hasProviderKey || hasLegacyKey) {
+        return entry('bubble', 'ready', {
+          summary: 'Bubble is ready (bundled SDK, credentials found).',
+        });
+      }
+    }
+    return entry('bubble', 'login_required', {
+      summary: 'Bubble has no credentials yet.',
+      detail: 'Run the Bubble CLI once in a terminal to configure a provider/API key.',
+    });
+  } catch (error) {
+    return entry('bubble', 'error', {
+      summary: 'Could not check Bubble credentials.',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 // Qoder readiness = machine qodercli + login state. File-existence checks
 // only (probePi pattern): never accountInfo() — it spawns a CLI per call.
 async function probeQoder(): Promise<AgentRuntimeEntry> {
@@ -240,6 +281,7 @@ export async function getAgentRuntimeDirectory(force = false): Promise<AgentRunt
     ['grok', probeGrok()],
     ['pi', probePi()],
     ['qoder', probeQoder()],
+    ['bubble', probeBubble()],
   ];
 
   const entries = await Promise.all(

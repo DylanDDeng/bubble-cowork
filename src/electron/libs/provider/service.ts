@@ -27,7 +27,7 @@ import type {
 } from '../../../shared/types';
 
 function isProviderKind(provider: string): provider is ProviderKind {
-  return provider === 'claude' || provider === 'codex' || provider === 'opencode' || provider === 'kimi' || provider === 'grok' || provider === 'pi' || provider === 'qoder';
+  return provider === 'claude' || provider === 'codex' || provider === 'opencode' || provider === 'kimi' || provider === 'grok' || provider === 'pi' || provider === 'qoder' || provider === 'bubble';
 }
 
 class ProviderServiceImpl implements ProviderService {

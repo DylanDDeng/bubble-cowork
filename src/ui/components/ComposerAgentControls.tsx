@@ -29,6 +29,7 @@ import moonshotLogo from '../assets/moonshot.svg';
 import grokLogo from '../assets/grok.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
+import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
 
 export function AgentIcon({ provider }: { provider: AgentProvider }) {
@@ -52,6 +53,9 @@ export function AgentIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'qoder') {
     return <QoderLogo />;
+  }
+  if (provider === 'bubble') {
+    return <BubbleLogo />;
   }
   return null;
 }

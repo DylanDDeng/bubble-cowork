@@ -297,7 +297,9 @@ function parsePermissionRequest(request: PermissionRequestPayload): ParsedPermis
           ? 'OPENCODE'
           : input.provider === 'grok'
             ? 'GROK ACP'
-            : 'KIMI ACP',
+            : input.provider === 'bubble'
+              ? 'BUBBLE'
+              : 'KIMI ACP',
       tool: input.toolName || request.toolName,
       fileName: null,
       fileDir: null,

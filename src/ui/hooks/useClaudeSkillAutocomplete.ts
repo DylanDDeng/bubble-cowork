@@ -155,7 +155,8 @@ export function useComposerCapabilityMenu({
         provider === 'codex' ||
         provider === 'kimi' ||
         provider === 'qoder' ||
-        provider === 'grok'
+        provider === 'grok' ||
+        provider === 'bubble'
       ) {
         return providerSlashSkills;
       }
@@ -244,13 +245,14 @@ export function useComposerCapabilityMenu({
             provider === 'codex' ||
             provider === 'kimi' ||
             provider === 'qoder' ||
-            provider === 'grok')),
+            provider === 'grok' ||
+            provider === 'bubble')),
       // Codex/Kimi/Qoder/Grok match the codex app: `/` reaches the full skill
       // catalog, same budget as the `$` menu (Claude keeps the compact
       // 8-slot mix). Grok invokes its skills as slash commands, so `/` is the
       // only way in.
       skillLimit:
-        provider === 'codex' || provider === 'kimi' || provider === 'qoder' || provider === 'grok'
+        provider === 'codex' || provider === 'kimi' || provider === 'qoder' || provider === 'grok' || provider === 'bubble'
           ? 80
           : undefined,
     });
@@ -280,14 +282,17 @@ export function useComposerCapabilityMenu({
     (!selectedCommandState || composerTrigger.kind === 'slash-command');
 
   const selectSkill = (skill: ClaudeSkillSummary) => {
-    // Kimi and Qoder have no skill-reference pipeline: the runtime expands
-    // the prompt text inside the turn (kimi as `/skill:<name> <args>`,
-    // qoder as `/<name> <args>` — skills double as slash commands, verified
-    // live), so insert exactly that token.
+    // Kimi, Qoder and Bubble have no skill-reference pipeline: the runtime
+    // expands the prompt text inside the turn (kimi as `/skill:<name> <args>`,
+    // qoder/bubble as `/<name> <args>` — skills double as slash commands,
+    // verified live), so insert exactly that token.
     const next = replaceComposerTriggerOrLeadingToken({
       prompt,
       trigger: composerTrigger,
-      fallbackPrefix: provider === 'kimi' || provider === 'qoder' ? '/' : skillMentionPrefix(provider),
+      fallbackPrefix:
+        provider === 'kimi' || provider === 'qoder' || provider === 'bubble'
+          ? '/'
+          : skillMentionPrefix(provider),
       name: provider === 'kimi' ? `skill:${skill.name}` : skill.name,
     });
     setPrompt(next.prompt);
@@ -376,7 +381,7 @@ export function useComposerCapabilityMenu({
         ? 'Skills'
         : triggerKind === 'slash-model'
           ? 'Models'
-          : provider === 'claude' || provider === 'codex'
+          : provider === 'claude' || provider === 'codex' || provider === 'bubble'
             ? 'Commands & Skills'
             : 'Commands',
     emptyMessage:
@@ -384,7 +389,7 @@ export function useComposerCapabilityMenu({
         ? 'No matching skills.'
         : triggerKind === 'slash-model'
           ? 'No matching models.'
-          : provider === 'claude' || provider === 'codex'
+          : provider === 'claude' || provider === 'codex' || provider === 'bubble'
             ? 'No matching commands or skills.'
             : 'No matching commands.',
     suggestions,

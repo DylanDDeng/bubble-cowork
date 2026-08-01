@@ -25,6 +25,7 @@ import type {
   GrokReasoningEffort,
   OpenCodePermissionMode,
   QoderPermissionMode,
+  BubblePermissionMode,
   ClaudeAccessMode,
   ClaudeExecutionMode,
   ClaudeReasoningEffort,
@@ -46,7 +47,7 @@ import type { SessionRow } from '../../types';
 
 // ── Provider Identity ──────────────────────────────────────────────────────
 
-export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
+export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
 
 export interface ProviderAdapterCapabilities {
   /** Supports switching model mid-session */
@@ -91,6 +92,7 @@ export interface ProviderSessionStartInput {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
+  bubblePermissionMode?: BubblePermissionMode;
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
   claudeReasoningEffort?: ClaudeReasoningEffort;
@@ -113,6 +115,7 @@ export interface ProviderSendTurnInput {
   grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
+  bubblePermissionMode?: BubblePermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
 }
@@ -159,7 +162,11 @@ export type ProviderRuntimeEvent =
       defaultModel?: string | null;
     }
   | { type: 'error'; threadId: string; error: Error }
-  | { type: 'system_init'; threadId: string; sessionId: string; model?: string };
+  | { type: 'system_init'; threadId: string; sessionId: string; model?: string }
+  // The agent switched its own permission mode mid-turn (e.g. Bubble's plan
+  // approval calls setMode('default')) — lets the composer pill follow the
+  // runtime instead of staying stuck on the mode it last sent.
+  | { type: 'permission_mode_changed'; threadId: string; provider: ProviderKind; mode: string };
 
 // ── Adapter Contract ───────────────────────────────────────────────────────
 

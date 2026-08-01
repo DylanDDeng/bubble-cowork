@@ -11,6 +11,7 @@ import { useOpencodeModelConfig } from './useOpencodeModelConfig';
 import { useKimiModelConfig } from './useKimiModelConfig';
 import { useGrokModelConfig } from './useGrokModelConfig';
 import { usePiModelConfig } from './usePiModelConfig';
+import { useBubbleModelConfig } from './useBubbleModelConfig';
 import { useQoderModelConfig } from './useQoderModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
@@ -42,6 +43,7 @@ import {
   KimiThinking,
   OpenCodePermissionMode,
   QoderPermissionMode,
+  BubblePermissionMode,
 } from '../../shared/types';
 import {
   getDefaultCodexReasoningEffort,
@@ -92,9 +94,14 @@ import {
   loadPreferredQoderPermissionMode,
   savePreferredQoderPermissionMode,
 } from '../utils/qoder-permission';
+import {
+  loadPreferredBubblePermissionMode,
+  savePreferredBubblePermissionMode,
+} from '../utils/bubble-permission';
 const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
 const GROK_MODEL_STORAGE_KEY = 'cowork.preferredGrokModel';
 const PI_MODEL_STORAGE_KEY = 'cowork.preferredPiModel';
+const BUBBLE_MODEL_STORAGE_KEY = 'cowork.preferredBubbleModel';
 const QODER_MODEL_STORAGE_KEY = 'cowork.preferredQoderModel';
 
 export interface ComposerModelOption {
@@ -154,6 +161,21 @@ function savePreferredPiModel(model: string | null): void {
     return;
   }
   rendererStateStorage.setItem(PI_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredBubbleModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = rendererStateStorage.getItem(BUBBLE_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredBubbleModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    rendererStateStorage.removeItem(BUBBLE_MODEL_STORAGE_KEY);
+    return;
+  }
+  rendererStateStorage.setItem(BUBBLE_MODEL_STORAGE_KEY, model);
 }
 
 function loadPreferredQoderModel(): string | null {
@@ -383,6 +405,54 @@ function buildPiModelOptions(config: ReturnType<typeof usePiModelConfig>): Compo
   return [defaultOption, ...explicitOptions];
 }
 
+function formatBubbleModelLabel(value: string, config: ReturnType<typeof useBubbleModelConfig>): string {
+  const match = config.availableModels.find((model) => model.name === value);
+  return match?.label || value;
+}
+
+function buildBubbleModelOptions(config: ReturnType<typeof useBubbleModelConfig>): ComposerModelOption[] {
+  const defaultOption: ComposerModelOption = {
+    key: 'bubble:default',
+    value: '',
+    label: 'Default',
+    description: config.defaultModel
+      ? `Use ${formatBubbleModelLabel(config.defaultModel, config)}`
+      : 'Use Bubble default model',
+  };
+  const models = config.availableModels.length > 0
+    ? config.availableModels
+    : config.options.map((name) => ({ name, label: name, provider: null, enabled: true, isDefault: config.defaultModel === name }));
+  const explicitOptions = models
+    .filter((model) => model.enabled !== false)
+    .map((model) => ({
+      key: `bubble:${model.name}`,
+      value: model.name,
+      label: model.label || model.name,
+      description: model.isDefault
+        ? 'Configured default'
+        : model.provider
+          ? model.provider
+          : undefined,
+    }));
+  return [defaultOption, ...explicitOptions];
+}
+
+function resolveConfiguredBubbleModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof useBubbleModelConfig>
+): string | null {
+  const options = buildBubbleModelOptions(config);
+  const optionValues = new Set(options.map((option) => option.value.trim()));
+  const candidates = [requestedModel, loadPreferredBubbleModel()];
+  for (const candidate of candidates) {
+    const normalized = candidate?.trim() || null;
+    if (normalized && optionValues.has(normalized)) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
 function resolveConfiguredPiModel(
   requestedModel: string | null | undefined,
   config: ReturnType<typeof usePiModelConfig>
@@ -449,6 +519,7 @@ export function useComposerAgentSelection(input?: {
   claudePermissionMode?: ClaudeAccessMode | null;
   claudeExecutionMode?: import('../../shared/types').ClaudeExecutionMode | null;
   codexExecutionMode?: import('../../shared/types').CodexExecutionMode | null;
+  bubblePermissionMode?: import('../../shared/types').BubblePermissionMode | null;
   codexPermissionMode?: CodexPermissionMode | null;
   opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
@@ -461,6 +532,7 @@ export function useComposerAgentSelection(input?: {
   const kimiModelConfig = useKimiModelConfig();
   const grokModelConfig = useGrokModelConfig();
   const piModelConfig = usePiModelConfig();
+  const bubbleModelConfig = useBubbleModelConfig();
   const qoderModelConfig = useQoderModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
@@ -475,6 +547,7 @@ export function useComposerAgentSelection(input?: {
     if (initialProvider === 'codex') return loadPreferredCodexModel();
     if (initialProvider === 'opencode') return loadPreferredOpencodeModel();
     if (initialProvider === 'pi') return loadPreferredPiModel();
+    if (initialProvider === 'bubble') return loadPreferredBubbleModel();
     if (initialProvider === 'qoder') return loadPreferredQoderModel();
     if (initialProvider === 'claude') return loadPreferredClaudeModel();
     return null;
@@ -526,9 +599,10 @@ export function useComposerAgentSelection(input?: {
       kimi: buildKimiModelOptions(kimiModelConfig),
       grok: buildGrokModelOptions(grokModelConfig),
       pi: buildPiModelOptions(piModelConfig),
+      bubble: buildBubbleModelOptions(bubbleModelConfig),
       qoder: buildQoderModelOptions(qoderModelConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, qoderModelConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -582,12 +656,16 @@ export function useComposerAgentSelection(input?: {
       return buildPiModelOptions(piModelConfig);
     }
 
+    if (provider === 'bubble') {
+      return buildBubbleModelOptions(bubbleModelConfig);
+    }
+
     if (provider === 'qoder') {
       return buildQoderModelOptions(qoderModelConfig);
     }
 
     return [];
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, qoderModelConfig, provider]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -648,6 +726,13 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
+      if (nextProvider === 'bubble') {
+        return {
+          model: resolveConfiguredBubbleModel(normalizedRequestedModel, bubbleModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
       if (nextProvider === 'qoder') {
         return {
           model: resolveConfiguredQoderModel(normalizedRequestedModel, qoderModelConfig),
@@ -660,7 +745,7 @@ export function useComposerAgentSelection(input?: {
         compatibleProviderId: null,
       };
     },
-    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, qoderModelConfig]
+    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig]
   );
 
   // Apply session switches during render so the first painted frame already
@@ -807,6 +892,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredGrokModel(nextModel);
       } else if (targetProvider === 'pi') {
         savePreferredPiModel(nextModel);
+      } else if (targetProvider === 'bubble') {
+        savePreferredBubbleModel(nextModel);
       } else if (targetProvider === 'qoder') {
         savePreferredQoderModel(nextModel);
       }
@@ -1087,6 +1174,20 @@ export function useComposerAgentSelection(input?: {
   const [qoderPermissionMode, setQoderPermissionModeState] = useState<QoderPermissionMode>(() =>
     loadPreferredQoderPermissionMode()
   );
+  // Bubble picker preference (default/full-access) is composer-owned like
+  // qoder; plan is a separate execution-mode axis like claude/codex, seeded
+  // and resynced from the session's live mode so plan approval flips it back.
+  const [bubblePermissionMode, setBubblePermissionModeState] = useState<BubblePermissionMode>(() =>
+    loadPreferredBubblePermissionMode()
+  );
+  const [bubbleExecutionMode, setBubbleExecutionMode] = useState<'execute' | 'plan'>(() =>
+    input?.bubblePermissionMode === 'plan' ? 'plan' : 'execute'
+  );
+
+  useEffect(() => {
+    setBubbleExecutionMode(input?.bubblePermissionMode === 'plan' ? 'plan' : 'execute');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input?.bubblePermissionMode, input?.selectionKey]);
 
   useEffect(() => {
     setClaudePermissionModeState(
@@ -1144,6 +1245,11 @@ export function useComposerAgentSelection(input?: {
     savePreferredQoderPermissionMode(mode);
   }, []);
 
+  const setBubblePermissionMode = useCallback((mode: BubblePermissionMode) => {
+    setBubblePermissionModeState(mode);
+    savePreferredBubblePermissionMode(mode);
+  }, []);
+
   return {
     provider,
     model,
@@ -1186,5 +1292,9 @@ export function useComposerAgentSelection(input?: {
     setOpencodePermissionMode,
     qoderPermissionMode,
     setQoderPermissionMode,
+    bubblePermissionMode,
+    setBubblePermissionMode,
+    bubbleExecutionMode,
+    setBubbleExecutionMode,
   };
 }

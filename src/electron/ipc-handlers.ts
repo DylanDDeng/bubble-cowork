@@ -87,6 +87,7 @@ import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { getKimiModelConfig, mergeKimiServerModelMetadata } from './libs/kimi-settings';
 import { getGrokModelConfig } from './libs/grok-settings';
 import { getPiModelConfig } from './libs/pi-settings';
+import { getBubbleModelConfig } from './libs/bubble-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
 import { AutomationScheduler } from './libs/automation-scheduler';
@@ -495,6 +496,14 @@ function normalizeQoderPermissionMode(
     value === 'plan' ||
     value === 'dontAsk' ||
     value === 'auto'
+    ? value
+    : undefined;
+}
+
+function normalizeBubblePermissionMode(
+  value?: string | null
+): import('../shared/types').BubblePermissionMode | undefined {
+  return value === 'default' || value === 'plan' || value === 'bypassPermissions'
     ? value
     : undefined;
 }
@@ -1622,6 +1631,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'grok') return 'Grok Build';
   if (provider === 'pi') return 'Pi';
   if (provider === 'qoder') return 'Qoder';
+  if (provider === 'bubble') return 'Bubble';
   return 'Claude Code';
 }
 
@@ -3422,7 +3432,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
+    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -3437,6 +3447,7 @@ const runnerHandles = new Map<
 	    grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
 	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
 	    qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
+	    bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
     onTurnDone?: (status: SessionStatus, message?: string) => void;
@@ -5767,6 +5778,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     });
   });
 
+  ipcMainHandle('bubble-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'bubble',
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
+    });
+  });
+
   ipcMainHandle('grok-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
     ensureProviderService();
     return getProviderService().listSkills({
@@ -5932,6 +5953,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-pi-model-config', async () => {
     return getPiModelConfig();
+  });
+
+  ipcMainHandle('get-bubble-model-config', async () => {
+    return getBubbleModelConfig();
   });
 
   ipcMainHandle('get-qoder-model-config', async () => {
@@ -8148,7 +8173,9 @@ function buildSessionInfoFromRow(
                   ? 'pi_local'
                   : row.provider === 'qoder'
                     ? 'qoder_local'
-                    : 'aegis',
+                    : row.provider === 'bubble'
+                      ? 'bubble_local'
+                      : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
@@ -8257,6 +8284,7 @@ async function handleSessionStart(
     grokReasoningEffort,
     opencodePermissionMode,
     qoderPermissionMode,
+    bubblePermissionMode,
     teamMode,
     teamId,
     hiddenFromThreads,
@@ -8346,6 +8374,8 @@ async function handleSessionStart(
     chosenProvider === 'grok' ? normalizeGrokReasoningEffort(grokReasoningEffort) : undefined;
   const selectedQoderPermissionMode =
     chosenProvider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined;
+  const selectedBubblePermissionMode =
+    chosenProvider === 'bubble' ? normalizeBubblePermissionMode(bubblePermissionMode) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -8444,6 +8474,7 @@ async function handleSessionStart(
       opencodePermissionMode:
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
       qoderPermissionMode: selectedQoderPermissionMode,
+      bubblePermissionMode: selectedBubblePermissionMode,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
@@ -8606,7 +8637,8 @@ async function handleSessionStart(
     Boolean(automationRunId),
     false,
     selectedKimiThinking,
-    selectedQoderPermissionMode
+    selectedQoderPermissionMode,
+    selectedBubblePermissionMode
   );
   return session.id;
 }
@@ -8640,6 +8672,7 @@ async function handleSessionContinue(
     grokReasoningEffort,
     opencodePermissionMode,
     qoderPermissionMode,
+    bubblePermissionMode,
     teamMode,
     teamId,
   } = payload;
@@ -8784,6 +8817,9 @@ async function handleSessionContinue(
     : undefined;
   const nextQoderPermissionMode = nextProvider === 'qoder'
     ? normalizeQoderPermissionMode(qoderPermissionMode)
+    : undefined;
+  const nextBubblePermissionMode = nextProvider === 'bubble'
+    ? normalizeBubblePermissionMode(bubblePermissionMode)
     : undefined;
   const nextKimiThinking = nextProvider === 'kimi'
     ? normalizeKimiThinking(kimiThinking)
@@ -9053,7 +9089,7 @@ async function handleSessionContinue(
     if (
       runnerCwdChanged ||
       kimiSessionReleased ||
-      (((nextProvider === 'codex' && !codexMidTurn) || nextProvider === 'opencode' || (nextProvider === 'kimi' && !kimiMidTurn) || nextProvider === 'grok' || nextProvider === 'pi') && modelChanged) ||
+      (((nextProvider === 'codex' && !codexMidTurn) || nextProvider === 'opencode' || (nextProvider === 'kimi' && !kimiMidTurn) || nextProvider === 'grok' || nextProvider === 'pi' || nextProvider === 'bubble') && modelChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexFastModeChanged) ||
@@ -9120,6 +9156,7 @@ async function handleSessionContinue(
         grokReasoningEffort: nextGrokReasoningEffort,
         opencodePermissionMode: nextOpenCodePermissionMode,
         qoderPermissionMode: nextQoderPermissionMode,
+        bubblePermissionMode: nextBubblePermissionMode,
       });
       existingEntry.handle.send(
         runnerPrompt,
@@ -9173,7 +9210,9 @@ async function handleSessionContinue(
                   ? session.pi_session_id ?? undefined
                   : nextProvider === 'qoder'
                     ? session.qoder_session_id ?? undefined
-                    : undefined;
+                    : nextProvider === 'bubble'
+                      ? session.bubble_session_id ?? undefined
+                      : undefined;
   let nextResumeSessionId = resumeSessionId;
 
   if (
@@ -9248,7 +9287,8 @@ async function handleSessionContinue(
     false,
     false,
     nextKimiThinking,
-    nextQoderPermissionMode
+    nextQoderPermissionMode,
+    nextBubblePermissionMode
   );
   return true;
 }
@@ -9260,7 +9300,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder',
+  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -9292,7 +9332,8 @@ function startRunner(
   // identical behavior through the existing runner plumbing.)
   prewarmRunner = false,
   kimiThinking?: import('../shared/types').KimiThinking,
-  qoderPermissionMode?: import('../shared/types').QoderPermissionMode
+  qoderPermissionMode?: import('../shared/types').QoderPermissionMode,
+  bubblePermissionMode?: import('../shared/types').BubblePermissionMode
 ): void {
   if (!session) return;
 
@@ -9391,6 +9432,7 @@ function startRunner(
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
     qoderPermissionMode,
+    bubblePermissionMode,
     onMessage: (message) => {
       // A runner the user stopped that has since been retired or replaced is
       // dead to this session: NOTHING it emits may touch session state again
@@ -9431,6 +9473,11 @@ function startRunner(
           }
         } else if (provider === 'qoder') {
           sessions.updateQoderSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'bubble') {
+          sessions.updateBubbleSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }
@@ -9960,6 +10007,24 @@ function startRunner(
         runnerHandles.delete(session.id);
       }
     },
+    onBubblePermissionModeChange: (mode) => {
+      // Keep the live entry in sync so later warm sends see the agent's own
+      // switch, then let the composer's plan pill follow it (Claude-style).
+      const entry = runnerHandles.get(session.id);
+      if (entry) {
+        entry.bubblePermissionMode = mode;
+      }
+      const current = sessions.getSession(session.id);
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: {
+          sessionId: session.id,
+          status: (current?.status || 'running') as SessionStatus,
+          provider,
+          bubblePermissionMode: provider === 'bubble' ? mode : undefined,
+        },
+      });
+    },
     onClaudeExecutionModeChange: (mode, permissionMode) => {
       sessions.updateSessionClaudeAccessMode(session.id, permissionMode);
       sessions.updateSessionClaudeExecutionMode(session.id, mode);
@@ -10106,6 +10171,7 @@ function startRunner(
 	    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
 	    kimiThinking: provider === 'kimi' ? normalizeKimiThinking(kimiThinking) : undefined,
 	    qoderPermissionMode: provider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined,
+	    bubblePermissionMode: provider === 'bubble' ? normalizeBubblePermissionMode(bubblePermissionMode) : undefined,
     grokPermissionMode:
       provider === 'grok' ? normalizeGrokPermissionMode(grokPermissionMode) : undefined,
     grokReasoningEffort:

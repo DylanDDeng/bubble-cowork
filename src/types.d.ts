@@ -27,6 +27,7 @@ import type {
   KimiModelConfig,
   GrokModelConfig,
   PiModelConfig,
+  BubbleModelConfig,
   QoderModelConfig,
   OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
@@ -194,6 +195,7 @@ declare global {
     listCodexPlugins: (input?: Omit<ProviderListPluginsInput, 'provider'>) => Promise<ProviderListPluginsResult>;
     listKimiSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listQoderSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
+    listBubbleSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listGrokSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     readCodexPlugin: (input: Omit<ProviderReadPluginInput, 'provider'>) => Promise<ProviderReadPluginResult>;
     readCodexSkillContent: (skillPath: string) => Promise<{ ok: boolean; content?: string; message?: string }>;
@@ -212,6 +214,7 @@ declare global {
     getGrokRuntimeStatus: () => Promise<GrokRuntimeStatus>;
     getGrokModelConfig: () => Promise<GrokModelConfig>;
     getPiModelConfig: () => Promise<PiModelConfig>;
+    getBubbleModelConfig: () => Promise<BubbleModelConfig>;
     getQoderModelConfig: () => Promise<QoderModelConfig>;
     getClaudeRuntimeStatus: (model?: string | null) => Promise<ClaudeRuntimeStatus>;
     getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;

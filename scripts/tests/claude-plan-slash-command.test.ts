@@ -6,6 +6,7 @@ import {
   shouldAutoSubmitSlashCommand,
 } from '../../src/ui/utils/claude-slash.ts';
 import { normalizeClaudePermissionMode } from '../../src/ui/utils/claude-permission.ts';
+import { normalizeBubblePermissionMode } from '../../src/ui/utils/bubble-permission.ts';
 
 function testPlanIsAlwaysAvailableForClaude() {
   const runtimeCommands = [
@@ -54,6 +55,20 @@ function testCodexPlanIsAvailable() {
   assert.equal(shouldAutoSubmitSlashCommand(plan!), false);
 }
 
+function testBubblePlanIsAvailable() {
+  const commands = buildProviderSlashCommands('bubble');
+  const plan = commands.find((command) => command.name === 'plan');
+
+  assert.equal(plan?.title, '/plan');
+  assert.equal(plan?.description, 'Switch into planning mode');
+  assert.equal(shouldAutoSubmitSlashCommand(plan!), false);
+}
+
+function testBubblePlanIsNotAStoredPermissionPreference() {
+  assert.equal(normalizeBubblePermissionMode('plan'), 'default');
+  assert.equal(normalizeBubblePermissionMode('bypassPermissions'), 'bypassPermissions');
+}
+
 function testOtherProvidersKeepTheirOwnPlanBehavior() {
   const grokCommands = buildProviderSlashCommands('grok');
   const parsed = parseSelectedSlashCommandPrompt('/plan inspect auth', grokCommands);
@@ -67,5 +82,7 @@ testPlanIsAlwaysAvailableForClaude();
 testPlanTokenIsRemovedButTaskRemains();
 testPlanIsNotAStoredPermissionPreference();
 testCodexPlanIsAvailable();
+testBubblePlanIsAvailable();
+testBubblePlanIsNotAStoredPermissionPreference();
 testOtherProvidersKeepTheirOwnPlanBehavior();
 console.log('claude-plan-slash-command.test.ts: ok');

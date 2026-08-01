@@ -95,9 +95,11 @@ export type {
   KimiModelConfig,
   GrokModelConfig,
   PiModelConfig,
+  BubbleModelConfig,
   QoderModelConfig,
   QoderModelOption,
   QoderPermissionMode,
+  BubblePermissionMode,
   KimiPermissionMode,
   KimiThinking,
   KimiRuntimeStatus,
@@ -242,6 +244,7 @@ export interface SessionView {
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
+  bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
   claudeReasoningEffort?: import('../shared/types').ClaudeReasoningEffort;
   codexExecutionMode?: import('../shared/types').CodexExecutionMode;
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
@@ -426,6 +429,10 @@ export interface AppActions {
     sessionId: string,
     accessMode: import('../shared/types').ClaudeAccessMode,
     executionMode: import('../shared/types').ClaudeExecutionMode
+  ) => void;
+  setSessionBubblePermissionMode: (
+    sessionId: string,
+    bubblePermissionMode: import('../shared/types').BubblePermissionMode
   ) => void;
   setSessionCodexExecutionMode: (
     sessionId: string,

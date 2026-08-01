@@ -29,8 +29,9 @@ export interface SessionRow {
   kimi_session_id: string | null;
   grok_session_id: string | null;
   pi_session_id: string | null;
+  bubble_session_id: string | null;
   qoder_session_id: string | null;
-  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder';
+  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;
@@ -132,6 +133,7 @@ export interface RunnerOptions {
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
+  bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (
@@ -147,6 +149,10 @@ export interface RunnerOptions {
   onClaudeExecutionModeChange?: (
     mode: import('../shared/types').ClaudeExecutionMode,
     permissionMode: import('../shared/types').ClaudeAccessMode
+  ) => void;
+  /** The Bubble agent switched its own permission mode mid-turn (plan approval). */
+  onBubblePermissionModeChange?: (
+    mode: import('../shared/types').BubblePermissionMode
   ) => void;
 }
 

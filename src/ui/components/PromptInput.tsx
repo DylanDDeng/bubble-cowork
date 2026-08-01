@@ -46,6 +46,7 @@ import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
 import { QoderPermissionModePicker } from './QoderPermissionModePicker';
+import { BubblePermissionModePicker } from './BubblePermissionModePicker';
 import {
   useComposerAgentSelection,
   type ComposerModelOption,
@@ -124,6 +125,7 @@ export function PromptInput({
     setSessionAgentSelection,
     setSessionClaudeMode,
     setSessionCodexExecutionMode,
+    setSessionBubblePermissionMode,
   } = useAppStore(
     useShallow((s) => ({
       activeSessionId: s.activeSessionId,
@@ -140,6 +142,7 @@ export function PromptInput({
       setSessionAgentSelection: s.setSessionAgentSelection,
       setSessionClaudeMode: s.setSessionClaudeMode,
       setSessionCodexExecutionMode: s.setSessionCodexExecutionMode,
+      setSessionBubblePermissionMode: s.setSessionBubblePermissionMode,
     }))
   );
   const [prompt, setPrompt] = useState('');
@@ -263,6 +266,8 @@ export function PromptInput({
       activeSession?.provider === 'codex' ? activeSession.codexPermissionMode || null : null,
     opencodePermissionMode:
       activeSession?.provider === 'opencode' ? activeSession.opencodePermissionMode || null : null,
+    bubblePermissionMode:
+      activeSession?.provider === 'bubble' ? activeSession.bubblePermissionMode || null : null,
     claudeReasoningEffort:
       activeSession?.provider === 'claude' ? activeSession.claudeReasoningEffort || null : null,
     grokReasoningEffort:
@@ -411,10 +416,12 @@ export function PromptInput({
   const isKimiContextVisible = runtimeProvider === 'kimi' && activeSession?.provider === 'kimi';
   const isOpenCodeContextVisible = runtimeProvider === 'opencode' && activeSession?.provider === 'opencode';
   const isPiContextVisible = runtimeProvider === 'pi' && activeSession?.provider === 'pi';
+  const isBubbleContextVisible = runtimeProvider === 'bubble' && activeSession?.provider === 'bubble';
   const isQoderContextVisible = runtimeProvider === 'qoder' && activeSession?.provider === 'qoder';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
   const openCodeContextModel = isOpenCodeContextVisible ? selectedModel || activeSession?.model || null : null;
   const piContextModel = isPiContextVisible ? selectedModel || activeSession?.model || null : null;
+  const bubbleContextModel = isBubbleContextVisible ? selectedModel || activeSession?.model || null : null;
   const qoderContextModel = isQoderContextVisible ? selectedModel || activeSession?.model || null : null;
 
   const codexContextSnapshot = useMemo(
@@ -459,6 +466,13 @@ export function PromptInput({
         ? getLatestOpenCodeContextSnapshot(activeSession.messages, piContextModel, 'Pi')
         : null,
     [activeSession?.messages, isPiContextVisible, piContextModel]
+  );
+  const bubbleContextSnapshot = useMemo(
+    () =>
+      isBubbleContextVisible
+        ? getLatestOpenCodeContextSnapshot(activeSession.messages, bubbleContextModel, 'Bubble')
+        : null,
+    [activeSession?.messages, isBubbleContextVisible, bubbleContextModel]
   );
   const qoderContextSnapshot = useMemo(
     () =>
@@ -510,6 +524,9 @@ export function PromptInput({
       } else if (runtimeProvider === 'codex') {
         agentSelection.setCodexExecutionMode('plan');
         setSessionCodexExecutionMode(activeSession.id, 'plan');
+      } else if (runtimeProvider === 'bubble') {
+        agentSelection.setBubbleExecutionMode('plan');
+        setSessionBubblePermissionMode(activeSession.id, 'plan');
       } else {
         return false;
       }
@@ -773,6 +790,12 @@ export function PromptInput({
             runtimeProvider === 'qoder'
               ? agentSelection.qoderPermissionMode
               : undefined,
+          bubblePermissionMode:
+            runtimeProvider === 'bubble'
+              ? agentSelection.bubbleExecutionMode === 'plan'
+                ? 'plan'
+                : agentSelection.bubblePermissionMode
+              : undefined,
           teamMode: 'solo',
           teamId: null,
         },
@@ -868,6 +891,12 @@ export function PromptInput({
         qoderPermissionMode:
           runtimeProvider === 'qoder'
             ? agentSelection.qoderPermissionMode
+            : undefined,
+        bubblePermissionMode:
+          runtimeProvider === 'bubble'
+            ? agentSelection.bubbleExecutionMode === 'plan'
+              ? 'plan'
+              : agentSelection.bubblePermissionMode
             : undefined,
         teamMode: 'solo',
         teamId: null,
@@ -1488,6 +1517,25 @@ export function PromptInput({
                   menuSide={menuSide}
                 />
               )}
+              {agentSelection.provider === 'bubble' && (
+                <BubblePermissionModePicker
+                  value={agentSelection.bubblePermissionMode}
+                  onChange={agentSelection.setBubblePermissionMode}
+                  disabled={isBusy}
+                  menuSide={menuSide}
+                />
+              )}
+              {agentSelection.provider === 'bubble' && agentSelection.bubbleExecutionMode === 'plan' && (
+                <ClaudePlanModePill
+                  onExit={() => {
+                    agentSelection.setBubbleExecutionMode('execute');
+                    if (activeSession) {
+                      setSessionBubblePermissionMode(activeSession.id, agentSelection.bubblePermissionMode);
+                    }
+                  }}
+                  disabled={isBusy}
+                />
+              )}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -1511,6 +1559,13 @@ export function PromptInput({
                   snapshot={piContextSnapshot}
                   modelLabel={selectedModelLabel || piContextModel}
                   providerLabel="Pi"
+                />
+              ) : null}
+              {isBubbleContextVisible ? (
+                <OpenCodeContextIndicator
+                  snapshot={bubbleContextSnapshot}
+                  modelLabel={selectedModelLabel || bubbleContextModel}
+                  providerLabel="Bubble"
                 />
               ) : null}
               {isQoderContextVisible ? (

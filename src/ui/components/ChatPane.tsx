@@ -1980,7 +1980,8 @@ export function ChatPane({
                               session.provider === 'codex' ||
                               session.provider === 'opencode' ||
                               session.provider === 'pi' ||
-                              session.provider === 'qoder')
+                              session.provider === 'qoder' ||
+                              session.provider === 'bubble')
                               ? {
                                   canEditAndRetry: item.originalIndex === lastUserPromptIndex,
                                   isSessionRunning: session.status === 'running',

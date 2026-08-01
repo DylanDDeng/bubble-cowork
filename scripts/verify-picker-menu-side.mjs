@@ -17,6 +17,7 @@ for (const file of [
   'src/ui/components/KimiPermissionModePicker.tsx',
   'src/ui/components/OpenCodePermissionModePicker.tsx',
   'src/ui/components/QoderPermissionModePicker.tsx',
+  'src/ui/components/BubblePermissionModePicker.tsx',
 ]) {
   const src = read(file);
   assert.ok(/menuSide\??:\s*'top'\s*\|\s*'bottom'/.test(src), `${file}: missing menuSide prop`);
@@ -49,7 +50,7 @@ const prompt = read('src/ui/components/PromptInput.tsx');
 assert.ok(prompt.includes("menuSide = 'top'"), 'PromptInput: menuSide should default to top');
 assert.equal(
   (prompt.match(/menuSide=\{menuSide\}/g) || []).length,
-  6,
+  7,
   'PromptInput: model and permission pickers should receive menuSide={menuSide}'
 );
 // PromptInput supports a 'landing' surface that wraps the input in a gray tray
@@ -71,7 +72,7 @@ assert.ok(
 const newSession = read('src/ui/components/NewSessionView.tsx');
 assert.equal(
   (newSession.match(/menuSide="bottom"/g) || []).length,
-  6,
+  7,
   'NewSessionView: model picker and all permission pickers should pass menuSide="bottom"'
 );
 
