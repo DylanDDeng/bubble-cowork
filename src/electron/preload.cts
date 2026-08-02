@@ -616,6 +616,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('set-bubble-default-provider', providerId);
   },
 
+  setBubbleProviderEnabled: (providerId: string, enabled: boolean) => {
+    return ipcRenderer.invoke('set-bubble-provider-enabled', providerId, enabled);
+  },
+
   getQoderModelConfig: () => {
     return ipcRenderer.invoke('get-qoder-model-config');
   },

@@ -89,6 +89,26 @@ export async function setBubbleDefaultProvider(providerId: string): Promise<Bubb
   return getBubbleProvidersConfig();
 }
 
+/**
+ * Toggle a configured provider without touching its key. Disabled providers
+ * are excluded from getModelConfig()/getEnabled(), so their models drop out
+ * of the composer picker and the agent won't route to them.
+ */
+export async function setBubbleProviderEnabled(
+  providerId: string,
+  enabled: boolean
+): Promise<BubbleProvidersConfig> {
+  const sdk = await getBubbleSdk();
+  const providers = sdk.userConfig.getProviders();
+  const profile = providers.find((entry) => entry.id === providerId);
+  if (!profile) {
+    throw new Error(`Bubble provider "${providerId}" is not configured.`);
+  }
+  profile.enabled = enabled;
+  sdk.userConfig.setProviders(providers);
+  return getBubbleProvidersConfig();
+}
+
 export async function getBubbleModelConfig(): Promise<BubbleModelConfig> {
   let defaultModel: string | null = null;
   const modelsByName = new Map<string, BubbleAvailableModel>();

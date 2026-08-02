@@ -220,6 +220,7 @@ declare global {
     setBubbleProviderKey: (providerId: string, apiKey: string) => Promise<BubbleProvidersConfig>;
     removeBubbleProvider: (providerId: string) => Promise<BubbleProvidersConfig>;
     setBubbleDefaultProvider: (providerId: string) => Promise<BubbleProvidersConfig>;
+    setBubbleProviderEnabled: (providerId: string, enabled: boolean) => Promise<BubbleProvidersConfig>;
     getQoderModelConfig: () => Promise<QoderModelConfig>;
     getClaudeRuntimeStatus: (model?: string | null) => Promise<ClaudeRuntimeStatus>;
     getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;

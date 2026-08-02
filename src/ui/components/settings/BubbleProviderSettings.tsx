@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { ChevronDown, Eye, EyeOff } from '../icons';
 import { BubbleLogo } from '../BubbleLogo';
 import type { BubbleProvidersConfig } from '../../types';
-import { SettingsGroup } from './SettingsPrimitives';
+import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
 
 // Composer hooks re-fetch Bubble catalogs on this event; fire it after any
 // credential change so the model picker updates without a restart.
@@ -101,6 +101,17 @@ export function BubbleProviderSettings() {
     }
   };
 
+  const setEnabled = async (providerId: string, enabled: boolean) => {
+    setBusyId(providerId);
+    try {
+      applyResult(await window.electron.setBubbleProviderEnabled(providerId, enabled));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to toggle the provider.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const providers = config?.providers || [];
   const configuredProviders = providers.filter((provider) => provider.configured);
   const availableProviders = providers.filter((provider) => !provider.configured);
@@ -112,7 +123,7 @@ export function BubbleProviderSettings() {
     return (
       <div key={provider.id} className="px-4 py-3">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-          <div className="min-w-0">
+          <div className={`min-w-0 ${provider.configured && !provider.enabled ? 'opacity-50' : ''}`}>
             <div className="flex items-center gap-2 text-[13px] font-medium text-[var(--text-primary)]">
               <span className="truncate">{provider.name}</span>
               {provider.isDefault ? (
@@ -126,13 +137,7 @@ export function BubbleProviderSettings() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {provider.hasApiKey ? (
-              <span className="inline-flex items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-                Key set
-              </span>
-            ) : null}
-            {provider.configured && provider.hasApiKey && !provider.isDefault ? (
+            {provider.configured && provider.hasApiKey && provider.enabled && !provider.isDefault ? (
               <button
                 type="button"
                 onClick={() => void makeDefault(provider.id)}
@@ -154,6 +159,14 @@ export function BubbleProviderSettings() {
                 className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
               />
             </button>
+            {provider.configured ? (
+              <SettingsToggle
+                checked={provider.enabled}
+                onChange={(value) => void setEnabled(provider.id, value)}
+                disabled={busy}
+                ariaLabel={`Enable ${provider.name} for Bubble`}
+              />
+            ) : null}
           </div>
         </div>
 
@@ -223,7 +236,7 @@ export function BubbleProviderSettings() {
             <BubbleLogo className="h-4 w-4" />
             <span className="text-[12px] text-[var(--text-muted)]">
               {configuredProviders.length > 0
-                ? `${configuredProviders.filter((provider) => provider.hasApiKey).length} provider(s) configured`
+                ? `${configuredProviders.filter((provider) => provider.enabled).length} of ${configuredProviders.length} configured provider(s) enabled`
                 : 'No providers configured yet — add a key below to start using Bubble.'}
             </span>
           </div>

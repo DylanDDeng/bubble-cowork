@@ -168,6 +168,10 @@ export type BubbleProviderRegistry = {
 
 export type BubbleSdkInstance = {
   readonly registry: BubbleProviderRegistry;
+  readonly userConfig: {
+    getProviders(): BubbleProviderProfile[];
+    setProviders(providers: BubbleProviderProfile[]): void;
+  };
   listSessions(): BubbleSessionSummary[];
   createSession(options?: { cwd?: string; id?: string }): { id: string; cwd: string };
   getHistory(sessionId: string): unknown[];

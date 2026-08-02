@@ -93,6 +93,7 @@ import {
   setBubbleProviderKey,
   removeBubbleProvider,
   setBubbleDefaultProvider,
+  setBubbleProviderEnabled,
 } from './libs/bubble-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
@@ -5979,6 +5980,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('set-bubble-default-provider', async (_event, providerId: string) => {
     return setBubbleDefaultProvider(providerId);
+  });
+
+  ipcMainHandle('set-bubble-provider-enabled', async (_event, providerId: string, enabled: boolean) => {
+    return setBubbleProviderEnabled(providerId, enabled);
   });
 
   ipcMainHandle('get-qoder-model-config', async () => {
