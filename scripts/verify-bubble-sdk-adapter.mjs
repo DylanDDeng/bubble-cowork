@@ -82,6 +82,12 @@ assert.ok(
   'Bubble adapter must resolve the model context window from the registry so the composer context indicator has a ceiling'
 );
 assert.ok(
+  adapter.includes('totalCostUsd') &&
+    adapter.includes("cost.currency === 'USD'") &&
+    adapter.includes('total_cost_usd: session.totalCostUsd'),
+  'Bubble adapter must sum per-step USD turn costs into the unified result cost (non-USD dropped, not mislabelled)'
+);
+assert.ok(
   adapter.includes('sdk.stop(session.providerSessionId)') &&
     adapter.includes('abortController?.abort()'),
   'Bubble adapter must stop turns through sdk.stop + abort signal'

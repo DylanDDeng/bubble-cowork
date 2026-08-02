@@ -26,6 +26,14 @@ export type BubbleTokenUsage = {
   totalTokens?: number;
 };
 
+/** Priced usage attached to turn_end when the model has pricing configured. */
+export type BubbleUsageCost = {
+  currency: 'USD' | 'CNY';
+  cost: number;
+  /** True when the provider gave no cache breakdown and everything was billed at the miss rate. */
+  estimated: boolean;
+};
+
 export type BubbleTodo = {
   content: string;
   status: string;
@@ -49,7 +57,7 @@ export type BubbleAgentEvent =
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
   | { type: 'tool_update'; id: string; name: string; update: Record<string, unknown> }
   | { type: 'tool_end'; id: string; name: string; result: BubbleToolResult }
-  | { type: 'turn_end'; usage?: BubbleTokenUsage; willContinue?: boolean }
+  | { type: 'turn_end'; usage?: BubbleTokenUsage; cost?: BubbleUsageCost; willContinue?: boolean }
   | { type: 'mode_changed'; mode: string }
   | { type: 'todos_updated'; todos: BubbleTodo[] }
   | { type: 'agent_end' }

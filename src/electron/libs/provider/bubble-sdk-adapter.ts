@@ -78,6 +78,7 @@ type ActiveBubbleSession = {
   emittedToolCallIds: Set<string>;
   emittedToolResultIds: Set<string>;
   usage: Usage;
+  totalCostUsd: number;
   durationStartMs: number;
   durationEndMs?: number;
 };
@@ -332,6 +333,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       emittedToolCallIds: new Set(),
       emittedToolResultIds: new Set(),
       usage: createEmptyUsage(),
+      totalCostUsd: 0,
       durationStartMs: Date.now(),
     };
     // Never orphan a previous session for the same thread — an undisposed
@@ -391,6 +393,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
     session.durationStartMs = Date.now();
     session.durationEndMs = undefined;
     session.usage = createEmptyUsage();
+    session.totalCostUsd = 0;
     session.currentAssistant = null;
     this.emit({ type: 'status_change', threadId: input.threadId, status: 'running' });
 
@@ -619,6 +622,12 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         const turnEvent = event as Extract<BubbleAgentEvent, { type: 'turn_end' }>;
         this.flushAssistant(session);
         addUsage(session.usage, usageFromBubble(turnEvent.usage, session.contextWindow));
+        // Per-step priced usage; hosts sum them. The unified result field is
+        // USD-labelled, so non-USD costs are dropped rather than mislabelled.
+        const cost = turnEvent.cost;
+        if (cost && cost.currency === 'USD' && getNumber(cost.cost) !== undefined) {
+          session.totalCostUsd += cost.cost;
+        }
         return;
       }
       case 'mode_changed': {
@@ -744,7 +753,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       type: 'result',
       subtype,
       duration_ms: Math.max(0, (session.durationEndMs || Date.now()) - session.durationStartMs),
-      total_cost_usd: 0,
+      total_cost_usd: session.totalCostUsd,
       usage: session.usage,
       model: session.model,
     });
