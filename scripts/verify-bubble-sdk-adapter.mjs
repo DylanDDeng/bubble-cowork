@@ -146,6 +146,26 @@ assert.ok(
   'Bubble skills must be listable over IPC and surfaced in the composer slash menu'
 );
 
+// Provider credentials are configurable from the settings page (no Bubble CLI
+// required): registry-backed CRUD over ~/.bubble/config.json + a panel on the
+// providers tab.
+const bubbleSettings = read('src/electron/libs/bubble-settings.ts');
+const settingsPage = read('src/ui/components/settings/Settings.tsx');
+assert.ok(
+  bubbleSettings.includes('getBubbleProvidersConfig') &&
+    bubbleSettings.includes('setBubbleProviderKey') &&
+    bubbleSettings.includes('removeBubbleProvider') &&
+    bubbleSettings.includes('setBubbleDefaultProvider') &&
+    bubbleSettings.includes('loadBubbleProviderCatalog'),
+  'bubble-settings must expose registry-backed provider credential CRUD'
+);
+assert.ok(
+  read('src/electron/ipc-handlers.ts').includes("ipcMainHandle('set-bubble-provider-key'") &&
+    preload.includes('getBubbleProvidersConfig') &&
+    settingsPage.includes('BubbleProviderSettings'),
+  'Bubble provider keys must be configurable from the settings page over IPC'
+);
+
 const agentLoop = read('src/electron/libs/agent-loop.ts');
 assert.ok(
   agentLoop.includes('BubbleSdkAdapter') &&

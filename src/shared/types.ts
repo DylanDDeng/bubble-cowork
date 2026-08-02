@@ -208,6 +208,25 @@ export interface PiModelConfig {
   }>;
 }
 
+// Bubble provider credentials management (settings page; writes the same
+// ~/.bubble/config.json the Bubble CLI uses).
+export interface BubbleProviderSummary {
+  id: string;
+  name: string;
+  baseURL?: string;
+  /** A key is stored for this provider. */
+  hasApiKey: boolean;
+  enabled: boolean;
+  isDefault: boolean;
+  /** Present in the user's config (vs. builtin-catalog-only). */
+  configured: boolean;
+}
+
+export interface BubbleProvidersConfig {
+  providers: BubbleProviderSummary[];
+  defaultProviderId: string | null;
+}
+
 export interface BubbleModelConfig {
   defaultModel: string | null;
   options: string[];

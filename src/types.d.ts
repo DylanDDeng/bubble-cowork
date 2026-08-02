@@ -28,6 +28,7 @@ import type {
   GrokModelConfig,
   PiModelConfig,
   BubbleModelConfig,
+  BubbleProvidersConfig,
   QoderModelConfig,
   OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
@@ -215,6 +216,10 @@ declare global {
     getGrokModelConfig: () => Promise<GrokModelConfig>;
     getPiModelConfig: () => Promise<PiModelConfig>;
     getBubbleModelConfig: () => Promise<BubbleModelConfig>;
+    getBubbleProvidersConfig: () => Promise<BubbleProvidersConfig>;
+    setBubbleProviderKey: (providerId: string, apiKey: string) => Promise<BubbleProvidersConfig>;
+    removeBubbleProvider: (providerId: string) => Promise<BubbleProvidersConfig>;
+    setBubbleDefaultProvider: (providerId: string) => Promise<BubbleProvidersConfig>;
     getQoderModelConfig: () => Promise<QoderModelConfig>;
     getClaudeRuntimeStatus: (model?: string | null) => Promise<ClaudeRuntimeStatus>;
     getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;

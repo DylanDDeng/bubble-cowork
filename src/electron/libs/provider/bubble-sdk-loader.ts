@@ -157,6 +157,12 @@ export type BubbleModelConfig = {
 export type BubbleProviderRegistry = {
   getConfigured(): BubbleProviderProfile[];
   getEnabled(): BubbleProviderProfile[];
+  getDefault(): BubbleProviderProfile | undefined;
+  setDefault(id: string): void;
+  /** Adds (or replaces) a builtin provider with the given key; false for unknown ids. */
+  addProvider(id: string, apiKey: string): boolean;
+  removeProvider(id: string): void;
+  updateProviderKey(id: string, apiKey: string): void;
   listModels(provider: BubbleProviderProfile): Promise<BubbleModelInfo[]>;
 };
 
@@ -175,6 +181,22 @@ export type BubbleSdkInstance = {
 
 export type BubbleSdkModule = {
   BubbleSdk: new (options?: { defaultCwd?: string }) => BubbleSdkInstance;
+};
+
+export type BubbleBuiltinProviderDefinition = {
+  id: string;
+  name: string;
+  baseURL: string;
+  hidden?: boolean;
+  supportsOAuth?: boolean;
+} & Record<string, unknown>;
+
+// The builtin provider catalog lives one module below the SDK facade; the
+// package's exports map explicitly opens "./dist/*", so this is public API.
+export type BubbleProviderCatalogModule = {
+  BUILTIN_PROVIDERS: BubbleBuiltinProviderDefinition[];
+  USER_VISIBLE_PROVIDER_IDS: string[];
+  isUserVisibleProvider(providerId: string): boolean;
 };
 
 // Resolve the Bubble home directory that holds the user's config.json
@@ -207,6 +229,20 @@ export function loadBubbleSdk(): Promise<BubbleSdkModule> {
     });
   }
   return sdkPromise;
+}
+
+let catalogPromise: Promise<BubbleProviderCatalogModule> | null = null;
+
+export function loadBubbleProviderCatalog(): Promise<BubbleProviderCatalogModule> {
+  if (!catalogPromise) {
+    catalogPromise = (importEsm as unknown as (s: string) => Promise<BubbleProviderCatalogModule>)(
+      '@bubblebrain-ai/bubble/dist/provider-registry.js'
+    );
+    catalogPromise.catch(() => {
+      catalogPromise = null;
+    });
+  }
+  return catalogPromise;
 }
 
 /**

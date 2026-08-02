@@ -1,6 +1,7 @@
-import type { BubbleModelConfig } from '../../shared/types';
+import type { BubbleModelConfig, BubbleProvidersConfig } from '../../shared/types';
 import {
   getBubbleSdk,
+  loadBubbleProviderCatalog,
   type BubbleModelInfo,
   type BubbleProviderProfile,
 } from './provider/bubble-sdk-loader';
@@ -25,6 +26,67 @@ function formatBubbleModelId(providerId: string | undefined, model: BubbleModelI
   }
   const provider = (model.providerId || providerId || '').trim();
   return provider ? `${provider}:${id}` : id;
+}
+
+function hasStoredKey(profile: BubbleProviderProfile | undefined): boolean {
+  return typeof profile?.apiKey === 'string' && profile.apiKey.trim().length > 0;
+}
+
+/**
+ * Settings-page view over Bubble's provider credentials. Everything goes
+ * through the SDK registry, which reads/writes the same ~/.bubble/config.json
+ * the Bubble CLI uses — no CLI required. Keys never leave the main process;
+ * only a hasApiKey flag is reported.
+ */
+export async function getBubbleProvidersConfig(): Promise<BubbleProvidersConfig> {
+  const sdk = await getBubbleSdk();
+  const catalog = await loadBubbleProviderCatalog();
+  const configured = new Map(sdk.registry.getConfigured().map((profile) => [profile.id, profile]));
+  const defaultProviderId = sdk.registry.getDefault()?.id || null;
+
+  const providers = catalog.BUILTIN_PROVIDERS.filter(
+    (definition) => !definition.hidden && catalog.isUserVisibleProvider(definition.id)
+  ).map((definition) => {
+    const profile = configured.get(definition.id);
+    return {
+      id: definition.id,
+      name: definition.name || definition.id,
+      baseURL: (typeof profile?.baseURL === 'string' && profile.baseURL) || definition.baseURL,
+      hasApiKey: hasStoredKey(profile),
+      enabled: profile ? profile.enabled !== false : false,
+      isDefault: definition.id === defaultProviderId,
+      configured: Boolean(profile),
+    };
+  });
+
+  return { providers, defaultProviderId };
+}
+
+export async function setBubbleProviderKey(
+  providerId: string,
+  apiKey: string
+): Promise<BubbleProvidersConfig> {
+  const key = apiKey.trim();
+  if (!key) {
+    throw new Error('API key must not be empty.');
+  }
+  const sdk = await getBubbleSdk();
+  if (!sdk.registry.addProvider(providerId, key)) {
+    throw new Error(`Unknown Bubble provider "${providerId}".`);
+  }
+  return getBubbleProvidersConfig();
+}
+
+export async function removeBubbleProvider(providerId: string): Promise<BubbleProvidersConfig> {
+  const sdk = await getBubbleSdk();
+  sdk.registry.removeProvider(providerId);
+  return getBubbleProvidersConfig();
+}
+
+export async function setBubbleDefaultProvider(providerId: string): Promise<BubbleProvidersConfig> {
+  const sdk = await getBubbleSdk();
+  sdk.registry.setDefault(providerId);
+  return getBubbleProvidersConfig();
 }
 
 export async function getBubbleModelConfig(): Promise<BubbleModelConfig> {

@@ -96,6 +96,8 @@ export type {
   GrokModelConfig,
   PiModelConfig,
   BubbleModelConfig,
+  BubbleProvidersConfig,
+  BubbleProviderSummary,
   QoderModelConfig,
   QoderModelOption,
   QoderPermissionMode,

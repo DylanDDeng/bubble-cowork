@@ -87,7 +87,13 @@ import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { getKimiModelConfig, mergeKimiServerModelMetadata } from './libs/kimi-settings';
 import { getGrokModelConfig } from './libs/grok-settings';
 import { getPiModelConfig } from './libs/pi-settings';
-import { getBubbleModelConfig } from './libs/bubble-settings';
+import {
+  getBubbleModelConfig,
+  getBubbleProvidersConfig,
+  setBubbleProviderKey,
+  removeBubbleProvider,
+  setBubbleDefaultProvider,
+} from './libs/bubble-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
 import { AutomationScheduler } from './libs/automation-scheduler';
@@ -5957,6 +5963,22 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-bubble-model-config', async () => {
     return getBubbleModelConfig();
+  });
+
+  ipcMainHandle('get-bubble-providers-config', async () => {
+    return getBubbleProvidersConfig();
+  });
+
+  ipcMainHandle('set-bubble-provider-key', async (_event, providerId: string, apiKey: string) => {
+    return setBubbleProviderKey(providerId, apiKey);
+  });
+
+  ipcMainHandle('remove-bubble-provider', async (_event, providerId: string) => {
+    return removeBubbleProvider(providerId);
+  });
+
+  ipcMainHandle('set-bubble-default-provider', async (_event, providerId: string) => {
+    return setBubbleDefaultProvider(providerId);
   });
 
   ipcMainHandle('get-qoder-model-config', async () => {

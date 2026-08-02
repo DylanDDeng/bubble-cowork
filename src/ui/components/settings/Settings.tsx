@@ -3,6 +3,7 @@ import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartC
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
+import { BubbleProviderSettings } from './BubbleProviderSettings';
 import { McpSettingsContent } from './McpSettings';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
@@ -28,7 +29,7 @@ const SETTINGS_TABS = {
   providers: {
     label: 'Providers',
     title: 'Providers',
-    description: 'Configure Anthropic-compatible providers and route Claude sessions through them.',
+    description: 'Configure Anthropic-compatible providers for Claude sessions and API keys for the bundled Bubble agent.',
     icon: <PlugZap className="w-4 h-4" />,
   },
   usage: {
@@ -160,7 +161,12 @@ export function Settings() {
             />
           )}
           {resolvedActiveSettingsTab === 'mcp' && <McpSettingsContent />}
-          {resolvedActiveSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
+          {resolvedActiveSettingsTab === 'providers' && (
+            <div className="flex flex-col gap-6">
+              <CompatibleProviderSettingsContent />
+              <BubbleProviderSettings />
+            </div>
+          )}
           {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
           {resolvedActiveSettingsTab === 'bridge' && <BridgeSettingsContent />}
         </div>

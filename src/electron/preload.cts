@@ -600,6 +600,22 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-bubble-model-config');
   },
 
+  getBubbleProvidersConfig: () => {
+    return ipcRenderer.invoke('get-bubble-providers-config');
+  },
+
+  setBubbleProviderKey: (providerId: string, apiKey: string) => {
+    return ipcRenderer.invoke('set-bubble-provider-key', providerId, apiKey);
+  },
+
+  removeBubbleProvider: (providerId: string) => {
+    return ipcRenderer.invoke('remove-bubble-provider', providerId);
+  },
+
+  setBubbleDefaultProvider: (providerId: string) => {
+    return ipcRenderer.invoke('set-bubble-default-provider', providerId);
+  },
+
   getQoderModelConfig: () => {
     return ipcRenderer.invoke('get-qoder-model-config');
   },
