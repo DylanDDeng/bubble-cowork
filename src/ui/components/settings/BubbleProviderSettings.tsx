@@ -23,6 +23,9 @@ export function BubbleProviderSettings() {
   const [keyDraft, setKeyDraft] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // null = "no explicit choice yet": the unconfigured catalog stays collapsed
+  // once something is configured, but a brand-new user sees it open.
+  const [showAvailable, setShowAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +104,7 @@ export function BubbleProviderSettings() {
   const providers = config?.providers || [];
   const configuredProviders = providers.filter((provider) => provider.configured);
   const availableProviders = providers.filter((provider) => !provider.configured);
+  const availableVisible = showAvailable ?? configuredProviders.length === 0;
 
   const renderRow = (provider: (typeof providers)[number]) => {
     const expanded = expandedId === provider.id;
@@ -224,7 +228,24 @@ export function BubbleProviderSettings() {
             </span>
           </div>
           {configuredProviders.map(renderRow)}
-          {availableProviders.map(renderRow)}
+          {availableProviders.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowAvailable(!availableVisible)}
+              aria-expanded={availableVisible}
+              className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            >
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${availableVisible ? 'rotate-180' : ''}`}
+              />
+              <span>
+                {availableVisible
+                  ? 'Hide available providers'
+                  : `Add another provider (${availableProviders.length} available)`}
+              </span>
+            </button>
+          ) : null}
+          {availableVisible ? availableProviders.map(renderRow) : null}
         </>
       )}
     </SettingsGroup>
