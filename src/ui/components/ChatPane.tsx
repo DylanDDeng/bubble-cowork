@@ -1831,7 +1831,6 @@ export function ChatPane({
             <ChatOutlineRail
               sessionId={sessionId}
               livePrompts={outlineLivePrompts}
-              scrollContainerRef={scrollContainerRef}
               onNavigate={(createdAt) =>
                 setHistoryNavigationTarget({
                   sessionId,
