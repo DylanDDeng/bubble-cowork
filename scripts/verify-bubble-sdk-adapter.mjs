@@ -92,6 +92,12 @@ assert.ok(
     adapter.includes('abortController?.abort()'),
   'Bubble adapter must stop turns through sdk.stop + abort signal'
 );
+assert.ok(
+  adapter.includes('async runOneShot(') &&
+    adapter.includes('sdk.deleteSession(id)') &&
+    adapter.includes('ONE_SHOT_TIMEOUT_MS'),
+  'Bubble one-shots must run on a throwaway session that is deleted afterwards (lazy persistence would otherwise leave junk session files)'
+);
 
 assert.ok(
   adapter.includes('bubblePermissionMode') &&

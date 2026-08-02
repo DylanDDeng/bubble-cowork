@@ -35,6 +35,8 @@ import {
   type BubbleTokenUsage,
 } from './bubble-sdk-loader';
 
+const ONE_SHOT_TIMEOUT_MS = 120_000;
+
 const CAPABILITIES: ProviderAdapterCapabilities = {
   sessionModelSwitch: true,
   skillDiscovery: true,
@@ -507,6 +509,53 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         ) || ''
       : '';
     pending.resolve(selectedAnswer === 'Approve and execute');
+  }
+
+  /**
+   * One-off prompt (environment summaries etc.) on a throwaway session.
+   * Bubble persists sessions lazily on the first message, so the temp session
+   * is deleted afterwards — otherwise every one-shot would leave a junk
+   * entry in the user's Bubble session/resume list.
+   */
+  async runOneShot(
+    input: ProviderSessionStartInput
+  ): Promise<{ text: string; sessionId?: string; model?: string }> {
+    const cwd = input.cwd || process.cwd();
+    const sdk = await getBubbleSdk(cwd);
+    this.assertConfigured(sdk);
+    const { id } = sdk.createSession({ cwd });
+    let text = '';
+    let model = input.model?.trim() || undefined;
+    const abortController = new AbortController();
+    const timer = setTimeout(() => abortController.abort(), ONE_SHOT_TIMEOUT_MS);
+    timer.unref?.();
+    try {
+      const promptText = buildPromptText(input.prompt, input.attachments);
+      const prompt = await buildPromptParts(promptText, input.attachments);
+      // No approval/question handlers on purpose: the SDK fail-safes them to
+      // reject, so a one-shot can never block on an interactive card.
+      const stream = sdk.runTurn(id, {
+        prompt,
+        ...(model ? { model } : {}),
+        signal: abortController.signal,
+        onStart: (info) => {
+          model = info.model || model;
+        },
+      });
+      for await (const event of stream) {
+        if (event.type === 'text_delta') {
+          text += getString((event as { content?: unknown }).content);
+        }
+      }
+    } finally {
+      clearTimeout(timer);
+      try {
+        sdk.deleteSession(id);
+      } catch (error) {
+        console.warn('[BubbleSdkAdapter] failed to delete one-shot session:', error);
+      }
+    }
+    return { text: text.trim(), sessionId: id, model };
   }
 
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
