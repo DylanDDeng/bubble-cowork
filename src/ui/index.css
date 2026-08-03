@@ -883,6 +883,8 @@ body {
   cursor: wait;
 }
 
+/* Inline-code file references render like md-file-link anchors: icon plus
+   emphasized text, no inline-code slab behind them. */
 .markdown-content .md-inline-file-code {
   display: inline-flex;
   max-width: min(100%, 32rem);
@@ -890,14 +892,14 @@ body {
   align-items: center;
   gap: 0.28rem;
   margin: 0 0.02rem;
-  padding: 0.05rem 0.3rem 0.06rem 0.24rem;
-  vertical-align: -0.16em;
-  border: 1px solid color-mix(in srgb, var(--code-inline-border) 62%, transparent);
-  border-radius: 0.34rem;
-  background: color-mix(in srgb, var(--code-inline-bg) 68%, transparent);
+  padding: 0.01rem 0.08rem 0.02rem 0.05rem;
+  vertical-align: -0.18em;
+  border: 0;
+  border-radius: 0.38rem;
+  background: transparent;
   color: var(--accent);
   font-family: inherit;
-  font-size: 0.82em;
+  font-size: inherit;
   font-weight: 500;
   line-height: 1.25;
   white-space: nowrap;
@@ -909,9 +911,12 @@ button.md-inline-file-code {
 }
 
 button.md-inline-file-code:hover {
-  border-color: color-mix(in srgb, var(--code-inline-border) 78%, transparent);
-  background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
   color: var(--accent);
+}
+
+button.md-inline-file-code:hover .md-inline-file-code-label {
+  text-decoration: underline;
+  text-underline-offset: 0.14em;
 }
 
 .markdown-content .md-inline-file-code-icon,
