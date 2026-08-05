@@ -260,6 +260,12 @@ function getInlineProjectFileCode(text: string): ProjectFileLink | null {
   if (/^(?:https?|mailto|tel|javascript|data|blob|file):/i.test(raw)) {
     return null;
   }
+  // Wildcard mentions such as `verify-*.mjs` name a family of files, not a
+  // real one — clicking would dead-end in the Files panel, so keep them as
+  // plain inline code.
+  if (/[*?[\]{}]/.test(raw)) {
+    return null;
+  }
 
   const parsed = parseLineSuffix(normalizeSlashPath(raw));
   const path = parsed.path.replace(/^\.\//, '');
