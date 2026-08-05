@@ -217,6 +217,7 @@ declare global {
     getPiModelConfig: () => Promise<PiModelConfig>;
     getBubbleModelConfig: () => Promise<BubbleModelConfig>;
     getBubbleProvidersConfig: () => Promise<BubbleProvidersConfig>;
+    getBubbleProviderKey: (providerId: string) => Promise<string>;
     setBubbleProviderKey: (providerId: string, apiKey: string) => Promise<BubbleProvidersConfig>;
     removeBubbleProvider: (providerId: string) => Promise<BubbleProvidersConfig>;
     setBubbleDefaultProvider: (providerId: string) => Promise<BubbleProvidersConfig>;

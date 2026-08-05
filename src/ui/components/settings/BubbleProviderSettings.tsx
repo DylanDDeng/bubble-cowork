@@ -2,8 +2,56 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ChevronDown, Eye, EyeOff } from '../icons';
 import { BubbleLogo } from '../BubbleLogo';
+import claudeLogo from '../../assets/claude-color.svg';
+import openaiLogo from '../../assets/openai.svg';
+import moonshotLogo from '../../assets/moonshot.svg';
+import grokLogo from '../../assets/grok.svg';
+import deepseekLogo from '../../assets/deepseek-color.svg';
+import minimaxLogo from '../../assets/minimax-color.svg';
+import zhipuLogo from '../../assets/zhipu-color.svg';
+import alibabaLogo from '../../assets/alibaba-color.svg';
+import geminiLogo from '../../assets/gemini-color.svg';
+import volcengineLogo from '../../assets/volcengine-color.svg';
+import stepfunLogo from '../../assets/stepfun.svg';
 import type { BubbleProvidersConfig } from '../../types';
 import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
+
+// Brand artwork already bundled for other pickers, keyed by Bubble provider id.
+// Providers without artwork fall back to a monogram tile in ProviderLogo.
+const PROVIDER_LOGOS: Record<string, string> = {
+  anthropic: claudeLogo,
+  openai: openaiLogo,
+  grok: grokLogo,
+  deepseek: deepseekLogo,
+  minimax: minimaxLogo,
+  'minimax-anthropic': minimaxLogo,
+  zhipuai: zhipuLogo,
+  'zhipuai-coding-plan': zhipuLogo,
+  zai: zhipuLogo,
+  'zai-coding-plan': zhipuLogo,
+  alibaba: alibabaLogo,
+  google: geminiLogo,
+  doubao: volcengineLogo,
+  stepfun: stepfunLogo,
+  'moonshot-cn': moonshotLogo,
+  'moonshot-intl': moonshotLogo,
+  'kimi-for-coding': moonshotLogo,
+};
+
+function ProviderLogo({ providerId, name }: { providerId: string; name: string }) {
+  const logo = PROVIDER_LOGOS[providerId];
+  if (logo) {
+    return <img src={logo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded bg-[var(--bg-tertiary)] text-[9px] font-semibold uppercase text-[var(--text-muted)]"
+    >
+      {name.charAt(0)}
+    </span>
+  );
+}
 
 // Composer hooks re-fetch Bubble catalogs on this event; fire it after any
 // credential change so the model picker updates without a restart.
@@ -113,6 +161,32 @@ export function BubbleProviderSettings() {
   };
 
   const providers = config?.providers || [];
+
+  // Prefill the editor with the stored key when one exists, so the user sees
+  // it masked (dots) and can reveal it with the eye toggle — the usual
+  // "saved credential" pattern. Fetched on demand; the bulk config never
+  // carries keys.
+  useEffect(() => {
+    if (!expandedId) return;
+    const provider = providers.find((entry) => entry.id === expandedId);
+    if (!provider?.hasApiKey) return;
+    let cancelled = false;
+    window.electron
+      .getBubbleProviderKey(expandedId)
+      .then((key) => {
+        if (!cancelled && key) setKeyDraft(key);
+      })
+      .catch(() => {
+        // Leave the draft empty; the user can still type a replacement key.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Only refetch when a different editor opens — refetching on config
+    // changes (e.g. toggling another provider) would clobber an in-progress
+    // edit with the stored key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId]);
   const configuredProviders = providers.filter((provider) => provider.configured);
   const availableProviders = providers.filter((provider) => !provider.configured);
   const availableVisible = showAvailable ?? configuredProviders.length === 0;
@@ -123,17 +197,17 @@ export function BubbleProviderSettings() {
     return (
       <div key={provider.id} className="px-4 py-3">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-          <div className={`min-w-0 ${provider.configured && !provider.enabled ? 'opacity-50' : ''}`}>
-            <div className="flex items-center gap-2 text-[13px] font-medium text-[var(--text-primary)]">
+          <div
+            className={`flex min-w-0 items-center gap-2.5 ${provider.configured && !provider.enabled ? 'opacity-50' : ''}`}
+          >
+            <ProviderLogo providerId={provider.id} name={provider.name} />
+            <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-[var(--text-primary)]">
               <span className="truncate">{provider.name}</span>
               {provider.isDefault ? (
                 <span className="rounded-full bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
                   Default
                 </span>
               ) : null}
-            </div>
-            <div className="mt-0.5 truncate font-mono text-[11px] text-[var(--text-muted)]">
-              {provider.baseURL}
             </div>
           </div>
           <div className="flex items-center gap-2">

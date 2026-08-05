@@ -604,6 +604,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-bubble-providers-config');
   },
 
+  getBubbleProviderKey: (providerId: string) => {
+    return ipcRenderer.invoke('get-bubble-provider-key', providerId);
+  },
+
   setBubbleProviderKey: (providerId: string, apiKey: string) => {
     return ipcRenderer.invoke('set-bubble-provider-key', providerId, apiKey);
   },

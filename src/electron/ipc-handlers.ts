@@ -90,6 +90,7 @@ import { getPiModelConfig } from './libs/pi-settings';
 import {
   getBubbleModelConfig,
   getBubbleProvidersConfig,
+  getBubbleProviderKey,
   setBubbleProviderKey,
   removeBubbleProvider,
   setBubbleDefaultProvider,
@@ -5968,6 +5969,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-bubble-providers-config', async () => {
     return getBubbleProvidersConfig();
+  });
+
+  ipcMainHandle('get-bubble-provider-key', async (_event, providerId: string) => {
+    return getBubbleProviderKey(providerId);
   });
 
   ipcMainHandle('set-bubble-provider-key', async (_event, providerId: string, apiKey: string) => {

@@ -32,6 +32,25 @@ function hasStoredKey(profile: BubbleProviderProfile | undefined): boolean {
   return typeof profile?.apiKey === 'string' && profile.apiKey.trim().length > 0;
 }
 
+// The SDK catalog labels the two Moonshot endpoints in Chinese (国内/海外);
+// the Aegis UI is English-only, so rename them here.
+const PROVIDER_NAME_OVERRIDES: Record<string, string> = {
+  'moonshot-cn': 'Moonshot (China)',
+  'moonshot-intl': 'Moonshot (International)',
+};
+
+/**
+ * Full stored key, fetched on demand when the user expands a provider's key
+ * editor so the input can be prefilled (masked behind the password toggle).
+ * Deliberately not part of getBubbleProvidersConfig — the bulk config only
+ * carries a hasApiKey flag.
+ */
+export async function getBubbleProviderKey(providerId: string): Promise<string> {
+  const sdk = await getBubbleSdk();
+  const profile = sdk.registry.getConfigured().find((entry) => entry.id === providerId);
+  return typeof profile?.apiKey === 'string' ? profile.apiKey : '';
+}
+
 /**
  * Settings-page view over Bubble's provider credentials. Everything goes
  * through the SDK registry, which reads/writes the same ~/.bubble/config.json
@@ -50,7 +69,7 @@ export async function getBubbleProvidersConfig(): Promise<BubbleProvidersConfig>
     const profile = configured.get(definition.id);
     return {
       id: definition.id,
-      name: definition.name || definition.id,
+      name: PROVIDER_NAME_OVERRIDES[definition.id] || definition.name || definition.id,
       baseURL: (typeof profile?.baseURL === 'string' && profile.baseURL) || definition.baseURL,
       hasApiKey: hasStoredKey(profile),
       enabled: profile ? profile.enabled !== false : false,
