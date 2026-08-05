@@ -122,7 +122,17 @@ async function probeClaude(force: boolean): Promise<AgentRuntimeEntry> {
 async function probeCodex(): Promise<AgentRuntimeEntry> {
   const status = await getCodexRuntimeStatus();
   if (!status.cliAvailable) {
-    return entry('codex', 'not_installed', {});
+    // Distinguish "truly absent" (nothing named codex on PATH) from "present
+    // but broken" (a shim ran and crashed, or the probe timed out). The latter
+    // used to masquerade as "not installed" — e.g. a stale node_modules shim
+    // shadowing a healthy codex further down the PATH.
+    if (/spawn codex ENOENT/.test(status.cliError || '')) {
+      return entry('codex', 'not_installed', {});
+    }
+    return entry('codex', 'error', {
+      summary: 'Codex CLI was found but its app-server check failed.',
+      detail: status.cliError || 'codex app-server --help did not succeed.',
+    });
   }
   if (!status.ready) {
     return entry('codex', 'login_required', {

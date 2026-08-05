@@ -342,6 +342,23 @@ export function ensureShellEnvironment(): void {
 
   const proxyEnvironment = applyProxyEnvironmentFromSystem(process.env);
 
+  // When both shell dumps failed we are stuck with the inherited PATH. If we
+  // were launched through npm (e.g. `npm run dev`), that PATH carries injected
+  // */node_modules/.bin chains ahead of the real CLI locations. Those dirs
+  // hold project-local shims, and a stale broken install there can shadow a
+  // healthy global CLI (observed: a gutted ~/node_modules/@openai/codex 0.71.0
+  // shadowed the nvm-installed codex and made the runtime probe report
+  // "not installed"). They are npm script-runner artifacts, not CLI install
+  // locations, so drop them before appending the fallback entries. A successful
+  // shell dump already replaced PATH with the user's shell PATH, which never
+  // contains these chains.
+  if (source === 'none') {
+    process.env.PATH = (process.env.PATH || '')
+      .split(':')
+      .filter((entry) => entry !== 'node_modules/.bin' && !entry.endsWith('/node_modules/.bin'))
+      .join(':');
+  }
+
   const home = process.env.HOME || env.HOME || '';
   const fallbackEntries = home ? collectFallbackPathEntries(home) : [];
   const currentPath = process.env.PATH || '';

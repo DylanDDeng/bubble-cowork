@@ -270,6 +270,8 @@ export interface QoderModelConfig {
 export interface CodexRuntimeStatus {
   ready: boolean;
   cliAvailable: boolean;
+  /** Why the `codex app-server --help` probe failed (null when it passed). */
+  cliError?: string | null;
   configExists: boolean;
   hasModelConfig: boolean;
   checkedAt: number;
