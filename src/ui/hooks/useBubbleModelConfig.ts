@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { BubbleModelConfig } from '../types';
 
 const FALLBACK_CONFIG: BubbleModelConfig = {
@@ -59,6 +59,10 @@ function normalizeBubbleModelConfig(
 
 export function useBubbleModelConfig() {
   const [config, setConfig] = useState<BubbleModelConfig>(FALLBACK_CONFIG);
+  // First catalog load hits live provider endpoints (seconds on a cold
+  // start); until it settles the picker shows a loading hint rather than a
+  // misleading "No models configured".
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,9 +72,13 @@ export function useBubbleModelConfig() {
         .then((nextConfig) => {
           if (!cancelled) {
             setConfig(normalizeBubbleModelConfig(nextConfig));
+            setLoaded(true);
           }
         })
         .catch((error) => {
+          if (!cancelled) {
+            setLoaded(true);
+          }
           console.error('Failed to load Bubble model config:', error);
         });
 
@@ -87,5 +95,5 @@ export function useBubbleModelConfig() {
     };
   }, []);
 
-  return config;
+  return useMemo(() => ({ ...config, loaded }), [config, loaded]);
 }

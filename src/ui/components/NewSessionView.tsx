@@ -727,6 +727,7 @@ export function NewSessionView() {
                       kimiThinkingChecked={agentSelection.kimiThinkingChecked}
                       onKimiThinkingChange={agentSelection.setKimiThinking}
                       menuSide="bottom"
+                      bubbleModelsLoading={agentSelection.bubbleModelsLoading}
                     />
                     <button
                       onClick={handleStart}

@@ -566,15 +566,17 @@ function ModelSubContent({
   modelOptions,
   selectedValue,
   onSelectModel,
+  loadingText,
 }: {
   modelOptions: ComposerModelOption[];
   selectedValue: string | null;
   onSelectModel: (option: ComposerModelOption) => void;
+  loadingText?: string | null;
 }) {
   if (modelOptions.length === 0) {
     return (
       <div className="px-2.5 py-3 text-[12px] text-[var(--text-muted)]">
-        No models configured
+        {loadingText || 'No models configured'}
       </div>
     );
   }
@@ -993,6 +995,7 @@ export function ComposerAgentModelPicker({
   kimiThinkingChecked,
   onKimiThinkingChange,
   menuSide = 'top',
+  bubbleModelsLoading = false,
 }: {
   agentProvider: AgentProvider;
   modelLabel: string;
@@ -1018,6 +1021,8 @@ export function ComposerAgentModelPicker({
   /** Which side the menu opens toward. Bottom-anchored composers open 'top'
    * (default); the centered new-thread landing passes 'bottom'. */
   menuSide?: 'top' | 'bottom';
+  /** True while the first Bubble catalog load is in flight. */
+  bubbleModelsLoading?: boolean;
 }) {
   const { entries } = useAgentReadiness(null, true);
   const readinessByProvider = useMemo(() => {
@@ -1305,6 +1310,9 @@ export function ComposerAgentModelPicker({
                         modelOptions={modelOptions}
                         selectedValue={modelValue}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        loadingText={
+                          provider === 'bubble' && bubbleModelsLoading ? 'Loading models…' : null
+                        }
                       />
                     </div>
                   </DropdownMenu.SubContent>

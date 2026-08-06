@@ -405,24 +405,15 @@ function buildPiModelOptions(config: ReturnType<typeof usePiModelConfig>): Compo
   return [defaultOption, ...explicitOptions];
 }
 
-function formatBubbleModelLabel(value: string, config: ReturnType<typeof useBubbleModelConfig>): string {
-  const match = config.availableModels.find((model) => model.name === value);
-  return match?.label || value;
-}
-
+// No separate "Default" row: the main process always injects the configured
+// default model into the list (tagged "Configured default"), so an indirect
+// empty-value option would only duplicate the concrete row. Selection falls
+// back to the concrete default in resolveConfiguredBubbleModel.
 function buildBubbleModelOptions(config: ReturnType<typeof useBubbleModelConfig>): ComposerModelOption[] {
-  const defaultOption: ComposerModelOption = {
-    key: 'bubble:default',
-    value: '',
-    label: 'Default',
-    description: config.defaultModel
-      ? `Use ${formatBubbleModelLabel(config.defaultModel, config)}`
-      : 'Use Bubble default model',
-  };
   const models = config.availableModels.length > 0
     ? config.availableModels
     : config.options.map((name) => ({ name, label: name, provider: null, enabled: true, isDefault: config.defaultModel === name }));
-  const explicitOptions = models
+  return models
     .filter((model) => model.enabled !== false)
     .map((model) => ({
       key: `bubble:${model.name}`,
@@ -434,7 +425,6 @@ function buildBubbleModelOptions(config: ReturnType<typeof useBubbleModelConfig>
           ? model.provider
           : undefined,
     }));
-  return [defaultOption, ...explicitOptions];
 }
 
 function resolveConfiguredBubbleModel(
@@ -450,7 +440,13 @@ function resolveConfiguredBubbleModel(
       return normalized;
     }
   }
-  return null;
+  // No stored preference: preselect the configured default's concrete row,
+  // else the first available model.
+  const configuredDefault = (config.defaultModel || '').trim();
+  if (configuredDefault && optionValues.has(configuredDefault)) {
+    return configuredDefault;
+  }
+  return options.find((option) => option.value.trim())?.value.trim() || null;
 }
 
 function resolveConfiguredPiModel(
@@ -547,7 +543,7 @@ export function useComposerAgentSelection(input?: {
     if (initialProvider === 'codex') return loadPreferredCodexModel();
     if (initialProvider === 'opencode') return loadPreferredOpencodeModel();
     if (initialProvider === 'pi') return loadPreferredPiModel();
-    if (initialProvider === 'bubble') return loadPreferredBubbleModel();
+    if (initialProvider === 'bubble') return resolveConfiguredBubbleModel(null, bubbleModelConfig);
     if (initialProvider === 'qoder') return loadPreferredQoderModel();
     if (initialProvider === 'claude') return loadPreferredClaudeModel();
     return null;
@@ -1257,6 +1253,7 @@ export function useComposerAgentSelection(input?: {
     allAgentModelOptions,
     modelOptions,
     modelSetup,
+    bubbleModelsLoading: !bubbleModelConfig.loaded,
     selectedModelOption,
     selectedModelLabel,
     selectAgent,
