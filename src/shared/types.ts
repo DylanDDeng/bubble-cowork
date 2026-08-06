@@ -830,6 +830,9 @@ export type ServerEvent =
   // Codex app-server pushed a fresh authoritative model catalog — renderers
   // should refetch codex model config (fast-mode eligibility may change).
   | { type: 'codex.modelCatalogUpdated'; payload: Record<string, never> }
+  // Background live discovery found new/changed Bubble models — renderers
+  // should refetch the bubble model config (the first frame is local-only).
+  | { type: 'bubble.modelCatalogUpdated'; payload: Record<string, never> }
   | { type: 'kimi.modelConfigUpdated'; payload: Record<string, never> }
   | { type: 'qoder.modelConfigUpdated'; payload: Record<string, never> }
   | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode | null } }

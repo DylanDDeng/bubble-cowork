@@ -91,6 +91,7 @@ import {
   getBubbleModelConfig,
   getBubbleProvidersConfig,
   getBubbleProviderKey,
+  refreshBubbleModelCatalog,
   setBubbleProviderKey,
   removeBubbleProvider,
   setBubbleDefaultProvider,
@@ -5964,7 +5965,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('get-bubble-model-config', async () => {
-    return getBubbleModelConfig();
+    // Local-only fast path returns immediately; live provider discovery runs
+    // in the background and, when it changes the catalog, notifies the
+    // renderer to refetch (the refetch reads the refreshed disk cache).
+    const result = await getBubbleModelConfig();
+    void refreshBubbleModelCatalog().then((changed) => {
+      if (changed && !mainWindow.isDestroyed()) {
+        broadcast(mainWindow, { type: 'bubble.modelCatalogUpdated', payload: {} });
+      }
+    });
+    return result;
   });
 
   ipcMainHandle('get-bubble-providers-config', async () => {

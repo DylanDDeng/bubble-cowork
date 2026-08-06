@@ -164,6 +164,12 @@ export type BubbleProviderRegistry = {
   removeProvider(id: string): void;
   updateProviderKey(id: string, apiKey: string): void;
   listModels(provider: BubbleProviderProfile): Promise<BubbleModelInfo[]>;
+  /**
+   * Local-only model list: the user's models.json custom models when present,
+   * otherwise the SDK's builtin static catalog. Synchronous — never touches
+   * the network, so it backs the picker's first frame.
+   */
+  localModelsForProvider(provider: BubbleProviderProfile): BubbleModelInfo[];
 };
 
 export type BubbleSdkInstance = {
@@ -260,4 +266,48 @@ export async function getBubbleSdk(defaultCwd?: string): Promise<BubbleSdkInstan
     sdkInstance = new BubbleSdk(defaultCwd ? { defaultCwd } : undefined);
   }
   return sdkInstance;
+}
+
+/**
+ * Re-read Bubble's on-disk config into the shared SDK instance.
+ *
+ * The SDK parses ~/.bubble/config.json (UserConfig) and models.json
+ * (ModelConfig) exactly once at construction and caches them. A transient
+ * read at app startup — e.g. the Bubble CLI or a second Aegis instance
+ * rewriting config.json non-atomically at that moment — freezes an empty
+ * catalog for the whole process (the composer then shows "No models
+ * configured" until restart). Config views call this before reading so the
+ * UI always reflects the on-disk truth.
+ *
+ * UserConfig.load() wipes `data` to {} on a parse error, so we keep a
+ * last-known-good snapshot and only accept a reload whose providers array is
+ * still present (a legitimate "remove every provider" write yields
+ * providers: []; a mid-write JSON parse error yields no providers key).
+ * ModelConfig.load() keeps old data on error, so it is safe unconditionally.
+ */
+export function reloadBubbleSdkConfig(sdk: BubbleSdkInstance): void {
+  const userConfig = sdk.userConfig as unknown as {
+    load?: () => void;
+    data?: { providers?: unknown };
+  };
+  if (typeof userConfig.load === 'function') {
+    const previous = userConfig.data;
+    const hadProviders =
+      Array.isArray(previous?.providers) && previous.providers.length > 0;
+    try {
+      userConfig.load();
+    } catch {
+      // keep previous state
+    }
+    const nextProviders = (userConfig.data as { providers?: unknown } | undefined)?.providers;
+    if (previous && hadProviders && !Array.isArray(nextProviders)) {
+      (userConfig as { data?: unknown }).data = previous;
+    }
+  }
+  const registry = sdk.registry as unknown as { modelConfig?: { load?: () => void } };
+  try {
+    registry.modelConfig?.load?.();
+  } catch {
+    // keep previous state
+  }
 }

@@ -1105,6 +1105,13 @@ export const useAppStore = create<Store>()(
           window.dispatchEvent(new CustomEvent('codex-model-config-updated'));
         }
         break;
+      case 'bubble.modelCatalogUpdated':
+        // Background live discovery merged new models into the disk cache;
+        // the bubble model-config hook re-fetches (instant local read).
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('bubble-model-config-updated'));
+        }
+        break;
 
       case 'kimi.modelConfigUpdated':
         // Background server-metadata enrichment finished (thinking tiers);
