@@ -2983,15 +2983,13 @@ button.aegis-mdx-metadata-key:hover {
 .group\/session:hover .marquee-title-outer[data-overflowing='true'] .marquee-title-inner,
 .marquee-title-outer[data-overflowing='true']:hover .marquee-title-inner {
   max-width: none;
-  animation: marquee-title-scroll var(--marquee-duration, 6s) ease-in-out 0.3s infinite alternate;
+  animation: marquee-title-scroll var(--marquee-duration, 6s) ease-in-out infinite alternate;
 }
 
 @keyframes marquee-title-scroll {
-  0%,
-  20% {
+  0% {
     transform: translateX(0);
   }
-  80%,
   100% {
     transform: translateX(var(--marquee-distance, 0));
   }
