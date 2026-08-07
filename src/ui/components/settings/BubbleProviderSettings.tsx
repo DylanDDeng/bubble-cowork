@@ -10,6 +10,7 @@ import deepseekLogo from '../../assets/deepseek-color.svg';
 import minimaxLogo from '../../assets/minimax-color.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import alibabaLogo from '../../assets/alibaba-color.svg';
+import bailianLogo from '../../assets/bailian-color.svg';
 import geminiLogo from '../../assets/gemini-color.svg';
 import volcengineLogo from '../../assets/volcengine-color.svg';
 import stepfunLogo from '../../assets/stepfun.svg';
@@ -30,6 +31,7 @@ const PROVIDER_LOGOS: Record<string, string> = {
   zai: zhipuLogo,
   'zai-coding-plan': zhipuLogo,
   alibaba: alibabaLogo,
+  'bailian-token-plan': bailianLogo,
   google: geminiLogo,
   doubao: volcengineLogo,
   stepfun: stepfunLogo,

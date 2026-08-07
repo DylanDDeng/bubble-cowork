@@ -250,6 +250,7 @@ function hasStoredKey(profile: BubbleProviderProfile | undefined): boolean {
 const PROVIDER_NAME_OVERRIDES: Record<string, string> = {
   'moonshot-cn': 'Moonshot (China)',
   'moonshot-intl': 'Moonshot (International)',
+  'bailian-token-plan': 'Bailian Token Plan',
 };
 
 /**
