@@ -2966,6 +2966,37 @@ button.aegis-mdx-metadata-key:hover {
   }
 }
 
+/* Sidebar session titles: keep long titles ellipsized, then scroll them
+   horizontally (ping-pong) while the row is hovered so they can be read. */
+.marquee-title-outer {
+  overflow: hidden;
+}
+
+.marquee-title-inner {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.group\/session:hover .marquee-title-outer[data-overflowing='true'] .marquee-title-inner,
+.marquee-title-outer[data-overflowing='true']:hover .marquee-title-inner {
+  max-width: none;
+  animation: marquee-title-scroll var(--marquee-duration, 6s) ease-in-out 0.3s infinite alternate;
+}
+
+@keyframes marquee-title-scroll {
+  0%,
+  20% {
+    transform: translateX(0);
+  }
+  80%,
+  100% {
+    transform: translateX(var(--marquee-distance, 0));
+  }
+}
+
 .shimmer {
   background: linear-gradient(
     90deg,

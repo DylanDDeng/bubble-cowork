@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Tooltip as TooltipPrimitive } from '@base-ui-components/react/tooltip';
 import {
   FolderClosed,
@@ -50,6 +50,54 @@ type SessionBranchCacheEntry = {
 
 const sessionBranchCache = new Map<string, SessionBranchCacheEntry>();
 const pendingSessionBranchRequests = new Map<string, Promise<string | null>>();
+
+/**
+ * Session title that stays truncated until hovered, then scrolls left/right
+ * (marquee) so long titles can be read in full. Overflow is measured at
+ * runtime; short titles render exactly as before with no animation.
+ */
+function ScrollingTitle({ title, className = '' }: { title: string; className?: string }) {
+  const outerRef = useRef<HTMLSpanElement>(null);
+  const innerRef = useRef<HTMLSpanElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  const [marqueeStyle, setMarqueeStyle] = useState<CSSProperties | undefined>();
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const outer = outerRef.current;
+      const inner = innerRef.current;
+      if (!outer || !inner) return;
+      const distance = inner.scrollWidth - outer.clientWidth;
+      const next = distance > 2;
+      setOverflowing(next);
+      setMarqueeStyle(
+        next
+          ? ({
+              '--marquee-distance': `${-(distance + 6)}px`,
+              '--marquee-duration': `${Math.max(2.5, distance / 35)}s`,
+            } as CSSProperties)
+          : undefined
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (outerRef.current) observer.observe(outerRef.current);
+    return () => observer.disconnect();
+  }, [title]);
+
+  return (
+    <span
+      ref={outerRef}
+      className={`marquee-title-outer ${className}`}
+      data-overflowing={overflowing ? 'true' : undefined}
+      style={marqueeStyle}
+    >
+      <span ref={innerRef} className="marquee-title-inner">
+        {title}
+      </span>
+    </span>
+  );
+}
 
 const WORKTREE_ACTION_LABELS = {
   move: 'Moving into a new worktree…',
@@ -785,7 +833,7 @@ function SessionItem({
 
             <div className="flex min-h-[22px] items-center gap-2">
               <ProviderGlyph provider={session.provider} />
-              <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
+              <ScrollingTitle title={session.title} className="flex-1 text-[13px] font-normal leading-[1.3]" />
               {worktreeAction ? (
                 <span className="flex-shrink-0" title={WORKTREE_ACTION_LABELS[worktreeAction]}>
                   <Loader2
@@ -963,7 +1011,7 @@ function SplitSessionRow({
           left
         </span>
         <ProviderGlyph provider={primary.provider} />
-        <span className="min-w-0 flex-1 truncate font-normal">{primary.title}</span>
+        <ScrollingTitle title={primary.title} className="min-w-0 flex-1 font-normal" />
       </button>
       <button
         type="button"
@@ -978,7 +1026,7 @@ function SplitSessionRow({
           right
         </span>
         <ProviderGlyph provider={secondary.provider} />
-        <span className="min-w-0 flex-1 truncate font-normal">{secondary.title}</span>
+        <ScrollingTitle title={secondary.title} className="min-w-0 flex-1 font-normal" />
       </button>
     </div>
   );
