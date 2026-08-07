@@ -629,11 +629,25 @@ function ModelSubContent({
   return (
     <>
       {showSearch ? (
-        <div className="mb-1 flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2">
+        <div
+          className="mb-1 flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           <Search className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
           <input
+            autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              // Keep menu typeahead/arrow navigation from stealing keystrokes;
+              // let Escape bubble so it still closes the menu.
+              if (event.key !== 'Escape') {
+                event.stopPropagation();
+              }
+            }}
             placeholder="Search models"
             className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
           />
