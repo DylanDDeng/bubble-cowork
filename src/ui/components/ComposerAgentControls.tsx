@@ -567,12 +567,25 @@ function ModelSubContent({
   selectedValue,
   onSelectModel,
   loadingText,
+  searchable = false,
 }: {
   modelOptions: ComposerModelOption[];
   selectedValue: string | null;
   onSelectModel: (option: ComposerModelOption) => void;
   loadingText?: string | null;
+  searchable?: boolean;
 }) {
+  const [query, setQuery] = useState('');
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredOptions = normalizedQuery
+    ? modelOptions.filter(
+        (option) =>
+          option.label.toLowerCase().includes(normalizedQuery) ||
+          option.value.toLowerCase().includes(normalizedQuery) ||
+          (option.description ?? '').toLowerCase().includes(normalizedQuery)
+      )
+    : modelOptions;
+
   if (modelOptions.length === 0) {
     return (
       <div className="px-2.5 py-3 text-[12px] text-[var(--text-muted)]">
@@ -580,9 +593,12 @@ function ModelSubContent({
       </div>
     );
   }
-  return (
-    <>
-      {modelOptions.map((option) => {
+  const showSearch = searchable && modelOptions.length > 8;
+  const list =
+    filteredOptions.length === 0 ? (
+      <div className="px-2.5 py-3 text-[12px] text-[var(--text-muted)]">No models found</div>
+    ) : (
+      filteredOptions.map((option) => {
         const selected = (option.value.trim() || null) === (selectedValue?.trim() || null);
         return (
           <DropdownMenu.Item
@@ -603,7 +619,27 @@ function ModelSubContent({
             {selected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
           </DropdownMenu.Item>
         );
-      })}
+      })
+    );
+
+  if (!searchable) {
+    return <>{list}</>;
+  }
+
+  return (
+    <>
+      {showSearch ? (
+        <div className="mb-1 flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2">
+          <Search className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search models"
+            className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+          />
+        </div>
+      ) : null}
+      <div className="max-h-[280px] overflow-y-auto">{list}</div>
     </>
   );
 }
@@ -1305,16 +1341,23 @@ export function ComposerAgentModelPicker({
                     <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
                       Models
                     </div>
-                    <div className="max-h-[280px] overflow-y-auto">
+                    {provider === 'bubble' ? (
                       <ModelSubContent
                         modelOptions={modelOptions}
                         selectedValue={modelValue}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                        loadingText={
-                          provider === 'bubble' && bubbleModelsLoading ? 'Loading models…' : null
-                        }
+                        loadingText={bubbleModelsLoading ? 'Loading models…' : null}
+                        searchable
                       />
-                    </div>
+                    ) : (
+                      <div className="max-h-[280px] overflow-y-auto">
+                        <ModelSubContent
+                          modelOptions={modelOptions}
+                          selectedValue={modelValue}
+                          onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        />
+                      </div>
+                    )}
                   </DropdownMenu.SubContent>
                 </DropdownMenu.Portal>
               </DropdownMenu.Sub>
