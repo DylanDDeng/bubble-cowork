@@ -576,7 +576,7 @@ export function AgentModelPicker({
                       value={modelSearchQuery}
                       onChange={(event) => setModelSearchQuery(event.target.value)}
                       placeholder="Search models"
-                      className="h-8 rounded-lg border-transparent bg-[var(--bg-tertiary)] pl-8 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:border-transparent focus-visible:bg-[var(--bg-secondary)] focus-visible:ring-1 focus-visible:ring-[var(--accent)]/40"
+                      className="h-8 rounded-lg border-transparent bg-[var(--bg-tertiary)] pl-8 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:border-transparent focus-visible:bg-[var(--bg-secondary)] focus-visible:ring-0 focus-visible:ring-offset-0"
                     />
                   </div>
                 </div>
