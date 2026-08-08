@@ -306,6 +306,7 @@ export interface AppState {
   showNewSession: boolean;
   newSessionKey: number;
   sidebarCollapsed: boolean;
+  sidebarActivityView: boolean;
   sidebarWidth: number;
   sidebarWidthVersion: number;
   globalError: string | null;
@@ -443,6 +444,7 @@ export interface AppActions {
   setDraftStartMode: (sessionId: string, mode: 'local' | 'worktree') => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleSidebarActivityView: () => void;
   setSidebarWidth: (width: number) => void;
   setProjectCwd: (cwd: string | null) => void;
   setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;

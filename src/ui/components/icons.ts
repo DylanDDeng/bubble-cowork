@@ -13,6 +13,7 @@ import {
   IconArrowsRightLeft,
   IconArrowsSplit2,
   IconArrowUp,
+  IconBell,
   IconBolt,
   IconBoltFilled,
   IconBook2,
@@ -155,6 +156,7 @@ export {
   IconArrowsSplit2 as ArrowsSplit,
   IconArrowRight as ArrowRight,
   IconArrowUp as ArrowUp,
+  IconBell as Bell,
   IconBold as Bold,
   IconBook2 as BookOpenText,
   IconBookmark as Bookmark,
@@ -376,6 +378,44 @@ export const CollapseDiagonal: IconComponent = ({ size = 24, stroke = 1.75, ...p
     },
     createElement('path', { key: 'ne', d: 'M18 10 H14 V6' }),
     createElement('path', { key: 'sw', d: 'M6 14 H10 V18' })
+  );
+
+/**
+ * Activity-view glyph matching the Codex app: an outlined bell with a filled
+ * dot badge at the top-right, the bell outline breaking to make room for the
+ * badge. The badge is an unread indicator, so it is always tinted with the
+ * theme accent rather than following the line color. No Tabler equivalent
+ * (the IconBell* set has no dot-badge variant); the bell path mirrors
+ * IconBell so it swaps cleanly with the plain Bell when there is no badge.
+ */
+export const BellDot: IconComponent = ({ size = 24, stroke = 1.5, ...props }) =>
+  createElement(
+    'svg',
+    {
+      xmlns: 'http://www.w3.org/2000/svg',
+      width: size,
+      height: size,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: stroke,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      ...props,
+    },
+    createElement('path', {
+      key: 'bell',
+      d: 'M14 5a2 2 0 1 0 -4 0a7 7 0 0 0 -4 6v3a4 4 0 0 1 -2 3h16a4 4 0 0 1 -2 -3v-3a7 7 0 0 0 -.6 -2.7',
+    }),
+    createElement('path', { key: 'clapper', d: 'M9 17v1a3 3 0 0 0 6 0v-1' }),
+    createElement('circle', {
+      key: 'dot',
+      cx: 17.5,
+      cy: 5.5,
+      r: 2.25,
+      fill: 'var(--accent)',
+      stroke: 'none',
+    })
   );
 
 export const SkillStack: IconComponent = ({ size = 24, stroke = 1.5, ...props }) =>

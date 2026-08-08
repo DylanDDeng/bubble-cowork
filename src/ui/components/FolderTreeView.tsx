@@ -191,6 +191,7 @@ export function FolderTreeView({
     activeWorkspace,
     workspaceLayout,
     sidebarSearchQuery,
+    sidebarActivityView,
     setProjectCwd,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
@@ -212,7 +213,12 @@ export function FolderTreeView({
     [workspaceLayout]
   );
 
-  const { pinnedSessions, projectGroups } = useMemo(() => {
+  // Activity 分组的成员是粘性的：一旦因"正在运行/未读完成"进组，任务结束、
+  // 未读清除后也留在组里（否则任务一跑完就跳回项目分组）。关闭 activity
+  // view 时整组重置。
+  const stickyActivityIdsRef = useRef<Set<string>>(new Set());
+
+  const { activitySessions, pinnedSessions, projectGroups } = useMemo(() => {
     let sessionList = Object.values(sessions).filter(
       (session) => !session.hiddenFromThreads && session.scope !== 'dm'
     );
@@ -226,10 +232,36 @@ export function FolderTreeView({
       );
     }
 
-    const pinnedSessions = sessionList
-      .filter((session) => session.pinned)
+    // Activity view（对齐 Codex）：把有活动的会话——正在运行的、后台跑完还没
+    // 查看的——抽出来置顶成独立分组，其余分组里不再重复出现
+    const stickyIds = stickyActivityIdsRef.current;
+    if (!sidebarActivityView) {
+      stickyIds.clear();
+    } else {
+      for (const session of sessionList) {
+        if (session.status === 'running' || session.runtimeNotice) {
+          stickyIds.add(session.id);
+        }
+      }
+      // 会话被删除后从粘性名单里剔除。注意要对全量 sessions 判断，
+      // sessionList 可能已被侧边栏搜索过滤，不能当作"仍存在"的依据
+      for (const id of stickyIds) {
+        if (!sessions[id]) {
+          stickyIds.delete(id);
+        }
+      }
+    }
+    const activitySessions = sessionList
+      .filter((session) => stickyIds.has(session.id))
       .sort((left, right) => right.updatedAt - left.updatedAt);
-    const regularSessions = sessionList.filter((session) => !session.pinned);
+    const activitySessionIds = stickyIds;
+
+    const pinnedSessions = sessionList
+      .filter((session) => session.pinned && !activitySessionIds.has(session.id))
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+    const regularSessions = sessionList.filter(
+      (session) => !session.pinned && !activitySessionIds.has(session.id)
+    );
     const grouped = new Map<string, ProjectGroup>();
 
     for (const session of regularSessions) {
@@ -271,8 +303,8 @@ export function FolderTreeView({
         return rightLatest - leftLatest;
       });
 
-    return { pinnedSessions, projectGroups };
-  }, [projectCwd, sessions, sidebarSearchQuery]);
+    return { activitySessions, pinnedSessions, projectGroups };
+  }, [projectCwd, sessions, sidebarSearchQuery, sidebarActivityView]);
 
   const createDraftSession = useAppStore((s) => s.createDraftSession);
 
@@ -348,6 +380,35 @@ export function FolderTreeView({
 
   return (
     <div>
+      {activitySessions.length > 0 && (
+        <section className="mb-4">
+          <div className="mb-1 px-2 text-[11px] font-normal uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            Activity
+          </div>
+          {activitySessions.map((session) => {
+            const isSessionActive = isChatWorkspaceActive && openSessionIds.has(session.id);
+
+            return (
+              <SessionItem
+                key={`activity:${session.id}`}
+                session={session}
+                isActive={isSessionActive}
+                runtimeBadge={
+                  session.runtimeNotice
+                    ? session.runtimeNotice
+                    : !isSessionActive && session.status === 'running'
+                      ? 'running'
+                      : null
+                }
+                depth={0}
+                onClick={() => onSessionClick(session.id)}
+                onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+              />
+            );
+          })}
+        </section>
+      )}
+
       {pinnedSessions.length > 0 && (
         <section className="mb-4">
           <div className="mb-1 px-2 text-[11px] font-normal uppercase tracking-[0.08em] text-[var(--text-muted)]">

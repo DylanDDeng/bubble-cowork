@@ -5,6 +5,7 @@ import { useAppStore } from '../store/useAppStore';
  * Global keyboard shortcuts
  * - Cmd/Ctrl + K: Toggle the search palette (threads, projects, actions)
  * - Cmd/Ctrl + B: Toggle the thread sidebar
+ * - Cmd/Ctrl + Alt + U: Toggle the sidebar activity view
  * - Cmd/Ctrl + F: Open in-session search
  * - Escape: Close search panel
  */
@@ -20,6 +21,7 @@ export function useKeyboardShortcuts() {
     setSearchPaletteOpen,
     sidebarCollapsed,
     setSidebarCollapsed,
+    toggleSidebarActivityView,
   } = useAppStore();
 
   useEffect(() => {
@@ -37,6 +39,14 @@ export function useKeyboardShortcuts() {
       if (isMod && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         setSidebarCollapsed(!sidebarCollapsed);
+        return;
+      }
+
+      // Cmd/Ctrl + Alt + U: 切换侧边栏 activity view，对齐 Codex 的 ⌥⌘U。
+      // macOS 上 Option 组合会改写 e.key（⌥U 是死键），必须用 e.code 判断。
+      if (isMod && e.altKey && e.code === 'KeyU') {
+        e.preventDefault();
+        toggleSidebarActivityView();
         return;
       }
 
@@ -72,6 +82,7 @@ export function useKeyboardShortcuts() {
     setSearchPaletteOpen,
     sidebarCollapsed,
     setSidebarCollapsed,
+    toggleSidebarActivityView,
   ]);
 
   return { sidebarSearchRef };

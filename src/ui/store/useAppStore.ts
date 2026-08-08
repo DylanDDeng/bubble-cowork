@@ -826,6 +826,7 @@ export const useAppStore = create<Store>()(
       showNewSession: initialUiResumeState?.showNewSession ?? true,
       newSessionKey: 0,
       sidebarCollapsed: false,
+      sidebarActivityView: false,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sidebarWidthVersion: SIDEBAR_WIDTH_VERSION,
       globalError: null,
@@ -1619,6 +1620,9 @@ export const useAppStore = create<Store>()(
 
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
+  toggleSidebarActivityView: () =>
+    set((state) => ({ sidebarActivityView: !state.sidebarActivityView })),
+
   setSidebarWidth: (width) => set((state) => ({
     sidebarWidth: sanitizeSidebarWidth(width, state.sidebarWidth),
   })),
@@ -2297,6 +2301,7 @@ export const useAppStore = create<Store>()(
         chatPanes: state.chatPanes,
         chatSplitRatio: state.chatSplitRatio,
         sidebarCollapsed: state.sidebarCollapsed,
+        sidebarActivityView: state.sidebarActivityView,
         sidebarWidth: state.sidebarWidth,
         sidebarWidthVersion: state.sidebarWidthVersion,
         projectTreeCollapsed: state.projectTreeCollapsed,
@@ -2327,6 +2332,7 @@ export const useAppStore = create<Store>()(
           chatPanes?: Record<ChatPaneId, ChatPaneState>;
           chatSplitRatio?: number;
           sidebarCollapsed?: boolean;
+          sidebarActivityView?: boolean;
           sidebarWidth?: number;
           sidebarWidthVersion?: number;
           projectTreeCollapsed?: boolean;
@@ -2404,6 +2410,7 @@ export const useAppStore = create<Store>()(
           chatPanes,
           chatSplitRatio: derivedPaneFields.chatSplitRatio,
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
+          sidebarActivityView: persisted?.sidebarActivityView ?? currentState.sidebarActivityView,
           sidebarWidth: restorePersistedSidebarWidth(
             persisted?.sidebarWidth,
             persisted?.sidebarWidthVersion,

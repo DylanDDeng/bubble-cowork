@@ -8,6 +8,8 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  Bell,
+  BellDot,
   FolderOpen,
   GitPullRequest,
   Script,
@@ -116,6 +118,8 @@ export function Sidebar() {
     createDraftSession,
     searchPaletteOpen,
     setSearchPaletteOpen,
+    sidebarActivityView,
+    toggleSidebarActivityView,
   } = useAppStore();
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const [sidebarScrollbar, setSidebarScrollbar] = useState<SidebarScrollbarMetrics>({
@@ -129,6 +133,11 @@ export function Sidebar() {
   const startWidthRef = useRef(sidebarWidth);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const newThreadCwd = activeSession?.cwd || projectCwd;
+  // runtimeNotice = 任务在后台结束但用户还没点开看（查看后自动清除），
+  // 铃铛上的小圆点就是这个未读信号，和 Codex 的 activity badge 一致。
+  const hasUnviewedFinishedSession = Object.values(sessions).some((session) =>
+    Boolean(session.runtimeNotice)
+  );
 
   const updateSidebarScrollbar = useCallback(() => {
     const element = sidebarScrollRef.current;
@@ -511,15 +520,35 @@ export function Sidebar() {
                 <div className="aegis-sidebar-brand font-semibold leading-none tracking-[-0.04em] text-[var(--text-primary)]">
                   Aegis
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSearchPaletteOpen(true)}
-                  className={SIDEBAR_TRIGGER_CLASS}
-                  aria-label="Search"
-                  title="Search"
-                >
-                  <Search className="h-4 w-4" strokeWidth={1.4} />
-                </button>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setSearchPaletteOpen(true)}
+                    className={SIDEBAR_TRIGGER_CLASS}
+                    aria-label="Search"
+                    title="Search"
+                  >
+                    <Search className="h-4 w-4" strokeWidth={1.4} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleSidebarActivityView}
+                    className={`no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-95 ${
+                      sidebarActivityView
+                        ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_20%,transparent)]'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                    }`}
+                    aria-pressed={sidebarActivityView}
+                    aria-label={sidebarActivityView ? 'Turn off activity view' : 'Turn on activity view'}
+                    title={sidebarActivityView ? 'Turn off activity view' : 'Turn on activity view'}
+                  >
+                    {hasUnviewedFinishedSession ? (
+                      <BellDot className="h-4 w-4" strokeWidth={1.4} />
+                    ) : (
+                      <Bell className="h-4 w-4" strokeWidth={1.4} />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="px-2 pt-1">
