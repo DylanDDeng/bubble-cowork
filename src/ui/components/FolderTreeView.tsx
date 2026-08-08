@@ -180,6 +180,22 @@ function ProviderGlyph({ provider }: { provider?: AgentProvider }) {
   return <AgentIcon provider={provider ?? 'claude'} />;
 }
 
+// Activity view 的时间分组标签（对齐 Codex）：Today / Yesterday / 一周内用
+// 星期几。这是"最近动态"视图，一周以前的会话不显示（返回 null 表示不进组），
+// 老会话去 Projects 视图里找。
+const TIME_GROUP_WEEKDAY_FORMAT = new Intl.DateTimeFormat('en-US', { weekday: 'long' });
+
+function getTimeGroupLabel(timestamp: number, now: Date): string | null {
+  const date = new Date(timestamp);
+  const startOfDay = (value: Date) =>
+    new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  if (dayDiff <= 0) return 'Today';
+  if (dayDiff === 1) return 'Yesterday';
+  if (dayDiff < 7) return TIME_GROUP_WEEKDAY_FORMAT.format(date);
+  return null;
+}
+
 export function FolderTreeView({
   onSessionClick,
   onSelectProjectFolder,
@@ -218,7 +234,7 @@ export function FolderTreeView({
   // view 时整组重置。
   const stickyActivityIdsRef = useRef<Set<string>>(new Set());
 
-  const { activitySessions, pinnedSessions, projectGroups } = useMemo(() => {
+  const { activitySessions, pinnedSessions, projectGroups, timeGroups } = useMemo(() => {
     let sessionList = Object.values(sessions).filter(
       (session) => !session.hiddenFromThreads && session.scope !== 'dm'
     );
@@ -303,7 +319,31 @@ export function FolderTreeView({
         return rightLatest - leftLatest;
       });
 
-    return { activitySessions, pinnedSessions, projectGroups };
+    // Activity view 下项目分组让位于时间分组：Priority 之外的会话按最近使用
+    // 时间归组（Today / Yesterday / 星期几 / 月份），组内按时间倒序。
+    const timeGroups: { label: string; sessions: SessionView[] }[] = [];
+    if (sidebarActivityView) {
+      const now = new Date();
+      const byLabel = new Map<string, SessionView[]>();
+      // activity view 没有 Pinned 分组，置顶会话也一并按时间归组
+      const sorted = sessionList
+        .filter((session) => !activitySessionIds.has(session.id))
+        .sort((left, right) => right.updatedAt - left.updatedAt);
+      for (const session of sorted) {
+        const label = getTimeGroupLabel(session.updatedAt, now);
+        if (!label) continue;
+        const bucket = byLabel.get(label);
+        if (bucket) {
+          bucket.push(session);
+        } else {
+          const sessionsInGroup: SessionView[] = [session];
+          byLabel.set(label, sessionsInGroup);
+          timeGroups.push({ label, sessions: sessionsInGroup });
+        }
+      }
+    }
+
+    return { activitySessions, pinnedSessions, projectGroups, timeGroups };
   }, [projectCwd, sessions, sidebarSearchQuery, sidebarActivityView]);
 
   const createDraftSession = useAppStore((s) => s.createDraftSession);
@@ -382,8 +422,9 @@ export function FolderTreeView({
     <div>
       {activitySessions.length > 0 && (
         <section className="mb-4">
-          <div className="mb-1 px-2 text-[11px] font-normal uppercase tracking-[0.08em] text-[var(--text-muted)]">
-            Activity
+          {/* 对齐 Codex：分组标题用句首大写 + 正常字距，不用全大写小字号 */}
+          <div className="mb-1 px-2 text-[13px] font-normal text-[var(--text-muted)]">
+            Priority
           </div>
           {activitySessions.map((session) => {
             const isSessionActive = isChatWorkspaceActive && openSessionIds.has(session.id);
@@ -409,9 +450,9 @@ export function FolderTreeView({
         </section>
       )}
 
-      {pinnedSessions.length > 0 && (
+      {!sidebarActivityView && pinnedSessions.length > 0 && (
         <section className="mb-4">
-          <div className="mb-1 px-2 text-[11px] font-normal uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          <div className="mb-1 px-2 text-[13px] font-normal text-[var(--text-muted)]">
             Pinned
           </div>
           {pinnedSessions.map((session) => {
@@ -438,24 +479,58 @@ export function FolderTreeView({
         </section>
       )}
 
-      <div className="mb-2 flex items-center justify-between gap-2 px-1">
-        <div className="rounded-md px-1 text-[13px] text-[var(--text-muted)] transition-colors">
-          Projects
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            void onSelectProjectFolder();
-          }}
-          className="flex h-7 w-7 items-center justify-center rounded-lg no-drag text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-          aria-label={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
-          title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
-        >
-          <FolderOpen className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      {sidebarActivityView &&
+        timeGroups.map((group) => (
+          <section key={group.label} className="mb-4">
+            <div className="mb-1 px-2 text-[13px] font-normal text-[var(--text-muted)]">
+              {group.label}
+            </div>
+            {group.sessions.map((session) => {
+              const isSessionActive = isChatWorkspaceActive && openSessionIds.has(session.id);
 
-      {projectGroups.map((group) => {
+              return (
+                <SessionItem
+                  key={`time:${session.id}`}
+                  session={session}
+                  isActive={isSessionActive}
+                  runtimeBadge={
+                    session.runtimeNotice
+                      ? session.runtimeNotice
+                      : !isSessionActive && session.status === 'running'
+                        ? 'running'
+                        : null
+                  }
+                  depth={0}
+                  onClick={() => onSessionClick(session.id)}
+                  onTogglePin={() =>
+                    sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })
+                  }
+                />
+              );
+            })}
+          </section>
+        ))}
+
+      {!sidebarActivityView && (
+        <div className="mb-2 flex items-center justify-between gap-2 px-1">
+          <div className="rounded-md px-1 text-[13px] text-[var(--text-muted)] transition-colors">
+            Projects
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void onSelectProjectFolder();
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-lg no-drag text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            aria-label={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
+            title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {!sidebarActivityView && projectGroups.map((group) => {
         const expanded = isExpanded(group.key);
         const sessionListExpanded = expandedSessionGroups.has(group.key);
         const hasMoreSessions =
@@ -641,11 +716,17 @@ export function FolderTreeView({
         );
       })}
 
-      {projectGroups.length === 0 && pinnedSessions.length === 0 && (
-        <div className="text-center text-[var(--text-muted)] py-8 text-[13px]">
-          {sidebarSearchQuery ? 'No matching threads' : 'No threads yet'}
-        </div>
-      )}
+      {(sidebarActivityView
+        ? timeGroups.length === 0 && activitySessions.length === 0
+        : projectGroups.length === 0 && pinnedSessions.length === 0) && (
+          <div className="text-center text-[var(--text-muted)] py-8 text-[13px]">
+            {sidebarSearchQuery
+              ? 'No matching threads'
+              : sidebarActivityView
+                ? 'No recent activity'
+                : 'No threads yet'}
+          </div>
+        )}
     </div>
   );
 }
