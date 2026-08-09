@@ -16,7 +16,8 @@ process.env.AEGIS_CODEX_STOP_CONFIRM_TIMEOUT_MS = '250';
 
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { readFileSync, chmodSync } from 'node:fs';
+import { readFileSync, chmodSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -871,6 +872,155 @@ function testSourcePins() {
   ok("normalizeAutomationProvider accepts 'qoder'");
 }
 
+// account/chatgptAuthTokens/refresh: answered from auth.json under the
+// server-reported codexHome, with a replay guard so the token codex just
+// rejected is never handed straight back (401 → refresh → 401 loop).
+async function testChatgptAuthTokensRefresh() {
+  console.log('chatgptAuthTokens/refresh');
+  const home = mkdtempSync(join(tmpdir(), 'codex-auth-verify-'));
+  const idToken = (claims) =>
+    ['h', Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': claims })).toString('base64url'), 's'].join('.');
+  const writeAuth = (accessToken, extra = {}) =>
+    writeFileSync(
+      join(home, 'auth.json'),
+      JSON.stringify({
+        tokens: {
+          access_token: accessToken,
+          refresh_token: 'r',
+          account_id: 'acc-1',
+          id_token: idToken({ chatgpt_account_id: 'acc-1', chatgpt_plan_type: 'pro' }),
+          ...extra,
+        },
+      })
+    );
+
+  try {
+    // fresh token in auth.json → answered with token + account + plan
+    writeAuth('tok-1');
+    const { manager, outbound, serverRequest } = createCapturingManager();
+    manager.codexHome = home;
+    serverRequest(41, 'account/chatgptAuthTokens/refresh', { reason: 'unauthorized' });
+    await sleep(25);
+    const first = outbound.find((m) => m.id === 41);
+    assert.equal(first?.result?.accessToken, 'tok-1', 'must answer with the auth.json access token');
+    assert.equal(first?.result?.chatgptAccountId, 'acc-1', 'must answer with the account id');
+    assert.equal(first?.result?.chatgptPlanType, 'pro', 'must answer with the plan type');
+    ok('answers from auth.json (token + account + plan)');
+
+    // codex rejects tok-1 again immediately → same token must NOT replay
+    serverRequest(42, 'account/chatgptAuthTokens/refresh', { reason: 'unauthorized' });
+    await sleep(25);
+    const second = outbound.find((m) => m.id === 42);
+    assert.ok(second?.error, 'replaying the just-rejected token must be refused');
+    ok('replay guard refuses the token codex just rejected');
+
+    // another instance rotated the token → answered again
+    writeAuth('tok-2');
+    serverRequest(43, 'account/chatgptAuthTokens/refresh', { reason: 'unauthorized' });
+    await sleep(25);
+    const third = outbound.find((m) => m.id === 43);
+    assert.equal(third?.result?.accessToken, 'tok-2', 'a rotated token must be handed over');
+    ok('rotated token is handed over');
+
+    // account_id missing from tokens → recovered from the id_token claims
+    writeAuth('tok-3', { account_id: undefined });
+    const alt = createCapturingManager();
+    alt.manager.codexHome = home;
+    alt.serverRequest(44, 'account/chatgptAuthTokens/refresh', { reason: 'unauthorized' });
+    await sleep(25);
+    const fourth = alt.outbound.find((m) => m.id === 44);
+    assert.equal(fourth?.result?.chatgptAccountId, 'acc-1', 'account id must fall back to id_token claims');
+    ok('account id falls back to id_token claims');
+
+    // no auth.json → structured error, request never hangs
+    const missing = createCapturingManager();
+    missing.manager.codexHome = join(home, 'nonexistent');
+    missing.serverRequest(45, 'account/chatgptAuthTokens/refresh', { reason: 'unauthorized' });
+    await sleep(25);
+    const fifth = missing.outbound.find((m) => m.id === 45);
+    assert.ok(fifth?.error, 'missing auth.json must produce an error response');
+    ok('missing auth.json answered with an error (no hang)');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+// MCP runtime surface: status list drains the cursor, oauth login returns the
+// authorization URL, and the completion notification reaches the adapter as a
+// process-scoped event.
+async function testMcpRuntimeSurface() {
+  console.log('MCP status list + OAuth login');
+
+  // mcpServerStatus/list: two pages via nextCursor, entries normalized
+  {
+    const { manager, responders } = createCapturingManager();
+    const pages = [
+      {
+        result: {
+          data: [
+            { name: 'notion', authStatus: 'notLoggedIn', tools: { search: {}, fetch: {} } },
+            { name: 'local-fs', authStatus: 'unsupported', tools: {} },
+          ],
+          nextCursor: 'page-2',
+        },
+      },
+      {
+        result: {
+          data: [{ name: 'github', authStatus: 'oAuth', tools: { list_prs: {} } }],
+          nextCursor: null,
+        },
+      },
+    ];
+    responders.set('mcpServerStatus/list', () => pages.shift());
+    const servers = await manager.listMcpServerStatus();
+    assert.equal(servers.length, 3, 'must drain every page');
+    assert.deepEqual(
+      servers.find((s) => s.name === 'notion'),
+      { name: 'notion', authStatus: 'notLoggedIn', toolNames: ['search', 'fetch'] }
+    );
+    assert.equal(servers.find((s) => s.name === 'github')?.authStatus, 'oAuth');
+    assert.equal(
+      servers.find((s) => s.name === 'local-fs')?.authStatus,
+      'unsupported',
+      'unknown auth strings must normalize to unsupported'
+    );
+    ok('status list drains cursor pages and normalizes entries');
+  }
+
+  // mcpServer/oauth/login: returns the authorization URL; missing URL throws
+  {
+    const { manager, responders, outbound } = createCapturingManager();
+    responders.set('mcpServer/oauth/login', () => ({
+      result: { authorizationUrl: 'https://auth.example/consent' },
+    }));
+    const login = await manager.startMcpOauthLogin('notion');
+    assert.equal(login.authorizationUrl, 'https://auth.example/consent');
+    const sent = outbound.find((m) => m.method === 'mcpServer/oauth/login');
+    assert.equal(sent?.params?.name, 'notion', 'server name must be passed through');
+
+    responders.set('mcpServer/oauth/login', () => ({ result: {} }));
+    await assert.rejects(
+      () => manager.startMcpOauthLogin('broken'),
+      /authorization URL/,
+      'a missing URL must reject, not resolve empty'
+    );
+    ok('oauth login returns the authorization URL (and rejects without one)');
+  }
+
+  // mcpServer/oauthLogin/completed → mcp_oauth_login_completed event
+  {
+    const { manager, notify, collect } = createCapturingManager();
+    const seen = collect('mcp_oauth_login_completed');
+    notify('mcpServer/oauthLogin/completed', { name: 'notion', success: true, error: null });
+    notify('mcpServer/oauthLogin/completed', { name: 'github', success: false, error: 'denied' });
+    await sleep(5);
+    assert.equal(seen.length, 2);
+    assert.deepEqual(seen[0], { name: 'notion', success: true, error: null });
+    assert.deepEqual(seen[1], { name: 'github', success: false, error: 'denied' });
+    ok('oauth completion notification emits the process-scoped event');
+  }
+}
+
 // Live tool output streaming: item/commandExecution/outputDelta must flow
 // manager → adapter (coalesced) → runner callback → transient renderer event,
 // and must never enter the persisted transcript (no StreamMessage is built).
@@ -963,6 +1113,8 @@ async function main() {
   await testEffortOpenVocabulary();
   testSourcePins();
   testToolOutputStreaming();
+  await testChatgptAuthTokensRefresh();
+  await testMcpRuntimeSurface();
   console.log(`\nverify:codex-app-server OK (${passed} checks)`);
   process.exit(0);
 }

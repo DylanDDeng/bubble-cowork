@@ -46,6 +46,11 @@ export interface McpServerConfig {
   url?: string;
   headers?: Record<string, string>;
   env?: Record<string, string>;
+  /**
+   * Codex only: `enabled = false` under [mcp_servers.<name>] disables the
+   * server. Omit the key entirely (rather than writing `true`) to enable.
+   */
+  enabled?: boolean;
 }
 
 // MCP 服务器状态
@@ -833,6 +838,12 @@ export type ServerEvent =
   // Codex app-server pushed a fresh authoritative model catalog — renderers
   // should refetch codex model config (fast-mode eligibility may change).
   | { type: 'codex.modelCatalogUpdated'; payload: Record<string, never> }
+  // An MCP OAuth flow (mcpServer/oauth/login) finished — the settings panel
+  // should refresh runtime status and surface the outcome.
+  | {
+      type: 'codex.mcpOauthLoginCompleted';
+      payload: { serverName: string; success: boolean; error: string | null };
+    }
   // Background live discovery found new/changed Bubble models — renderers
   // should refetch the bubble model config (the first frame is local-only).
   | { type: 'bubble.modelCatalogUpdated'; payload: Record<string, never> }
@@ -1708,6 +1719,13 @@ export interface CodexRateLimitSnapshot {
   credits: CodexCreditsSnapshot | null;
   planType: string | null;
   rateLimitReachedType: CodexRateLimitReachedType | null;
+}
+
+/** Runtime status of one codex-managed MCP server (mcpServerStatus/list). */
+export interface CodexMcpServerRuntimeStatus {
+  name: string;
+  authStatus: 'unsupported' | 'notLoggedIn' | 'bearerToken' | 'oAuth';
+  toolNames: string[];
 }
 
 export interface CodexRateLimitReport {

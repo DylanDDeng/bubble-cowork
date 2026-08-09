@@ -164,6 +164,15 @@ export type ProviderRuntimeEvent =
       models: unknown[];
       defaultModel?: string | null;
     }
+  // An MCP OAuth flow started via mcpServer/oauth/login finished. Process-
+  // scoped (threadId null): consumed by the settings panel, not sessions.
+  | {
+      type: 'mcp_oauth_login_completed';
+      threadId: null;
+      serverName: string;
+      success: boolean;
+      error: string | null;
+    }
   | { type: 'error'; threadId: string; error: Error }
   | { type: 'system_init'; threadId: string; sessionId: string; model?: string }
   // The agent switched its own permission mode mid-turn (e.g. Bubble's plan
@@ -215,6 +224,10 @@ export interface ProviderAdapter {
   getComposerCapabilities?(): ProviderComposerCapabilities;
   getRateLimits?(): Promise<CodexRateLimitReport>;
   getPlanUsage?(): Promise<QoderPlanUsageReport>;
+  /** Runtime status of provider-managed MCP servers (codex). */
+  listMcpServerStatus?(): Promise<import('../../../shared/types').CodexMcpServerRuntimeStatus[]>;
+  /** Start an MCP OAuth flow (codex); outcome arrives as mcp_oauth_login_completed. */
+  startMcpOauthLogin?(serverName: string): Promise<{ authorizationUrl: string }>;
   listSkills?(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
   listPlugins?(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
   readPlugin?(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;

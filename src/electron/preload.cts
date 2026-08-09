@@ -4,6 +4,7 @@ import type {
   AutomationSnapshot,
   ClaudeCompatibleProvidersConfig,
   ClaudeUsageRangeDays,
+  CodexMcpServerRuntimeStatus,
   FeishuBridgeConfig,
   FontSettingsPayload,
   GitPatchScope,
@@ -495,6 +496,18 @@ contextBridge.exposeInMainWorld('electron', {
   },
   getCodexComposerCapabilities: (): Promise<ProviderComposerCapabilities> => {
     return ipcRenderer.invoke('codex-get-composer-capabilities');
+  },
+  listCodexMcpStatus: (): Promise<{
+    ok: boolean;
+    message?: string;
+    servers: CodexMcpServerRuntimeStatus[];
+  }> => {
+    return ipcRenderer.invoke('codex-mcp-status-list');
+  },
+  startCodexMcpOauthLogin: (
+    serverName: string
+  ): Promise<{ ok: boolean; message?: string; authorizationUrl?: string }> => {
+    return ipcRenderer.invoke('codex-mcp-oauth-login', serverName);
   },
   listCodexSkills: (
     input: Omit<ProviderListSkillsInput, 'provider'>

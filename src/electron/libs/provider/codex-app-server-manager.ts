@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
+import { promises as fsPromises } from 'fs';
 import { homedir } from 'os';
+import { join } from 'path';
 import * as readline from 'readline';
 import { v4 as uuidv4 } from 'uuid';
 import type {
@@ -20,6 +22,7 @@ import type {
   ProviderInputReference,
   ProviderReadPluginResult,
   CodexCreditsSnapshot,
+  CodexMcpServerRuntimeStatus,
   CodexRateLimitReport,
   CodexRateLimitSnapshot,
   CodexRateLimitWindow,
@@ -250,6 +253,15 @@ export class CodexAppServerManager extends EventEmitter {
   // + `contextCompaction` item) with no shared id, so dedupe by time instead.
   private static readonly COMPACTION_DEDUPE_MS = 5000;
   private lastCompactionEmitAt = new Map<string, number>();
+  // $CODEX_HOME as reported by the server's initialize response — where
+  // auth.json lives for chatgptAuthTokens/refresh answers.
+  private codexHome: string | null = null;
+  // The access token last handed to a chatgptAuthTokens/refresh request.
+  // Codex asks after a 401: replaying the exact token that just failed
+  // would 401 → refresh → 401 forever, so a repeat inside this window is
+  // answered with an error instead (codex then fails auth normally).
+  private static readonly AUTH_REFRESH_REPLAY_WINDOW_MS = 30_000;
+  private lastAuthRefreshAnswer: { accessToken: string; at: number } | null = null;
 
   constructor(
     private readonly binaryPath = 'codex',
@@ -327,7 +339,7 @@ export class CodexAppServerManager extends EventEmitter {
     // next ensureSpawned() retries with a fresh process instead of short-
     // circuiting on a half-initialized child.
     try {
-      await this.sendRequest('initialize', {
+      const initResult = await this.sendRequest('initialize', {
         clientInfo: {
           name: 'aegis',
           title: 'Aegis',
@@ -337,6 +349,10 @@ export class CodexAppServerManager extends EventEmitter {
           experimentalApi: true,
         },
       }, INITIALIZE_TIMEOUT_MS);
+      // The server's own answer for where $CODEX_HOME resolves — the
+      // authoritative auth.json location (env-based guessing breaks under
+      // wrapper setups that repoint CODEX_HOME).
+      this.codexHome = this.readString(this.asObject(initResult) ?? {}, 'codexHome') || null;
     } catch (error) {
       this.cleanupGeneration(gen, 'spawn_failed');
       throw error;
@@ -536,6 +552,62 @@ export class CodexAppServerManager extends EventEmitter {
   private invalidatePluginCaches(): void {
     this.pluginsCache.clear();
     this.pluginDetailCache.clear();
+  }
+
+  /**
+   * Ask the server for the current status of every configured MCP server.
+   * `toolsAndAuthOnly` skips the resource inventory — the settings panel only
+   * needs names, auth state, and tool names.
+   */
+  async listMcpServerStatus(): Promise<CodexMcpServerRuntimeStatus[]> {
+    await this.ensureSpawned(process.cwd());
+    const entries: CodexMcpServerRuntimeStatus[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 20; page += 1) {
+      const response = (await this.sendRequest<Record<string, unknown>>(
+        'mcpServerStatus/list',
+        { detail: 'toolsAndAuthOnly', ...(cursor ? { cursor } : {}) },
+        REQUEST_TIMEOUT_MS
+      )) as Record<string, unknown>;
+      const data = Array.isArray(response?.data) ? response.data : [];
+      for (const raw of data) {
+        const record = this.asObject(raw);
+        if (!record) continue;
+        const name = this.readString(record, 'name');
+        if (!name) continue;
+        const rawAuth = this.readString(record, 'authStatus');
+        const authStatus =
+          rawAuth === 'notLoggedIn' || rawAuth === 'bearerToken' || rawAuth === 'oAuth'
+            ? rawAuth
+            : 'unsupported';
+        const tools = this.readObject(record, 'tools');
+        entries.push({ name, authStatus, toolNames: tools ? Object.keys(tools) : [] });
+      }
+      cursor = typeof response?.nextCursor === 'string' && response.nextCursor
+        ? response.nextCursor
+        : null;
+      if (!cursor) break;
+    }
+    return entries;
+  }
+
+  /**
+   * Start the OAuth flow for one MCP server. Returns the authorization URL to
+   * open in a browser; the outcome arrives later as an
+   * `mcpServer/oauthLogin/completed` notification.
+   */
+  async startMcpOauthLogin(serverName: string): Promise<{ authorizationUrl: string }> {
+    await this.ensureSpawned(process.cwd());
+    const response = (await this.sendRequest<Record<string, unknown>>(
+      'mcpServer/oauth/login',
+      { name: serverName.trim() },
+      REQUEST_TIMEOUT_MS
+    )) as Record<string, unknown>;
+    const authorizationUrl = this.readString(response ?? {}, 'authorizationUrl');
+    if (!authorizationUrl) {
+      throw new Error('Codex did not return an authorization URL for the MCP server.');
+    }
+    return { authorizationUrl };
   }
 
   async readAccountRateLimits(cwd = process.cwd()): Promise<CodexRateLimitReport> {
@@ -1701,14 +1773,19 @@ export class CodexAppServerManager extends EventEmitter {
       return;
     }
 
-    // Everything else (account/chatgptAuthTokens/refresh, attestation/generate,
-    // item/tool/call, unknown methods): a -32601 error response also resolves
-    // the server-side pending request, so nothing hangs. Token refresh gets a
-    // distinct log because failing it can break in-flight turns for
-    // ChatGPT-auth users — wiring it up is a tracked follow-up.
+    // Codex hit a 401 mid-turn and is asking for fresh ChatGPT credentials.
+    // auth.json under the server's own codexHome is the freshest source we
+    // have (another codex instance rotating tokens is the common cause of the
+    // 401 in the first place) — answering from it lets the turn continue
+    // instead of failing into the adapter's process-teardown auth recovery.
     if (method === 'account/chatgptauthtokens/refresh') {
-      console.warn('[Codex AppServer] rejecting chatgptAuthTokens/refresh (not implemented)');
+      void this.respondToChatgptAuthTokensRefresh(request);
+      return;
     }
+
+    // Everything else (attestation/generate, item/tool/call, unknown
+    // methods): a -32601 error response also resolves the server-side
+    // pending request, so nothing hangs.
     this.writeMessage({
       jsonrpc: '2.0',
       id: request.id,
@@ -1717,6 +1794,53 @@ export class CodexAppServerManager extends EventEmitter {
         message: `Unsupported server request: ${request.method}`,
       },
     });
+  }
+
+  private async respondToChatgptAuthTokensRefresh(request: JsonRpcRequest): Promise<void> {
+    const fail = (message: string) => {
+      console.warn(`[Codex AppServer] chatgptAuthTokens/refresh not answered: ${message}`);
+      this.writeMessage({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: { code: -32000, message },
+      });
+    };
+
+    let tokens: CodexAuthTokens | null;
+    try {
+      tokens = await readCodexAuthTokens(this.codexHome || join(homedir(), '.codex'));
+    } catch (error) {
+      fail(`failed to read auth.json: ${String(error)}`);
+      return;
+    }
+    if (!tokens) {
+      fail('no usable ChatGPT credentials in auth.json');
+      return;
+    }
+
+    const last = this.lastAuthRefreshAnswer;
+    if (
+      last &&
+      last.accessToken === tokens.accessToken &&
+      Date.now() - last.at < CodexAppServerManager.AUTH_REFRESH_REPLAY_WINDOW_MS
+    ) {
+      fail('auth.json holds the same access token codex just rejected');
+      return;
+    }
+
+    this.lastAuthRefreshAnswer = { accessToken: tokens.accessToken, at: Date.now() };
+    this.writeMessage({
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        accessToken: tokens.accessToken,
+        chatgptAccountId: tokens.accountId,
+        chatgptPlanType: tokens.planType,
+      },
+    });
+    if (isDev()) {
+      console.log('[Codex AppServer] answered chatgptAuthTokens/refresh from auth.json');
+    }
   }
 
   private handleNotification(notification: JsonRpcNotification): void {
@@ -2058,6 +2182,21 @@ export class CodexAppServerManager extends EventEmitter {
           this.emit('mcp_status_updated', { servers, threadId });
         } else {
           this.emit('mcp_status_updated', { servers, threadId: null });
+        }
+        break;
+      }
+
+      // Outcome of an OAuth flow started via mcpServer/oauth/login. Process-
+      // scoped for the settings UI — the threadId (if any) is irrelevant to
+      // where the Authorize button lives.
+      case 'mcpServer/oauthLogin/completed': {
+        const name = this.readString(params, 'name');
+        if (name) {
+          this.emit('mcp_oauth_login_completed', {
+            name,
+            success: params.success === true,
+            error: this.readString(params, 'error') || null,
+          });
         }
         break;
       }
@@ -2745,6 +2884,54 @@ export class CodexAppServerManager extends EventEmitter {
       return 'toolResult';
     }
 
+    return null;
+  }
+}
+
+interface CodexAuthTokens {
+  accessToken: string;
+  accountId: string;
+  planType: string | null;
+}
+
+/**
+ * Read the ChatGPT token set from codex's auth.json. Shape (codex-rs):
+ * `{ tokens: { access_token, refresh_token, id_token, account_id? } }`.
+ * `account_id` is missing from older files — the id_token's
+ * `https://api.openai.com/auth` claim block carries it, along with the plan
+ * type. Returns null when no usable ChatGPT credentials exist (e.g. API-key
+ * auth, logged out).
+ */
+async function readCodexAuthTokens(codexHome: string): Promise<CodexAuthTokens | null> {
+  const raw = await fsPromises.readFile(join(codexHome, 'auth.json'), 'utf8');
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object') return null;
+  const tokens = (parsed as Record<string, unknown>).tokens;
+  if (!tokens || typeof tokens !== 'object') return null;
+  const record = tokens as Record<string, unknown>;
+
+  const accessToken = typeof record.access_token === 'string' ? record.access_token : '';
+  const claims = decodeIdTokenAuthClaims(record.id_token);
+  const accountId =
+    (typeof record.account_id === 'string' && record.account_id) ||
+    (typeof claims?.chatgpt_account_id === 'string' && claims.chatgpt_account_id) ||
+    '';
+  const planType = typeof claims?.chatgpt_plan_type === 'string' ? claims.chatgpt_plan_type : null;
+
+  if (!accessToken || !accountId) return null;
+  return { accessToken, accountId, planType };
+}
+
+function decodeIdTokenAuthClaims(idToken: unknown): Record<string, unknown> | null {
+  if (typeof idToken !== 'string') return null;
+  const payload = idToken.split('.')[1];
+  if (!payload) return null;
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!decoded || typeof decoded !== 'object') return null;
+    const claims = (decoded as Record<string, unknown>)['https://api.openai.com/auth'];
+    return claims && typeof claims === 'object' ? (claims as Record<string, unknown>) : null;
+  } catch {
     return null;
   }
 }

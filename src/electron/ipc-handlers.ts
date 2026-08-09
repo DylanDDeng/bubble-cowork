@@ -4873,6 +4873,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         broadcast(mainWindow, { type: 'codex.modelCatalogUpdated', payload: {} });
       }
     }
+    if (event.type === 'mcp_oauth_login_completed' && !mainWindow.isDestroyed()) {
+      broadcast(mainWindow, {
+        type: 'codex.mcpOauthLoginCompleted',
+        payload: {
+          serverName: event.serverName,
+          success: event.success,
+          error: event.error,
+        },
+      });
+    }
   });
 
   configureNotifications({
@@ -5750,6 +5760,37 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         ok: false as const,
         message: error instanceof Error ? error.message : 'Failed to read skill file.',
       };
+    }
+  });
+
+  ipcMainHandle('codex-mcp-status-list', async () => {
+    ensureProviderService();
+    const adapter = getProviderService().getAdapter('codex');
+    if (!adapter?.listMcpServerStatus) {
+      return { ok: false as const, message: 'Codex adapter is not available.', servers: [] };
+    }
+    try {
+      const servers = await adapter.listMcpServerStatus();
+      return { ok: true as const, servers };
+    } catch (error) {
+      return { ok: false as const, message: String(error), servers: [] };
+    }
+  });
+
+  ipcMainHandle('codex-mcp-oauth-login', async (_event, serverName: string) => {
+    ensureProviderService();
+    const adapter = getProviderService().getAdapter('codex');
+    if (!adapter?.startMcpOauthLogin || typeof serverName !== 'string' || !serverName.trim()) {
+      return { ok: false as const, message: 'Codex adapter is not available.' };
+    }
+    try {
+      const { authorizationUrl } = await adapter.startMcpOauthLogin(serverName);
+      // Open the provider's consent page directly — the renderer only needs
+      // the outcome, which arrives as codex.mcpOauthLoginCompleted.
+      await shell.openExternal(authorizationUrl);
+      return { ok: true as const, authorizationUrl };
+    } catch (error) {
+      return { ok: false as const, message: String(error) };
     }
   });
 

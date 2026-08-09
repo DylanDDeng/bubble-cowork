@@ -1141,6 +1141,16 @@ export const useAppStore = create<Store>()(
           window.dispatchEvent(new CustomEvent('codex-model-config-updated'));
         }
         break;
+      case 'codex.mcpOauthLoginCompleted':
+        // An MCP OAuth flow finished — the MCP settings panel listens and
+        // refreshes runtime status / shows the outcome.
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('codex-mcp-oauth-completed', { detail: event.payload })
+          );
+        }
+        break;
+
       case 'bubble.modelCatalogUpdated':
         // Background live discovery merged new models into the disk cache;
         // the bubble model-config hook re-fetches (instant local read).

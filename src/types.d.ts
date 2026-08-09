@@ -192,6 +192,14 @@ declare global {
     saveCodexModelVisibility: (enabledModels: string[]) => Promise<CodexModelConfig>;
     getCodexRuntimeStatus: () => Promise<CodexRuntimeStatus>;
     getCodexComposerCapabilities: () => Promise<ProviderComposerCapabilities>;
+    listCodexMcpStatus: () => Promise<{
+      ok: boolean;
+      message?: string;
+      servers: import('./shared/types').CodexMcpServerRuntimeStatus[];
+    }>;
+    startCodexMcpOauthLogin: (
+      serverName: string
+    ) => Promise<{ ok: boolean; message?: string; authorizationUrl?: string }>;
     listCodexSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listCodexPlugins: (input?: Omit<ProviderListPluginsInput, 'provider'>) => Promise<ProviderListPluginsResult>;
     listKimiSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;

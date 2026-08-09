@@ -666,6 +666,18 @@ export class CodexAdapter implements ProviderAdapter {
         this.emit({ type: 'message', threadId: sessionThreadId, message });
       }
     });
+
+    // OAuth outcome for the settings panel — process-scoped, like
+    // model_catalog_updated (threadId null so session filters skip it).
+    this.manager.on('mcp_oauth_login_completed', ({ name, success, error }) => {
+      this.emit({
+        type: 'mcp_oauth_login_completed',
+        threadId: null,
+        serverName: name,
+        success,
+        error,
+      });
+    });
   }
 
   private emit(event: ProviderRuntimeEvent): void {
@@ -906,6 +918,14 @@ export class CodexAdapter implements ProviderAdapter {
 
   async getRateLimits(): Promise<CodexRateLimitReport> {
     return this.manager.readAccountRateLimits(process.cwd());
+  }
+
+  async listMcpServerStatus(): Promise<import('../../../shared/types').CodexMcpServerRuntimeStatus[]> {
+    return this.manager.listMcpServerStatus();
+  }
+
+  async startMcpOauthLogin(serverName: string): Promise<{ authorizationUrl: string }> {
+    return this.manager.startMcpOauthLogin(serverName);
   }
 
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
