@@ -379,25 +379,8 @@
 .composer-inline-chip__favicon {
   display: block;
   box-sizing: border-box;
-  padding: 1.5px;
   border-radius: 3.5px;
-  /* 固定浅色底衬：GitHub / X 等深色透明 favicon 在暗色主题下仍可见 */
-  background: #fff;
   object-fit: contain;
-}
-
-.composer-inline-chip__monogram {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3.5px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
 }
 
 .composer-inline-chip__label {
@@ -1257,10 +1240,10 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
 }
 
 .markdown-content .md-app-link {
-  padding: 0.06rem 0.36rem 0.07rem 0.3rem;
+  padding: 0.01rem 0.08rem 0.02rem 0.05rem;
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+  background: transparent;
+  border: 0;
 }
 
 .markdown-content a.md-file-link:hover {
@@ -1277,8 +1260,12 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
 .markdown-content a.md-app-link:hover {
   color: var(--accent);
   text-decoration: none;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: transparent;
+}
+
+.markdown-content a.md-app-link:hover .md-link-label {
+  text-decoration: underline;
+  text-underline-offset: 0.14em;
 }
 
 .markdown-content .md-link-label {
@@ -1289,7 +1276,8 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
 
 .markdown-content .md-file-link-icon,
 .markdown-content .md-file-link-fallback-icon,
-.markdown-content .md-app-link-favicon {
+.markdown-content .md-app-link-favicon,
+.markdown-content .md-app-link-globe {
   width: 1em;
   height: 1em;
   flex: 0 0 auto;
@@ -1298,10 +1286,7 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
 .markdown-content .md-app-link-favicon {
   display: block;
   box-sizing: border-box;
-  padding: 0.12em;
   border-radius: 0.22rem;
-  /* 固定浅色底衬：GitHub / X 等深色透明 favicon 在暗色主题下仍可见 */
-  background: #fff;
   object-fit: contain;
 }
 
@@ -1321,19 +1306,9 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
   font-weight: 450;
 }
 
-.markdown-content .md-app-link-monogram {
-  display: inline-flex;
-  width: 1em;
-  height: 1em;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.22rem;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+.markdown-content .md-app-link-globe {
+  display: block;
   color: var(--accent);
-  font-size: 0.72em;
-  font-weight: 700;
-  line-height: 1;
 }
 
 .markdown-content blockquote {

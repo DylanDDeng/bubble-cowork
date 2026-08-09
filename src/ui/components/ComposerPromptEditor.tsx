@@ -13,7 +13,13 @@ import {
 import { getFileTypeIconVisual } from './FileTypeIcon';
 import { extractProjectFileMentions } from '../utils/project-file-mentions';
 import { extractKnownSiteLinkTokens } from '../utils/known-site-links';
-import { faviconUrlForHostname, hostnameMonogram } from '../utils/link-favicons';
+import { faviconUrlForHostname, isFaviconPlaceholder } from '../utils/link-favicons';
+
+// Tabler IconWorld — same icon the browser panel uses (exported as Globe from
+// components/icons); the composer chip is built with raw DOM nodes, so the
+// React component can't be rendered here.
+const LINK_FALLBACK_GLOBE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0"/><path d="M3.6 9h16.8"/><path d="M3.6 15h16.8"/><path d="M11.5 3a17 17 0 0 0 0 18"/><path d="M12.5 3a17 17 0 0 1 0 18"/></svg>';
 import {
   removeLeadingSlashTokenAdjacentToCursor,
   splitPromptIntoComposerSegments,
@@ -414,11 +420,15 @@ function createLinkNode(url: string, labelText: string, rawText: string): HTMLSp
     favicon.loading = 'lazy';
     favicon.decoding = 'async';
     favicon.referrerPolicy = 'no-referrer';
-    favicon.onerror = () => {
-      const monogram = document.createElement('span');
-      monogram.className = 'composer-inline-chip__monogram';
-      monogram.textContent = hostnameMonogram(hostname);
-      favicon.replaceWith(monogram);
+    const swapToGlobe = () => {
+      const template = document.createElement('template');
+      template.innerHTML = LINK_FALLBACK_GLOBE_SVG;
+      const globe = template.content.firstElementChild;
+      if (globe) favicon.replaceWith(globe);
+    };
+    favicon.onerror = swapToGlobe;
+    favicon.onload = () => {
+      if (isFaviconPlaceholder(favicon)) swapToGlobe();
     };
 
     iconBox.append(favicon);

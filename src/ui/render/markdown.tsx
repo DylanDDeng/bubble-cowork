@@ -19,7 +19,8 @@ import { FileTypeIcon } from '../components/FileTypeIcon';
 import { HighlightedCode } from '../components/HighlightedCode';
 import { useAppStore } from '../store/useAppStore';
 import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
-import { faviconUrlForHostname, hostnameMonogram } from '../utils/link-favicons';
+import { Globe } from '../components/icons';
+import { faviconUrlForHostname, isFaviconPlaceholder } from '../utils/link-favicons';
 import { resolveProjectTreeFile } from '../utils/resolve-tree-file';
 
 interface MDContentProps {
@@ -222,14 +223,9 @@ function getHttpLinkHostname(href: string | undefined): string | null {
 
 function LinkFavicon({ hostname }: { hostname: string }) {
   const [failed, setFailed] = useState(false);
-  const monogram = hostnameMonogram(hostname);
 
   if (failed) {
-    return (
-      <span className="md-app-link-monogram" aria-hidden="true">
-        {monogram}
-      </span>
-    );
+    return <Globe className="md-app-link-globe" aria-hidden="true" />;
   }
 
   return (
@@ -241,6 +237,9 @@ function LinkFavicon({ hostname }: { hostname: string }) {
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
+      onLoad={(event) => {
+        if (isFaviconPlaceholder(event.currentTarget)) setFailed(true);
+      }}
       onError={() => setFailed(true)}
     />
   );
