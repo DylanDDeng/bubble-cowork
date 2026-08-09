@@ -40,7 +40,11 @@ expectIncludes(panel, '<DropdownMenuSubTrigger', 'committed history must live in
 expectIncludes(panel, 'isWorkspaceSelection(data.selection, entry.scope)', 'workspace source must show selected state');
 expectIncludes(panel, 'isTurnSelection(data.selection, lastTurn.key)', 'last turn source must show selected state');
 expectIncludes(panel, 'isCommitSelection(data.selection, commit.sha)', 'commit source must show selected state');
-expectIncludes(panel, 'No files match filter', 'filtered empty state must not look like no changes');
+// a802685 removed the filter row; its filtering moved into the jump-to-file
+// popover, which keeps the full diff visible behind it. The original concern
+// still applies at the new location: an empty filter result must read as "no
+// matches", never as "no changes".
+expectIncludes(panel, 'No matching files', 'filtered empty state must not look like no changes');
 expectNotIncludes(panel, 'Show all', 'review panel must not expose a show-all source');
 
 expectIncludes(dataHook, 'inFlightWorkspaceKeyRef', 'workspace diff loading must dedupe in-flight requests');

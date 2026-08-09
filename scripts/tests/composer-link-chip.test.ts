@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import {
   extractKnownSiteLinkTokens,
-  getKnownSiteIconSvg,
   splitTextIntoKnownSiteLinkSegments,
 } from '../../src/ui/utils/known-site-links';
+import { faviconUrlForHostname, hostnameMonogram } from '../../src/ui/utils/link-favicons';
 import { splitPromptIntoComposerSegments } from '../../src/ui/utils/composer-segments';
 
 // --- extractKnownSiteLinkTokens: GitHub ---
@@ -146,11 +146,24 @@ import { splitPromptIntoComposerSegments } from '../../src/ui/utils/composer-seg
 
 // --- icons ---
 
+// Chip icons are fetched favicons now (bd0d31d), not per-site inline SVGs, so
+// any hostname resolves to a URL and the monogram covers the fetch failing.
 {
-  assert.ok(getKnownSiteIconSvg('github')?.includes('<svg'), 'github icon exists');
-  assert.ok(getKnownSiteIconSvg('x')?.includes('<svg'), 'x icon exists');
-  assert.ok(getKnownSiteIconSvg('huggingface')?.includes('<svg'), 'huggingface icon exists');
-  assert.equal(getKnownSiteIconSvg('unknown-site'), null);
+  assert.ok(faviconUrlForHostname('github.com').includes('github.com'), 'favicon url carries the hostname');
+  assert.ok(
+    faviconUrlForHostname('huggingface.co').startsWith('https://'),
+    'favicon url is absolute'
+  );
+  assert.equal(
+    faviconUrlForHostname('a b.com').includes(' '),
+    false,
+    'hostname is encoded into the favicon query'
+  );
+
+  assert.equal(hostnameMonogram('github.com'), 'G');
+  assert.equal(hostnameMonogram('x.com'), 'X');
+  assert.equal(hostnameMonogram('123abc.dev'), '1');
+  assert.equal(hostnameMonogram('中文.com'), '?', 'non-alphanumeric initials fall back to ?');
 }
 
 // --- splitTextIntoKnownSiteLinkSegments ---

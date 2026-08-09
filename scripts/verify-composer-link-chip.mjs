@@ -17,10 +17,25 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const links = read('src/ui/utils/known-site-links.ts');
 assert.ok(
   links.includes('extractKnownSiteLinkTokens') &&
-    links.includes('splitTextIntoKnownSiteLinkSegments') &&
-    links.includes('getKnownSiteIconSvg'),
-  'known-site-links must export the tokenizer, the segment splitter, and the icon lookup'
+    links.includes('splitTextIntoKnownSiteLinkSegments'),
+  'known-site-links must export the tokenizer and the segment splitter'
 );
+
+// bd0d31d moved chip icons off hardcoded inline SVGs onto fetched favicons, so
+// known-site-links now only recognizes URLs and labels them. The chip still
+// needs an icon: that lives in link-favicons, with a monogram fallback for when
+// the fetch fails.
+const favicons = read('src/ui/utils/link-favicons.ts');
+assert.ok(
+  favicons.includes('faviconUrlForHostname') && favicons.includes('hostnameMonogram'),
+  'link-favicons must supply the chip icon URL and its fallback monogram'
+);
+for (const consumer of ['src/ui/render/markdown.tsx', 'src/ui/components/ComposerPromptEditor.tsx']) {
+  assert.ok(
+    read(consumer).includes("from '../utils/link-favicons'"),
+    `${consumer} must render chip icons through the shared favicon helpers`
+  );
+}
 assert.ok(
   links.includes("site: 'github'") &&
     links.includes("site: 'x'") &&
