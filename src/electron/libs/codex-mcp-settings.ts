@@ -228,6 +228,10 @@ function parseSectionBody(body: string[]): McpServerConfig {
     } else if (key === 'env') {
       const parsed = parseInlineTable(value);
       if (parsed) config.env = parsed;
+    } else if (key === 'enabled') {
+      // Codex natively supports `enabled = false` to disable a server.
+      if (value === 'true') config.enabled = true;
+      else if (value === 'false') config.enabled = false;
     }
   }
   return config;
@@ -266,6 +270,9 @@ function serializeSection(name: string, config: McpServerConfig): string {
   }
   if (config.env && Object.keys(config.env).length > 0) {
     lines.push(`env = ${serializeEnv(config.env)}`);
+  }
+  if (typeof config.enabled === 'boolean') {
+    lines.push(`enabled = ${config.enabled ? 'true' : 'false'}`);
   }
   return lines.join('\n');
 }

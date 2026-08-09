@@ -71,6 +71,7 @@ function readMcpServers(configPath: string): Record<string, McpServerConfig> {
       if (typeof entry.url !== 'string' || !entry.url.trim()) continue;
       const serverConfig: McpServerConfig = { type: 'http', url: entry.url };
       if (entry.headers && Object.keys(entry.headers).length > 0) serverConfig.headers = entry.headers;
+      if (entry.enabled === false) serverConfig.enabled = false;
       result[name] = serverConfig;
     } else {
       // 没有 type 或 type === 'local' 都按本地 stdio 处理。
@@ -80,6 +81,7 @@ function readMcpServers(configPath: string): Record<string, McpServerConfig> {
       const serverConfig: McpServerConfig = { type: 'stdio', command: cmd };
       if (args.length > 0) serverConfig.args = args;
       if (entry.environment && Object.keys(entry.environment).length > 0) serverConfig.env = entry.environment;
+      if (entry.enabled === false) serverConfig.enabled = false;
       result[name] = serverConfig;
     }
   }
@@ -96,8 +98,10 @@ function writeMcpServers(configPath: string, servers: Record<string, McpServerCo
   for (const [name, cfg] of Object.entries(servers)) {
     if (!cfg) continue;
     const prev = existing[name];
-    // 保留用户可能在文件里手动设置的 enabled: false。
-    const enabled = prev && typeof prev.enabled === 'boolean' ? prev.enabled : true;
+    // UI 传来的 enabled 优先（开关）；否则保留用户在文件里手动设置的值。
+    const enabled = typeof cfg.enabled === 'boolean'
+      ? cfg.enabled
+      : prev && typeof prev.enabled === 'boolean' ? prev.enabled : true;
 
     if (cfg.type === 'http' || cfg.type === 'sse') {
       if (!cfg.url || !cfg.url.trim()) continue;

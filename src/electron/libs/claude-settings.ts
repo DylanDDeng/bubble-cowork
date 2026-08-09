@@ -71,6 +71,9 @@ export interface McpServerConfig {
   url?: string;
   headers?: Record<string, string>;
   env?: Record<string, string>;
+  // Codex only: enabled = false under [mcp_servers.<name>] disables the
+  // server; omit the key entirely (rather than true) to enable.
+  enabled?: boolean;
 }
 
 // Claude Code 主配置结构

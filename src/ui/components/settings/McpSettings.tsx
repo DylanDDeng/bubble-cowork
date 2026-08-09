@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, PencilLine, Plus, Trash2 } from '../icons';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Plus, RefreshCw, Settings, Trash2 } from '../icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { sendEvent } from '../../hooks/useIPC';
 import type { McpServerConfig, McpServerStatus } from '../../types';
-import { SettingsGroup } from './SettingsPrimitives';
+import type { CodexMcpServerRuntimeStatus } from '../../../shared/types';
+import { SegmentedControl, SegmentedControlItem, SettingsToggle } from './SettingsPrimitives';
 
 type ServerTool = 'claude' | 'codex' | 'opencode' | 'kimi';
 type ServerScope = 'global' | 'project';
@@ -17,10 +18,12 @@ type GroupId =
   | 'kimi-global'
   | 'kimi-project';
 
-interface ActiveEditorState {
-  groupId: GroupId;
-  name: string | null;
-}
+// Component-local page navigation: the settings pane swaps between the grouped
+// list and full-page create/edit forms (Codex-desktop style), no router.
+type PanelView =
+  | { kind: 'list' }
+  | { kind: 'edit'; groupId: GroupId; name: string }
+  | { kind: 'create'; groupId: GroupId };
 
 interface ServerGroup {
   id: GroupId;
@@ -39,17 +42,17 @@ const ALL_TRANSPORTS: Array<{
 }> = [
   {
     value: 'stdio',
-    label: 'Local command',
+    label: 'STDIO',
     description: 'Run a local process such as npx or uvx.',
   },
   {
     value: 'http',
-    label: 'HTTP endpoint',
+    label: 'Streamable HTTP',
     description: 'Connect to a persistent MCP server over HTTP.',
   },
   {
     value: 'sse',
-    label: 'SSE endpoint',
+    label: 'SSE',
     description: 'Connect to a streaming MCP server over Server-Sent Events.',
   },
 ];
@@ -69,7 +72,7 @@ export function McpSettingsContent() {
     sessions,
   } = useAppStore();
 
-  const [activeEditor, setActiveEditor] = useState<ActiveEditorState | null>(null);
+  const [view, setView] = useState<PanelView>({ kind: 'list' });
   const [selectedTool, setSelectedTool] = useState<ServerTool>('claude');
   const currentProjectPath = activeSessionId ? sessions[activeSessionId]?.cwd : undefined;
   const currentProjectName = currentProjectPath?.split('/').pop() || 'this workspace';
@@ -82,6 +85,60 @@ export function McpSettingsContent() {
       });
     }
   }, [showSettings, currentProjectPath]);
+
+  // Codex-managed runtime status (auth state per server). Fetched lazily when
+  // the Codex tab is open — the query boots the codex app-server if needed.
+  const [codexRuntime, setCodexRuntime] = useState<Record<string, CodexMcpServerRuntimeStatus>>({});
+  const [codexAuthPending, setCodexAuthPending] = useState<string | null>(null);
+
+  const refreshCodexMcpStatus = useCallback(async () => {
+    try {
+      const result = await window.electron.listCodexMcpStatus();
+      if (result.ok) {
+        const map: Record<string, CodexMcpServerRuntimeStatus> = {};
+        for (const server of result.servers) map[server.name] = server;
+        setCodexRuntime(map);
+      }
+    } catch {
+      // Panel simply renders without runtime badges.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showSettings && selectedTool === 'codex') {
+      void refreshCodexMcpStatus();
+    }
+  }, [showSettings, selectedTool, refreshCodexMcpStatus]);
+
+  useEffect(() => {
+    const onCompleted = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ serverName: string; success: boolean; error: string | null }>
+      ).detail;
+      setCodexAuthPending(null);
+      if (detail?.success) {
+        toast.success(`MCP server "${detail.serverName}" authorized.`);
+      } else {
+        toast.error(
+          `Authorization failed for "${detail?.serverName}"${detail?.error ? `: ${detail.error}` : '.'}`
+        );
+      }
+      void refreshCodexMcpStatus();
+    };
+    window.addEventListener('codex-mcp-oauth-completed', onCompleted);
+    return () => window.removeEventListener('codex-mcp-oauth-completed', onCompleted);
+  }, [refreshCodexMcpStatus]);
+
+  const handleCodexAuthorize = useCallback(async (serverName: string) => {
+    setCodexAuthPending(serverName);
+    const result = await window.electron.startCodexMcpOauthLogin(serverName);
+    if (!result.ok) {
+      setCodexAuthPending(null);
+      toast.error(result.message || 'Failed to start authorization.');
+      return;
+    }
+    toast.info('Authorization page opened in your browser.');
+  }, []);
 
   const groups = useMemo<ServerGroup[]>(() => {
     const items: ServerGroup[] = [
@@ -242,18 +299,18 @@ export function McpSettingsContent() {
     const { [name]: _removed, ...rest } = group.servers;
     dispatchSave(group.id, rest);
 
-    if (activeEditor?.groupId === group.id && activeEditor.name === name) {
-      setActiveEditor(null);
-    }
+    setView({ kind: 'list' });
     toast.success(`Deleted "${name}".`);
   };
 
   const handleSave = (name: string, config: McpServerConfig, group: ServerGroup) => {
     const trimmedName = name.trim();
+    const originalName =
+      view.kind === 'edit' && view.groupId === group.id ? view.name : null;
 
     const nextServers =
-      activeEditor?.name && activeEditor.name !== trimmedName
-        ? renameServer(group.servers, activeEditor.name, trimmedName, config)
+      originalName && originalName !== trimmedName
+        ? renameServer(group.servers, originalName, trimmedName, config)
         : {
             ...group.servers,
             [trimmedName]: config,
@@ -261,8 +318,34 @@ export function McpSettingsContent() {
 
     dispatchSave(group.id, nextServers);
 
-    setActiveEditor(null);
-    toast.success(`${activeEditor?.name ? 'Updated' : 'Saved'} "${trimmedName}".`);
+    setView({ kind: 'list' });
+    toast.success(`${originalName ? 'Updated' : 'Saved'} "${trimmedName}".`);
+  };
+
+  // Codex only: `enabled = false` disables the server in ~/.codex/config.toml.
+  // Enabling removes the key entirely instead of writing `enabled = true`.
+  const handleToggleEnabled = (name: string, group: ServerGroup, nextEnabled: boolean) => {
+    const current = group.servers[name];
+    if (!current) return;
+    const nextConfig: McpServerConfig = { ...current };
+    if (nextEnabled) {
+      delete nextConfig.enabled;
+    } else {
+      nextConfig.enabled = false;
+    }
+    dispatchSave(group.id, { ...group.servers, [name]: nextConfig });
+    toast.success(`${nextEnabled ? 'Enabled' : 'Disabled'} "${name}".`);
+  };
+
+  const handleRefresh = (group: ServerGroup) => {
+    if (group.tool === 'codex') {
+      void refreshCodexMcpStatus();
+      return;
+    }
+    sendEvent({
+      type: 'mcp.get-config',
+      payload: { projectPath: currentProjectPath },
+    });
   };
 
   const visibleGroups = useMemo(
@@ -281,8 +364,50 @@ export function McpSettingsContent() {
   const handleSelectTool = (tool: ServerTool) => {
     if (tool === selectedTool) return;
     setSelectedTool(tool);
-    setActiveEditor(null);
+    setView({ kind: 'list' });
   };
+
+  const findStatus = (name: string, group: ServerGroup) =>
+    mcpServerStatus.find(
+      (entry) => entry.name === name && (!entry.tool || entry.tool === group.tool)
+    );
+
+  // Page-style create/edit views replace the list inside the panel.
+  if (view.kind !== 'list') {
+    const group = groups.find((item) => item.id === view.groupId);
+    if (group) {
+      if (view.kind === 'create') {
+        return (
+          <ServerEditorPage
+            key={`create-${group.id}`}
+            mode="create"
+            group={group}
+            existingNames={Object.keys(group.servers)}
+            onBack={() => setView({ kind: 'list' })}
+            onSave={(name, config) => handleSave(name, config, group)}
+          />
+        );
+      }
+      const config = group.servers[view.name];
+      if (config) {
+        return (
+          <ServerEditorPage
+            key={`edit-${group.id}-${view.name}`}
+            mode="edit"
+            group={group}
+            initialName={view.name}
+            initialConfig={config}
+            existingNames={Object.keys(group.servers)}
+            statusError={findStatus(view.name, group)?.error}
+            onBack={() => setView({ kind: 'list' })}
+            onSave={(name, nextConfig) => handleSave(name, nextConfig, group)}
+            onUninstall={() => handleDelete(view.name, group)}
+          />
+        );
+      }
+    }
+    // Target disappeared (deleted or config refreshed) — fall through to list.
+  }
 
   return (
     <div className="space-y-5 pb-8">
@@ -293,12 +418,20 @@ export function McpSettingsContent() {
           key={group.id}
           group={group}
           statusEntries={mcpServerStatus}
-          activeEditor={activeEditor}
-          onAddNew={() => setActiveEditor({ groupId: group.id, name: null })}
-          onEdit={(name) => setActiveEditor({ groupId: group.id, name })}
-          onCancelEdit={() => setActiveEditor(null)}
-          onSave={(name, config) => handleSave(name, config, group)}
-          onDelete={(name) => handleDelete(name, group)}
+          codexRuntime={group.tool === 'codex' ? codexRuntime : undefined}
+          codexAuthPending={codexAuthPending}
+          onCodexAuthorize={handleCodexAuthorize}
+          onRefresh={() => handleRefresh(group)}
+          onAdd={() => setView({ kind: 'create', groupId: group.id })}
+          onOpen={(name) => setView({ kind: 'edit', groupId: group.id, name })}
+          onToggleEnabled={
+            // Only where the target CLI honors a disable flag in its config:
+            // codex (config.toml `enabled`) and opencode (opencode.json
+            // `enabled`). Claude/Kimi mcpServers formats have no such field.
+            group.tool === 'codex' || group.tool === 'opencode'
+              ? (name, nextEnabled) => handleToggleEnabled(name, group, nextEnabled)
+              : undefined
+          }
         />
       ))}
     </div>
@@ -376,27 +509,34 @@ function ToolTabBar({
   );
 }
 
+const CODEX_AUTH_LABELS: Record<CodexMcpServerRuntimeStatus['authStatus'], string | null> = {
+  unsupported: null,
+  notLoggedIn: 'Not authorized',
+  bearerToken: 'Authorized (token)',
+  oAuth: 'Authorized (OAuth)',
+};
+
 function ServerGroupSection({
   group,
   statusEntries,
-  activeEditor,
-  onAddNew,
-  onEdit,
-  onCancelEdit,
-  onSave,
-  onDelete,
+  codexRuntime,
+  codexAuthPending,
+  onCodexAuthorize,
+  onRefresh,
+  onAdd,
+  onOpen,
+  onToggleEnabled,
 }: {
   group: ServerGroup;
   statusEntries: McpServerStatus[];
-  activeEditor: ActiveEditorState | null;
-  onAddNew: () => void;
-  onEdit: (name: string) => void;
-  onCancelEdit: () => void;
-  onSave: (name: string, config: McpServerConfig) => void;
-  onDelete: (name: string) => void;
+  codexRuntime?: Record<string, CodexMcpServerRuntimeStatus>;
+  codexAuthPending?: string | null;
+  onCodexAuthorize?: (name: string) => void;
+  onRefresh: () => void;
+  onAdd: () => void;
+  onOpen: (name: string) => void;
+  onToggleEnabled?: (name: string, nextEnabled: boolean) => void;
 }) {
-  const existingNames = useMemo(() => Object.keys(group.servers), [group.servers]);
-  const isAddingNew = activeEditor?.groupId === group.id && activeEditor.name === null;
   const serverEntries = Object.entries(group.servers);
 
   const emptyDescription = (() => {
@@ -419,57 +559,74 @@ function ServerGroupSection({
   })();
 
   return (
-    <SettingsGroup title={group.title} description={group.description}>
-      {serverEntries.length === 0 && !isAddingNew ? (
-        <EmptyStateRow
-          title="No servers configured"
-          description={emptyDescription}
-          actionLabel="Configure Server"
-          onAction={onAddNew}
-        />
-      ) : null}
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+        <div className="min-w-0">
+          <h2 className="text-[12px] font-medium text-[var(--text-muted)]">{group.title}</h2>
+          <p className="mt-0.5 truncate text-[12px] leading-5 text-[var(--text-muted)]">
+            {group.description}
+          </p>
+        </div>
+        <div className="flex flex-shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            aria-label={`Refresh ${group.title.toLowerCase()}`}
+            title="Refresh"
+            onClick={onRefresh}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onAdd}
+            className="inline-flex h-7 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Add server</span>
+          </button>
+        </div>
+      </div>
 
-      {serverEntries.map(([name, config]) => {
-        const isExpanded = activeEditor?.groupId === group.id && activeEditor.name === name;
-        // mcpServerStatus entries are tagged with the reporting agent (tool).
-        // Match by name AND tool so Claude/Codex statuses coexist without
-        // cross-agent name collisions. Kimi/Grok protocols do not report status
-        // (their ACP protocol doesn't expose it), so they stay "Unknown".
-        const status = statusEntries.find(
-          (entry) => entry.name === name && (!entry.tool || entry.tool === group.tool)
-        );
-        return (
-          <ServerListRow
-            key={`${group.id}-${name}`}
-            name={name}
-            config={config}
-            status={status}
-            expanded={isExpanded}
-            existingNames={existingNames}
-            allowedTransports={group.allowedTransports}
-            onToggleExpand={() => {
-              if (isExpanded) {
-                onCancelEdit();
-              } else {
-                onEdit(name);
-              }
-            }}
-            onDelete={() => onDelete(name)}
-            onSave={(nextName, nextConfig) => onSave(nextName, nextConfig)}
-            onCancel={onCancelEdit}
-          />
-        );
-      })}
-
-      <NewServerRow
-        group={group}
-        expanded={isAddingNew}
-        existingNames={existingNames}
-        onToggle={() => (isAddingNew ? onCancelEdit() : onAddNew())}
-        onSave={(name, config) => onSave(name, config)}
-        onCancel={onCancelEdit}
-      />
-    </SettingsGroup>
+      <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="divide-y divide-[var(--border)]">
+          {serverEntries.length === 0 ? (
+            <EmptyStateRow
+              title="No servers configured"
+              description={emptyDescription}
+              actionLabel="Add server"
+              onAction={onAdd}
+            />
+          ) : (
+            serverEntries.map(([name, config]) => {
+              // mcpServerStatus entries are tagged with the reporting agent
+              // (tool). Match by name AND tool so Claude/Codex statuses coexist
+              // without cross-agent name collisions. Kimi/Grok protocols do not
+              // report status (their ACP protocol doesn't expose it), so they
+              // stay "Unknown".
+              const status = statusEntries.find(
+                (entry) => entry.name === name && (!entry.tool || entry.tool === group.tool)
+              );
+              return (
+                <ServerListRow
+                  key={`${group.id}-${name}`}
+                  name={name}
+                  config={config}
+                  status={status}
+                  codexRuntime={codexRuntime?.[name]}
+                  codexAuthPending={codexAuthPending === name}
+                  onAuthorize={onCodexAuthorize ? () => onCodexAuthorize(name) : undefined}
+                  onOpen={() => onOpen(name)}
+                  onToggleEnabled={
+                    onToggleEnabled ? (nextEnabled) => onToggleEnabled(name, nextEnabled) : undefined
+                  }
+                />
+              );
+            })
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -477,143 +634,79 @@ function ServerListRow({
   name,
   config,
   status,
-  expanded,
-  existingNames,
-  allowedTransports,
-  onToggleExpand,
-  onDelete,
-  onSave,
-  onCancel,
+  codexRuntime,
+  codexAuthPending,
+  onAuthorize,
+  onOpen,
+  onToggleEnabled,
 }: {
   name: string;
   config: McpServerConfig;
   status?: McpServerStatus;
-  expanded: boolean;
-  existingNames: string[];
-  allowedTransports: Array<NonNullable<McpServerConfig['type']>>;
-  onToggleExpand: () => void;
-  onDelete: () => void;
-  onSave: (name: string, config: McpServerConfig) => void;
-  onCancel: () => void;
+  codexRuntime?: CodexMcpServerRuntimeStatus;
+  codexAuthPending?: boolean;
+  onAuthorize?: () => void;
+  onOpen: () => void;
+  onToggleEnabled?: (nextEnabled: boolean) => void;
 }) {
   const statusMeta = getStatusMeta(status);
   const transport = (config.type || 'stdio').toUpperCase();
+  const authLabel = codexRuntime ? CODEX_AUTH_LABELS[codexRuntime.authStatus] : null;
+  const enabled = config.enabled !== false;
   const sublineParts = status ? [statusMeta.label, transport] : [transport];
+  if (authLabel) sublineParts.push(authLabel);
+  if (onToggleEnabled && !enabled) sublineParts.push('Disabled');
   const subline = sublineParts.join(' · ');
+  const needsAuth = codexRuntime?.authStatus === 'notLoggedIn' && Boolean(onAuthorize);
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        aria-expanded={expanded}
-        className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)]"
-      >
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium text-[var(--text-primary)]">{name}</div>
-          <div className="mt-0.5 truncate text-[12px] leading-5 text-[var(--text-muted)]">
-            {subline}
-          </div>
+    <div
+      onClick={onOpen}
+      className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--bg-secondary)]"
+    >
+      <div className={`min-w-0 flex-1 ${enabled ? '' : 'opacity-60'}`}>
+        <div className="truncate text-[13px] font-medium text-[var(--text-primary)]">{name}</div>
+        <div className="mt-0.5 truncate text-[12px] leading-5 text-[var(--text-muted)]">
+          {subline}
         </div>
-        <div className="flex items-center gap-1 text-[var(--text-muted)]">
-          <RowIconButton
-            label={`Edit ${name}`}
+      </div>
+      <div className="flex flex-shrink-0 items-center gap-1.5 text-[var(--text-muted)]">
+        {needsAuth ? (
+          <button
+            type="button"
+            disabled={codexAuthPending}
             onClick={(event) => {
               event.stopPropagation();
-              if (!expanded) onToggleExpand();
+              if (!codexAuthPending) onAuthorize?.();
             }}
+            className={`rounded-full border border-[var(--accent)]/40 px-2.5 py-0.5 text-[11px] font-medium text-[var(--accent)] transition-colors ${
+              codexAuthPending ? 'cursor-default opacity-60' : 'hover:bg-[var(--accent)]/10'
+            }`}
           >
-            <PencilLine className="h-3.5 w-3.5" />
-          </RowIconButton>
-          <RowIconButton
-            label={`Delete ${name}`}
-            tone="danger"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDelete();
-            }}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </RowIconButton>
-          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-        </div>
-      </button>
-
-      {expanded ? (
-        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4">
-          {status?.error ? (
-            <div className="mb-3 rounded-[var(--radius-lg)] border border-[var(--error)]/30 bg-[var(--error)]/5 px-3 py-2 text-[12px] leading-5 text-[var(--error)]">
-              {status.error}
-            </div>
-          ) : null}
-          <McpServerForm
-            initialName={name}
-            initialConfig={config}
-            existingNames={existingNames}
-            allowedTransports={allowedTransports}
-            onSave={onSave}
-            onCancel={onCancel}
-          />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function NewServerRow({
-  group,
-  expanded,
-  existingNames,
-  onToggle,
-  onSave,
-  onCancel,
-}: {
-  group: ServerGroup;
-  expanded: boolean;
-  existingNames: string[];
-  onToggle: () => void;
-  onSave: (name: string, config: McpServerConfig) => void;
-  onCancel: () => void;
-}) {
-  const hint =
-    group.tool === 'codex'
-      ? 'Add a Codex CLI MCP server.'
-      : group.tool === 'opencode'
-        ? 'Add an OpenCode CLI MCP server.'
-        : group.tool === 'kimi'
-          ? 'Add a Kimi CLI MCP server.'
-          : group.scope === 'global'
-            ? 'Add a Claude Code global MCP server.'
-            : 'Add a Claude Code project MCP server.';
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)]"
-      >
-        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[8px] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-muted)]">
-          <Plus className="h-3.5 w-3.5" />
-        </span>
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium text-[var(--text-primary)]">New MCP Server</div>
-          <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">{hint}</div>
-        </div>
-        <ChevronDown className={`h-4 w-4 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
-
-      {expanded ? (
-        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4">
-          <McpServerForm
-            existingNames={existingNames}
-            allowedTransports={group.allowedTransports}
-            onSave={onSave}
-            onCancel={onCancel}
-          />
-        </div>
-      ) : null}
+            {codexAuthPending ? 'Authorizing...' : 'Authorize'}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          aria-label={`Configure ${name}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+        >
+          <Settings className="h-3.5 w-3.5" />
+        </button>
+        {onToggleEnabled ? (
+          <span onClick={(event) => event.stopPropagation()} className="flex items-center">
+            <SettingsToggle
+              checked={enabled}
+              onChange={(value) => onToggleEnabled(value)}
+              ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${name}`}
+            />
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -645,75 +738,55 @@ function EmptyStateRow({
   );
 }
 
-function RowIconButton({
-  label,
-  onClick,
-  tone = 'default',
-  children,
-}: {
-  label: string;
-  onClick: (event: React.MouseEvent<HTMLSpanElement>) => void;
-  tone?: 'default' | 'danger';
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      aria-label={label}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onClick(event as unknown as React.MouseEvent<HTMLSpanElement>);
-        }
-      }}
-      className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-[var(--radius-lg)] transition-colors hover:bg-[var(--bg-tertiary)] ${
-        tone === 'danger'
-          ? 'text-[var(--text-muted)] hover:text-[var(--error)]'
-          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-      }`}
-    >
-      {children}
-    </span>
-  );
-}
+// ---------------------------------------------------------------------------
+// Page-style create/edit form (replaces the list inside the settings pane).
+// ---------------------------------------------------------------------------
 
-function McpServerForm({
+function ServerEditorPage({
+  mode,
+  group,
   initialName = '',
   initialConfig,
   existingNames,
-  allowedTransports,
+  statusError,
+  onBack,
   onSave,
-  onCancel,
+  onUninstall,
 }: {
+  mode: 'create' | 'edit';
+  group: ServerGroup;
   initialName?: string;
   initialConfig?: McpServerConfig;
   existingNames: string[];
-  allowedTransports: Array<NonNullable<McpServerConfig['type']>>;
+  statusError?: string;
+  onBack: () => void;
   onSave: (name: string, config: McpServerConfig) => void;
-  onCancel: () => void;
+  onUninstall?: () => void;
 }) {
   const typeOptions = useMemo(
-    () => ALL_TRANSPORTS.filter((option) => allowedTransports.includes(option.value)),
-    [allowedTransports]
+    () => ALL_TRANSPORTS.filter((option) => group.allowedTransports.includes(option.value)),
+    [group.allowedTransports]
   );
   const defaultType: NonNullable<McpServerConfig['type']> =
-    (initialConfig?.type && allowedTransports.includes(initialConfig.type)
+    (initialConfig?.type && group.allowedTransports.includes(initialConfig.type)
       ? initialConfig.type
-      : allowedTransports[0]) || 'stdio';
+      : group.allowedTransports[0]) || 'stdio';
 
   const [name, setName] = useState(initialName);
   const [type, setType] = useState<NonNullable<McpServerConfig['type']>>(defaultType);
   const [command, setCommand] = useState(initialConfig?.command || '');
-  const [args, setArgs] = useState(initialConfig?.args?.join(' ') || '');
+  const [args, setArgs] = useState<string[]>(initialConfig?.args ? [...initialConfig.args] : []);
   const [url, setUrl] = useState(initialConfig?.url || '');
+  const [headers, setHeaders] = useState<Array<{ key: string; value: string }>>(
+    initialConfig?.headers
+      ? Object.entries(initialConfig.headers).map(([key, value]) => ({ key, value }))
+      : []
+  );
   const [envVars, setEnvVars] = useState<Array<{ key: string; value: string }>>(
     initialConfig?.env
       ? Object.entries(initialConfig.env).map(([key, value]) => ({ key, value }))
       : []
   );
-  const [advancedOpen, setAdvancedOpen] = useState(Boolean(initialConfig?.env && Object.keys(initialConfig.env).length > 0));
   const [errors, setErrors] = useState<Partial<Record<'name' | 'command' | 'url', string>>>({});
 
   const existingNamesLower = useMemo(
@@ -754,209 +827,293 @@ function McpServerForm({
 
     if (type === 'stdio') {
       config.command = command.trim();
-      if (args.trim()) {
-        config.args = args
-          .split(' ')
-          .map((part) => part.trim())
-          .filter(Boolean);
+      const cleanArgs = args.map((arg) => arg.trim()).filter(Boolean);
+      if (cleanArgs.length > 0) {
+        config.args = cleanArgs;
       }
     } else {
       config.url = url.trim();
+      const headerMap = collectKeyValues(headers);
+      if (Object.keys(headerMap).length > 0) {
+        config.headers = headerMap;
+      }
     }
 
-    const env = envVars.reduce<Record<string, string>>((result, entry) => {
-      const key = entry.key.trim();
-      if (key) {
-        result[key] = entry.value;
-      }
-      return result;
-    }, {});
-
+    const env = collectKeyValues(envVars);
     if (Object.keys(env).length > 0) {
       config.env = env;
+    }
+
+    // Preserve the codex enable/disable flag across edits — the toggle lives
+    // on the list row, the form must not silently re-enable a disabled server.
+    if (typeof initialConfig?.enabled === 'boolean') {
+      config.enabled = initialConfig.enabled;
     }
 
     onSave(trimmedName, config);
   };
 
+  const title = mode === 'edit' ? `Update ${initialName}` : 'Connect to a custom MCP';
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <FormField label="Name" error={errors.name}>
-        <input
-          type="text"
-          value={name}
-          onChange={(event) => {
-            setName(event.target.value);
-            if (errors.name) {
-              setErrors((current) => ({ ...current, name: undefined }));
-            }
-          }}
-          placeholder="filesystem"
-          className={getInputClassName(Boolean(errors.name))}
-        />
-      </FormField>
+    <div className="pb-8">
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        <span>Back</span>
+      </button>
 
-      {typeOptions.length > 1 ? (
-        <FormField label="Transport">
-          <TransportSegmentedControl value={type} options={typeOptions} onChange={setType} />
-        </FormField>
-      ) : null}
-
-      {type === 'stdio' ? (
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
-          <FormField label="Command" error={errors.command}>
-            <input
-              type="text"
-              value={command}
-              onChange={(event) => {
-                setCommand(event.target.value);
-                if (errors.command) {
-                  setErrors((current) => ({ ...current, command: undefined }));
-                }
-              }}
-              placeholder="npx"
-              className={getInputClassName(Boolean(errors.command))}
-            />
-          </FormField>
-
-          <FormField label="Arguments" hint="Space-separated.">
-            <input
-              type="text"
-              value={args}
-              onChange={(event) => setArgs(event.target.value)}
-              placeholder="@modelcontextprotocol/server-filesystem"
-              className={getInputClassName(false)}
-            />
-          </FormField>
-        </div>
-      ) : (
-        <FormField label="Server URL" error={errors.url}>
-          <input
-            type="text"
-            value={url}
-            onChange={(event) => {
-              setUrl(event.target.value);
-              if (errors.url) {
-                setErrors((current) => ({ ...current, url: undefined }));
-              }
-            }}
-            placeholder={type === 'http' ? 'http://localhost:3000/mcp' : 'http://localhost:3000/sse'}
-            className={getInputClassName(Boolean(errors.url))}
-          />
-        </FormField>
-      )}
-
-      <div>
-        <button
-          type="button"
-          onClick={() => setAdvancedOpen((current) => !current)}
-          className="flex w-full items-center justify-between gap-3 rounded-[var(--radius-lg)] px-1 py-1 text-left transition-colors hover:bg-[var(--bg-primary)]/60"
-          aria-expanded={advancedOpen}
-        >
-          <div className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--text-secondary)]">
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? 'rotate-0' : '-rotate-90'}`} />
-            <span>Environment variables</span>
-            {envVars.length > 0 ? (
-              <span className="rounded-full bg-[var(--bg-tertiary)] px-1.5 text-[11px] leading-4 text-[var(--text-muted)]">
-                {envVars.length}
-              </span>
-            ) : null}
-          </div>
-          <span
-            role="button"
-            tabIndex={0}
-            aria-label="Add variable"
-            onClick={(event) => {
-              event.stopPropagation();
-              setAdvancedOpen(true);
-              setEnvVars((current) => [...current, { key: '', value: '' }]);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                event.stopPropagation();
-                setAdvancedOpen(true);
-                setEnvVars((current) => [...current, { key: '', value: '' }]);
-              }
-            }}
-            className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-[var(--radius-lg)] px-2 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <h2 className="min-w-0 truncate text-[16px] font-semibold text-[var(--text-primary)]">
+          {title}
+        </h2>
+        {onUninstall ? (
+          <button
+            type="button"
+            onClick={onUninstall}
+            className="inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-full border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 text-[12px] font-medium text-[var(--error)] transition-colors hover:bg-[var(--error)]/15"
           >
-            <Plus className="h-3 w-3" />
-            <span>Add</span>
-          </span>
-        </button>
-
-        {advancedOpen ? (
-          <div className="mt-2 space-y-2">
-            {envVars.length === 0 ? (
-              <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2.5 text-[11.5px] text-[var(--text-muted)]">
-                No environment variables configured.
-              </div>
-            ) : (
-              envVars.map((entry, index) => (
-                <div
-                  key={`env-${index}`}
-                  className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto]"
-                >
-                  <input
-                    type="text"
-                    value={entry.key}
-                    onChange={(event) =>
-                      setEnvVars((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, key: event.target.value } : item
-                        )
-                      )
-                    }
-                    placeholder="KEY"
-                    className={getInputClassName(false)}
-                  />
-                  <input
-                    type="text"
-                    value={entry.value}
-                    onChange={(event) =>
-                      setEnvVars((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, value: event.target.value } : item
-                        )
-                      )
-                    }
-                    placeholder="value"
-                    className={getInputClassName(false)}
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove variable"
-                    onClick={() =>
-                      setEnvVars((current) => current.filter((_, itemIndex) => itemIndex !== index))
-                    }
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--error)]"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Uninstall</span>
+          </button>
         ) : null}
       </div>
 
-      <div className="flex items-center justify-end gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="inline-flex h-8 items-center rounded-[var(--radius-lg)] px-3 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="inline-flex h-8 items-center rounded-[var(--radius-lg)] bg-[var(--accent)] px-3 text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
-        >
-          {initialName ? 'Save' : 'Add Server'}
-        </button>
-      </div>
-    </form>
+      {statusError ? (
+        <div className="mt-3 rounded-[var(--radius-lg)] border border-[var(--error)]/30 bg-[var(--error)]/5 px-3 py-2 text-[12px] leading-5 text-[var(--error)]">
+          {statusError}
+        </div>
+      ) : null}
+
+      <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+        <FormCard>
+          <FormField label="Name" error={errors.name}>
+            <input
+              type="text"
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+                if (errors.name) {
+                  setErrors((current) => ({ ...current, name: undefined }));
+                }
+              }}
+              placeholder="filesystem"
+              className={getInputClassName(Boolean(errors.name))}
+            />
+          </FormField>
+
+          {typeOptions.length > 1 ? (
+            <FormField label="Type">
+              <SegmentedControl ariaLabel="Transport type">
+                {typeOptions.map((option) => (
+                  <SegmentedControlItem
+                    key={option.value}
+                    active={type === option.value}
+                    onClick={() => setType(option.value)}
+                    ariaLabel={option.description}
+                  >
+                    {option.label}
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
+            </FormField>
+          ) : null}
+        </FormCard>
+
+        <FormCard>
+          {type === 'stdio' ? (
+            <>
+              <FormField label="Command to launch" error={errors.command}>
+                <input
+                  type="text"
+                  value={command}
+                  onChange={(event) => {
+                    setCommand(event.target.value);
+                    if (errors.command) {
+                      setErrors((current) => ({ ...current, command: undefined }));
+                    }
+                  }}
+                  placeholder="npx"
+                  className={getInputClassName(Boolean(errors.command))}
+                />
+              </FormField>
+
+              <FormField label="Arguments">
+                <div className="space-y-2">
+                  {args.map((value, index) => (
+                    <div key={`arg-${index}`} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={value}
+                        onChange={(event) =>
+                          setArgs((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? event.target.value : item
+                            )
+                          )
+                        }
+                        placeholder="@modelcontextprotocol/server-filesystem"
+                        className={getInputClassName(false)}
+                      />
+                      <button
+                        type="button"
+                        aria-label="Remove argument"
+                        onClick={() =>
+                          setArgs((current) =>
+                            current.filter((_, itemIndex) => itemIndex !== index)
+                          )
+                        }
+                        className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--error)]"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  <GhostAddButton
+                    label="Add argument"
+                    onClick={() => setArgs((current) => [...current, ''])}
+                  />
+                </div>
+              </FormField>
+            </>
+          ) : (
+            <>
+              <FormField label="URL" error={errors.url}>
+                <input
+                  type="text"
+                  value={url}
+                  onChange={(event) => {
+                    setUrl(event.target.value);
+                    if (errors.url) {
+                      setErrors((current) => ({ ...current, url: undefined }));
+                    }
+                  }}
+                  placeholder={
+                    type === 'http' ? 'http://localhost:3000/mcp' : 'http://localhost:3000/sse'
+                  }
+                  className={getInputClassName(Boolean(errors.url))}
+                />
+              </FormField>
+
+              <FormField label="Headers">
+                <KeyValueEditor
+                  entries={headers}
+                  onChange={setHeaders}
+                  addLabel="Add header"
+                  keyPlaceholder="Authorization"
+                  valuePlaceholder="Bearer ..."
+                  removeLabel="Remove header"
+                />
+              </FormField>
+            </>
+          )}
+
+          <FormField label="Environment variables">
+            <KeyValueEditor
+              entries={envVars}
+              onChange={setEnvVars}
+              addLabel="Add environment variable"
+              keyPlaceholder="KEY"
+              valuePlaceholder="value"
+              removeLabel="Remove variable"
+            />
+          </FormField>
+        </FormCard>
+
+        <div className="flex items-center justify-end">
+          <button
+            type="submit"
+            className="inline-flex h-8 items-center rounded-[var(--radius-lg)] bg-[var(--accent)] px-4 text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+          >
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function FormCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="space-y-4 rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      {children}
+    </div>
+  );
+}
+
+function GhostAddButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-8 w-full items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-dashed border-[var(--border)] text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+    >
+      <Plus className="h-3.5 w-3.5" />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function KeyValueEditor({
+  entries,
+  onChange,
+  addLabel,
+  keyPlaceholder,
+  valuePlaceholder,
+  removeLabel,
+}: {
+  entries: Array<{ key: string; value: string }>;
+  onChange: React.Dispatch<React.SetStateAction<Array<{ key: string; value: string }>>>;
+  addLabel: string;
+  keyPlaceholder: string;
+  valuePlaceholder: string;
+  removeLabel: string;
+}) {
+  return (
+    <div className="space-y-2">
+      {entries.map((entry, index) => (
+        <div key={`kv-${index}`} className="flex items-center gap-2">
+          <input
+            type="text"
+            value={entry.key}
+            onChange={(event) =>
+              onChange((current) =>
+                current.map((item, itemIndex) =>
+                  itemIndex === index ? { ...item, key: event.target.value } : item
+                )
+              )
+            }
+            placeholder={keyPlaceholder}
+            className={getInputClassName(false)}
+          />
+          <input
+            type="text"
+            value={entry.value}
+            onChange={(event) =>
+              onChange((current) =>
+                current.map((item, itemIndex) =>
+                  itemIndex === index ? { ...item, value: event.target.value } : item
+                )
+              )
+            }
+            placeholder={valuePlaceholder}
+            className={getInputClassName(false)}
+          />
+          <button
+            type="button"
+            aria-label={removeLabel}
+            onClick={() => onChange((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--error)]"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <GhostAddButton label={addLabel} onClick={() => onChange((current) => [...current, { key: '', value: '' }])} />
+    </div>
   );
 }
 
@@ -983,38 +1140,14 @@ function FormField({
   );
 }
 
-function TransportSegmentedControl({
-  value,
-  options,
-  onChange,
-}: {
-  value: NonNullable<McpServerConfig['type']>;
-  options: typeof ALL_TRANSPORTS;
-  onChange: (value: NonNullable<McpServerConfig['type']>) => void;
-}) {
-  return (
-    <div className="inline-flex w-full items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-0.5">
-      {options.map((option) => {
-        const selected = value === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            aria-pressed={selected}
-            title={option.description}
-            className={`flex-1 rounded-[var(--radius-lg)] px-2.5 py-1 text-[12px] font-medium transition-colors ${
-              selected
-                ? 'bg-[var(--accent-light)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+function collectKeyValues(entries: Array<{ key: string; value: string }>): Record<string, string> {
+  return entries.reduce<Record<string, string>>((result, entry) => {
+    const key = entry.key.trim();
+    if (key) {
+      result[key] = entry.value;
+    }
+    return result;
+  }, {});
 }
 
 function getStatusMeta(status?: McpServerStatus) {
