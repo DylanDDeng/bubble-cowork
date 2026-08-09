@@ -146,6 +146,11 @@ export interface RunnerOptions {
    * (process death, stop, server-side resolution) — clear the pending UI.
    */
   onPermissionDismissed?: (toolUseId: string) => void;
+  /**
+   * Incremental stdout/stderr from a still-running tool call. Transient
+   * display data for the live tool card — not part of the transcript.
+   */
+  onToolOutputDelta?: (toolUseId: string, delta: string) => void;
   onClaudeExecutionModeChange?: (
     mode: import('../shared/types').ClaudeExecutionMode,
     permissionMode: import('../shared/types').ClaudeAccessMode

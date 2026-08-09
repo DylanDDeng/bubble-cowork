@@ -979,12 +979,39 @@ function ToolRow({
         <EditedFileHint record={changeRecord} onOpen={onOpenDiff} />
       ) : null}
 
+      {isPending && entry.type === 'tool' && entry.liveOutput ? (
+        <LiveToolOutputTail text={entry.liveOutput} />
+      ) : null}
+
       {expanded && canExpand ? (
         <div className="mb-1 ml-1 border-l border-[var(--border)]/50 pl-3">
           <ToolEntryDetail entry={entry} />
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Terminal-style tail of a running tool's streamed stdout/stderr: the last
+ * few lines only — the full output arrives with the tool result. Lines with
+ * carriage-return rewrites (progress bars) collapse to their final frame.
+ */
+function LiveToolOutputTail({ text }: { text: string }) {
+  const tail = useMemo(() => {
+    const lines = text
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .map((line) => line.split('\r').pop() || '')
+      .filter((line) => line.trim().length > 0);
+    return lines.slice(-6).join('\n');
+  }, [text]);
+
+  if (!tail) return null;
+  return (
+    <pre className="mb-1 ml-1 max-h-28 overflow-hidden whitespace-pre-wrap break-all border-l border-[var(--border)]/50 pl-3 font-mono text-[11px] leading-4 text-[var(--text-muted)]/70">
+      {tail}
+    </pre>
   );
 }
 

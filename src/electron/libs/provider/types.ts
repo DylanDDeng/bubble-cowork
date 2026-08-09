@@ -134,6 +134,9 @@ export type ProviderSessionStatus = 'connecting' | 'running' | 'completed' | 'er
 
 export type ProviderRuntimeEvent =
   | { type: 'message'; threadId: string; message: StreamMessage }
+  // Incremental stdout/stderr from a running tool call. Transient display
+  // data for the live tool card — never enters the transcript.
+  | { type: 'tool_output_delta'; threadId: string; toolUseId: string; delta: string }
   | { type: 'permission_request'; threadId: string; requestId: string; toolName: string; input: unknown }
   // The provider resolved/abandoned a pending permission request itself
   // (process death, stop, serverRequest/resolved) — UI should drop the card.

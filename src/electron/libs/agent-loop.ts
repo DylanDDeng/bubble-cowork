@@ -86,6 +86,10 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         options.onPermissionDismissed?.(event.requestId);
         break;
       }
+      case 'tool_output_delta': {
+        options.onToolOutputDelta?.(event.toolUseId, event.delta);
+        break;
+      }
       case 'system_init': {
         const initMessage: import('../../shared/types').StreamMessage = {
           type: 'system',

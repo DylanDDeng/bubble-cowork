@@ -36,6 +36,8 @@ interface ToolExecutionBatchProps {
     partialThinking?: string;
     permissionRequests?: PermissionRequestPayload[];
   };
+  /** Streamed stdout/stderr tails keyed by tool_use id (running tools only). */
+  toolLiveOutputMap?: Map<string, string>;
   expanded?: boolean;
   defaultExpanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
@@ -52,6 +54,7 @@ export function ToolExecutionBatch({
   durationMs,
   subagentMessagesByParent,
   liveTrace,
+  toolLiveOutputMap,
   expanded,
   defaultExpanded,
   onExpandedChange,
@@ -69,8 +72,9 @@ export function ToolExecutionBatch({
         durationMs,
         subagentMessagesByParent,
         liveTrace: batchIsRunning ? liveTrace : undefined,
+        toolLiveOutputMap: batchIsRunning ? toolLiveOutputMap : undefined,
       }),
-    [messages, toolResultsMap, toolStatusMap, batchIsRunning, startedAt, durationMs, subagentMessagesByParent, liveTrace]
+    [messages, toolResultsMap, toolStatusMap, batchIsRunning, startedAt, durationMs, subagentMessagesByParent, liveTrace, toolLiveOutputMap]
   );
 
   const disclosureResetKey = resetKey ?? messages.map((message) => message.uuid).join(':');

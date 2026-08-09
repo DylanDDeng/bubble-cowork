@@ -1788,6 +1788,19 @@ export class CodexAppServerManager extends EventEmitter {
         break;
       }
 
+      // Live stdout/stderr chunks while a commandExecution item runs. itemId
+      // is the same id `item/started` carried, which is also the tool_use id
+      // the adapter emitted — deltas route to the tool card by that id.
+      case 'item/commandExecution/outputDelta': {
+        const delta = this.readString(params, 'delta');
+        const itemId = this.readString(params, 'itemId');
+        const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
+        if (threadId && itemId && delta) {
+          this.emit('tool_output_delta', { threadId, itemId, delta });
+        }
+        break;
+      }
+
       // Reasoning stream channels — present in the protocol but typically empty
       // for current OpenAI reasoning models (o-series / gpt-5-codex hide the
       // chain-of-thought from clients). Wired up here so that when a model

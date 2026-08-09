@@ -1062,6 +1062,14 @@ export function ChatPane({
     return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
   }, [session?.messages]);
 
+  const toolLiveOutputMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [id, text] of Object.entries(session?.toolLiveOutput || {})) {
+      map.set(id, text);
+    }
+    return map;
+  }, [session?.toolLiveOutput]);
+
   const subagentMessagesByParent = useMemo(
     () => (session ? groupSubagentMessagesByParent(session.messages) : new Map<string, StreamMessage[]>()),
     [session?.messages]
@@ -1931,6 +1939,7 @@ export function ChatPane({
                             durationMs={item.group.durationMs}
                             subagentMessagesByParent={subagentMessagesByParent}
                             liveTrace={item.group.id === activeTimelineWorkId ? activeLiveTrace : undefined}
+                            toolLiveOutputMap={item.active ? toolLiveOutputMap : undefined}
                             defaultExpanded={item.defaultExpanded}
                             resetKey={item.disclosureResetKey}
                           />

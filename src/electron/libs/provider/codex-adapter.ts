@@ -248,6 +248,10 @@ export class CodexAdapter implements ProviderAdapter {
   // event, so `error(willRetry=false)` + `turn/completed(failed)` for the
   // same turn report once (P0-1 dedupe).
   private reportedErrorTurnKeys = new Map<string, string>();
+  // Live tool output buffered per thread → tool id, flushed on a shared
+  // 100ms cadence so high-frequency command output can't flood IPC.
+  private toolOutputBuffers = new Map<string, Map<string, string>>();
+  private toolOutputFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(binaryPath?: string) {
     this.manager = new CodexAppServerManager(binaryPath, resolveClientVersion());
@@ -258,6 +262,10 @@ export class CodexAdapter implements ProviderAdapter {
     // Forward manager events as ProviderRuntimeEvents
     this.manager.on('text_delta', ({ threadId, text }) => {
       this.enqueueStreamingTextDelta(threadId, text);
+    });
+
+    this.manager.on('tool_output_delta', ({ threadId, itemId, delta }) => {
+      this.enqueueToolOutputDelta(threadId, itemId, delta);
     });
 
     this.manager.on('reasoning_delta', ({ threadId, text }) => {
@@ -365,6 +373,8 @@ export class CodexAdapter implements ProviderAdapter {
       }
       if (toolUseId) {
         this.forgetPendingToolCall(threadId, toolUseId);
+        // The authoritative result supersedes any not-yet-flushed live output.
+        this.dropToolOutputBuffer(threadId, toolUseId);
       }
 
       if (isDev()) {
@@ -400,6 +410,9 @@ export class CodexAdapter implements ProviderAdapter {
     this.manager.on('turn_completed', ({ threadId, turnId, status, error }) => {
       this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
+      // The turn is over — every tool has its final result, so buffered live
+      // output is stale noise.
+      this.dropToolOutputBuffer(threadId);
       // A /compact whose turn ended without a context_compacted notification
       // (failure, interrupt) must not mislabel a later auto compaction.
       this.pendingManualCompacts.delete(threadId);
@@ -1339,6 +1352,43 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'status_change', threadId, status: 'error' });
       this.emit({ type: 'error', threadId, error: new Error(recoveryMessage) });
     }
+  }
+
+  private enqueueToolOutputDelta(threadId: string, toolUseId: string, delta: string): void {
+    let buffers = this.toolOutputBuffers.get(threadId);
+    if (!buffers) {
+      buffers = new Map();
+      this.toolOutputBuffers.set(threadId, buffers);
+    }
+    // Cap the pending buffer so a runaway command can't grow memory unbounded
+    // between flushes; the UI only renders a tail of this stream anyway.
+    const next = ((buffers.get(toolUseId) || '') + delta).slice(-32000);
+    buffers.set(toolUseId, next);
+    if (!this.toolOutputFlushTimer) {
+      this.toolOutputFlushTimer = setTimeout(() => {
+        this.toolOutputFlushTimer = null;
+        this.flushToolOutputDeltas();
+      }, CodexAdapter.STREAMING_TEXT_COALESCE_MS);
+    }
+  }
+
+  private flushToolOutputDeltas(): void {
+    for (const [threadId, buffers] of this.toolOutputBuffers) {
+      for (const [toolUseId, delta] of buffers) {
+        if (delta) {
+          this.emit({ type: 'tool_output_delta', threadId, toolUseId, delta });
+        }
+      }
+    }
+    this.toolOutputBuffers.clear();
+  }
+
+  private dropToolOutputBuffer(threadId: string, toolUseId?: string): void {
+    if (toolUseId === undefined) {
+      this.toolOutputBuffers.delete(threadId);
+      return;
+    }
+    this.toolOutputBuffers.get(threadId)?.delete(toolUseId);
   }
 
   private extractToolCallInfo(params: Record<string, unknown>): {

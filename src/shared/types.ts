@@ -822,6 +822,9 @@ export type ServerEvent =
       payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number };
     }
   | { type: 'stream.message'; payload: { sessionId: string; message: StreamMessage } }
+  // Incremental stdout/stderr from a tool that is still running (codex
+  // commandExecution). Transient display data — never persisted.
+  | { type: 'stream.tool_output_delta'; payload: { sessionId: string; toolUseId: string; delta: string } }
   | { type: 'permission.request'; payload: PermissionRequestPayload }
   // The provider resolved/abandoned a pending permission request (process
   // death, stop, server-side resolution) — the card must be dropped.

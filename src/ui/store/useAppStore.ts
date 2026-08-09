@@ -1014,6 +1014,20 @@ export const useAppStore = create<Store>()(
           streamDeltaCoalescer.flushSession(event.payload.sessionId);
         } else {
           streamDeltaCoalescer.discardSession(event.payload.sessionId);
+          // Live tool output only makes sense while the run is in flight.
+          set((state) => {
+            const session = state.sessions[event.payload.sessionId];
+            if (!session?.toolLiveOutput || Object.keys(session.toolLiveOutput).length === 0) {
+              return state;
+            }
+            return {
+              ...state,
+              sessions: {
+                ...state.sessions,
+                [event.payload.sessionId]: { ...session, toolLiveOutput: undefined },
+              },
+            };
+          });
         }
         handleSessionStatus(event.payload, set, get);
         break;
@@ -1043,6 +1057,27 @@ export const useAppStore = create<Store>()(
         if (!streamDeltaCoalescer.push(event.payload)) {
           handleStreamMessage(event.payload, set, get);
         }
+        break;
+
+      case 'stream.tool_output_delta':
+        set((state) => {
+          const session = state.sessions[event.payload.sessionId];
+          if (!session) return state;
+          const prev = session.toolLiveOutput?.[event.payload.toolUseId] || '';
+          // Keep only a bounded tail — the card renders the last few lines
+          // and the authoritative full output arrives with the tool result.
+          const next = (prev + event.payload.delta).slice(-16000);
+          return {
+            ...state,
+            sessions: {
+              ...state.sessions,
+              [event.payload.sessionId]: {
+                ...session,
+                toolLiveOutput: { ...session.toolLiveOutput, [event.payload.toolUseId]: next },
+              },
+            },
+          };
+        });
         break;
 
       case 'permission.request':

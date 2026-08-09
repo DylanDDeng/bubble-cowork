@@ -280,6 +280,12 @@ export interface SessionView {
   hydrationError?: boolean;
   hydrationAttempts?: number;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
+  /**
+   * Live stdout/stderr tails keyed by tool_use id, streamed while a tool is
+   * still running. Transient: never hydrated from history, cleared when the
+   * session leaves the running state.
+   */
+  toolLiveOutput?: Record<string, string>;
   streaming: SessionStreamingState;
   runtimeNotice?: 'completed' | 'error';
   updatedAt: number;

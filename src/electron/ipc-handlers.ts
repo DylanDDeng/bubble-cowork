@@ -10192,6 +10192,17 @@ function startRunner(
         payload: { sessionId: session.id, toolUseId },
       });
     },
+    onToolOutputDelta: (toolUseId, delta) => {
+      // Same stale-runner guard as onMessage: a stopped/replaced runner must
+      // not paint live output over the replacement run's cards.
+      if (userStoppedRunnerHandles.has(handle) && runnerHandles.get(session.id)?.handle !== handle) {
+        return;
+      }
+      broadcast(mainWindow, {
+        type: 'stream.tool_output_delta',
+        payload: { sessionId: session.id, toolUseId, delta },
+      });
+    },
   });
 
   runnerHandles.set(session.id, {

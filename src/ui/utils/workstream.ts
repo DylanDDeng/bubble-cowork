@@ -68,6 +68,8 @@ export type WorkstreamEntry =
       status: ToolStatus;
       block: ToolUseBlock;
       result?: ToolResultBlock;
+      /** Streamed stdout/stderr tail while the tool is still running. */
+      liveOutput?: string;
     }
   | {
       id: string;
@@ -494,7 +496,8 @@ function createEntryFromTrace(
   toolStatusMap: Map<string, ToolStatus>,
   toolResultsMap: Map<string, ToolResultBlock>,
   pendingFallbackStatus: ToolStatus = 'pending',
-  subagentContext?: SubagentTraceContext
+  subagentContext?: SubagentTraceContext,
+  toolLiveOutputMap?: Map<string, string>
 ): WorkstreamEntry | null {
   if (entry.type === 'thinking') {
     return {
@@ -584,6 +587,7 @@ function createEntryFromTrace(
     status,
     block,
     result,
+    liveOutput: status === 'pending' && !result ? toolLiveOutputMap?.get(block.id) : undefined,
   };
 }
 
@@ -758,6 +762,8 @@ export function createBatchWorkstreamModel(params: {
     partialThinking?: string;
     permissionRequests?: PermissionRequestPayload[];
   };
+  /** Streamed stdout/stderr tails keyed by tool_use id (running tools only). */
+  toolLiveOutputMap?: Map<string, string>;
 }): WorkstreamModel {
   // Render the work group in chronological (createdAt) order. Providers can
   // commit a message to the store out of emission order — e.g. a preamble text
@@ -808,7 +814,8 @@ export function createBatchWorkstreamModel(params: {
         params.toolStatusMap,
         params.toolResultsMap,
         unresolvedFallbackStatus,
-        subagentContext
+        subagentContext,
+        params.toolLiveOutputMap
       )
     )
     .filter((entry): entry is WorkstreamEntry => Boolean(entry));

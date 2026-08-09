@@ -871,6 +871,85 @@ function testSourcePins() {
   ok("normalizeAutomationProvider accepts 'qoder'");
 }
 
+// Live tool output streaming: item/commandExecution/outputDelta must flow
+// manager → adapter (coalesced) → runner callback → transient renderer event,
+// and must never enter the persisted transcript (no StreamMessage is built).
+function testToolOutputStreaming() {
+  console.log('tool output streaming (source pins)');
+  const managerSource = readFileSync(
+    join(__dirname, '../src/electron/libs/provider/codex-app-server-manager.ts'),
+    'utf8'
+  );
+  assert.match(
+    managerSource,
+    /case 'item\/commandExecution\/outputDelta'/,
+    'manager must handle the commandExecution outputDelta notification'
+  );
+  assert.match(
+    managerSource,
+    /emit\('tool_output_delta', \{ threadId, itemId, delta \}\)/,
+    'manager must forward outputDelta as tool_output_delta'
+  );
+  ok('manager forwards item/commandExecution/outputDelta');
+
+  const adapterSource = readFileSync(
+    join(__dirname, '../src/electron/libs/provider/codex-adapter.ts'),
+    'utf8'
+  );
+  assert.match(
+    adapterSource,
+    /on\('tool_output_delta'/,
+    'adapter must consume the manager tool_output_delta event'
+  );
+  assert.match(
+    adapterSource,
+    /STREAMING_TEXT_COALESCE_MS\s*\)/,
+    'tool output must reuse the shared coalescing cadence'
+  );
+  assert.match(
+    adapterSource,
+    /this\.dropToolOutputBuffer\(threadId, toolUseId\)/,
+    'a tool result must drop its pending live-output buffer'
+  );
+  assert.match(
+    adapterSource,
+    /this\.dropToolOutputBuffer\(threadId\)/,
+    'turn completion must drop all live-output buffers for the thread'
+  );
+  ok('adapter coalesces and cleans up live output buffers');
+
+  const ipcSource = readFileSync(join(__dirname, '../src/electron/ipc-handlers.ts'), 'utf8');
+  assert.match(
+    ipcSource,
+    /onToolOutputDelta: \(toolUseId, delta\)/,
+    'ipc must wire the runner onToolOutputDelta callback'
+  );
+  assert.match(
+    ipcSource,
+    /type: 'stream\.tool_output_delta'/,
+    'ipc must broadcast the transient stream.tool_output_delta event'
+  );
+  const deltaCallback = ipcSource.slice(ipcSource.indexOf('onToolOutputDelta:'));
+  assert.ok(
+    deltaCallback.slice(0, 400).includes('userStoppedRunnerHandles.has(handle)'),
+    'onToolOutputDelta must apply the stale-runner guard'
+  );
+  ok('ipc broadcasts live output with the stale-runner guard');
+
+  const storeSource = readFileSync(join(__dirname, '../src/ui/store/useAppStore.ts'), 'utf8');
+  assert.match(
+    storeSource,
+    /case 'stream\.tool_output_delta'/,
+    'renderer store must handle the live output event'
+  );
+  assert.match(
+    storeSource,
+    /\.slice\(-16000\)/,
+    'renderer store must cap the live output tail'
+  );
+  ok('renderer store accumulates a bounded live-output tail');
+}
+
 async function main() {
   await testTurnTerminals();
   await testAutoPermissionMode();
@@ -883,6 +962,7 @@ async function main() {
   await testSlashCommands();
   await testEffortOpenVocabulary();
   testSourcePins();
+  testToolOutputStreaming();
   console.log(`\nverify:codex-app-server OK (${passed} checks)`);
   process.exit(0);
 }
