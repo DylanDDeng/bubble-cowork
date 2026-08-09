@@ -205,9 +205,30 @@ const composerSelection = read('src/ui/hooks/useComposerAgentSelection.ts');
 assert.ok(
   providerUtils.includes("{ id: 'bubble', label: 'Bubble' }") &&
     providerUtils.includes("raw === 'bubble'") &&
-    composerSelection.includes("key: 'bubble:default'") &&
-    composerSelection.includes('Use Bubble default model'),
-  'Composer provider/model selection must expose Bubble with a default model option'
+    composerSelection.includes('key: `bubble:${model.name}`'),
+  'Composer provider/model selection must expose Bubble with one row per model'
+);
+
+// The picker lists concrete models only. An empty-value "Default" row used to
+// sit on top, but the main process already injects the configured default into
+// the catalog tagged "Configured default", so the row duplicated a real entry
+// and hid which model would actually run. Selection now resolves to that
+// concrete row instead — reintroducing the sentinel would silently restore the
+// ambiguity, so its absence is part of the contract.
+assert.ok(
+  !composerSelection.includes("key: 'bubble:default'") &&
+    composerSelection.includes('const configuredDefault') &&
+    composerSelection.includes('optionValues.has(configuredDefault)'),
+  'Bubble model selection must preselect the concrete configured default, not a sentinel Default row'
+);
+
+// First catalog load hits live provider endpoints and can take seconds; without
+// the loading flag an empty list reads as "No models configured".
+const composerControls = read('src/ui/components/ComposerAgentControls.tsx');
+assert.ok(
+  composerSelection.includes('bubbleModelsLoading: !bubbleModelConfig.loaded') &&
+    composerControls.includes("loadingText={bubbleModelsLoading ? 'Loading models…' : null}"),
+  'Bubble picker must surface a loading state while the model catalog is in flight'
 );
 
 const readiness = read('src/ui/hooks/useAgentReadiness.ts');
