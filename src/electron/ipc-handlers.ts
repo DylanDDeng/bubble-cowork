@@ -44,6 +44,8 @@ import {
   getKimiProjectMcpServers,
   saveKimiProjectMcpServers,
 } from './libs/kimi-mcp-settings';
+import { getQoderMcpServers, saveQoderMcpServers } from './libs/qoder-mcp-settings';
+import { getBubbleMcpServers, saveBubbleMcpServers } from './libs/bubble-mcp-settings';
 import {
   loadCompatibleProviderConfig,
   saveCompatibleProviderConfig,
@@ -10924,6 +10926,8 @@ function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): vo
   const opencodeProjectServers = projectPath ? getOpencodeProjectMcpServers(projectPath) : {};
   const kimiGlobalServers = getKimiMcpServers();
   const kimiProjectServers = projectPath ? getKimiProjectMcpServers(projectPath) : {};
+  const qoderGlobalServers = getQoderMcpServers();
+  const bubbleGlobalServers = getBubbleMcpServers();
 
   // 合并用于向后兼容
   const mergedServers = { ...globalServers, ...projectServers };
@@ -10939,6 +10943,8 @@ function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): vo
       opencodeProjectServers,
       kimiGlobalServers,
       kimiProjectServers,
+      qoderGlobalServers,
+      bubbleGlobalServers,
     },
   });
 }
@@ -10955,6 +10961,8 @@ function handleMcpSaveConfig(
     opencodeProjectServers?: Record<string, McpServerConfig>;
     kimiGlobalServers?: Record<string, McpServerConfig>;
     kimiProjectServers?: Record<string, McpServerConfig>;
+    qoderGlobalServers?: Record<string, McpServerConfig>;
+    bubbleGlobalServers?: Record<string, McpServerConfig>;
     projectPath?: string;
   }
 ): void {
@@ -11026,6 +11034,24 @@ function handleMcpSaveConfig(
     }
   }
 
+  // 保存 Qoder 全局配置（写入 ~/.qoder/mcp.json）
+  if (payload.qoderGlobalServers !== undefined) {
+    try {
+      saveQoderMcpServers(payload.qoderGlobalServers);
+    } catch (error) {
+      console.warn('Failed to save Qoder MCP servers:', error);
+    }
+  }
+
+  // 保存 Bubble 全局配置（写入 ~/.bubble/settings.json 的 mcpServers 块）
+  if (payload.bubbleGlobalServers !== undefined) {
+    try {
+      saveBubbleMcpServers(payload.bubbleGlobalServers);
+    } catch (error) {
+      console.warn('Failed to save Bubble MCP servers:', error);
+    }
+  }
+
   // 返回更新后的配置
   const globalServers = getGlobalMcpServers();
   const projectServers = payload.projectPath ? getProjectMcpServers(payload.projectPath) : {};
@@ -11034,6 +11060,8 @@ function handleMcpSaveConfig(
   const opencodeProjectServers = payload.projectPath ? getOpencodeProjectMcpServers(payload.projectPath) : {};
   const kimiGlobalServers = getKimiMcpServers();
   const kimiProjectServers = payload.projectPath ? getKimiProjectMcpServers(payload.projectPath) : {};
+  const qoderGlobalServers = getQoderMcpServers();
+  const bubbleGlobalServers = getBubbleMcpServers();
 
   broadcast(mainWindow, {
     type: 'mcp.config',
@@ -11046,6 +11074,8 @@ function handleMcpSaveConfig(
       opencodeProjectServers,
       kimiGlobalServers,
       kimiProjectServers,
+      qoderGlobalServers,
+      bubbleGlobalServers,
     },
   });
 }

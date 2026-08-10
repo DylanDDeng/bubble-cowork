@@ -7,7 +7,7 @@ import type { McpServerConfig, McpServerStatus } from '../../types';
 import type { CodexMcpServerRuntimeStatus } from '../../../shared/types';
 import { SegmentedControl, SegmentedControlItem, SettingsToggle } from './SettingsPrimitives';
 
-type ServerTool = 'claude' | 'codex' | 'opencode' | 'kimi';
+type ServerTool = 'claude' | 'codex' | 'opencode' | 'kimi' | 'qoder' | 'bubble';
 type ServerScope = 'global' | 'project';
 type GroupId =
   | 'claude-global'
@@ -16,7 +16,9 @@ type GroupId =
   | 'opencode-global'
   | 'opencode-project'
   | 'kimi-global'
-  | 'kimi-project';
+  | 'kimi-project'
+  | 'qoder-global'
+  | 'bubble-global';
 
 // Component-local page navigation: the settings pane swaps between the grouped
 // list and full-page create/edit forms (Codex-desktop style), no router.
@@ -66,6 +68,8 @@ export function McpSettingsContent() {
     mcpOpencodeProjectServers,
     mcpKimiGlobalServers,
     mcpKimiProjectServers,
+    mcpQoderGlobalServers,
+    mcpBubbleGlobalServers,
     mcpServerStatus,
     showSettings,
     activeSessionId,
@@ -219,6 +223,26 @@ export function McpSettingsContent() {
       });
     }
 
+    items.push({
+      id: 'qoder-global',
+      tool: 'qoder',
+      scope: 'global',
+      title: 'Global Servers',
+      description: 'Written to ~/.qoder/mcp.json. Supports local (stdio) and remote (HTTP) servers.',
+      servers: mcpQoderGlobalServers,
+      allowedTransports: ['stdio', 'http'],
+    });
+
+    items.push({
+      id: 'bubble-global',
+      tool: 'bubble',
+      scope: 'global',
+      title: 'Global Servers',
+      description: 'Written to ~/.bubble/settings.json. Supports local (stdio) and remote (HTTP) servers.',
+      servers: mcpBubbleGlobalServers,
+      allowedTransports: ['stdio', 'http'],
+    });
+
     return items;
   }, [
     mcpGlobalServers,
@@ -228,6 +252,8 @@ export function McpSettingsContent() {
     mcpOpencodeProjectServers,
     mcpKimiGlobalServers,
     mcpKimiProjectServers,
+    mcpQoderGlobalServers,
+    mcpBubbleGlobalServers,
     currentProjectPath,
     currentProjectName,
   ]);
@@ -288,6 +314,20 @@ export function McpSettingsContent() {
           kimiProjectServers: nextServers,
           projectPath: currentProjectPath,
         },
+      });
+      return;
+    }
+    if (groupId === 'qoder-global') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: { qoderGlobalServers: nextServers },
+      });
+      return;
+    }
+    if (groupId === 'bubble-global') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: { bubbleGlobalServers: nextServers },
       });
     }
   };
@@ -354,7 +394,7 @@ export function McpSettingsContent() {
   );
 
   const counts = useMemo(() => {
-    const byTool: Record<ServerTool, number> = { claude: 0, codex: 0, opencode: 0, kimi: 0 };
+    const byTool: Record<ServerTool, number> = { claude: 0, codex: 0, opencode: 0, kimi: 0, qoder: 0, bubble: 0 };
     for (const group of groups) {
       byTool[group.tool] += Object.keys(group.servers).length;
     }
@@ -468,14 +508,20 @@ function ToolTabBar({
       label: 'Kimi',
       hint: '~/.kimi/mcp.json',
     },
+    {
+      id: 'qoder',
+      label: 'Qoder',
+      hint: '~/.qoder/mcp.json',
+    },
+    {
+      id: 'bubble',
+      label: 'Bubble',
+      hint: '~/.bubble/settings.json',
+    },
   ];
 
   return (
-    <div
-      role="tablist"
-      aria-label="Agent runtime"
-      className="flex items-center gap-1 border-b border-[var(--border)]"
-    >
+    <div role="tablist" aria-label="Agent runtime" className="flex items-center gap-1.5">
       {tabs.map((tab) => {
         const isActive = tab.id === selected;
         return (
@@ -486,20 +532,14 @@ function ToolTabBar({
             aria-selected={isActive}
             onClick={() => onSelect(tab.id)}
             title={tab.hint}
-            className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium transition-colors ${
+            className={`flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[13px] transition-colors ${
               isActive
-                ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                ? 'bg-[var(--bg-tertiary)] font-semibold text-[var(--text-primary)]'
+                : 'font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
           >
             <span>{tab.label}</span>
-            <span
-              className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[10.5px] leading-[16px] ${
-                isActive
-                  ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]'
-                  : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
-              }`}
-            >
+            <span className={`font-normal ${isActive ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)]/70'}`}>
               {counts[tab.id]}
             </span>
           </button>
@@ -552,6 +592,12 @@ function ServerGroupSection({
       return group.scope === 'project'
         ? 'Add a workspace-only MCP server for the Kimi CLI. Written to .kimi-code/mcp.json in this project.'
         : 'Add an MCP server for the Kimi CLI. Written to ~/.kimi/mcp.json.';
+    }
+    if (group.tool === 'qoder') {
+      return 'Add an MCP server for the Qoder CLI. Written to ~/.qoder/mcp.json.';
+    }
+    if (group.tool === 'bubble') {
+      return 'Add an MCP server for the Bubble CLI. Written to ~/.bubble/settings.json.';
     }
     return group.scope === 'global'
       ? 'Add a reusable MCP connection to make tools available in every Claude Code workspace.'

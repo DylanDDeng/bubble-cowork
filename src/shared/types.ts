@@ -791,6 +791,8 @@ export type ClientEvent =
       opencodeProjectServers?: Record<string, McpServerConfig>;
       kimiGlobalServers?: Record<string, McpServerConfig>;
       kimiProjectServers?: Record<string, McpServerConfig>;
+      qoderGlobalServers?: Record<string, McpServerConfig>;
+      bubbleGlobalServers?: Record<string, McpServerConfig>;
       projectPath?: string;
   } }
   // Skills 事件
@@ -872,6 +874,8 @@ export type ServerEvent =
       opencodeProjectServers?: Record<string, McpServerConfig>;
       kimiGlobalServers?: Record<string, McpServerConfig>;
       kimiProjectServers?: Record<string, McpServerConfig>;
+      qoderGlobalServers?: Record<string, McpServerConfig>;
+      bubbleGlobalServers?: Record<string, McpServerConfig>;
     } }
   | { type: 'mcp.status'; payload: { servers: McpServerStatus[] } }
   | { type: 'skills.list'; payload: {
