@@ -437,6 +437,57 @@ async function testErrorPassthrough() {
   console.log('PASS: child error text reaches the summary');
 }
 
+async function testChunkedFinalAnswer() {
+  // Kimi commits one logical final answer as SEVERAL assistant messages (and
+  // interleaves its own subagent tool results) — observed in the wild: the
+  // lead received only the last fragment, starting mid-sentence.
+  __resetDelegateServiceForTests();
+  const world = makeWorld();
+  initializeDelegateService(world.host);
+  world.parentHistory.push(
+    assistantWithToolUse('anchor-c1', DELEGATE_NAME, { agent: 'kimi', prompt: 'review files' })
+  );
+  const resultPromise = runDelegateTask({ agent: 'kimi', prompt: 'review files', callerSessionId: 'parent-1' });
+  await sleep(100);
+
+  const textMsg = (text: string) =>
+    ({ type: 'assistant', message: { content: [{ type: 'text', text }] } }) as unknown as StreamMessage;
+  mirrorDelegateMessage('exec-1', textMsg('我并行派两个只读子代理分别全文评审。'));
+  mirrorDelegateMessage('exec-1', assistantWithToolUse('t1', 'Read', { path: '/tmp/x.html' }));
+  mirrorDelegateMessage('exec-1', userWithToolResult('t1'));
+  mirrorDelegateMessage('exec-1', textMsg('已通读全文（941 行）。评审结论如下：'));
+  mirrorDelegateMessage('exec-1', textMsg('**亮点** 零依赖单文件实现。'));
+  mirrorDelegateMessage('exec-1', textMsg('**问题** 塞象眼+象不过河（L293–294）。'));
+
+  world.execStatus = 'completed';
+  const result = await resultPromise;
+  assert.match(result.summary, /已通读全文（941 行）。评审结论如下：\n\*\*亮点\*\* 零依赖单文件实现。\n\*\*问题\*\*/,
+    'chunked final answer is stitched back together in order');
+  assert.doesNotMatch(result.summary, /并行派两个只读子代理/, 'narration before tool work is excluded');
+  console.log('PASS: chunked final answer stitched');
+}
+
+async function testToolEndingFallback() {
+  // A run whose last event is a tool call still surfaces its last narration.
+  __resetDelegateServiceForTests();
+  const world = makeWorld();
+  initializeDelegateService(world.host);
+  world.parentHistory.push(
+    assistantWithToolUse('anchor-f1', DELEGATE_NAME, { agent: 'codex', prompt: 'write file' })
+  );
+  const resultPromise = runDelegateTask({ agent: 'codex', prompt: 'write file', callerSessionId: 'parent-1' });
+  await sleep(100);
+  mirrorDelegateMessage('exec-1', {
+    type: 'assistant',
+    message: { content: [{ type: 'text', text: 'Writing the config now.' }] },
+  } as unknown as StreamMessage);
+  mirrorDelegateMessage('exec-1', assistantWithToolUse('t9', 'Write', { file_path: '/tmp/config.json' }));
+  world.execStatus = 'completed';
+  const result = await resultPromise;
+  assert.match(result.summary, /Writing the config now\./, 'falls back to the last narration text');
+  console.log('PASS: tool-ending run falls back to last narration');
+}
+
 async function testSummaryTruncation() {
   const exec = {
     execSessionId: 'exec-1',
@@ -444,7 +495,8 @@ async function testSummaryTruncation() {
     parentToolUseId: 'anchor',
     agent: 'codex' as const,
     startedAt: 0,
-    lastAssistantText: 'x'.repeat(10_000),
+    finalTextRun: 'x'.repeat(10_000),
+    lastAssistantText: '',
     changedFiles: new Set<string>(Array.from({ length: 60 }, (_, i) => `/tmp/f${i}.ts`)),
     mirroredCount: 0,
     settled: false,
@@ -528,6 +580,8 @@ async function main() {
   await testModelResolution();
   await testModelResolutionInRun();
   await testErrorPassthrough();
+  await testChunkedFinalAnswer();
+  await testToolEndingFallback();
   await testSummaryTruncation();
   await testRendererPredicates();
   console.log('delegate-mcp tests: ALL PASS');

@@ -34,6 +34,9 @@ const ATTRIBUTION_RETRY_MS = 10_000;
 const ATTRIBUTION_POLL_MS = 250;
 const SUMMARY_TEXT_LIMIT = 6_000;
 const SUMMARY_FILE_LIMIT = 50;
+// Accumulator bound for the trailing text run (keep the tail — the verdict
+// of a long answer lives at the end).
+const FINAL_TEXT_RUN_LIMIT = 24_000;
 
 export interface DelegateAgentModel {
   id: string;
@@ -89,6 +92,15 @@ export interface DelegateExecution {
   parentToolUseId: string;
   agent: AgentProvider;
   startedAt: number;
+  /**
+   * The trailing run of text-only assistant messages — providers (kimi/ACP
+   * especially) commit one logical final answer as SEVERAL assistant
+   * messages, so "the last message" alone is a mid-sentence fragment. Reset
+   * whenever a tool_use message arrives (text before tool work is narration,
+   * not the answer).
+   */
+  finalTextRun: string;
+  /** Most recent non-empty text, kept as a fallback for runs that end on a tool call. */
   lastAssistantText: string;
   changedFiles: Set<string>;
   mirroredCount: number;
@@ -432,7 +444,18 @@ export function mirrorDelegateMessage(execSessionId: string, message: StreamMess
   if (message.type === 'assistant') {
     const text = extractAssistantTextBlocks(message);
     if (text) exec.lastAssistantText = text;
-    collectChangedFiles(message, exec.changedFiles);
+    const hasToolUse = contentBlocksOf(message).some((block) => block.type === 'tool_use');
+    if (hasToolUse) {
+      // Tool work after text means that text was narration — the final
+      // answer is whatever trailing text run follows the LAST tool call.
+      exec.finalTextRun = '';
+      collectChangedFiles(message, exec.changedFiles);
+    } else if (text) {
+      exec.finalTextRun = exec.finalTextRun ? `${exec.finalTextRun}\n${text}` : text;
+      if (exec.finalTextRun.length > FINAL_TEXT_RUN_LIMIT) {
+        exec.finalTextRun = exec.finalTextRun.slice(-FINAL_TEXT_RUN_LIMIT);
+      }
+    }
   }
   const mirrored = transformDelegateMessage(exec, message);
   if (mirrored) {
@@ -472,7 +495,7 @@ export function buildDelegateSummary(exec: DelegateExecution, status: DelegateTa
     if (errorText.length > 1_000) errorText = `${errorText.slice(0, 1_000)}… [truncated]`;
     lines.push(`Error: ${errorText}`);
   }
-  let text = exec.lastAssistantText || '(the delegated agent produced no final text)';
+  let text = exec.finalTextRun || exec.lastAssistantText || '(the delegated agent produced no final text)';
   if (text.length > SUMMARY_TEXT_LIMIT) {
     text = `${text.slice(0, SUMMARY_TEXT_LIMIT)}\n… [truncated]`;
   }
@@ -619,6 +642,7 @@ export async function runDelegateTask(
     parentToolUseId: toolUseId,
     agent,
     startedAt: Date.now(),
+    finalTextRun: '',
     lastAssistantText: '',
     changedFiles: new Set(),
     mirroredCount: 0,
