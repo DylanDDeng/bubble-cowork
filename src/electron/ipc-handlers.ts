@@ -38,7 +38,9 @@ import {
   initializeDelegateService,
   isDelegateExecutionSession,
   mirrorDelegateMessage,
+  recordDelegateExecutionError,
   stopDelegationsForParent,
+  type DelegateAgentModel,
 } from './libs/delegate-service';
 import { ensureDelegateHttpServer, disposeDelegateHttpServer } from './libs/delegate-http-server';
 import {
@@ -4944,6 +4946,49 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         type: 'stream.message',
         payload: { sessionId, message },
       });
+    },
+    // Model catalogs for fuzzy delegate model resolution. Sourced from the
+    // same configs the pickers use — never hardcoded lists. Providers
+    // without a catalog return [] and requested models pass through as-is.
+    listAgentModels: async (agent): Promise<DelegateAgentModel[]> => {
+      try {
+        if (agent === 'codex') {
+          return getCodexModelConfig().availableModels.map((model) => ({
+            id: model.name,
+            label: model.label ?? null,
+          }));
+        }
+        if (agent === 'kimi') {
+          const config = await getKimiModelConfig();
+          try {
+            ensureProviderService();
+            const kimiAdapter = getProviderService().getAdapter('kimi') as {
+              peekServerModels?: () => Array<Record<string, unknown>> | null;
+            } | null;
+            const cached = kimiAdapter?.peekServerModels?.();
+            if (cached) {
+              const merged = mergeKimiServerModelMetadata(config, cached);
+              return merged.availableModels.map((model) => ({
+                id: model.name,
+                label: model.label ?? null,
+              }));
+            }
+          } catch {
+            // fall through to CLI config
+          }
+          return config.availableModels.map((model) => ({
+            id: model.name,
+            label: model.label ?? null,
+          }));
+        }
+        if (agent === 'claude') {
+          const config = await getClaudeModelConfigWithCatalog();
+          return config.options.map((id) => ({ id }));
+        }
+      } catch (error) {
+        console.warn('Delegate model catalog lookup failed:', error);
+      }
+      return [];
     },
   });
   // Loopback HTTP transport for non-Claude leads (v1: codex). Failure is
@@ -10074,6 +10119,11 @@ function startRunner(
     onError: (error) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error('Runner error:', error);
+      // Delegate executions surface their failure reason to the lead through
+      // the tool-result summary — record it before any silent-drop path.
+      if (isDelegateExecutionSession(session.id)) {
+        recordDelegateExecutionError(session.id, message);
+      }
       // A hard error may end the turn without a result — close the latency
       // window so it doesn't wedge the session's future measurements.
       if (provider === 'claude') {

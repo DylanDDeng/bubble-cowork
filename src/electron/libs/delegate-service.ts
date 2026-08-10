@@ -35,6 +35,11 @@ const ATTRIBUTION_POLL_MS = 250;
 const SUMMARY_TEXT_LIMIT = 6_000;
 const SUMMARY_FILE_LIMIT = 50;
 
+export interface DelegateAgentModel {
+  id: string;
+  label?: string | null;
+}
+
 export interface DelegateHost {
   startSession(payload: SessionStartPayload): Promise<string | null>;
   stopSession(sessionId: string): void;
@@ -44,6 +49,11 @@ export interface DelegateHost {
   listRunningSessionIds(): string[];
   /** Persist into the session's transcript AND broadcast to the renderer. */
   addMessageToSession(sessionId: string, message: StreamMessage): void;
+  /**
+   * The target agent's installed model catalog, for fuzzy model resolution.
+   * Empty/absent = no catalog known → requested models pass through as-is.
+   */
+  listAgentModels?(agent: AgentProvider): Promise<DelegateAgentModel[]>;
 }
 
 export interface DelegateTaskRequest {
@@ -88,6 +98,8 @@ export interface DelegateExecution {
   reasoningEffort: string | null;
   /** Effective model reported by the child runtime's system init. */
   actualModel: string | null;
+  /** Last error text from the child (runner error / error result), for the summary. */
+  errorText: string | null;
 }
 
 let host: DelegateHost | null = null;
@@ -261,6 +273,61 @@ export function applyPermissionTier(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Fuzzy model resolution
+// ---------------------------------------------------------------------------
+
+function modelTokens(value: string): Set<string> {
+  return new Set(
+    value
+      .toLowerCase()
+      .split(/[^a-z0-9.]+/)
+      .filter(Boolean)
+  );
+}
+
+export interface DelegateModelResolution {
+  id: string | null;
+  /** Set when several catalog entries matched equally well. */
+  ambiguous?: string[];
+}
+
+/**
+ * Resolve a user/lead-worded model ("kimi code k3 thinking", "gpt 5.6 sol")
+ * against the target agent's real catalog. Token-overlap scoring, no
+ * hardcoded names: exact id match wins; otherwise the candidate sharing the
+ * most tokens with the request (id + display label) wins if it is a UNIQUE
+ * best; ties surface as ambiguous so the lead can pick precisely.
+ */
+export function resolveDelegateModelId(
+  requested: string,
+  candidates: DelegateAgentModel[]
+): DelegateModelResolution {
+  const trimmed = requested.trim();
+  if (!trimmed || candidates.length === 0) return { id: trimmed || null };
+  const exact = candidates.find((c) => c.id.toLowerCase() === trimmed.toLowerCase());
+  if (exact) return { id: exact.id };
+
+  const requestedTokens = modelTokens(trimmed);
+  let best: Array<{ id: string; score: number; coverage: number }> = [];
+  for (const candidate of candidates) {
+    const tokens = modelTokens(`${candidate.id} ${candidate.label ?? ''}`);
+    let score = 0;
+    for (const token of requestedTokens) if (tokens.has(token)) score += 1;
+    if (score === 0) continue;
+    const coverage = score / tokens.size;
+    best.push({ id: candidate.id, score, coverage });
+  }
+  if (best.length === 0) return { id: null };
+  best.sort((a, b) => b.score - a.score || b.coverage - a.coverage);
+  const top = best[0];
+  const rivals = best.filter(
+    (entry) => entry.score === top.score && entry.coverage === top.coverage
+  );
+  if (rivals.length > 1) return { id: null, ambiguous: rivals.map((entry) => entry.id) };
+  return { id: top.id };
+}
+
 /**
  * Route the requested reasoning effort to the target provider's payload
  * field. The value stays an open string — each runtime validates its own
@@ -351,6 +418,17 @@ export function mirrorDelegateMessage(execSessionId: string, message: StreamMess
     const model = (message as { model?: unknown }).model;
     if (typeof model === 'string' && model.trim()) exec.actualModel = model.trim();
   }
+  // Error results carry the only diagnostic the lead will ever see — losing
+  // them leaves it retrying blind (observed: four attempts to land one
+  // delegation because every summary said "produced no final text").
+  if (message.type === 'result') {
+    const record = message as { subtype?: string; is_error?: boolean; result?: unknown; error?: unknown };
+    const failed = record.is_error === true || (record.subtype && record.subtype !== 'success');
+    const text =
+      typeof record.result === 'string' ? record.result :
+      typeof record.error === 'string' ? record.error : '';
+    if (failed && text.trim()) exec.errorText = text.trim();
+  }
   if (message.type === 'assistant') {
     const text = extractAssistantTextBlocks(message);
     if (text) exec.lastAssistantText = text;
@@ -368,6 +446,16 @@ export function mirrorDelegateMessage(execSessionId: string, message: StreamMess
   return true;
 }
 
+/**
+ * Runner-level failures (spawn errors, API errors) never pass through the
+ * message stream — ipc-handlers' onError reports them here so the summary
+ * can tell the lead WHY the delegation failed.
+ */
+export function recordDelegateExecutionError(execSessionId: string, errorText: string): void {
+  const exec = executionsByExecSession.get(execSessionId);
+  if (exec && !exec.settled && errorText.trim()) exec.errorText = errorText.trim();
+}
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
@@ -378,6 +466,11 @@ export function buildDelegateSummary(exec: DelegateExecution, status: DelegateTa
     lines.push(`[${exec.agent}] delegate timed out after ${Math.round(DELEGATE_TIMEOUT_MS / 60000)} minutes; partial output below.`);
   } else if (status === 'error') {
     lines.push(`[${exec.agent}] delegate ended with an error; last output below.`);
+  }
+  if (status !== 'completed' && exec.errorText) {
+    let errorText = exec.errorText;
+    if (errorText.length > 1_000) errorText = `${errorText.slice(0, 1_000)}… [truncated]`;
+    lines.push(`Error: ${errorText}`);
   }
   let text = exec.lastAssistantText || '(the delegated agent produced no final text)';
   if (text.length > SUMMARY_TEXT_LIMIT) {
@@ -485,8 +578,39 @@ export async function runDelegateTask(
   const parentRow = activeHost.getSession(parentSessionId);
   if (!parentRow) return rejected('The calling session no longer exists.');
 
-  const requestedModel = String(request.model || '').trim() || null;
+  let requestedModel = String(request.model || '').trim() || null;
   const reasoningEffort = String(request.reasoningEffort || '').trim() || null;
+
+  // Fuzzy model resolution: leads pass the user's wording ("kimi code k3
+  // thinking"); pin it to a real catalog id before starting the child, and
+  // fail fast WITH the catalog when it can't be pinned — a blind pass-through
+  // costs a whole failed child run per guess.
+  if (requestedModel) {
+    let candidates: DelegateAgentModel[] = [];
+    try {
+      candidates = (await activeHost.listAgentModels?.(agent)) ?? [];
+    } catch (error) {
+      console.warn('Delegate model catalog lookup failed for', agent, error);
+    }
+    if (candidates.length > 0) {
+      const resolution = resolveDelegateModelId(requestedModel, candidates);
+      const catalog = candidates
+        .slice(0, 20)
+        .map((c) => (c.label && c.label !== c.id ? `${c.id} (${c.label})` : c.id))
+        .join(', ');
+      if (resolution.ambiguous) {
+        return rejected(
+          `Model "${requestedModel}" is ambiguous for ${agent}: ${resolution.ambiguous.join(', ')}. Pick one exact id.`
+        );
+      }
+      if (!resolution.id) {
+        return rejected(
+          `Unknown model "${requestedModel}" for ${agent}. Available models: ${catalog}. Retry with an exact id, or omit model to use the default.`
+        );
+      }
+      requestedModel = resolution.id;
+    }
+  }
 
   claimedToolUseIds.add(toolUseId);
   const exec: DelegateExecution = {
@@ -502,6 +626,7 @@ export async function runDelegateTask(
     requestedModel,
     reasoningEffort,
     actualModel: null,
+    errorText: null,
   };
   bumpParent(parentSessionId, 1);
 

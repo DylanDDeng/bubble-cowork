@@ -15,6 +15,7 @@ import {
   isDelegateExecutionSession,
   isDelegateToolUseName,
   mirrorDelegateMessage,
+  resolveDelegateModelId,
   resolveParentPermissionTier,
   runDelegateTask,
   transformDelegateMessage,
@@ -342,6 +343,100 @@ async function testHttpAttribution() {
   console.log('PASS: HTTP-caller attribution');
 }
 
+async function testModelResolution() {
+  const kimiCatalog = [
+    { id: 'kimi-code/k3', label: 'Kimi Code K3' },
+    { id: 'kimi-code/k2.5', label: 'Kimi Code K2.5' },
+  ];
+  // The exact failure observed in the wild: the lead invented "kimi-k3-thinking".
+  assert.equal(resolveDelegateModelId('kimi-k3-thinking', kimiCatalog).id, 'kimi-code/k3');
+  assert.equal(resolveDelegateModelId('kimi code k3', kimiCatalog).id, 'kimi-code/k3');
+  assert.equal(resolveDelegateModelId('k2.5', kimiCatalog).id, 'kimi-code/k2.5');
+  assert.equal(resolveDelegateModelId('kimi-code/k3', kimiCatalog).id, 'kimi-code/k3', 'exact id wins');
+
+  const codexCatalog = [
+    { id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
+    { id: 'gpt-5.6-terra', label: 'GPT-5.6-Terra' },
+    { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3-Codex-Spark' },
+  ];
+  assert.equal(resolveDelegateModelId('gpt 5.6 sol', codexCatalog).id, 'gpt-5.6-sol');
+  assert.equal(resolveDelegateModelId('sol', codexCatalog).id, 'gpt-5.6-sol');
+  const ambiguous = resolveDelegateModelId('gpt 5.6', codexCatalog);
+  assert.equal(ambiguous.id, null, 'gpt 5.6 alone is ambiguous');
+  assert.deepEqual(ambiguous.ambiguous?.sort(), ['gpt-5.6-sol', 'gpt-5.6-terra']);
+  assert.equal(resolveDelegateModelId('claude opus', codexCatalog).id, null, 'no overlap → no guess');
+  assert.equal(
+    resolveDelegateModelId('anything', []).id,
+    'anything',
+    'no catalog → pass through untouched'
+  );
+  console.log('PASS: fuzzy model resolution');
+}
+
+async function testModelResolutionInRun() {
+  __resetDelegateServiceForTests();
+  const world = makeWorld();
+  world.host.listAgentModels = async () => [
+    { id: 'kimi-code/k3', label: 'Kimi Code K3' },
+    { id: 'kimi-code/k2.5', label: 'Kimi Code K2.5' },
+  ];
+  initializeDelegateService(world.host);
+  world.parentHistory.push(
+    assistantWithToolUse('anchor-m1', DELEGATE_NAME, { agent: 'kimi', prompt: 'analyze' })
+  );
+
+  // Unresolvable model → rejected fast WITH the catalog, before any child starts.
+  const unknown = await runDelegateTask({
+    agent: 'kimi',
+    prompt: 'analyze',
+    model: 'claude-opus-9',
+    callerSessionId: 'parent-1',
+  });
+  assert.equal(unknown.status, 'rejected');
+  assert.match(unknown.summary, /Unknown model "claude-opus-9"/);
+  assert.match(unknown.summary, /kimi-code\/k3 \(Kimi Code K3\)/, 'catalog listed for retry');
+  assert.equal(world.startPayloads.length, 0, 'no child session was started');
+
+  // Fuzzy wording resolves to the exact catalog id before the child starts.
+  const resultPromise = runDelegateTask({
+    agent: 'kimi',
+    prompt: 'analyze',
+    model: 'kimi-k3-thinking',
+    callerSessionId: 'parent-1',
+  });
+  await sleep(100);
+  assert.equal(world.startPayloads[0]?.model, 'kimi-code/k3', 'fuzzy wording pinned to catalog id');
+  world.execStatus = 'completed';
+  await resultPromise;
+  console.log('PASS: model resolution in runDelegateTask');
+}
+
+async function testErrorPassthrough() {
+  __resetDelegateServiceForTests();
+  const world = makeWorld();
+  initializeDelegateService(world.host);
+  world.parentHistory.push(
+    assistantWithToolUse('anchor-e1', DELEGATE_NAME, { agent: 'codex', prompt: 'do it' })
+  );
+  const resultPromise = runDelegateTask({ agent: 'codex', prompt: 'do it', callerSessionId: 'parent-1' });
+  await sleep(100);
+  mirrorDelegateMessage('exec-1', {
+    type: 'result',
+    subtype: 'error_during_execution',
+    is_error: true,
+    result: 'model not found: kimi-k3-thinking',
+  } as unknown as StreamMessage);
+  world.execStatus = 'error';
+  const result = await resultPromise;
+  assert.equal(result.status, 'error');
+  assert.match(
+    result.summary,
+    /Error: model not found: kimi-k3-thinking/,
+    'the child error reaches the lead so retries are informed'
+  );
+  console.log('PASS: child error text reaches the summary');
+}
+
 async function testSummaryTruncation() {
   const exec = {
     execSessionId: 'exec-1',
@@ -356,6 +451,7 @@ async function testSummaryTruncation() {
     requestedModel: null,
     reasoningEffort: null,
     actualModel: null,
+    errorText: null,
   };
   const summary = buildDelegateSummary(exec, 'completed');
   assert.ok(summary.includes('[truncated]'), 'long text is truncated');
@@ -429,6 +525,9 @@ async function main() {
   await testHappyPathAndLocks();
   await testTimeout();
   await testHttpAttribution();
+  await testModelResolution();
+  await testModelResolutionInRun();
+  await testErrorPassthrough();
   await testSummaryTruncation();
   await testRendererPredicates();
   console.log('delegate-mcp tests: ALL PASS');

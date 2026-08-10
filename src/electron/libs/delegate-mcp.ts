@@ -76,7 +76,7 @@ export async function createDelegateMcpServer(parentSessionId: string) {
             .string()
             .optional()
             .describe(
-              "Model id for the delegated agent, in that agent's own naming (e.g. a codex or claude model id). Omit to use the agent's default."
+              "Model for the delegated agent. Pass the user's wording as-is (e.g. 'kimi code k3', 'gpt 5.6 sol') — it is fuzzily resolved against that agent's installed model catalog, and unresolvable values fail fast with the list of valid ids. Omit unless the user named a model."
             ),
           reasoning_effort: z
             .string()
