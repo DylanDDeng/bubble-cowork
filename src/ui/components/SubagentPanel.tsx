@@ -140,13 +140,25 @@ export function SubagentPanel({
     return buildSubagentChangeSummary(subagentMessagesByParent.get(selectedId) ?? []);
   }, [selectedId, selectedFinished, subagentMessagesByParent]);
 
+  // Live only while THIS subagent's spawn call is unresolved — the session
+  // may stay busy on other lanes long after this trace finished.
+  const selectedRunning = Boolean(selected && selected.status === 'pending' && sessionRunning);
+
   const timelineItems = useMemo(() => {
     if (!session || !selectedId) return [];
     return deriveTranscriptTimelineItems(session.messages, {
       subagentScopeId: selectedId,
-      sessionRunning,
+      sessionRunning: selectedRunning,
+      // The scoped trace is ONE live turn. Without an active-turn anchor the
+      // collapse pass promotes the trailing text to a tentative "answer" on
+      // every new message and demotes it again when more activity follows —
+      // narration visibly jumps around the tool chips (the main transcript
+      // got the same fix via its real activeTurnStartIndex). Anchoring at -1
+      // keeps live narration in chronological order inside the work region;
+      // the closing text presents as the answer once the trace settles.
+      activeTurnStartIndex: -1,
     });
-  }, [session?.messages, selectedId, sessionRunning]);
+  }, [session?.messages, selectedId, selectedRunning]);
 
   // Cross-agent delegations show the target agent's provider logo instead of
   // the pixel avatar, plus the model it runs — find the anchoring

@@ -61,4 +61,63 @@ function msg(
   assert.equal(s.includes('grandchild'), false, 'grandchild not inlined at this scope level');
 }
 
+// ── Live scoped trace: narration stays in chronological order (no tentative
+//    answer promotion — the SubagentPanel passes activeTurnStartIndex: -1) ──
+{
+  const messages = [
+    msg([{ type: 'text', text: 'narration-before-spawn' }], { parentToolUseId: 'toolu_A' }),
+    msg([{ type: 'tool_use', id: 'tool_spawn', name: 'Agent', input: { subagent_type: 'explore' } }], {
+      parentToolUseId: 'toolu_A',
+    }),
+    msg([{ type: 'text', text: 'trailing-live-text' }], { parentToolUseId: 'toolu_A' }),
+  ];
+  // LIVE: the trailing text must NOT be promoted to a terminal answer — it
+  // folds into the work region in order, so nothing jumps when more
+  // activity arrives after it.
+  const live = deriveTranscriptTimelineItems(messages, {
+    subagentScopeId: 'toolu_A',
+    sessionRunning: true,
+    activeTurnStartIndex: -1,
+  });
+  const liveAnswer = live.find(
+    (item) => item.type === 'message' && (item as { assistantPresentation?: string }).assistantPresentation === 'answer'
+  );
+  assert.equal(
+    Boolean(liveAnswer && JSON.stringify(liveAnswer).includes('trailing-live-text')),
+    false,
+    'live trailing text is not presented as the answer'
+  );
+  const liveOrder = JSON.stringify(live);
+  assert.ok(
+    liveOrder.indexOf('narration-before-spawn') < liveOrder.indexOf('tool_spawn'),
+    'live narration keeps its chronological position before the spawn'
+  );
+
+  // SETTLED: once the trace stops running and its tools resolved, the
+  // closing text presents as the answer below the collapsed work. (With an
+  // UNRESOLVED tool the settle path freezes the trace instead — that is the
+  // interrupted case, covered by the collapse logic itself.)
+  const settledMessages = [
+    ...messages,
+    {
+      type: 'user',
+      uuid: 'u-result',
+      parentToolUseId: 'toolu_A',
+      createdAt: 2,
+      message: { content: [{ type: 'tool_result', tool_use_id: 'tool_spawn', content: 'done' }] },
+    } as unknown as StreamMessage,
+  ];
+  const done = deriveTranscriptTimelineItems(settledMessages, {
+    subagentScopeId: 'toolu_A',
+    sessionRunning: false,
+    activeTurnStartIndex: -1,
+  });
+  const doneStr = JSON.stringify(done);
+  const answerItem = done.find(
+    (item) => item.type === 'message' && JSON.stringify(item).includes('trailing-live-text')
+  );
+  assert.ok(answerItem, 'closing text renders once settled');
+  assert.ok(doneStr.includes('trailing-live-text'), 'closing text present after settle');
+}
+
 console.log('subagent-scope.test.ts passed');
