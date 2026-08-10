@@ -117,7 +117,17 @@ assert.equal(
 assert.equal(
   workstreamComponent.includes("if (entry.type === 'task')"),
   true,
-  'EntryRow must route task entries to the subagent lane so nested Task traces stay expandable'
+  'EntryRow must route task entries to the subagent chip row that opens the detail panel'
+);
+assert.equal(
+  workstreamComponent.includes('SubagentLaneDetail'),
+  false,
+  'the main trace must not render an inline nested subagent trace — the trace lives only in the subagent panel'
+);
+assert.equal(
+  workstreamComponent.includes('openSubagentPanel(entry.block.id)'),
+  true,
+  'clicking a subagent lane must open that subagent in the right-side detail panel'
 );
 
 const tscBin = path.join(

@@ -7,7 +7,6 @@ import {
   FileDiff,
   FolderSearch,
   LoaderCircle,
-  PanelRight,
   ShieldAlert,
   SquareTerminal,
   Workflow,
@@ -46,6 +45,8 @@ import {
   type WorkstreamStageFile,
 } from '../utils/workstream-stages';
 import { FileTypeIcon } from './FileTypeIcon';
+import { SubagentAvatar } from './SubagentAvatar';
+import { getSubagentPersona } from '../utils/subagent-persona';
 
 interface AssistantWorkstreamProps {
   model: WorkstreamModel;
@@ -572,8 +573,9 @@ function hasRawEntryDetail(entry: WorkstreamEntry): boolean {
 
 // ── Subagent stage (Task tool calls) ────────────────────────────────────────
 // A single Task renders as a standalone lane row; parallel Tasks merge into a
-// board card with one lane per subagent — live status dot, agent chip, and an
-// expandable nested trace of the subagent's own activity.
+// board card with one lane per subagent. Each lane is a compact chip row —
+// clicking it opens the subagent's own tab in the right-side detail panel,
+// which is the only place the subagent's working trace renders.
 
 type TaskEntry = Extract<WorkstreamEntry, { type: 'task' }>;
 
@@ -639,185 +641,63 @@ function SubagentLane({
   standalone?: boolean;
 }) {
   const trace = entry.subagent;
-  const hasTrace = Boolean(trace && trace.entries.length > 0);
-  const canExpand = hasTrace || hasEntryDetail(entry);
-  // null = follow the automatic default: open while the subagent is running so
-  // its live activity is visible, closed once it settles. A user toggle pins
-  // the choice for the rest of the mount.
-  const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
-  const autoExpanded = entry.status === 'pending' && hasTrace;
-  const expanded = (userExpanded ?? autoExpanded) && canExpand;
-
-  const isPending = entry.status === 'pending';
-  const isError = entry.status === 'error';
   const description = trace?.description || getTaskDescription(entry) || entry.summary;
+  // The avatar hue is derived from the Task tool_use id — the same key the
+  // subagent registry / utility tabs use — so the chat row and the tab show
+  // the same pixel creature for one subagent.
+  const persona = getSubagentPersona(entry.block.id, trace?.agentType, description);
 
+  // The whole row opens this subagent's tab in the right-side detail panel —
+  // the subagent's working trace lives there, not inline in the main trace.
   return (
-    <div className="group">
-      <div className="flex items-center">
-        <button
-          type="button"
-          onClick={() => canExpand && setUserExpanded((value) => !(value ?? autoExpanded))}
-          disabled={!canExpand}
-          title={safeTitle(description)}
-          className={`flex min-w-0 flex-1 items-center gap-2 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
-            canExpand ? '' : 'cursor-default'
-          } ${standalone ? 'py-0.5' : 'px-2.5 py-1'}`}
-        >
-          <SubagentStatusDot status={entry.status} />
-          <span className="flex-shrink-0 rounded bg-[var(--subagent-bg)] px-1.5 font-mono text-[10.5px] leading-4 text-[var(--subagent)]">
-            {trace?.agentType || 'subagent'}
-          </span>
-          <span
-            className={`min-w-0 flex-1 truncate ${
-              isError
-                ? 'text-[var(--error)]'
-                : isPending
-                  ? 'text-[var(--text-secondary)]'
-                  : 'text-[var(--text-muted)]/70'
-            }`}
-          >
-            {description}
-          </span>
-          <SubagentLaneStats entry={entry} />
-          {canExpand ? (
-            <ChevronRight
-              className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform ${
-                expanded ? 'rotate-90' : ''
-              }`}
-            />
-          ) : null}
-        </button>
-        {/* Open this subagent in the roomy right-side detail panel. Kept
-            separate from the inline expand toggle: inline = overview, panel =
-            full read-only transcript. */}
-        <button
-          type="button"
-          onClick={() => useAppStore.getState().openSubagentPanel(entry.block.id)}
-          title="Open in subagent panel"
-          className={`flex-shrink-0 rounded p-1 text-[var(--text-muted)]/50 opacity-0 transition-opacity hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover:opacity-100 ${
-            standalone ? 'mr-0.5' : 'mr-1.5'
-          }`}
-        >
-          <PanelRight className="h-3 w-3" />
-        </button>
-      </div>
-      {expanded ? <SubagentLaneDetail entry={entry} standalone={standalone} /> : null}
-    </div>
+    <button
+      type="button"
+      onClick={() => useAppStore.getState().openSubagentPanel(entry.block.id)}
+      title={buildSubagentLaneTitle(entry, description)}
+      className={`group flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-[12px] leading-5 transition-colors ${
+        standalone ? 'py-0.5' : 'px-2.5 py-1'
+      }`}
+    >
+      <span className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)]/60 py-0.5 pl-1.5 pr-2.5 transition-colors group-hover:border-[var(--text-muted)]/45 group-hover:bg-[var(--bg-tertiary)]/60">
+        <SubagentAvatar id={entry.block.id} hue={persona.colorHue} size={12} />
+        <span className="min-w-0 truncate text-[12px] leading-4 text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]">
+          {description}
+        </span>
+      </span>
+      <SubagentLaneStatusWord status={entry.status} />
+    </button>
   );
 }
 
-function SubagentStatusDot({ status }: { status: TaskEntry['status'] }) {
-  const toneClass =
-    status === 'pending'
-      ? 'bg-[var(--warning)] animate-pulse'
-      : status === 'error'
-        ? 'bg-[var(--error)]'
-        : status === 'interrupted'
-          ? 'bg-[var(--text-muted)]/50'
-          : 'bg-[var(--success)]';
-  return <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${toneClass}`} />;
-}
-
-function SubagentLaneStats({ entry }: { entry: TaskEntry }) {
-  const trace = entry.subagent;
-  const parts: string[] = [];
-  if (trace && trace.toolCount > 0) {
-    parts.push(`${trace.toolCount} ${trace.toolCount === 1 ? 'tool' : 'tools'}`);
-  }
-
-  if (entry.status === 'pending') {
+/** Muted lowercase status word to the right of the subagent chip. */
+function SubagentLaneStatusWord({ status }: { status: TaskEntry['status'] }) {
+  if (status === 'pending') {
     return (
-      <span className="flex-shrink-0 font-mono text-[10.5px] text-[var(--text-muted)]/80">
-        {parts.length > 0 ? `${parts.join(' · ')} · ` : ''}
-        <LiveElapsed startedAt={trace?.startedAt} />
+      <span className="flex flex-shrink-0 items-center gap-1 text-[11px] text-[var(--text-muted)]/80">
+        <LoaderCircle className="h-3 w-3 flex-shrink-0 animate-spin text-[var(--text-muted)]/55" />
+        running
       </span>
     );
   }
+  const word =
+    status === 'error' ? 'failed' : status === 'interrupted' ? 'interrupted' : 'finished';
+  return (
+    <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]/80">{word}</span>
+  );
+}
 
-  if (entry.status === 'error') {
-    parts.push('failed');
-  } else if (entry.status === 'interrupted') {
-    parts.push('stopped');
-  } else if (typeof trace?.durationMs === 'number') {
+/** Fuller hover info (agent type, tool count, duration) kept off the line. */
+function buildSubagentLaneTitle(entry: TaskEntry, description: string): string | undefined {
+  const trace = entry.subagent;
+  const parts: string[] = [];
+  if (trace?.agentType) parts.push(trace.agentType);
+  if (trace && trace.toolCount > 0) {
+    parts.push(`${trace.toolCount} ${trace.toolCount === 1 ? 'tool' : 'tools'}`);
+  }
+  if (typeof trace?.durationMs === 'number') {
     parts.push(formatElapsed(trace.durationMs));
   }
-  if (parts.length === 0) return null;
-  return (
-    <span className="flex-shrink-0 font-mono text-[10.5px] text-[var(--text-muted)]/80">
-      {parts.join(' · ')}
-    </span>
-  );
-}
-
-function LiveElapsed({ startedAt }: { startedAt: number | undefined }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (typeof startedAt !== 'number') return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [startedAt]);
-
-  if (typeof startedAt !== 'number') {
-    return <>running</>;
-  }
-  return <>{formatElapsed(Math.max(0, now - startedAt))}</>;
-}
-
-function SubagentLaneDetail({
-  entry,
-  standalone,
-}: {
-  entry: TaskEntry;
-  standalone: boolean;
-}) {
-  const trace = entry.subagent;
-  const hasTrace = Boolean(trace && trace.entries.length > 0);
-
-  return (
-    <div
-      className={`${standalone ? 'ml-1' : 'mx-2.5'} mb-1.5 border-l border-[var(--subagent-border)] pl-3`}
-    >
-      {hasTrace ? (
-        <>
-          <div className="space-y-px py-0.5">
-            {trace!.entries.map((child) => (
-              <EntryRow key={child.id} entry={child} />
-            ))}
-          </div>
-          <SubagentResultSection entry={entry} />
-        </>
-      ) : (
-        <ToolEntryDetail entry={entry} />
-      )}
-    </div>
-  );
-}
-
-function SubagentResultSection({ entry }: { entry: TaskEntry }) {
-  const [show, setShow] = useState(false);
-  const output = getToolResultOutputContent(entry.result);
-  if (!output) return null;
-
-  return (
-    <div className="my-1 text-[12px]">
-      <CollapsibleSection
-        label="Result"
-        expanded={show}
-        onToggle={() => setShow((value) => !value)}
-        isError={entry.result?.is_error}
-      >
-        <pre
-          className={`whitespace-pre-wrap break-words text-[12px] leading-5 ${
-            entry.result?.is_error ? 'text-[var(--error)]' : 'text-[var(--text-secondary)]'
-          }`}
-        >
-          {truncateWithNotice(output, MAX_TRACE_TEXT_CHARS)}
-        </pre>
-      </CollapsibleSection>
-    </div>
-  );
+  return safeTitle(parts.length > 0 ? `${description}\n${parts.join(' · ')}` : description);
 }
 
 function getTaskDescription(entry: TaskEntry): string | null {
@@ -837,9 +717,9 @@ function getTaskDescription(entry: TaskEntry): string | null {
 
 function EntryRow({ entry, showChangeHint = true }: { entry: WorkstreamEntry; showChangeHint?: boolean }) {
   if (entry.type === 'task') {
-    // Task entries carry their own nested subagent trace — render them as an
-    // expandable lane (recursively, up to the trace depth cap) rather than a
-    // generic tool row that would hide the trace.
+    // Task entries render as a subagent chip row rather than a generic tool
+    // row — clicking the chip opens the subagent's tab in the detail panel,
+    // where its full working trace lives.
     return <SubagentLane entry={entry} standalone />;
   }
   if (entry.type === 'thinking') {

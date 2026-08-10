@@ -46,6 +46,13 @@ export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeCon
     if (endExclusive <= turnStart) return;
     const slice = messages.slice(turnStart, endExclusive);
     const records = extractToolChangeRecords(slice);
+    // Subagent-made changes belong to the subagent's own card (SubagentPanel);
+    // the turn card aggregates only the main agent's own edits. The per-tool
+    // maps below still index ALL records so hover hints inside subagent lanes
+    // keep resolving.
+    const mainRecords = extractToolChangeRecords(
+      slice.filter((msg) => !(msg as { parentToolUseId?: string }).parentToolUseId)
+    );
 
     for (const record of records) {
       if (record.toolUseId) {
@@ -59,12 +66,13 @@ export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeCon
       }
     }
 
-    const merged = mergeRecordsByPath(records);
+    const merged = mergeRecordsByPath(mainRecords);
 
     // The runner emits one `turn_changes` message per completed turn (git
     // tree-snapshot diff); take the last one in this segment. A turn with a
     // git patch but zero tool records (e.g. MCP-only edits) still counts as
-    // a turn with changes.
+    // a turn with changes — unless the patch is explained by subagent
+    // records, in which case the subagent's card owns the display.
     let gitPatch: string | null = null;
     for (const msg of slice) {
       if (msg.type === 'system' && msg.subtype === 'turn_changes' && msg.turnChanges.patch.trim()) {
@@ -72,7 +80,8 @@ export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeCon
       }
     }
 
-    if (merged.length > 0 || records.length > 0 || gitPatch) {
+    const hasSubagentRecords = records.length > mainRecords.length;
+    if (merged.length > 0 || mainRecords.length > 0 || (gitPatch && !hasSubagentRecords)) {
       turns.push({
         turnIndex: pendingTurnIndex,
         firstMessageIndex: turnStart,
@@ -97,6 +106,30 @@ export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeCon
   flush(messages.length);
 
   return { turns, changeRecordByToolUseId, changeRecordsByToolUseId };
+}
+
+/**
+ * Change summary for ONE subagent's message slice (the messages grouped under
+ * its Task tool_use id). Same per-path merging as the main turn card; no git
+ * patch — tree snapshots are captured per main turn, not per subagent. The
+ * message indices are slice-local and only satisfy the summary shape; they
+ * are meaningless against `session.messages`.
+ */
+export function buildSubagentChangeSummary(messages: StreamMessage[]): TurnChangeSummary | null {
+  if (messages.length === 0) return null;
+  const records = extractToolChangeRecords(messages);
+  if (records.length === 0) return null;
+  const merged = mergeRecordsByPath(records);
+  return {
+    turnIndex: 0,
+    firstMessageIndex: 0,
+    lastMessageIndex: messages.length - 1,
+    records: merged,
+    gitPatch: null,
+    totalFiles: merged.length,
+    totalAdded: merged.reduce((sum, r) => sum + r.addedLines, 0),
+    totalRemoved: merged.reduce((sum, r) => sum + r.removedLines, 0),
+  };
 }
 
 function mergeRecordsByPath(records: ChangeRecord[]): ChangeRecord[] {

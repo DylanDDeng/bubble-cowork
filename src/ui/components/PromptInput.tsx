@@ -59,6 +59,7 @@ import {
   type CodexReferencePayload,
 } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
+import { isSessionEffectivelyBusy } from '../utils/workstream';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import { removeSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import {
@@ -486,7 +487,18 @@ export function PromptInput({
   // interrupt awaits confirmation. The stop button is gone (no double-stop);
   // sends stay allowed — the main process holds them until the stop settles.
   const isStopping = activeSession?.status === 'stopping';
-  const isBusy = isRunning || isStopping || pendingStart || approvalPending;
+  // Effectively running: the provider turn is live OR a background subagent
+  // Task from the latest turn is still unresolved after the main result
+  // flipped the session to 'completed' (Claude keeps streaming its messages).
+  // Shared predicate with ChatPane's turn-card deferral. A stopped ('idle')
+  // or errored session is never effectively running — its pending Tasks are
+  // dead. Stop still works: the session.stop path hard-aborts the warm
+  // runner, killing background tasks and settling status to 'idle'.
+  const isEffectivelyRunning = useMemo(
+    () => isSessionEffectivelyBusy(activeSession?.status, activeSession?.messages ?? []),
+    [activeSession?.status, activeSession?.messages]
+  );
+  const isBusy = isEffectivelyRunning || isStopping || pendingStart || approvalPending;
   // Codex app-server supports turn/steer: a message sent while a turn is
   // streaming is injected into that turn instead of waiting for it to finish,
   // so the composer stays live for codex sessions while they run.
@@ -1233,7 +1245,7 @@ export function PromptInput({
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (isRunning) {
+      if (isEffectivelyRunning) {
         // Steer-capable providers queue mid-turn (handleSend routes to the
         // queue); Enter on an empty composer keeps the old stop shortcut.
         if (canSteerWhileRunning && (prompt.trim() || attachments.length > 0)) {
@@ -1427,7 +1439,7 @@ export function PromptInput({
                 ? 'Stopping…'
                 : canSteerWhileRunning
                 ? 'Ask for follow-up changes'
-                : isRunning
+                : isEffectivelyRunning
                 ? 'Press Enter to stop...'
                 : pendingStart
                 ? 'Starting session...'
@@ -1602,7 +1614,7 @@ export function PromptInput({
                   content: empty → stop square; typing → the normal send arrow
                   (which queues the follow-up), so the user sees they can send
                   without stopping the agent. */}
-              {isRunning &&
+              {isEffectivelyRunning &&
               !approvalPending &&
               !(canSteerWhileRunning && (prompt.trim() || attachments.length > 0)) ? (
                 <button
@@ -1621,7 +1633,7 @@ export function PromptInput({
                   modelSetupRequired ||
                   pendingStart ||
                   approvalPending ||
-                  (isRunning && !canSteerWhileRunning)
+                  (isEffectivelyRunning && !canSteerWhileRunning)
                 }
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
                 title="Send"

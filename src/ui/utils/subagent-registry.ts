@@ -11,10 +11,9 @@
  * "Top-level" = a Task tool_use block that appears in a main-agent message
  * (one whose `parentToolUseId` is null/absent).
  */
-import type { ContentBlock, StreamMessage, ToolStatus } from '../types';
+import type { StreamMessage, ToolStatus } from '../types';
 import { getMessageContentBlocks, normalizeToolUseBlock, normalizeToolResultBlock } from './message-content';
-import { classifyToolUse } from './tool-summary';
-import { groupSubagentMessagesByParent } from './workstream';
+import { groupSubagentMessagesByParent, isSubagentTaskBlock } from './workstream';
 import { getSubagentPersona, type SubagentPersona } from './subagent-persona';
 
 export interface SubagentSummary {
@@ -34,16 +33,6 @@ export interface SubagentSummary {
 
 function getString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
-}
-
-function isTaskBlock(block: ContentBlock): boolean {
-  const normalized = normalizeToolUseBlock(block);
-  if (!normalized) return false;
-  // Detect by classifyToolUse (Task/Agent) OR a subagent_type input directly —
-  // the input is the most runtime-agnostic signal for a subagent spawn.
-  if (classifyToolUse(normalized.name, normalized.input) === 'subagent') return true;
-  const input = normalized.input as Record<string, unknown> | undefined;
-  return typeof input?.subagent_type === 'string' && input.subagent_type.trim().length > 0;
 }
 
 /** tool_use id → success/error from its matching tool_result (else pending). */
@@ -81,7 +70,7 @@ export function deriveSubagentSummaries(messages: StreamMessage[]): SubagentSumm
     if (message.parentToolUseId) continue;
 
     for (const block of getMessageContentBlocks(message)) {
-      if (!isTaskBlock(block)) continue;
+      if (!isSubagentTaskBlock(block)) continue;
       const use = normalizeToolUseBlock(block);
       if (!use || seen.has(use.id)) continue;
       seen.add(use.id);

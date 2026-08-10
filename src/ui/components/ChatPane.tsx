@@ -6,7 +6,11 @@ import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
 import { useAppStore } from '../store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
-import { createStreamingWorkstreamModel, groupSubagentMessagesByParent } from '../utils/workstream';
+import {
+  createStreamingWorkstreamModel,
+  groupSubagentMessagesByParent,
+  hasUnresolvedActiveTurnTasks,
+} from '../utils/workstream';
 import { evaluateAutoFill, initialAutoFillState } from '../../shared/history-autofill';
 import { deriveTurnPhase, hasRunningToolInMessages } from '../utils/turn-utils';
 import {
@@ -1258,11 +1262,28 @@ export function ChatPane({
     [session?.messages]
   );
 
+  // Defer the ACTIVE turn's changes card while a background subagent Task from
+  // that turn is still unresolved — its edits are still streaming in, so the
+  // card would be premature (and would double once the Task lands). Historical
+  // turns are complete by definition and render as always; a stopped/errored
+  // session renders too (its pending Tasks are dead — see
+  // hasUnresolvedActiveTurnTasks). Shares the predicate with the composer's
+  // effectively-busy state.
+  const activeTurnHasPendingTasks = useMemo(
+    () => (session ? hasUnresolvedActiveTurnTasks(session.status, session.messages) : false),
+    [session?.status, session?.messages]
+  );
+
   const turnCardByTimelineIndex = useMemo(() => {
     const map = new Map<number, TurnChangeSummary>();
     if (turns.length === 0 || timelineItems.length === 0) {
       return map;
     }
+
+    // Only the final turn summary can be the active turn: buildTurnChangeContext
+    // flushes it through the last message, while historical turns end just
+    // before the next user_prompt.
+    const lastMessageIndex = (session?.messages.length ?? 0) - 1;
 
     let activeWorkLastMessageIndex: number | null = null;
     if (activeTimelineWorkId) {
@@ -1277,6 +1298,9 @@ export function ChatPane({
 
     for (const turn of turns) {
       if (turn.totalFiles === 0) continue;
+      if (activeTurnHasPendingTasks && turn.lastMessageIndex >= lastMessageIndex) {
+        continue;
+      }
       if (
         activeWorkLastMessageIndex !== null &&
         turn.lastMessageIndex >= activeWorkLastMessageIndex
@@ -1301,7 +1325,7 @@ export function ChatPane({
       }
     }
     return map;
-  }, [turns, timelineItems, activeTimelineWorkId]);
+  }, [turns, timelineItems, activeTimelineWorkId, activeTurnHasPendingTasks, session?.messages.length]);
 
   const copyPlacementByTimelineIndex = useMemo(() => {
     const actionTextByCardIndex = new Map<number, string>();

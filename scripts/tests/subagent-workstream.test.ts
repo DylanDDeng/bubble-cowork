@@ -469,7 +469,7 @@ assert.equal(
   assert.ok(innerEntry, 'the nested Task appears inside the outer trace');
   assert.ok(
     innerEntry!.subagent,
-    'the nested Task carries its own trace so the lane renderer can expand it'
+    'the nested Task carries its own trace so the subagent panel can render it'
   );
   assert.equal(innerEntry!.subagent!.entries[0]?.id, 'grep-nested');
 }

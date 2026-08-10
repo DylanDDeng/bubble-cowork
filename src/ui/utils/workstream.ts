@@ -3,12 +3,14 @@ import type {
   CanonicalToolKind,
   ContentBlock,
   PermissionRequestPayload,
+  SessionStatus,
   StreamMessage,
   ToolStatus,
   TurnPhase,
 } from '../types';
 import {
   getMessageContentBlocks,
+  normalizeToolResultBlock,
   normalizeToolUseBlock,
   type NormalizedToolUseBlock,
 } from './message-content';
@@ -269,6 +271,89 @@ export function groupSubagentMessagesByParent(
     }
   }
   return map;
+}
+
+/**
+ * True when `block` is a subagent-spawning Task tool_use. Mirrors
+ * `classifyToolUse`'s 'subagent' classification, with the `subagent_type`
+ * input as the runtime-agnostic fallback signal (same convention as the
+ * subagent registry).
+ */
+export function isSubagentTaskBlock(block: ContentBlock): boolean {
+  const normalized = normalizeToolUseBlock(block);
+  if (!normalized) return false;
+  if (classifyToolUse(normalized.name, normalized.input) === 'subagent') return true;
+  const input = normalized.input as Record<string, unknown> | undefined;
+  return typeof input?.subagent_type === 'string' && input.subagent_type.trim().length > 0;
+}
+
+/**
+ * True when the LATEST turn (everything from the last `user_prompt` onward)
+ * contains a top-level subagent Task tool_use with no matching tool_result
+ * yet. Claude background subagents keep streaming into `session.messages`
+ * after the main agent's result flips the session to 'completed', so a
+ * pending Task in the latest turn means work is still in flight.
+ *
+ * Only main-agent Task blocks count (messages without `parentToolUseId`) —
+ * a subagent's own nested Tasks resolve inside its trace and must not hold
+ * the whole session busy. Historical turns are never consulted: interrupted
+ * turns leave their Tasks unresolved forever.
+ */
+export function latestTurnHasPendingSubagentTasks(messages: StreamMessage[]): boolean {
+  let turnStart = 0;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.type === 'user_prompt') {
+      turnStart = i;
+      break;
+    }
+  }
+
+  const pending = new Set<string>();
+  for (let i = turnStart; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.type !== 'assistant' && message.type !== 'user') continue;
+    const isTopLevel = !message.parentToolUseId;
+    for (const block of getMessageContentBlocks(message)) {
+      const use = normalizeToolUseBlock(block);
+      if (use) {
+        if (isTopLevel && isSubagentTaskBlock(block)) pending.add(use.id);
+        continue;
+      }
+      const result = normalizeToolResultBlock(block);
+      if (result) pending.delete(result.tool_use_id);
+    }
+  }
+  return pending.size > 0;
+}
+
+/**
+ * True when the latest turn still has pending subagent Tasks that MAY resolve.
+ * A session the user stopped ('idle' — the stop path interrupts the provider
+ * and its background tasks) or that errored will never deliver those
+ * tool_results, so only 'running'/'completed' sessions qualify — mirroring
+ * `unresolvedFallbackStatus` flipping unresolved tools to 'interrupted' once
+ * the session is no longer running.
+ */
+export function hasUnresolvedActiveTurnTasks(
+  status: SessionStatus | undefined,
+  messages: StreamMessage[]
+): boolean {
+  if (status !== 'running' && status !== 'completed') return false;
+  return latestTurnHasPendingSubagentTasks(messages);
+}
+
+/**
+ * Shared "effectively busy" predicate for session-level UI (composer
+ * send-vs-stop, turn-card deferral, subagent panel liveness): the session is
+ * busy while its provider runs OR while background subagent Tasks from the
+ * latest turn are still streaming after the main result landed. Purely a UI
+ * derivation — main-process status semantics are untouched.
+ */
+export function isSessionEffectivelyBusy(
+  status: SessionStatus | undefined,
+  messages: StreamMessage[]
+): boolean {
+  return status === 'running' || hasUnresolvedActiveTurnTasks(status, messages);
 }
 
 export function extractTraceEntries(
