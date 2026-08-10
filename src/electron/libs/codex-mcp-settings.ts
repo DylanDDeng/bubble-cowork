@@ -209,32 +209,62 @@ function findTopLevelEquals(input: string): number {
   return -1;
 }
 
-function parseSectionBody(body: string[]): McpServerConfig {
-  const config: McpServerConfig = { type: 'stdio' };
+interface ParsedSectionBody {
+  config: McpServerConfig;
+  // 不认识的行(bearer_token_env_var、startup_timeout_sec、tool_timeout_sec、
+  // 注释等)原样保留,保存时写回,避免任何一次 Save 静默销毁用户手配的字段。
+  extraLines: string[];
+}
+
+function parseSectionBody(body: string[]): ParsedSectionBody {
+  const config: McpServerConfig = {};
+  const extraLines: string[] = [];
   for (const rawLine of body) {
     const line = rawLine.replace(/\r$/, '');
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
+    if (!trimmed) continue;
+    if (trimmed.startsWith('#')) {
+      extraLines.push(line);
+      continue;
+    }
     const eq = findTopLevelEquals(trimmed);
-    if (eq < 0) continue;
+    if (eq < 0) {
+      extraLines.push(line);
+      continue;
+    }
     const key = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim().replace(/\s*#.*$/, '');
     if (key === 'command') {
       const parsed = parseString(value);
       if (parsed != null) config.command = parsed;
+      else extraLines.push(line);
     } else if (key === 'args') {
       const parsed = parseStringArray(value);
       if (parsed) config.args = parsed;
+      else extraLines.push(line);
     } else if (key === 'env') {
       const parsed = parseInlineTable(value);
       if (parsed) config.env = parsed;
+      else extraLines.push(line);
+    } else if (key === 'url') {
+      const parsed = parseString(value);
+      if (parsed != null) config.url = parsed;
+      else extraLines.push(line);
+    } else if (key === 'http_headers') {
+      const parsed = parseInlineTable(value);
+      if (parsed) config.headers = parsed;
+      else extraLines.push(line);
     } else if (key === 'enabled') {
       // Codex natively supports `enabled = false` to disable a server.
       if (value === 'true') config.enabled = true;
       else if (value === 'false') config.enabled = false;
+      else extraLines.push(line);
+    } else {
+      extraLines.push(line);
     }
   }
-  return config;
+  config.type = config.url ? 'http' : 'stdio';
+  return { config, extraLines };
 }
 
 function escapeString(value: string): string {
@@ -259,10 +289,12 @@ function formatSectionName(name: string): string {
   return /^[A-Za-z0-9_-]+$/.test(name) ? name : `"${escapeString(name)}"`;
 }
 
-function serializeSection(name: string, config: McpServerConfig): string {
+function serializeSection(name: string, config: McpServerConfig, extraLines: string[] = []): string {
   const lines: string[] = [];
   lines.push(`[mcp_servers.${formatSectionName(name)}]`);
-  if (config.command && config.command.trim()) {
+  if (config.url && config.url.trim()) {
+    lines.push(`url = "${escapeString(config.url.trim())}"`);
+  } else if (config.command && config.command.trim()) {
     lines.push(`command = "${escapeString(config.command.trim())}"`);
   }
   if (config.args && config.args.length > 0) {
@@ -271,9 +303,13 @@ function serializeSection(name: string, config: McpServerConfig): string {
   if (config.env && Object.keys(config.env).length > 0) {
     lines.push(`env = ${serializeEnv(config.env)}`);
   }
+  if (config.headers && Object.keys(config.headers).length > 0) {
+    lines.push(`http_headers = ${serializeEnv(config.headers)}`);
+  }
   if (typeof config.enabled === 'boolean') {
     lines.push(`enabled = ${config.enabled ? 'true' : 'false'}`);
   }
+  lines.push(...extraLines);
   return lines.join('\n');
 }
 
@@ -285,16 +321,23 @@ export function getCodexMcpServers(): Record<string, McpServerConfig> {
   const sections = findMcpSections(lines);
   const result: Record<string, McpServerConfig> = {};
   for (const section of sections) {
-    result[section.name] = parseSectionBody(section.body);
+    result[section.name] = parseSectionBody(section.body).config;
   }
   return result;
 }
 
 // 写回所有 [mcp_servers.*] 段：就地替换，保留其它内容与注释。
+// 现有段里 Aegis 不认识的键（bearer_token_env_var、timeout 等）按段名原样带回。
 export function saveCodexMcpServers(servers: Record<string, McpServerConfig>): void {
   const text = readText();
   const lines = splitLines(text);
   const sections = findMcpSections(lines);
+
+  const extrasByName = new Map<string, string[]>();
+  for (const section of sections) {
+    const { extraLines } = parseSectionBody(section.body);
+    if (extraLines.length > 0) extrasByName.set(section.name, extraLines);
+  }
 
   // 拿掉全部现有 mcp_servers 段及其紧邻前置空行，得到干净的非 MCP 基础内容。
   const removalRanges: Array<{ start: number; end: number }> = [];
@@ -333,10 +376,13 @@ export function saveCodexMcpServers(servers: Record<string, McpServerConfig>): v
   const newBlocks = names
     .filter((name) => {
       const cfg = servers[name];
-      // Codex 只支持 stdio，没有 command 的条目没意义，直接跳过。
-      return cfg && (!cfg.type || cfg.type === 'stdio') && typeof cfg.command === 'string' && cfg.command.trim().length > 0;
+      if (!cfg) return false;
+      // stdio 条目要有 command,http/sse 条目要有 url;两者都没有才跳过。
+      const hasCommand = typeof cfg.command === 'string' && cfg.command.trim().length > 0;
+      const hasUrl = typeof cfg.url === 'string' && cfg.url.trim().length > 0;
+      return hasCommand || hasUrl;
     })
-    .map((name) => serializeSection(name, servers[name]));
+    .map((name) => serializeSection(name, servers[name], extrasByName.get(name)));
 
   let output = keep.join('\n');
   if (newBlocks.length > 0) {

@@ -174,9 +174,9 @@ export function McpSettingsContent() {
       tool: 'codex',
       scope: 'global',
       title: 'Global Servers',
-      description: 'Written to ~/.codex/config.toml. Codex only supports local (stdio) MCP servers.',
+      description: 'Written to ~/.codex/config.toml.',
       servers: mcpCodexGlobalServers,
-      allowedTransports: ['stdio'],
+      allowedTransports: ['stdio', 'http'],
     });
 
     items.push({
@@ -581,7 +581,7 @@ function ServerGroupSection({
 
   const emptyDescription = (() => {
     if (group.tool === 'codex') {
-      return 'Add a local MCP server for the Codex CLI. Written to ~/.codex/config.toml.';
+      return 'Add an MCP server for the Codex CLI. Written to ~/.codex/config.toml.';
     }
     if (group.tool === 'opencode') {
       return group.scope === 'project'
