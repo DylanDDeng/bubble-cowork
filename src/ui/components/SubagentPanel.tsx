@@ -274,7 +274,7 @@ export function SubagentPanel({
             {changeSummary ? <TurnChangesCard summary={changeSummary} /> : null}
             {state === 'frozen' ? (
               <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-muted)]">
-                This subagent moved to the background — further progress is not streamed here. Its final result will be reported back in the main chat.
+                This subagent moved to the background — further progress is not streamed here. Its final result will be reported back to the agent that spawned it.
               </div>
             ) : null}
             {state === 'running' ? (

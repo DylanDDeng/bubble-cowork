@@ -306,8 +306,18 @@ async function testHappyPathAndLocks() {
   assert.match(result.summary, /Reviewed\. Two issues found\./);
   assert.match(result.summary, /a\.ts/, 'summary lists changed files');
   assert.equal(hasActiveDelegationForParent('parent-1'), false, 'steer lock releases on settle');
-  assert.equal(isDelegateExecutionSession('exec-1'), false);
-  console.log('PASS: happy path, mirror, steer lock, depth guard');
+
+  // Post-settle continuation: kimi background subagents / backgrounded Tasks
+  // keep streaming after the delegate call answered — late messages must
+  // still mirror into the parent (observed: late subagent results stranded
+  // in the hidden session, leaving lanes stuck on "interrupted").
+  assert.equal(isDelegateExecutionSession('exec-1'), true, 'registration survives settle for late mirroring');
+  const before = world.mirrored.length;
+  const lateHandled = mirrorDelegateMessage('exec-1', userWithToolResult('late-inner-task'));
+  assert.equal(lateHandled, true, 'late messages are still handled');
+  assert.equal(world.mirrored.length, before + 1, 'late messages mirror into the parent');
+  assert.equal(world.mirrored[world.mirrored.length - 1].message.parentToolUseId, 'anchor-1');
+  console.log('PASS: happy path, mirror, steer lock, depth guard, late mirroring');
 }
 
 async function testTimeout() {

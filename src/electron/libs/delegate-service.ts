@@ -131,8 +131,13 @@ export function isDelegateExecutionSession(sessionId: string | null | undefined)
 export function getDelegateMirrorTarget(
   execSessionId: string
 ): { parentSessionId: string; parentToolUseId: string; agent: AgentProvider } | null {
+  // Deliberately ignores `settled`: some runtimes (kimi background
+  // subagents, Claude backgrounded Tasks) keep streaming AFTER the turn that
+  // answered the delegate call ended. Late messages must keep mirroring into
+  // the parent — otherwise inner lanes freeze as "interrupted" while the
+  // real results strand invisibly in the hidden session.
   const exec = executionsByExecSession.get(execSessionId);
-  if (!exec || exec.settled) return null;
+  if (!exec) return null;
   return {
     parentSessionId: exec.parentSessionId,
     parentToolUseId: exec.parentToolUseId,
@@ -144,10 +149,11 @@ export function hasActiveDelegationForParent(parentSessionId: string): boolean {
   return (activeParentCounts.get(parentSessionId) ?? 0) > 0;
 }
 
-/** Stop-cascade: stopping the parent stops every delegate runner under it. */
+/** Stop-cascade: stopping the parent stops every delegate runner under it —
+ * including settled ones whose child may still be streaming background work. */
 export function stopDelegationsForParent(parentSessionId: string): void {
   for (const exec of executionsByExecSession.values()) {
-    if (exec.parentSessionId === parentSessionId && !exec.settled && exec.execSessionId) {
+    if (exec.parentSessionId === parentSessionId && exec.execSessionId) {
       try {
         host?.stopSession(exec.execSessionId);
       } catch (error) {
@@ -432,8 +438,9 @@ export function transformDelegateMessage(
  * persist/broadcast for it.
  */
 export function mirrorDelegateMessage(execSessionId: string, message: StreamMessage): boolean {
+  // Keeps mirroring after settle — see getDelegateMirrorTarget.
   const exec = executionsByExecSession.get(execSessionId);
-  if (!exec || exec.settled) return false;
+  if (!exec) return false;
   // The child runtime's init reports the model it actually resolved (e.g.
   // codex falling back to its config.toml default) — capture it so mirrored
   // messages and the panel header can show the real thing.
@@ -724,8 +731,11 @@ export async function runDelegateTask(
       summary: buildDelegateSummary(exec, finalStatus),
     };
   } finally {
+    // Settled = the tool call answered and the steer lock releases; the
+    // execution registration is kept so late background messages from the
+    // child keep mirroring into the parent (kimi background subagents,
+    // backgrounded Tasks).
     exec.settled = true;
-    if (exec.execSessionId) executionsByExecSession.delete(exec.execSessionId);
     claimedToolUseIds.delete(toolUseId);
     bumpParent(parentSessionId, -1);
   }
