@@ -492,6 +492,68 @@ async function l1ToolFlow() {
   ok('tool.call.started/tool.result map to tool_use/tool_result');
 }
 
+async function l1SubagentAttribution() {
+  // `subagent.spawned` maps the subagent's agentId to its spawning tool call;
+  // all of that agent's activity must emit nested (parentToolUseId) and stay
+  // OUT of the main streaming state (delta offsets live per agent).
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'review', model: 'm' });
+  t.push('turn.started', { turnId: 1 });
+  t.push('tool.call.started', {
+    toolCallId: 'tool_spawn',
+    name: 'Agent',
+    args: { subagent_type: 'explore', description: '评审文件' },
+    agentId: 'main',
+  });
+  t.push('subagent.spawned', {
+    subagentId: 'agent-0',
+    subagentName: 'explore',
+    parentToolCallId: 'tool_spawn',
+    parentAgentId: 'main',
+    agentId: 'main',
+  });
+  t.push('thinking.delta', { delta: 'planning the read', agentId: 'agent-0' }, true);
+  t.push('assistant.delta', { delta: 'reading now', agentId: 'agent-0' }, true);
+  t.push('tool.call.started', { toolCallId: 'tool_sub_read', name: 'Read', args: { path: 'x.html' }, agentId: 'agent-0' });
+  t.push('tool.result', { toolCallId: 'tool_sub_read', output: 'file content', agentId: 'agent-0' });
+  t.push('assistant.delta', { delta: 'verdict: looks fine', agentId: 'agent-0' }, true);
+  t.push('subagent.completed', { subagentId: 'agent-0', agentId: 'main' });
+  t.push('assistant.delta', { delta: 'main answer', agentId: 'main' }, true);
+  t.push('turn.ended', { reason: 'completed' });
+  await waitFor(() => t.events.messages('result').length === 1, 2000, 'result');
+
+  const assistants = t.events.messages('assistant');
+  const spawn = assistants.find((m) => m.message.content[0]?.id === 'tool_spawn');
+  assert.equal(spawn.parentToolUseId, undefined, 'the spawn tool call itself is top-level');
+  const subRead = assistants.find((m) => m.message.content[0]?.id === 'tool_sub_read');
+  assert.equal(subRead.parentToolUseId, 'tool_spawn', 'subagent tool call nests under the spawn');
+  const subReadResult = t.events
+    .messages('user')
+    .find((m) => m.message.content[0]?.tool_use_id === 'tool_sub_read');
+  assert.equal(subReadResult.parentToolUseId, 'tool_spawn', 'subagent tool result nests too');
+  const subThinking = assistants.find(
+    (m) => m.parentToolUseId === 'tool_spawn' && m.message.content[0]?.type === 'thinking'
+  );
+  assert.equal(subThinking.message.content[0].thinking, 'planning the read');
+  const subTexts = assistants.filter(
+    (m) => m.parentToolUseId === 'tool_spawn' && m.message.content[0]?.type === 'text'
+  );
+  assert.deepEqual(
+    subTexts.map((m) => m.message.content[0].text),
+    ['reading now', 'verdict: looks fine'],
+    'subagent text commits at its tool-call boundary and on completion'
+  );
+  const mainTexts = assistants.filter(
+    (m) => !m.parentToolUseId && !m.streaming && m.message.content[0]?.type === 'text'
+  );
+  assert.deepEqual(
+    mainTexts.map((m) => m.message.content[0].text),
+    ['main answer'],
+    'main text stream is not polluted by subagent deltas'
+  );
+  ok('subagent activity nests under its spawning tool call; main stream stays clean');
+}
+
 async function l1StopSettle() {
   const t = await startL1Session();
   await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'count', model: 'm' });
@@ -1926,6 +1988,7 @@ const suites = [
   ['L1: error frame dedupe', l1ErrorFrameDedupe],
   ['L1: seq replay idempotence + volatile', l1SeqReplayIdempotence],
   ['L1: tool flow', l1ToolFlow],
+  ['L1: subagent attribution', l1SubagentAttribution],
   ['L1: stop settle', l1StopSettle],
   ['L1: stop safety timeout', l1StopSafetyTimeout],
   ['L1: stop no turn', l1StopNoTurn],

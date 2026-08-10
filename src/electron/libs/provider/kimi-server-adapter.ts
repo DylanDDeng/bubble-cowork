@@ -225,6 +225,17 @@ interface ActiveServerSession {
   /** The current turn already surfaced an error event (P0-1 dedupe). */
   reportedTurnError: boolean;
   stopRequest: { timer: ReturnType<typeof setTimeout> } | null;
+  /**
+   * Subagent attribution (`subagent.spawned` maps the subagent's agentId to
+   * the spawning tool call id). Activity frames carry `agentId`; frames from
+   * a mapped subagent emit with `parentToolUseId` so the renderer nests them
+   * under the spawn's lane instead of flattening them into the main trace.
+   */
+  subagentParents: Map<string, string>;
+  /** Per-subagent streamed text/thinking accumulation, committed on that
+   * subagent's next tool call or completion (no per-delta broadcasting —
+   * nested traces render committed messages only). */
+  subagentStreams: Map<string, { text: string; thinking: string }>;
 }
 
 export class KimiServerAdapter implements ProviderAdapter {
@@ -341,6 +352,8 @@ export class KimiServerAdapter implements ProviderAdapter {
       pendingManualCompact: false,
       reportedTurnError: false,
       stopRequest: null,
+      subagentParents: new Map(),
+      subagentStreams: new Map(),
     };
     this.sessions.set(input.threadId, session);
     this.sessionsByServerId.set(providerSessionId, input.threadId);
@@ -791,6 +804,13 @@ export class KimiServerAdapter implements ProviderAdapter {
     if (!session || session.providerSessionId !== serverSessionId) return;
 
     const payload = isRecord(frame.payload) ? frame.payload : {};
+    // Subagent attribution: activity frames carry the emitting agent's id;
+    // frames from a mapped subagent must not touch the MAIN streaming state
+    // (their delta offsets live in their own space — mixing them corrupted
+    // the main text stream) and emit nested under the spawning tool call.
+    const frameAgentId = getString(payload.agentId);
+    const subagentParent = frameAgentId ? session.subagentParents.get(frameAgentId) : undefined;
+
     switch (frame.type) {
       case 'turn.started':
         session.activeTurn = true;
@@ -799,21 +819,48 @@ export class KimiServerAdapter implements ProviderAdapter {
         session.textGapDetected = false;
         session.turnAssistantSegments = [];
         break;
+      case 'subagent.spawned': {
+        const subagentId = getString(payload.subagentId);
+        const parentToolCallId = getString(payload.parentToolCallId);
+        if (subagentId && parentToolCallId) {
+          session.subagentParents.set(subagentId, parentToolCallId);
+        }
+        break;
+      }
+      case 'subagent.completed': {
+        const subagentId = getString(payload.subagentId);
+        if (subagentId) this.flushSubagentStream(session, subagentId);
+        break;
+      }
       case 'assistant.delta':
-        this.appendAssistantText(
-          session,
-          getString(payload.delta),
-          typeof frame.offset === 'number' ? frame.offset : null
-        );
+        if (subagentParent && frameAgentId) {
+          this.appendSubagentDelta(session, frameAgentId, 'text', getString(payload.delta));
+        } else {
+          this.appendAssistantText(
+            session,
+            getString(payload.delta),
+            typeof frame.offset === 'number' ? frame.offset : null
+          );
+        }
         break;
       case 'thinking.delta':
-        this.appendThinking(session, getString(payload.delta) || getString(payload.thinking));
+        if (subagentParent && frameAgentId) {
+          this.appendSubagentDelta(
+            session,
+            frameAgentId,
+            'thinking',
+            getString(payload.delta) || getString(payload.thinking)
+          );
+        } else {
+          this.appendThinking(session, getString(payload.delta) || getString(payload.thinking));
+        }
         break;
       case 'tool.call.started':
-        this.emitToolCall(session, payload);
+        if (subagentParent && frameAgentId) this.flushSubagentStream(session, frameAgentId);
+        this.emitToolCall(session, payload, subagentParent);
         break;
       case 'tool.result':
-        this.emitToolResult(session, payload);
+        this.emitToolResult(session, payload, subagentParent);
         break;
       case 'turn.step.completed':
         this.emitTokenUsage(session, payload);
@@ -973,12 +1020,75 @@ export class KimiServerAdapter implements ProviderAdapter {
     }
   }
 
-  private emitToolCall(session: ActiveServerSession, payload: Record<string, unknown>): void {
+  /** Accumulate a subagent's streamed text/thinking without touching the
+   * main streaming state; committed by flushSubagentStream. */
+  private appendSubagentDelta(
+    session: ActiveServerSession,
+    agentId: string,
+    kind: 'text' | 'thinking',
+    delta: string
+  ): void {
+    if (!delta) return;
+    let stream = session.subagentStreams.get(agentId);
+    if (!stream) {
+      stream = { text: '', thinking: '' };
+      session.subagentStreams.set(agentId, stream);
+    }
+    stream[kind] += delta;
+  }
+
+  /** Commit a subagent's accumulated thinking/text as messages nested under
+   * its spawning tool call. */
+  private flushSubagentStream(session: ActiveServerSession, agentId: string): void {
+    const parentToolUseId = session.subagentParents.get(agentId);
+    const stream = session.subagentStreams.get(agentId);
+    if (!stream || !parentToolUseId) return;
+    session.subagentStreams.delete(agentId);
+    if (stream.thinking) {
+      this.emit({
+        type: 'message',
+        threadId: session.threadId,
+        message: {
+          type: 'assistant',
+          uuid: `kimi-sub-thinking:${session.threadId}:${agentId}:${uuidv4()}`,
+          parentToolUseId,
+          message: { content: [{ type: 'thinking', thinking: stream.thinking }] },
+        },
+      });
+    }
+    if (stream.text) {
+      this.emit({
+        type: 'message',
+        threadId: session.threadId,
+        message: {
+          type: 'assistant',
+          uuid: `kimi-sub-assistant:${session.threadId}:${agentId}:${uuidv4()}`,
+          parentToolUseId,
+          message: { content: [{ type: 'text', text: stream.text }] },
+        },
+      });
+    }
+  }
+
+  /** Safety net at turn end: commit any subagent stream that never saw its
+   * completion frame (interrupt, error). */
+  private flushAllSubagentStreams(session: ActiveServerSession): void {
+    for (const agentId of [...session.subagentStreams.keys()]) {
+      this.flushSubagentStream(session, agentId);
+    }
+  }
+
+  private emitToolCall(
+    session: ActiveServerSession,
+    payload: Record<string, unknown>,
+    parentToolUseId?: string
+  ): void {
     const toolCallId = getString(payload.toolCallId);
     if (!toolCallId || session.emittedToolCalls.has(toolCallId)) return;
     session.emittedToolCalls.add(toolCallId);
-    // A tool call closes the current text/thinking block in the stream.
-    this.finalizeStreaming(session);
+    // A MAIN-agent tool call closes the current text/thinking block in the
+    // stream; a subagent's tool call must leave the main stream alone.
+    if (!parentToolUseId) this.finalizeStreaming(session);
     const name = getString(payload.name) || 'KimiTool';
     const args = isRecord(payload.args) ? payload.args : {};
     const description = getString(payload.description);
@@ -992,12 +1102,17 @@ export class KimiServerAdapter implements ProviderAdapter {
       message: {
         type: 'assistant',
         uuid: `kimi-tool-use:${session.threadId}:${toolCallId}`,
+        ...(parentToolUseId ? { parentToolUseId } : {}),
         message: { content: [{ type: 'tool_use', id: toolCallId, name, input }] },
       },
     });
   }
 
-  private emitToolResult(session: ActiveServerSession, payload: Record<string, unknown>): void {
+  private emitToolResult(
+    session: ActiveServerSession,
+    payload: Record<string, unknown>,
+    parentToolUseId?: string
+  ): void {
     const toolCallId = getString(payload.toolCallId);
     if (!toolCallId) return;
     const output = payload.output;
@@ -1014,6 +1129,7 @@ export class KimiServerAdapter implements ProviderAdapter {
       message: {
         type: 'user',
         uuid: `kimi-tool-result:${session.threadId}:${toolCallId}`,
+        ...(parentToolUseId ? { parentToolUseId } : {}),
         message: {
           content: [{ type: 'tool_result', tool_use_id: toolCallId, content, is_error: isError }],
         },
@@ -1082,6 +1198,7 @@ export class KimiServerAdapter implements ProviderAdapter {
     // Steered prompts merged into this turn; anything still queued
     // auto-advances into its own turn.started, which re-tracks it.
     session.pendingPromptIds.clear();
+    this.flushAllSubagentStreams(session);
     this.finalizeStreaming(session);
     if (session.textGapDetected) {
       session.textGapDetected = false;
