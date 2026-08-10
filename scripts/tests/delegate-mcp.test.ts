@@ -32,6 +32,7 @@ import {
   latestTurnHasPendingDelegation,
 } from '../../src/ui/utils/workstream';
 import type { ContentBlock } from '../../src/ui/types';
+import { deriveSubagentSummaries } from '../../src/ui/utils/subagent-registry';
 
 const DELEGATE_NAME = 'mcp__aegis-delegate__delegate_task';
 
@@ -488,6 +489,61 @@ async function testToolEndingFallback() {
   console.log('PASS: tool-ending run falls back to last narration');
 }
 
+async function testNestedSubagentMirroring() {
+  // The delegated agent spawns its OWN subagent (observed: kimi's Agent tool
+  // with subagent_type). Inner attribution must survive the mirror so the
+  // nested lane renders in the delegate's panel and opens its own scoped
+  // view — and inner narration must not pollute the delegate's final answer.
+  __resetDelegateServiceForTests();
+  const world = makeWorld();
+  initializeDelegateService(world.host);
+  world.parentHistory.push(
+    assistantWithToolUse('anchor-n1', DELEGATE_NAME, { agent: 'kimi', prompt: 'review deep' })
+  );
+  const resultPromise = runDelegateTask({ agent: 'kimi', prompt: 'review deep', callerSessionId: 'parent-1' });
+  await sleep(100);
+
+  // Top-level child message spawning an inner subagent.
+  mirrorDelegateMessage(
+    'exec-1',
+    assistantWithToolUse('inner-task-1', 'Agent', { subagent_type: 'explore', description: '评审象棋', prompt: 'read it' })
+  );
+  // The inner subagent's own messages carry its Task id — must be preserved.
+  mirrorDelegateMessage('exec-1', {
+    type: 'assistant',
+    parentToolUseId: 'inner-task-1',
+    message: { content: [{ type: 'text', text: 'inner subagent narration' }] },
+  } as unknown as StreamMessage);
+  // Top-level final answer after the spawn.
+  mirrorDelegateMessage('exec-1', {
+    type: 'assistant',
+    message: { content: [{ type: 'text', text: '最终评审:规则实现基本正确。' }] },
+  } as unknown as StreamMessage);
+
+  const inner = world.mirrored.find((m) => m.message.parentToolUseId === 'inner-task-1');
+  assert.ok(inner, 'inner-attributed message mirrors with its inner id preserved');
+  assert.equal(inner?.message.sourceProvider, 'kimi', 'inner messages still carry the provider tag');
+  const spawn = world.mirrored.find((m) =>
+    JSON.stringify(m.message).includes('inner-task-1') && m.message.parentToolUseId === 'anchor-n1');
+  assert.ok(spawn, 'the spawn block itself nests under the delegate anchor');
+
+  world.execStatus = 'completed';
+  const result = await resultPromise;
+  assert.match(result.summary, /最终评审:规则实现基本正确。/);
+  assert.doesNotMatch(result.summary, /inner subagent narration/, 'inner text stays out of the summary');
+
+  // The renderer can resolve the nested id when the panel opts into nested
+  // summaries (top-level default keeps the tab strip unchanged).
+  const parentMessages = world.mirrored.map((m) => m.message);
+  const topLevel = deriveSubagentSummaries(parentMessages);
+  assert.equal(topLevel.find((s) => s.id === 'inner-task-1'), undefined, 'nested lane is not a top-level tab');
+  const nested = deriveSubagentSummaries(parentMessages, { includeNested: true });
+  const nestedSummary = nested.find((s) => s.id === 'inner-task-1');
+  assert.ok(nestedSummary, 'nested summary resolves for the panel');
+  assert.equal(nestedSummary?.subagentType, 'explore');
+  console.log('PASS: nested subagent mirroring and panel resolution');
+}
+
 async function testSummaryTruncation() {
   const exec = {
     execSessionId: 'exec-1',
@@ -582,6 +638,7 @@ async function main() {
   await testErrorPassthrough();
   await testChunkedFinalAnswer();
   await testToolEndingFallback();
+  await testNestedSubagentMirroring();
   await testSummaryTruncation();
   await testRendererPredicates();
   console.log('delegate-mcp tests: ALL PASS');

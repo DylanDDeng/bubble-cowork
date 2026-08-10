@@ -82,8 +82,11 @@ export function SubagentPanel({
   const session = useAppStore((s) => (sessionId ? s.sessions[sessionId] ?? null : null));
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
 
+  // includeNested: a delegated agent's own spawns are nested lanes in its
+  // panel — clicking one opens a panel for the nested id, which must resolve
+  // here even though it is not a top-level tab.
   const summaries = useMemo(
-    () => (session ? deriveSubagentSummaries(session.messages) : []),
+    () => (session ? deriveSubagentSummaries(session.messages, { includeNested: true }) : []),
     [session?.messages]
   );
 

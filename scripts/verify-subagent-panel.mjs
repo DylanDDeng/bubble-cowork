@@ -28,8 +28,8 @@ assert.ok(
   'subagent-registry must export deriveSubagentSummaries'
 );
 assert.ok(
-  registrySrc.includes('if (message.parentToolUseId) continue;'),
-  'registry must list TOP-LEVEL subagents only (skip nested)'
+  registrySrc.includes('if (message.parentToolUseId && !options?.includeNested) continue;'),
+  'registry must list TOP-LEVEL subagents by default (nested only via the includeNested opt-in the panel uses)'
 );
 
 const timelineSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'utils', 'transcript-timeline.ts'), 'utf8');

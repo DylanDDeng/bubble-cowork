@@ -399,6 +399,13 @@ function collectChangedFiles(message: StreamMessage, into: Set<string>): void {
  * parent stream, or null when the message must not be mirrored. Only
  * assistant/user messages mirror — that is exactly what the subagent panel
  * machinery consumes; stream_events/system/result stay out entirely.
+ *
+ * Nesting: when the delegated agent spawns its OWN subagents, their messages
+ * already carry that inner Task/Agent tool_use id — preserve it (clobbering
+ * it would flatten the inner trace into the delegate's panel). The inner
+ * spawn block itself is mirrored under the delegate anchor, so the grouping
+ * chain anchor → inner block → inner messages stays intact and the existing
+ * nested-lane UI works unchanged.
  */
 export function transformDelegateMessage(
   exec: Pick<DelegateExecution, 'parentToolUseId' | 'agent'> &
@@ -406,9 +413,13 @@ export function transformDelegateMessage(
   message: StreamMessage
 ): StreamMessage | null {
   if (message.type !== 'assistant' && message.type !== 'user') return null;
+  const innerParent =
+    typeof message.parentToolUseId === 'string' && message.parentToolUseId
+      ? message.parentToolUseId
+      : null;
   return {
     ...message,
-    parentToolUseId: exec.parentToolUseId,
+    parentToolUseId: innerParent ?? exec.parentToolUseId,
     sourceProvider: exec.agent,
     sourceModel: exec.actualModel || exec.requestedModel || null,
   } as StreamMessage;
@@ -441,7 +452,11 @@ export function mirrorDelegateMessage(execSessionId: string, message: StreamMess
       typeof record.error === 'string' ? record.error : '';
     if (failed && text.trim()) exec.errorText = text.trim();
   }
-  if (message.type === 'assistant') {
+  // Inner-subagent messages (the delegated agent's own spawns) mirror with
+  // their inner attribution preserved, but must not pollute the delegate's
+  // final answer or changed-file collection — their outcomes surface through
+  // the inner tool_result the top-level agent receives.
+  if (message.type === 'assistant' && !message.parentToolUseId) {
     const text = extractAssistantTextBlocks(message);
     if (text) exec.lastAssistantText = text;
     const hasToolUse = contentBlocksOf(message).some((block) => block.type === 'tool_use');

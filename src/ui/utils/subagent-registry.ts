@@ -55,7 +55,18 @@ function buildTaskStatusMap(messages: StreamMessage[]): Map<string, ToolStatus> 
   return status;
 }
 
-export function deriveSubagentSummaries(messages: StreamMessage[]): SubagentSummary[] {
+export function deriveSubagentSummaries(
+  messages: StreamMessage[],
+  options?: {
+    /**
+     * Also include Task/Agent blocks issued by SUBagents themselves (e.g. a
+     * delegated agent's own spawns). The default top-level-only view feeds
+     * the tab strip / hub lists; the panel opts in so clicking a nested lane
+     * can resolve its summary and open a scoped view.
+     */
+    includeNested?: boolean;
+  }
+): SubagentSummary[] {
   if (!messages.length) return [];
 
   const statusMap = buildTaskStatusMap(messages);
@@ -67,7 +78,7 @@ export function deriveSubagentSummaries(messages: StreamMessage[]): SubagentSumm
     if (message.type !== 'assistant') continue;
     // Top-level only: Task blocks issued by a SUBagent (parentToolUseId set)
     // are that subagent's nested work, shown inside its transcript.
-    if (message.parentToolUseId) continue;
+    if (message.parentToolUseId && !options?.includeNested) continue;
 
     for (const block of getMessageContentBlocks(message)) {
       if (!isSubagentTaskBlock(block)) continue;
