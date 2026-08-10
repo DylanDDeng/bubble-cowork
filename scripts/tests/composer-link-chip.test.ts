@@ -3,7 +3,11 @@ import {
   extractKnownSiteLinkTokens,
   splitTextIntoKnownSiteLinkSegments,
 } from '../../src/ui/utils/known-site-links';
-import { faviconUrlForHostname, hostnameMonogram } from '../../src/ui/utils/link-favicons';
+import {
+  FAVICON_REQUEST_SIZE,
+  faviconUrlForHostname,
+  isFaviconPlaceholder,
+} from '../../src/ui/utils/link-favicons';
 import { splitPromptIntoComposerSegments } from '../../src/ui/utils/composer-segments';
 
 // --- extractKnownSiteLinkTokens: GitHub ---
@@ -147,7 +151,7 @@ import { splitPromptIntoComposerSegments } from '../../src/ui/utils/composer-seg
 // --- icons ---
 
 // Chip icons are fetched favicons now (bd0d31d), not per-site inline SVGs, so
-// any hostname resolves to a URL and the monogram covers the fetch failing.
+// any hostname resolves to a URL and the globe icon covers the fetch failing.
 {
   assert.ok(faviconUrlForHostname('github.com').includes('github.com'), 'favicon url carries the hostname');
   assert.ok(
@@ -160,10 +164,13 @@ import { splitPromptIntoComposerSegments } from '../../src/ui/utils/composer-seg
     'hostname is encoded into the favicon query'
   );
 
-  assert.equal(hostnameMonogram('github.com'), 'G');
-  assert.equal(hostnameMonogram('x.com'), 'X');
-  assert.equal(hostnameMonogram('123abc.dev'), '1');
-  assert.equal(hostnameMonogram('中文.com'), '?', 'non-alphanumeric initials fall back to ?');
+  // 37d1d33: the fallback is the browser panel's globe icon; Google s2 serves
+  // an undersized globe placeholder instead of failing, so detection is by
+  // natural size — anything smaller than the requested size is a placeholder.
+  const img = (naturalWidth: number) => ({ naturalWidth }) as HTMLImageElement;
+  assert.equal(isFaviconPlaceholder(img(16)), true, 's2 16px globe placeholder is detected');
+  assert.equal(isFaviconPlaceholder(img(FAVICON_REQUEST_SIZE)), false, 'real favicons pass');
+  assert.equal(isFaviconPlaceholder(img(0)), false, 'not-yet-loaded images are not judged');
 }
 
 // --- splitTextIntoKnownSiteLinkSegments ---

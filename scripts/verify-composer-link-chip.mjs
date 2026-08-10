@@ -23,12 +23,13 @@ assert.ok(
 
 // bd0d31d moved chip icons off hardcoded inline SVGs onto fetched favicons, so
 // known-site-links now only recognizes URLs and labels them. The chip still
-// needs an icon: that lives in link-favicons, with a monogram fallback for when
-// the fetch fails.
+// needs an icon: that lives in link-favicons; 37d1d33 replaced the monogram
+// fallback with the browser panel's globe icon, plus detection of Google s2's
+// undersized globe placeholder so it falls back too.
 const favicons = read('src/ui/utils/link-favicons.ts');
 assert.ok(
-  favicons.includes('faviconUrlForHostname') && favicons.includes('hostnameMonogram'),
-  'link-favicons must supply the chip icon URL and its fallback monogram'
+  favicons.includes('faviconUrlForHostname') && favicons.includes('isFaviconPlaceholder'),
+  'link-favicons must supply the chip icon URL and the placeholder detector for the globe fallback'
 );
 for (const consumer of ['src/ui/render/markdown.tsx', 'src/ui/components/ComposerPromptEditor.tsx']) {
   assert.ok(
