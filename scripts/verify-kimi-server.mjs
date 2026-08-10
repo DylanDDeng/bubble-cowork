@@ -554,6 +554,52 @@ async function l1SubagentAttribution() {
   ok('subagent activity nests under its spawning tool call; main stream stays clean');
 }
 
+async function l1SubagentTurnLifecycle() {
+  // Live-observed: subagents get their OWN turn.started/turn.ended broadcast
+  // on the SAME session. A subagent's turn.ended must not end the session's
+  // turn (it ended delegate calls minutes early), its turn.started must not
+  // reset main streaming state, its error must not fail the session, and its
+  // agent.status must not clobber the main context/model.
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'review', model: 'm' });
+  t.push('turn.started', { turnId: 0, agentId: 'main' });
+  t.push('assistant.delta', { delta: 'main part 1. ', agentId: 'main' }, true);
+  t.push('subagent.spawned', {
+    subagentId: 'agent-0',
+    parentToolCallId: 'tool_spawn2',
+    parentAgentId: 'main',
+    agentId: 'main',
+  });
+  t.push('turn.started', { turnId: 0, agentId: 'agent-0' });
+  t.push('assistant.delta', { delta: 'sub findings', agentId: 'agent-0' }, true);
+  t.push('error', { message: 'sub quota blown', agentId: 'agent-0' });
+  t.push(
+    'agent.status.updated',
+    { agentId: 'agent-0', contextTokens: 999999, maxContextTokens: 1, model: 'sub-model' },
+    true
+  );
+  t.push('turn.ended', { turnId: 0, reason: 'completed', agentId: 'agent-0' });
+  await sleep(30);
+  assert.equal(t.events.messages('result').length, 0, "a subagent's turn.ended must not emit the session result");
+  assert.equal(t.events.byType('error').length, 0, "a subagent's error must not fail the session");
+  t.push('assistant.delta', { delta: 'main part 2.', agentId: 'main' }, true);
+  t.push('turn.ended', { turnId: 0, reason: 'completed', agentId: 'main' });
+  await waitFor(() => t.events.messages('result').length === 1, 2000, 'main result');
+  const subText = t.events
+    .messages('assistant')
+    .find((m) => m.parentToolUseId === 'tool_spawn2' && m.message.content[0]?.type === 'text');
+  assert.equal(subText.message.content[0].text, 'sub findings', "subagent trailing text commits on ITS turn.ended");
+  const mainFinal = t.events
+    .messages('assistant')
+    .filter((m) => !m.parentToolUseId && !m.streaming && m.message.content[0]?.type === 'text');
+  assert.deepEqual(
+    mainFinal.map((m) => m.message.content[0].text),
+    ['main part 1. main part 2.'],
+    "the main segment survives the subagent's turn boundary uninterrupted"
+  );
+  ok('subagent turn lifecycle stays isolated from the session turn');
+}
+
 async function l1StopSettle() {
   const t = await startL1Session();
   await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'count', model: 'm' });
@@ -1989,6 +2035,7 @@ const suites = [
   ['L1: seq replay idempotence + volatile', l1SeqReplayIdempotence],
   ['L1: tool flow', l1ToolFlow],
   ['L1: subagent attribution', l1SubagentAttribution],
+  ['L1: subagent turn lifecycle isolation', l1SubagentTurnLifecycle],
   ['L1: stop settle', l1StopSettle],
   ['L1: stop safety timeout', l1StopSafetyTimeout],
   ['L1: stop no turn', l1StopNoTurn],

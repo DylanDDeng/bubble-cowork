@@ -813,6 +813,15 @@ export class KimiServerAdapter implements ProviderAdapter {
 
     switch (frame.type) {
       case 'turn.started':
+        // Subagents get their OWN turn.started/turn.ended broadcast on the
+        // SAME session (observed live: 1 main + N subagent turn pairs). Only
+        // the main agent's turn drives the session lifecycle — a subagent's
+        // turn.started must not reset main streaming state, and its
+        // turn.ended must not emit the session result (that ended the
+        // delegate turn minutes early while subagents were still running).
+        // Ordering is safe: subagent.spawned precedes that agent's
+        // turn.started (seq-verified), so the mapping always exists here.
+        if (subagentParent) break;
         session.activeTurn = true;
         session.reportedTurnError = false;
         session.turnUsage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
@@ -863,15 +872,30 @@ export class KimiServerAdapter implements ProviderAdapter {
         this.emitToolResult(session, payload, subagentParent);
         break;
       case 'turn.step.completed':
+        // Subagent steps still count: their tokens are real consumption of
+        // this session's turn.
         this.emitTokenUsage(session, payload);
         break;
       case 'agent.status.updated':
+        // A subagent's status must not clobber the MAIN session's model and
+        // context meter with its own values.
+        if (subagentParent) break;
         this.absorbAgentStatus(session, payload);
         break;
       case 'turn.ended':
+        if (subagentParent && frameAgentId) {
+          // A subagent finished its run — commit its trailing output; the
+          // session-level result comes only from the MAIN agent's turn end.
+          this.flushSubagentStream(session, frameAgentId);
+          break;
+        }
         this.handleTurnEnded(session, payload);
         break;
       case 'error':
+        // A subagent's failure surfaces through its spawn call's tool.result
+        // — it must not mark the whole session as errored while the main
+        // agent is still running.
+        if (subagentParent) break;
         this.handleErrorFrame(session, payload);
         break;
       case 'event.approval.requested':
