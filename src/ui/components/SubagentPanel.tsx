@@ -254,7 +254,12 @@ export function SubagentPanel({
                     toolStatusMap={toolStatusMap}
                     toolResultsMap={toolResultsMap}
                     isSessionRunning={Boolean(sessionRunning)}
-                    isLastBatch={false}
+                    // The panel's work groups are visual clusters of ONE live
+                    // trace, not per-turn batches: while the trace is live, an
+                    // unresolved tool anywhere in it is still RUNNING (parallel
+                    // spawns resolve out of order) — with isLastBatch=false
+                    // they all froze as "interrupted" until results landed.
+                    isLastBatch={true}
                     subagentMessagesByParent={subagentMessagesByParent}
                     defaultExpanded
                     resetKey={`${selected.id}:${item.group.id}`}

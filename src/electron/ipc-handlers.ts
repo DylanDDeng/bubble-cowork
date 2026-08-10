@@ -4941,7 +4941,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     getSessionHistory: (sessionId) => sessions.getSessionHistory(sessionId),
     listRunningSessionIds: () => [...runnerHandles.keys()],
     addMessageToSession: (sessionId, message) => {
-      sessions.addMessage(sessionId, message);
+      // Same contract as the normal message path: streaming partial
+      // snapshots broadcast for live rendering but never persist (each kimi
+      // delta re-emits the whole segment — persisting would mean one
+      // SQL+FTS write per delta).
+      if (shouldPersistProviderMessage(message)) {
+        sessions.addMessage(sessionId, message);
+      }
       broadcast(mainWindow, {
         type: 'stream.message',
         payload: { sessionId, message },

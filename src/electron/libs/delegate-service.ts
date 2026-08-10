@@ -462,8 +462,14 @@ export function mirrorDelegateMessage(execSessionId: string, message: StreamMess
   // Inner-subagent messages (the delegated agent's own spawns) mirror with
   // their inner attribution preserved, but must not pollute the delegate's
   // final answer or changed-file collection — their outcomes surface through
-  // the inner tool_result the top-level agent receives.
-  if (message.type === 'assistant' && !message.parentToolUseId) {
+  // the inner tool_result the top-level agent receives. Streaming partials
+  // (cumulative snapshots re-emitted per delta) must not accumulate either:
+  // appending each snapshot garbles the final text — only commits count.
+  if (
+    message.type === 'assistant' &&
+    !message.parentToolUseId &&
+    (message as { streaming?: boolean }).streaming !== true
+  ) {
     const text = extractAssistantTextBlocks(message);
     if (text) exec.lastAssistantText = text;
     const hasToolUse = contentBlocksOf(message).some((block) => block.type === 'tool_use');

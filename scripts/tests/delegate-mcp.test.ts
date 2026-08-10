@@ -463,9 +463,15 @@ async function testChunkedFinalAnswer() {
 
   const textMsg = (text: string) =>
     ({ type: 'assistant', message: { content: [{ type: 'text', text }] } }) as unknown as StreamMessage;
+  const partial = (text: string) =>
+    ({ type: 'assistant', streaming: true, message: { content: [{ type: 'text', text }] } }) as unknown as StreamMessage;
   mirrorDelegateMessage('exec-1', textMsg('我并行派两个只读子代理分别全文评审。'));
   mirrorDelegateMessage('exec-1', assistantWithToolUse('t1', 'Read', { path: '/tmp/x.html' }));
   mirrorDelegateMessage('exec-1', userWithToolResult('t1'));
+  // Streaming partials re-emit the whole segment per delta — they must not
+  // accumulate (each snapshot appended would garble the final answer).
+  mirrorDelegateMessage('exec-1', partial('已通读'));
+  mirrorDelegateMessage('exec-1', partial('已通读全文（941 行）。'));
   mirrorDelegateMessage('exec-1', textMsg('已通读全文（941 行）。评审结论如下：'));
   mirrorDelegateMessage('exec-1', textMsg('**亮点** 零依赖单文件实现。'));
   mirrorDelegateMessage('exec-1', textMsg('**问题** 塞象眼+象不过河（L293–294）。'));
