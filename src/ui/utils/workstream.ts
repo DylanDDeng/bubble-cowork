@@ -294,12 +294,44 @@ export function isSubagentTaskBlock(block: ContentBlock): boolean {
  * block is not a delegate call.
  */
 export function getDelegateAgentFromBlock(block: ContentBlock): string | null {
+  return getDelegateCallInfo(block)?.agent ?? null;
+}
+
+export interface DelegateCallInfo {
+  agent: string;
+  /** Model the lead requested (tool param); the mirrored messages'
+   * `sourceModel` carries what the child runtime actually resolved. */
+  model: string | null;
+  reasoningEffort: string | null;
+}
+
+export function getDelegateCallInfo(block: ContentBlock): DelegateCallInfo | null {
   const normalized = normalizeToolUseBlock(block);
   if (!normalized) return null;
   const name = normalized.name.trim().toLowerCase();
   if (name !== 'delegate_task' && !name.endsWith('__delegate_task')) return null;
   const input = normalized.input as Record<string, unknown> | undefined;
-  return typeof input?.agent === 'string' && input.agent.trim() ? input.agent.trim() : null;
+  const agent = typeof input?.agent === 'string' ? input.agent.trim() : '';
+  if (!agent) return null;
+  const model = typeof input?.model === 'string' && input.model.trim() ? input.model.trim() : null;
+  const reasoningEffort =
+    typeof input?.reasoning_effort === 'string' && input.reasoning_effort.trim()
+      ? input.reasoning_effort.trim()
+      : null;
+  return { agent, model, reasoningEffort };
+}
+
+/**
+ * Human display for a delegate's model+effort: "gpt-5.6-sol" + "high" →
+ * "gpt 5.6 sol high". Empty string when neither is known.
+ */
+export function formatDelegateModelDisplay(
+  model: string | null | undefined,
+  reasoningEffort: string | null | undefined
+): string {
+  const modelPart = model?.trim() ? model.trim().replace(/-/g, ' ').replace(/\s+/g, ' ') : '';
+  const effortPart = reasoningEffort?.trim() ?? '';
+  return [modelPart, effortPart].filter(Boolean).join(' ');
 }
 
 /**

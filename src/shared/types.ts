@@ -1424,6 +1424,12 @@ export type StreamMessageBase = {
    * here, since the session-level provider no longer describes them.
    */
   sourceProvider?: AgentProvider | null;
+  /**
+   * Cross-agent delegation: the model the delegated agent actually runs
+   * (from its runtime init, falling back to the lead's requested model).
+   * The subagent panel header renders it.
+   */
+  sourceModel?: string | null;
 };
 
 export interface CompactMetadata {

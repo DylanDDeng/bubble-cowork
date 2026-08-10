@@ -8,7 +8,8 @@ import {
   normalizeToolResultBlock,
 } from '../utils/message-content';
 import {
-  getDelegateAgentFromBlock,
+  formatDelegateModelDisplay,
+  getDelegateCallInfo,
   groupSubagentMessagesByParent,
   isSessionEffectivelyBusy,
 } from '../utils/workstream';
@@ -145,20 +146,36 @@ export function SubagentPanel({
   }, [session?.messages, selectedId, sessionRunning]);
 
   // Cross-agent delegations show the target agent's provider logo instead of
-  // the pixel avatar — find the anchoring delegate_task tool_use, if any.
-  const delegateAgent = useMemo(() => {
+  // the pixel avatar, plus the model it runs — find the anchoring
+  // delegate_task tool_use for agent + requested model/effort; the effective
+  // model comes from the mirrored messages' sourceModel (the child runtime's
+  // init reports what it actually resolved, e.g. codex's config default).
+  const delegateInfo = useMemo(() => {
     if (!session || !selectedId) return null;
     for (const message of session.messages) {
       if (message.type !== 'assistant' || message.parentToolUseId) continue;
       for (const block of getMessageContentBlocks(message)) {
         const use = normalizeToolUseBlock(block);
         if (use?.id === selectedId) {
-          return getDelegateAgentFromBlock(block) as AgentProvider | null;
+          return getDelegateCallInfo(block);
         }
       }
     }
     return null;
   }, [session?.messages, selectedId]);
+  const delegateAgent = (delegateInfo?.agent ?? null) as AgentProvider | null;
+  const delegateModelLabel = useMemo(() => {
+    if (!delegateInfo || !selectedId) return '';
+    let actualModel: string | null = null;
+    for (const child of subagentMessagesByParent.get(selectedId) ?? []) {
+      const model = (child as { sourceModel?: string | null }).sourceModel;
+      if (typeof model === 'string' && model.trim()) {
+        actualModel = model.trim();
+        break;
+      }
+    }
+    return formatDelegateModelDisplay(actualModel ?? delegateInfo.model, delegateInfo.reasoningEffort);
+  }, [delegateInfo, selectedId, subagentMessagesByParent]);
 
   if (collapsed) return null;
 
@@ -199,6 +216,11 @@ export function SubagentPanel({
               >
                 {selected.persona.functionalName}
               </span>
+              {delegateModelLabel ? (
+                <span className="flex-shrink-0 rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--text-muted)]">
+                  {delegateModelLabel}
+                </span>
+              ) : null}
               <span className="flex-shrink-0">
                 {state === 'running' ? 'Running' : state === 'error' ? 'Failed' : state === 'frozen' ? 'Backgrounded' : 'Done'}
                 {typeof selected.durationMs === 'number' ? ` · ${formatDuration(selected.durationMs)}` : ''}

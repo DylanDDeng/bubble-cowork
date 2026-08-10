@@ -100,6 +100,18 @@ function buildMcpServer() {
           .string()
           .optional()
           .describe('Short (3-6 word) task label shown to the user.'),
+        model: z
+          .string()
+          .optional()
+          .describe(
+            "Model id for the delegated agent, in that agent's own naming (e.g. a codex or claude model id). Omit to use the agent's default."
+          ),
+        reasoning_effort: z
+          .string()
+          .optional()
+          .describe(
+            "Reasoning effort tier for the delegated agent (e.g. low/medium/high; the valid set is per agent/model). Omit to use the agent's default."
+          ),
       },
     },
     async (args: Record<string, unknown>) => {
@@ -107,6 +119,8 @@ function buildMcpServer() {
         agent: String(args.agent ?? ''),
         prompt: String(args.prompt ?? ''),
         description: typeof args.description === 'string' ? args.description : undefined,
+        model: typeof args.model === 'string' ? args.model : undefined,
+        reasoningEffort: typeof args.reasoning_effort === 'string' ? args.reasoning_effort : undefined,
         callerSessionId: null,
       });
       return {

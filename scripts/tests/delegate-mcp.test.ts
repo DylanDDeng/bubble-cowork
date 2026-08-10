@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   __resetDelegateServiceForTests,
   applyPermissionTier,
+  applyReasoningEffort,
   buildDelegateSummary,
   findPendingDelegateCall,
   hasActiveDelegationForParent,
@@ -23,7 +24,9 @@ import type { SessionRow } from '../../src/electron/types';
 import type { SessionStartPayload, StreamMessage } from '../../src/shared/types';
 import { classifyToolUse } from '../../src/ui/utils/tool-summary';
 import {
+  formatDelegateModelDisplay,
   getDelegateAgentFromBlock,
+  getDelegateCallInfo,
   isSubagentTaskBlock,
   latestTurnHasPendingDelegation,
 } from '../../src/ui/utils/workstream';
@@ -120,16 +123,37 @@ async function testPermissionInheritance() {
   assert.equal(payload.claudeAccessMode, 'acceptEdits');
   applyPermissionTier(payload, 'opencode', 'safe');
   assert.equal(payload.opencodePermissionMode, 'defaultPermissions');
+
+  // Reasoning effort routes to the target provider's own field, as an open
+  // string (no whitelists — tiers are provider/model-specific).
+  const effortPayload = { title: 'x', prompt: 'y' } as SessionStartPayload;
+  applyReasoningEffort(effortPayload, 'codex', 'xhigh');
+  assert.equal(effortPayload.codexReasoningEffort, 'xhigh');
+  applyReasoningEffort(effortPayload, 'claude', 'high');
+  assert.equal(effortPayload.claudeReasoningEffort, 'high');
+  applyReasoningEffort(effortPayload, 'kimi', 'max');
+  assert.equal(effortPayload.kimiThinking, 'max');
   console.log('PASS: permission inheritance mapping');
 }
 
 async function testMirrorTransform() {
-  const exec = { parentToolUseId: 'anchor-1', agent: 'codex' as const };
+  const exec = {
+    parentToolUseId: 'anchor-1',
+    agent: 'codex' as const,
+    actualModel: 'gpt-5.6-sol',
+    requestedModel: 'gpt-5.6',
+  };
   const assistant = assistantWithToolUse('c1', 'Edit', { file_path: '/tmp/a.ts' });
   const mirrored = transformDelegateMessage(exec, assistant);
   assert.ok(mirrored, 'assistant messages mirror');
   assert.equal(mirrored?.parentToolUseId, 'anchor-1');
   assert.equal(mirrored?.sourceProvider, 'codex');
+  assert.equal(mirrored?.sourceModel, 'gpt-5.6-sol', 'effective model wins over requested');
+  assert.equal(
+    transformDelegateMessage({ parentToolUseId: 'a', agent: 'codex' }, assistant)?.sourceModel,
+    null,
+    'no model info → null, not undefined-ish leakage'
+  );
 
   const user = userWithToolResult('c1');
   assert.ok(transformDelegateMessage(exec, user), 'user messages mirror');
@@ -219,6 +243,8 @@ async function testHappyPathAndLocks() {
   const resultPromise = runDelegateTask({
     agent: 'codex',
     prompt: 'review the diff',
+    model: 'gpt-5.6',
+    reasoningEffort: 'high',
     callerSessionId: 'parent-1',
   });
   await sleep(100);
@@ -238,6 +264,17 @@ async function testHappyPathAndLocks() {
   assert.equal(payload.hiddenFromThreads, true);
   assert.equal(payload.skipTitleGeneration, true);
   assert.equal(payload.cwd, '/tmp/project');
+  assert.equal(payload.model, 'gpt-5.6', 'requested model reaches the child payload');
+  assert.equal(payload.codexReasoningEffort, 'high', 'requested effort routes to the codex field');
+
+  // The child runtime's init reports the model it actually resolved; mirrored
+  // messages carry it from then on.
+  const handledInit = mirrorDelegateMessage('exec-1', {
+    type: 'system',
+    subtype: 'init',
+    model: 'gpt-5.6-sol',
+  } as unknown as StreamMessage);
+  assert.equal(handledInit, true, 'system init is handled (swallowed, model captured)');
 
   // Child messages mirror into the parent with the anchor id; stream_events
   // are swallowed.
@@ -254,10 +291,11 @@ async function testHappyPathAndLocks() {
     event: {},
   } as unknown as StreamMessage);
   assert.equal(handledAssistant && handledText && handledStream, true, 'all exec messages are handled');
-  assert.equal(world.mirrored.length, 2, 'stream_event swallowed, assistant messages mirrored');
+  assert.equal(world.mirrored.length, 2, 'stream_event/init swallowed, assistant messages mirrored');
   assert.equal(world.mirrored[0].sessionId, 'parent-1');
   assert.equal(world.mirrored[0].message.parentToolUseId, 'anchor-1');
   assert.equal(world.mirrored[0].message.sourceProvider, 'codex');
+  assert.equal(world.mirrored[0].message.sourceModel, 'gpt-5.6-sol', 'mirrored messages carry the effective model');
 
   world.execStatus = 'completed';
   const result = await resultPromise;
@@ -315,6 +353,9 @@ async function testSummaryTruncation() {
     changedFiles: new Set<string>(Array.from({ length: 60 }, (_, i) => `/tmp/f${i}.ts`)),
     mirroredCount: 0,
     settled: false,
+    requestedModel: null,
+    reasoningEffort: null,
+    actualModel: null,
   };
   const summary = buildDelegateSummary(exec, 'completed');
   assert.ok(summary.includes('[truncated]'), 'long text is truncated');
@@ -340,6 +381,24 @@ async function testRendererPredicates() {
   );
   assert.equal(isSubagentTaskBlock(delegateBlock), true, 'delegate calls render as subagent capsules');
   assert.equal(getDelegateAgentFromBlock(delegateBlock), 'codex');
+
+  // Panel model chip: requested model/effort from the anchor block, effective
+  // model from the mirrored messages, formatted "gpt 5.6 sol high".
+  const richBlock = {
+    type: 'tool_use',
+    id: 'anchor-2',
+    name: DELEGATE_NAME,
+    input: { agent: 'codex', prompt: 'x', model: 'gpt-5.6', reasoning_effort: 'high' },
+  } as unknown as ContentBlock;
+  assert.deepEqual(getDelegateCallInfo(richBlock), {
+    agent: 'codex',
+    model: 'gpt-5.6',
+    reasoningEffort: 'high',
+  });
+  assert.equal(formatDelegateModelDisplay('gpt-5.6-sol', 'high'), 'gpt 5.6 sol high');
+  assert.equal(formatDelegateModelDisplay('gpt-5.6-sol', null), 'gpt 5.6 sol');
+  assert.equal(formatDelegateModelDisplay(null, 'high'), 'high');
+  assert.equal(formatDelegateModelDisplay(null, null), '', 'nothing known → no chip');
   assert.equal(
     getDelegateAgentFromBlock({
       type: 'tool_use',

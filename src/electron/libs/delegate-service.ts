@@ -51,6 +51,14 @@ export interface DelegateTaskRequest {
   prompt: string;
   description?: string;
   /**
+   * Model / reasoning effort for the delegated agent. Open strings on
+   * purpose — valid sets are provider- and version-specific (codex models
+   * and effort tiers come from its models_cache); never whitelist here.
+   * Unset = the target agent's own default.
+   */
+  model?: string;
+  reasoningEffort?: string;
+  /**
    * The session the call came from, when the transport knows it (Claude
    * in-process closure). HTTP callers leave it null and rely on the
    * pending-tool-call attribution scan.
@@ -75,6 +83,11 @@ export interface DelegateExecution {
   changedFiles: Set<string>;
   mirroredCount: number;
   settled: boolean;
+  /** Model the lead asked for (tool param), if any. */
+  requestedModel: string | null;
+  reasoningEffort: string | null;
+  /** Effective model reported by the child runtime's system init. */
+  actualModel: string | null;
 }
 
 let host: DelegateHost | null = null;
@@ -248,6 +261,35 @@ export function applyPermissionTier(
   }
 }
 
+/**
+ * Route the requested reasoning effort to the target provider's payload
+ * field. The value stays an open string — each runtime validates its own
+ * tiers; providers without an effort knob ignore it.
+ */
+export function applyReasoningEffort(
+  payload: SessionStartPayload,
+  agent: AgentProvider,
+  effort: string
+): void {
+  if (!effort) return;
+  switch (agent) {
+    case 'claude':
+      payload.claudeReasoningEffort = effort as SessionStartPayload['claudeReasoningEffort'];
+      break;
+    case 'codex':
+      payload.codexReasoningEffort = effort;
+      break;
+    case 'grok':
+      payload.grokReasoningEffort = effort as SessionStartPayload['grokReasoningEffort'];
+      break;
+    case 'kimi':
+      payload.kimiThinking = effort;
+      break;
+    default:
+      break;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Mirror pipeline
 // ---------------------------------------------------------------------------
@@ -280,7 +322,8 @@ function collectChangedFiles(message: StreamMessage, into: Set<string>): void {
  * machinery consumes; stream_events/system/result stay out entirely.
  */
 export function transformDelegateMessage(
-  exec: Pick<DelegateExecution, 'parentToolUseId' | 'agent'>,
+  exec: Pick<DelegateExecution, 'parentToolUseId' | 'agent'> &
+    Partial<Pick<DelegateExecution, 'actualModel' | 'requestedModel'>>,
   message: StreamMessage
 ): StreamMessage | null {
   if (message.type !== 'assistant' && message.type !== 'user') return null;
@@ -288,6 +331,7 @@ export function transformDelegateMessage(
     ...message,
     parentToolUseId: exec.parentToolUseId,
     sourceProvider: exec.agent,
+    sourceModel: exec.actualModel || exec.requestedModel || null,
   } as StreamMessage;
 }
 
@@ -300,6 +344,13 @@ export function transformDelegateMessage(
 export function mirrorDelegateMessage(execSessionId: string, message: StreamMessage): boolean {
   const exec = executionsByExecSession.get(execSessionId);
   if (!exec || exec.settled) return false;
+  // The child runtime's init reports the model it actually resolved (e.g.
+  // codex falling back to its config.toml default) — capture it so mirrored
+  // messages and the panel header can show the real thing.
+  if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
+    const model = (message as { model?: unknown }).model;
+    if (typeof model === 'string' && model.trim()) exec.actualModel = model.trim();
+  }
   if (message.type === 'assistant') {
     const text = extractAssistantTextBlocks(message);
     if (text) exec.lastAssistantText = text;
@@ -434,6 +485,9 @@ export async function runDelegateTask(
   const parentRow = activeHost.getSession(parentSessionId);
   if (!parentRow) return rejected('The calling session no longer exists.');
 
+  const requestedModel = String(request.model || '').trim() || null;
+  const reasoningEffort = String(request.reasoningEffort || '').trim() || null;
+
   claimedToolUseIds.add(toolUseId);
   const exec: DelegateExecution = {
     execSessionId: null,
@@ -445,6 +499,9 @@ export async function runDelegateTask(
     changedFiles: new Set(),
     mirroredCount: 0,
     settled: false,
+    requestedModel,
+    reasoningEffort,
+    actualModel: null,
   };
   bumpParent(parentSessionId, 1);
 
@@ -461,6 +518,8 @@ export async function runDelegateTask(
       skipTitleGeneration: true,
       channelId: parentRow.workspace_channel_id ?? undefined,
     };
+    if (requestedModel) payload.model = requestedModel;
+    if (reasoningEffort) applyReasoningEffort(payload, agent, reasoningEffort);
     applyPermissionTier(payload, agent, resolveParentPermissionTier(parentRow));
 
     const execSessionId = await activeHost.startSession(payload);

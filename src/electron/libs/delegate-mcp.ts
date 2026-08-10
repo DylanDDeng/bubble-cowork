@@ -72,12 +72,26 @@ export async function createDelegateMcpServer(parentSessionId: string) {
             .string()
             .optional()
             .describe('Short (3-6 word) task label shown to the user.'),
+          model: z
+            .string()
+            .optional()
+            .describe(
+              "Model id for the delegated agent, in that agent's own naming (e.g. a codex or claude model id). Omit to use the agent's default."
+            ),
+          reasoning_effort: z
+            .string()
+            .optional()
+            .describe(
+              "Reasoning effort tier for the delegated agent (e.g. low/medium/high; the valid set is per agent/model). Omit to use the agent's default."
+            ),
         },
-        async ({ agent, prompt, description }) => {
+        async ({ agent, prompt, description, model, reasoning_effort }) => {
           const result = await runDelegateTask({
             agent,
             prompt,
             description,
+            model,
+            reasoningEffort: reasoning_effort,
             callerSessionId: parentSessionId,
           });
           return {
