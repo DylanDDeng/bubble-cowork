@@ -59,7 +59,7 @@ import {
   type CodexReferencePayload,
 } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
-import { isSessionEffectivelyBusy } from '../utils/workstream';
+import { isSessionEffectivelyBusy, latestTurnHasPendingDelegation } from '../utils/workstream';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import { removeSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import {
@@ -505,11 +505,20 @@ export function PromptInput({
   // Mid-turn queue+steer needs a runtime that can inject into a running
   // turn: codex (turn/steer) and the kimi server runtime (prompts:steer).
   // Legacy-runtime kimi threads keep the immediate-send behavior.
+  // Steer lock (docs/delegate-mcp-plan.md): while a delegated agent works in
+  // this session's directory, mid-turn sends are refused so the "lead blocked
+  // on the delegate call = single writer" invariant holds. The main process
+  // enforces the same rule in handleSessionContinue; this keeps the UX honest.
+  const delegationPending = useMemo(
+    () => latestTurnHasPendingDelegation(activeSession?.messages ?? []),
+    [activeSession?.messages]
+  );
   const canSteerWhileRunning =
     (runtimeProvider === 'codex' ||
       (runtimeProvider === 'kimi' && activeSession?.kimiRuntime !== 'legacy')) &&
     isRunning &&
     !approvalPending &&
+    !delegationPending &&
     !modelSetupRequired;
   const queuedMessages = useComposerQueueStore((state) =>
     selectQueuedMessages(state, targetSessionId)
@@ -1343,11 +1352,13 @@ export function PromptInput({
                 <button
                   type="button"
                   onClick={() => steerQueuedMessage(item.id)}
-                  disabled={approvalPending}
+                  disabled={approvalPending || (delegationPending && isRunning)}
                   title={
-                    canSteerWhileRunning
-                      ? 'Send into the running turn now'
-                      : 'Send as the next message'
+                    delegationPending && isRunning
+                      ? 'Locked while a delegated agent is working'
+                      : canSteerWhileRunning
+                        ? 'Send into the running turn now'
+                        : 'Send as the next message'
                   }
                   className="flex flex-shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
                 >

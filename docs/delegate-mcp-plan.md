@@ -1,7 +1,10 @@
 # Cross-agent delegation via the Aegis delegate MCP server
 
-Status: design finalized 2026-08-09. All open policy decisions are settled; this
-document is the reference for implementation.
+Status: design finalized 2026-08-09; v1 IMPLEMENTED 2026-08-10
+(`verify:delegate-mcp`). Core: `src/electron/libs/delegate-service.ts`
+(transport-agnostic logic), `delegate-mcp.ts` (Claude in-process transport),
+`delegate-http-server.ts` (loopback streamable-HTTP transport for codex).
+Deviations from the letter of this doc are noted inline as [impl].
 
 ## Goal
 
@@ -71,6 +74,15 @@ depth limits).
   pending `mcpToolCall` items across running codex sessions. A collision
   (identical concurrent arguments) is astronomically unlikely; on collision,
   reject and let the model retry with a nonce argument.
+  [impl] The matcher scans the *persisted parent transcripts* (pending
+  `delegate_task` tool_use blocks without a tool_result, matched on
+  agent+prompt, with a claim set against double-attribution and a 10s retry
+  window) — this works uniformly for both transports because the codex
+  adapter now composes Claude-style `mcp__<server>__<tool>` names for
+  `mcpToolCall` items (`codex-adapter.ts` extractToolCallInfo). Claude
+  callers use the same matcher only to pin the anchoring tool_use id; if it
+  misses, delegation proceeds with a synthetic anchor (capsule degrades,
+  work is not lost).
 - **kimi / opencode / qoder / bubble**: unverified whether their event streams
   expose MCP call arguments. **v1 ships with Claude and codex as leads only**;
   enable others one by one after verifying attribution.
@@ -144,16 +156,36 @@ avatar.
 - No worktree isolation (v2).
 - No chained delegation (permanent, not just v1).
 
-## Implementation order
+## Implementation status (2026-08-10)
 
 1. ~~Fix `codex-mcp-settings.ts` field destruction~~ — done, `b9d0b04`,
    `verify:codex-mcp-settings`.
-2. **Zero-protocol "diff handoff" first**: cross-provider transcript copy
-   (near `ipc-handlers.ts` transcript-copy code, ~:5163) + `turn_changes` git
-   patch groundwork already exists. Ships user value with no MCP work and
-   exercises the cross-provider summary format.
-3. Delegate MCP server: in-process (Claude) + HTTP (codex) transports, bearer
-   token, attribution matcher, depth guard, mirror pipeline, capsule/predicate
-   recognition, hidden-session side-effect suppression.
+2. ~~Delegate MCP server v1~~ — done, `verify:delegate-mcp` (static wiring
+   guards + service/renderer runtime tests + live HTTP round-trip):
+   - `delegate-service.ts`: `runDelegateTask` (validation, depth guard,
+     attribution, permission-tier inheritance, hidden-session start via
+     `handleSessionStart`, 500ms status polling, 30min timeout with child
+     stop, bounded summary = last assistant text + changed-file list).
+   - `delegate-mcp.ts`: `createSdkMcpServer` injection per Claude runner
+     (`runner.ts`, skipped for delegate executions; `MCP_TOOL_TIMEOUT`
+     lifted to 35min).
+   - `delegate-http-server.ts`: loopback streamable-HTTP (stateless
+     transport per request, `@modelcontextprotocol/sdk`), per-run bearer
+     token exported as `AEGIS_DELEGATE_TOKEN`, codex config entry rewritten
+     each launch (`url` + `bearer_token_env_var` + `tool_timeout_sec=2100`).
+   - ipc-handlers: mirror redirect in the persist path, permission-request
+     rerouting to the parent composer, steer lock in
+     `handleSessionContinue`, stop cascade in `handleSessionStop`,
+     environment-recap suppression for delegate executions.
+   - Renderer: `classifyToolUse` treats `delegate_task` as subagent (capsule
+     + busy predicates for free), `getDelegateAgentFromBlock` +
+     `latestTurnHasPendingDelegation` (composer steer gate + Steer chip
+     lock), provider logo instead of the pixel avatar in SubagentLane and
+     the SubagentPanel header, `sourceProvider` tag on mirrored messages.
+   - [impl] The child's initial `user_prompt` persists under the hidden
+     session (written by `handleSessionStart` before the runner exists);
+     everything the runner emits mirrors into the parent.
+3. **Next: zero-protocol "diff handoff"** — cross-provider transcript copy +
+   `turn_changes` git patch groundwork. Independent user value.
 4. Observe real usage; then consider more leads, worktree isolation, async
    two-phase calls.

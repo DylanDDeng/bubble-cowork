@@ -1493,6 +1493,15 @@ export class CodexAdapter implements ProviderAdapter {
       toolInput.__aegisDisplayTitle = title;
     }
 
+    // Codex `mcpToolCall` items carry the identity in `server` + `tool`, not
+    // `name` — without this branch they render as the literal item type
+    // ("mcpToolCall"). Compose Claude-style `mcp__<server>__<tool>` so the
+    // renderer's mcp_tool_call classification and the delegate attribution
+    // matcher both work off the same name.
+    const mcpTool = getFirstString(item.tool, nested?.tool);
+    const mcpServer = getFirstString(item.server, nested?.server);
+    const mcpToolName = mcpTool ? (mcpServer ? `mcp__${mcpServer}__${mcpTool}` : mcpTool) : null;
+
     const rawName = getFirstString(
       item.name,
       item.toolName,
@@ -1505,6 +1514,7 @@ export class CodexAdapter implements ProviderAdapter {
       item.type
     );
     const toolName =
+      mcpToolName ||
       normalizeCodexToolName(rawName) ||
       inferCodexToolNameFromFields({ command, filePath, title }) ||
       'unknown';

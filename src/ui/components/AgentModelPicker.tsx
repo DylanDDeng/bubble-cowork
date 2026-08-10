@@ -75,7 +75,7 @@ function isVisibleClaudePickerModel(
   return isOfficialClaudeModel(normalized) || compatibleOptions.some((option) => option.model === normalized);
 }
 
-function ProviderIcon({ provider }: { provider: AgentProvider }) {
+export function ProviderIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }

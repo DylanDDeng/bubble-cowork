@@ -33,6 +33,15 @@ import { isSameClaudeModelSelection, normalizeClaudeRequestedModel, reconcileCla
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfigWithCatalog, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
 import {
+  getDelegateMirrorTarget,
+  hasActiveDelegationForParent,
+  initializeDelegateService,
+  isDelegateExecutionSession,
+  mirrorDelegateMessage,
+  stopDelegationsForParent,
+} from './libs/delegate-service';
+import { ensureDelegateHttpServer, disposeDelegateHttpServer } from './libs/delegate-http-server';
+import {
   getOpencodeMcpServers,
   saveOpencodeMcpServers,
   getOpencodeProjectMcpServers,
@@ -4920,6 +4929,29 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   );
   automationScheduler.start();
 
+  // Cross-agent delegation (docs/delegate-mcp-plan.md): the delegate MCP
+  // server runs hidden execution sessions through the normal session
+  // pipeline and mirrors their messages into the parent transcript.
+  initializeDelegateService({
+    startSession: (payload) => handleSessionStart(mainWindow, payload),
+    stopSession: (sessionId) => handleSessionStop(mainWindow, sessionId),
+    getSession: (sessionId) => sessions.getSession(sessionId) ?? null,
+    getSessionHistory: (sessionId) => sessions.getSessionHistory(sessionId),
+    listRunningSessionIds: () => [...runnerHandles.keys()],
+    addMessageToSession: (sessionId, message) => {
+      sessions.addMessage(sessionId, message);
+      broadcast(mainWindow, {
+        type: 'stream.message',
+        payload: { sessionId, message },
+      });
+    },
+  });
+  // Loopback HTTP transport for non-Claude leads (v1: codex). Failure is
+  // non-fatal — Claude leads work without it.
+  void ensureDelegateHttpServer().catch((error) => {
+    console.warn('Failed to start the delegate MCP HTTP server:', error);
+  });
+
   ipcMainHandle('get-notification-settings', async () => getNotificationSettings());
 
   ipcMainHandle(
@@ -8771,6 +8803,22 @@ async function handleSessionContinue(
     return false;
   }
 
+  // Steer lock (docs/delegate-mcp-plan.md): while a delegated agent runs in
+  // this session's working directory, "lead blocked on the tool call = single
+  // writer" must hold — refuse mid-turn sends. This is the chokepoint every
+  // renderer path (composer send, Steer chip, queue auto-flush) funnels
+  // through.
+  if (session.status === 'running' && hasActiveDelegationForParent(sessionId)) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: {
+        message: 'Steering is locked while a delegated agent is working. Stop the session or wait for the delegate to finish.',
+        sessionId,
+      },
+    });
+    return false;
+  }
+
   const longPromptAttachment = await maybeConvertLongPromptToAttachment({
     cwd: session.cwd,
     prompt,
@@ -9725,7 +9773,20 @@ function startRunner(
         stopStateForMessage.stoppedTurns > 0 &&
         isStoppedTurnDrainMessage(message);
 
+      // Delegate execution sessions don't persist under their own id: their
+      // messages mirror into the parent session's stream tagged with the
+      // delegate call's tool_use id (docs/delegate-mcp-plan.md), where the
+      // SubagentPanel machinery picks them up. stream_events are swallowed —
+      // committed messages are all the panel consumes.
       if (
+        sanitizedStreamMessage.message &&
+        getDelegateMirrorTarget(session.id) &&
+        mirrorDelegateMessage(session.id, sanitizedStreamMessage.message)
+      ) {
+        // fall through to the result/status handling below — the hidden
+        // session's lifecycle (status transitions, runner retirement) must
+        // still run; only transcript persistence/broadcast is redirected.
+      } else if (
         sanitizedStreamMessage.message &&
         !stopClassification.stoppedByUser &&
         !isStoppedTurnDrain
@@ -9919,7 +9980,14 @@ function startRunner(
             hiddenFromThreads: sessions.getSession(session.id)?.hidden_from_threads === 1,
           },
         });
-        if (!suppressStatusBroadcast && !stoppedByUser && !hasQueuedTurns) {
+        if (
+          !suppressStatusBroadcast &&
+          !stoppedByUser &&
+          !hasQueuedTurns &&
+          // Hidden delegate executions must not spend an LLM call per turn on
+          // an environment recap nobody will look at.
+          !isDelegateExecutionSession(session.id)
+        ) {
           const latestSession = sessions.getSession(session.id);
           if (latestSession) {
             scheduleSessionEnvironmentRecapRefresh(latestSession, mainWindow);
@@ -10199,18 +10267,26 @@ function startRunner(
       ) {
         return { behavior: 'deny', message: 'The user stopped this turn.' };
       }
+      // Delegate execution sessions have no composer of their own: route the
+      // prompt to the parent session's composer (park the promise under the
+      // parent's state so permission.response finds it there).
+      const delegateTarget = getDelegateMirrorTarget(session.id);
+      const permissionSessionId = delegateTarget?.parentSessionId ?? session.id;
+      const permissionState = delegateTarget
+        ? getSessionState(permissionSessionId)
+        : sessionState;
       // 广播权限请求
       broadcast(mainWindow, {
         type: 'permission.request',
         payload: {
-          sessionId: session.id,
+          sessionId: permissionSessionId,
           toolUseId,
           toolName,
           input: input as PermissionRequestInput,
         },
       });
       void feishuBridge.handlePermissionRequest({
-        sessionId: session.id,
+        sessionId: permissionSessionId,
         toolUseId,
         toolName,
         input: input as PermissionRequestInput,
@@ -10218,21 +10294,25 @@ function startRunner(
 
       // 等待用户响应
       return new Promise<PermissionResult>((resolve, reject) => {
-        sessionState.pendingPermissions.set(toolUseId, { resolve, reject });
+        permissionState.pendingPermissions.set(toolUseId, { resolve, reject });
       });
     },
     onPermissionDismissed: (toolUseId) => {
       // The provider resolved/abandoned the request itself (process death,
       // stop, serverRequest/resolved): settle the pending promise quietly and
-      // drop the renderer card (P0-7).
-      const pending = sessionState.pendingPermissions.get(toolUseId);
+      // drop the renderer card (P0-7). Delegate executions parked/broadcast
+      // their requests under the parent session — dismiss there too.
+      const dismissTarget = getDelegateMirrorTarget(session.id);
+      const dismissSessionId = dismissTarget?.parentSessionId ?? session.id;
+      const dismissState = dismissTarget ? getSessionState(dismissSessionId) : sessionState;
+      const pending = dismissState.pendingPermissions.get(toolUseId);
       if (pending) {
         pending.resolve({ behavior: 'deny', message: 'The request is no longer pending.' });
-        sessionState.pendingPermissions.delete(toolUseId);
+        dismissState.pendingPermissions.delete(toolUseId);
       }
       broadcast(mainWindow, {
         type: 'permission.dismissed',
-        payload: { sessionId: session.id, toolUseId },
+        payload: { sessionId: dismissSessionId, toolUseId },
       });
     },
     onToolOutputDelta: (toolUseId, delta) => {
@@ -10672,6 +10752,10 @@ function resolveStopFallback(mainWindow: BrowserWindow, sessionId: string, entry
 const STOP_INTERRUPT_FALLBACK_MS = 8_000;
 
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
+  // Stop-cascade: stopping the parent also stops every delegated agent
+  // running under it (their runners are separate entries keyed by their
+  // hidden execution session ids).
+  stopDelegationsForParent(sessionId);
   const session = sessions.getSession(sessionId);
   const entry = runnerHandles.get(sessionId);
   let softStopped = false;
@@ -11267,6 +11351,7 @@ export function cleanup(): void {
   automationScheduler = null;
   stopClaudeRunnerReaper();
   disposeTerminalTransportServer();
+  disposeDelegateHttpServer();
   disposeTerminalRuntime();
   // 停止所有运行中的 runner
   for (const [, entry] of runnerHandles) {

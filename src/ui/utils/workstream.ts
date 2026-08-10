@@ -288,6 +288,54 @@ export function isSubagentTaskBlock(block: ContentBlock): boolean {
 }
 
 /**
+ * Cross-agent delegation: a `delegate_task` call (aegis-delegate MCP server)
+ * runs another agent whose trace mirrors into this session under the call's
+ * tool_use id. Returns the target agent's provider id, or null when the
+ * block is not a delegate call.
+ */
+export function getDelegateAgentFromBlock(block: ContentBlock): string | null {
+  const normalized = normalizeToolUseBlock(block);
+  if (!normalized) return null;
+  const name = normalized.name.trim().toLowerCase();
+  if (name !== 'delegate_task' && !name.endsWith('__delegate_task')) return null;
+  const input = normalized.input as Record<string, unknown> | undefined;
+  return typeof input?.agent === 'string' && input.agent.trim() ? input.agent.trim() : null;
+}
+
+/**
+ * True when the LATEST turn has a delegate_task call with no tool_result yet.
+ * The composer uses this for the steer lock: while a delegated agent works in
+ * the session's directory, "lead blocked on the call = single writer" must
+ * hold, so mid-turn sends are refused (the main process enforces the same
+ * rule in handleSessionContinue).
+ */
+export function latestTurnHasPendingDelegation(messages: StreamMessage[]): boolean {
+  let turnStart = 0;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.type === 'user_prompt') {
+      turnStart = i;
+      break;
+    }
+  }
+  const pending = new Set<string>();
+  for (let i = turnStart; i < messages.length; i += 1) {
+    const message = messages[i];
+    if (message.type !== 'assistant' && message.type !== 'user') continue;
+    const isTopLevel = !message.parentToolUseId;
+    for (const block of getMessageContentBlocks(message)) {
+      const use = normalizeToolUseBlock(block);
+      if (use) {
+        if (isTopLevel && getDelegateAgentFromBlock(block)) pending.add(use.id);
+        continue;
+      }
+      const result = normalizeToolResultBlock(block);
+      if (result) pending.delete(result.tool_use_id);
+    }
+  }
+  return pending.size > 0;
+}
+
+/**
  * True when the LATEST turn (everything from the last `user_prompt` onward)
  * contains a top-level subagent Task tool_use with no matching tool_result
  * yet. Claude background subagents keep streaming into `session.messages`
@@ -517,7 +565,8 @@ function buildSubagentTrace(
 ): SubagentTrace | undefined {
   const taskFinished = parentStatus === 'success' || parentStatus === 'error';
   const input = isRecord(block.input) ? block.input : {};
-  const agentType = getString(input.subagent_type);
+  // Delegate calls carry the target agent in `agent` instead of subagent_type.
+  const agentType = getString(input.subagent_type) || getDelegateAgentFromBlock(block);
   const description =
     getString(input.description) ||
     (getString(input.prompt) ? truncateSummary(getString(input.prompt)!, 120) : null);

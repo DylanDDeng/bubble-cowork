@@ -25,6 +25,8 @@ import { getRequiredClaudeCodeRuntime } from './claude-runtime';
 import { createPromptCancellation } from './claude-prompt-cancellation';
 import { captureGitTreeSnapshot, diffGitTreeSnapshots } from './git-turn-snapshot';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
+import { createDelegateMcpServer } from './delegate-mcp';
+import { DELEGATE_MCP_SERVER_NAME, isDelegateExecutionSession } from './delegate-service';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 import {
   AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
@@ -790,6 +792,17 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             'aegis-memory': await createAegisMemoryMcpServer(session.cwd ?? undefined),
           }
         : providerMcpServers;
+      // Cross-agent delegation: every top-level Claude session can be a lead.
+      // Delegate execution sessions don't get the server — combined with the
+      // server-side caller check this enforces the one-level depth limit.
+      if (!isDelegateExecutionSession(session.id)) {
+        (mcpServers as Record<string, unknown>)[DELEGATE_MCP_SERVER_NAME] =
+          await createDelegateMcpServer(session.id);
+        // Delegate calls block for the whole child run; lift the CLI's MCP
+        // tool timeout above the delegate's own 30-minute ceiling.
+        if (!env.MCP_TOOL_TIMEOUT) env.MCP_TOOL_TIMEOUT = String(35 * 60 * 1000);
+        if (!env.MCP_TIMEOUT) env.MCP_TIMEOUT = String(35 * 60 * 1000);
+      }
 
       const result = sdk.query({
         prompt: inputQueue,

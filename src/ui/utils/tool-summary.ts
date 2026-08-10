@@ -434,6 +434,10 @@ export function classifyToolUse(toolName: string, input: unknown): CanonicalTool
   // runs render as a subagent board (not a generic tool row).
   if (normalized === 'task' || normalized === 'agent') return 'subagent';
   if (getStringField(input, 'subagent_type')) return 'subagent';
+  // Cross-agent delegation (aegis-delegate MCP server): a delegate_task call
+  // runs another agent whose trace mirrors into this session exactly like a
+  // subagent — render it as one, not as a generic MCP row.
+  if (normalized === 'delegate_task' || normalized.endsWith('__delegate_task')) return 'subagent';
   if (normalized === 'todowrite' || normalized === 'todo_write') return 'todo_update';
   if (normalized === 'askuserquestion' || normalized === 'question') return 'approval';
   if (

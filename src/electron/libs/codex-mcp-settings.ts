@@ -327,8 +327,12 @@ export function getCodexMcpServers(): Record<string, McpServerConfig> {
 }
 
 // 写回所有 [mcp_servers.*] 段：就地替换，保留其它内容与注释。
-// 现有段里 Aegis 不认识的键（bearer_token_env_var、timeout 等）按段名原样带回。
-export function saveCodexMcpServers(servers: Record<string, McpServerConfig>): void {
+// 现有段里 Aegis 不认识的键（bearer_token_env_var、timeout 等）按段名原样带回；
+// extrasOverrides 里的段名用给定行替换原样保留的行（程序化写入自己的段用）。
+export function saveCodexMcpServers(
+  servers: Record<string, McpServerConfig>,
+  extrasOverrides?: Record<string, string[]>
+): void {
   const text = readText();
   const lines = splitLines(text);
   const sections = findMcpSections(lines);
@@ -337,6 +341,9 @@ export function saveCodexMcpServers(servers: Record<string, McpServerConfig>): v
   for (const section of sections) {
     const { extraLines } = parseSectionBody(section.body);
     if (extraLines.length > 0) extrasByName.set(section.name, extraLines);
+  }
+  for (const [name, extraLines] of Object.entries(extrasOverrides ?? {})) {
+    extrasByName.set(name, extraLines);
   }
 
   // 拿掉全部现有 mcp_servers 段及其紧邻前置空行，得到干净的非 MCP 基础内容。
@@ -395,4 +402,16 @@ export function saveCodexMcpServers(servers: Record<string, McpServerConfig>): v
   }
 
   writeText(output);
+}
+
+// 程序化 upsert 单个条目（比如 Aegis 自己的 delegate server）：其余条目原样
+// 保留，本条目的 extras 用给定行整体替换（端口/超时每次启动都要刷新）。
+export function upsertCodexMcpServer(
+  name: string,
+  config: McpServerConfig,
+  extraLines: string[] = []
+): void {
+  const servers = getCodexMcpServers();
+  servers[name] = config;
+  saveCodexMcpServers(servers, { [name]: extraLines });
 }

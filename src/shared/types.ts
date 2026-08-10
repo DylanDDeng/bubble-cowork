@@ -1418,6 +1418,12 @@ export type StreamMessageBase = {
    * under their Task row instead of rendering them inline.
    */
   parentToolUseId?: string | null;
+  /**
+   * Cross-agent delegation: messages mirrored into a parent session from a
+   * delegated agent's hidden execution session carry that agent's provider
+   * here, since the session-level provider no longer describes them.
+   */
+  sourceProvider?: AgentProvider | null;
 };
 
 export interface CompactMetadata {

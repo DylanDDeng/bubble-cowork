@@ -7,7 +7,13 @@ import {
   normalizeToolUseBlock,
   normalizeToolResultBlock,
 } from '../utils/message-content';
-import { groupSubagentMessagesByParent, isSessionEffectivelyBusy } from '../utils/workstream';
+import {
+  getDelegateAgentFromBlock,
+  groupSubagentMessagesByParent,
+  isSessionEffectivelyBusy,
+} from '../utils/workstream';
+import { ProviderIcon } from './AgentModelPicker';
+import type { AgentProvider } from '../../shared/types';
 import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { deriveSubagentSummaries, type SubagentSummary } from '../utils/subagent-registry';
 import { buildSubagentChangeSummary } from '../utils/turn-change-records';
@@ -138,6 +144,22 @@ export function SubagentPanel({
     });
   }, [session?.messages, selectedId, sessionRunning]);
 
+  // Cross-agent delegations show the target agent's provider logo instead of
+  // the pixel avatar — find the anchoring delegate_task tool_use, if any.
+  const delegateAgent = useMemo(() => {
+    if (!session || !selectedId) return null;
+    for (const message of session.messages) {
+      if (message.type !== 'assistant' || message.parentToolUseId) continue;
+      for (const block of getMessageContentBlocks(message)) {
+        const use = normalizeToolUseBlock(block);
+        if (use?.id === selectedId) {
+          return getDelegateAgentFromBlock(block) as AgentProvider | null;
+        }
+      }
+    }
+    return null;
+  }, [session?.messages, selectedId]);
+
   if (collapsed) return null;
 
   const state = selected ? displayState(selected, Boolean(sessionRunning)) : 'done';
@@ -165,7 +187,11 @@ export function SubagentPanel({
         <>
           <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)]">
             <div className="flex min-w-0 items-center gap-2">
-              <SubagentAvatar id={selected.id} hue={selected.persona.colorHue} size={14} />
+              {delegateAgent ? (
+                <ProviderIcon provider={delegateAgent} />
+              ) : (
+                <SubagentAvatar id={selected.id} hue={selected.persona.colorHue} size={14} />
+              )}
               <StatusDot state={state} />
               <span
                 className="min-w-0 truncate text-[var(--text-secondary)]"

@@ -76,7 +76,8 @@ export function deriveSubagentSummaries(messages: StreamMessage[]): SubagentSumm
       seen.add(use.id);
 
       const input = (use.input && typeof use.input === 'object' ? use.input : {}) as Record<string, unknown>;
-      const subagentType = getString(input.subagent_type);
+      // Delegate calls carry the target agent in `agent` instead of subagent_type.
+      const subagentType = getString(input.subagent_type) ?? getString(input.agent);
       const description =
         getString(input.description) ||
         (getString(input.prompt) ? getString(input.prompt)!.slice(0, 200) : null);

@@ -17,6 +17,7 @@ import {
   type ToolUseBlock,
   type WorkstreamEntry,
   type WorkstreamModel,
+  getDelegateAgentFromBlock,
   getToolInputContent,
   getToolInputFilePath,
   getToolInputNewText,
@@ -47,6 +48,8 @@ import {
 import { FileTypeIcon } from './FileTypeIcon';
 import { SubagentAvatar } from './SubagentAvatar';
 import { getSubagentPersona } from '../utils/subagent-persona';
+import { ProviderIcon } from './AgentModelPicker';
+import type { AgentProvider } from '../../shared/types';
 
 interface AssistantWorkstreamProps {
   model: WorkstreamModel;
@@ -644,8 +647,10 @@ function SubagentLane({
   const description = trace?.description || getTaskDescription(entry) || entry.summary;
   // The avatar hue is derived from the Task tool_use id — the same key the
   // subagent registry / utility tabs use — so the chat row and the tab show
-  // the same pixel creature for one subagent.
+  // the same pixel creature for one subagent. Cross-agent delegations show
+  // the target agent's provider logo instead.
   const persona = getSubagentPersona(entry.block.id, trace?.agentType, description);
+  const delegateAgent = getDelegateAgentFromBlock(entry.block) as AgentProvider | null;
 
   // The whole row opens this subagent's tab in the right-side detail panel —
   // the subagent's working trace lives there, not inline in the main trace.
@@ -659,7 +664,11 @@ function SubagentLane({
       }`}
     >
       <span className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)]/60 py-0.5 pl-1.5 pr-2.5 transition-colors group-hover:border-[var(--text-muted)]/45 group-hover:bg-[var(--bg-tertiary)]/60">
-        <SubagentAvatar id={entry.block.id} hue={persona.colorHue} size={12} />
+        {delegateAgent ? (
+          <ProviderIcon provider={delegateAgent} />
+        ) : (
+          <SubagentAvatar id={entry.block.id} hue={persona.colorHue} size={12} />
+        )}
         <span className="min-w-0 truncate text-[12px] leading-4 text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text-primary)]">
           {description}
         </span>
