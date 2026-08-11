@@ -48,6 +48,14 @@ function writeConfig(configPath: string, config: KimiMcpFile): void {
   }
 }
 
+// 程序化 upsert 单个条目（Aegis 自己的 delegate server）：直接改 raw 文件里的
+// 这一个键，其它条目与未知字段完全不经过转换、原样保留。
+export function upsertKimiMcpServerRaw(name: string, entry: KimiMcpEntry): void {
+  const config = readConfig(KIMI_GLOBAL_MCP_PATH);
+  config.mcpServers = { ...(config.mcpServers || {}), [name]: entry };
+  writeConfig(KIMI_GLOBAL_MCP_PATH, config);
+}
+
 // 读取指定 mcp.json 的 MCP 服务器，映射到应用内统一的 McpServerConfig。
 function readMcpServers(configPath: string): Record<string, McpServerConfig> {
   const config = readConfig(configPath);

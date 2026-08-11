@@ -20,6 +20,7 @@ import {
   runDelegateTask,
 } from './delegate-service';
 import { upsertCodexMcpServer } from './codex-mcp-settings';
+import { upsertKimiMcpServerRaw } from './kimi-mcp-settings';
 
 export const DELEGATE_TOKEN_ENV_VAR = 'AEGIS_DELEGATE_TOKEN';
 const MCP_PATH = '/mcp';
@@ -217,6 +218,11 @@ export function ensureDelegateHttpServer(): Promise<DelegateHttpServerInfo> {
     } catch (error) {
       console.warn('Failed to write the codex delegate MCP entry:', error);
     }
+    try {
+      writeKimiDelegateEntry(info);
+    } catch (error) {
+      console.warn('Failed to write the kimi delegate MCP entry:', error);
+    }
     return info;
   })();
   serverPromise.catch(() => {
@@ -235,6 +241,19 @@ export function writeCodexDelegateEntry(info: DelegateHttpServerInfo): void {
       `tool_timeout_sec = ${CODEX_TOOL_TIMEOUT_SEC}`,
     ]
   );
+}
+
+/**
+ * Refresh ~/.kimi/mcp.json so kimi sessions can be delegation leads too.
+ * Kimi's MCP config has no env-var indirection for auth — the header carries
+ * the literal per-run token; the entry is rewritten on every launch anyway
+ * (the port is ephemeral), and a stale entry outside a live Aegis fails fast.
+ */
+export function writeKimiDelegateEntry(info: DelegateHttpServerInfo): void {
+  upsertKimiMcpServerRaw(DELEGATE_MCP_SERVER_NAME, {
+    url: info.url,
+    headers: { Authorization: `Bearer ${info.token}` },
+  });
 }
 
 export function disposeDelegateHttpServer(): void {

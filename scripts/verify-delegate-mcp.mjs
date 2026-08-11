@@ -153,6 +153,13 @@ assert.ok(codexConfig.includes('bearer_token_env_var = "AEGIS_DELEGATE_TOKEN"'),
 assert.ok(codexConfig.includes('tool_timeout_sec = 2100'), 'entry lifts the codex tool timeout');
 assert.equal(process.env.AEGIS_DELEGATE_TOKEN, info.token, 'token exported for spawned CLIs');
 
+// kimi lead entry: ~/.kimi/mcp.json gets the endpoint with the bearer header
+const kimiConfig = JSON.parse(fs.readFileSync(path.join(fakeHome, '.kimi', 'mcp.json'), 'utf8'));
+const kimiEntry = kimiConfig.mcpServers?.['aegis-delegate'];
+assert.ok(kimiEntry, 'kimi config gets the delegate entry');
+assert.equal(kimiEntry.url, info.url, 'kimi entry carries the live URL');
+assert.equal(kimiEntry.headers?.Authorization, `Bearer ${info.token}`, 'kimi entry carries the bearer header');
+
 const MCP_HEADERS = {
   'Content-Type': 'application/json',
   Accept: 'application/json, text/event-stream',
