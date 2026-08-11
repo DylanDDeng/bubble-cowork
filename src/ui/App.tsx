@@ -289,6 +289,28 @@ export function App() {
     }))
   );
 
+  // Skin layout adapts to the image: portrait images pin right at full
+  // height (subject stays uncropped), landscape images cover the whole area.
+  // null = dimensions not known yet; skip rendering to avoid a one-frame
+  // wrong layout.
+  const [skinLayout, setSkinLayout] = useState<'cover' | 'portrait' | null>(null);
+  useEffect(() => {
+    if (!skinImageData) {
+      setSkinLayout(null);
+      return;
+    }
+    let cancelled = false;
+    const image = new window.Image();
+    image.onload = () => {
+      if (cancelled) return;
+      setSkinLayout(image.naturalHeight > image.naturalWidth ? 'portrait' : 'cover');
+    };
+    image.src = skinImageData;
+    return () => {
+      cancelled = true;
+    };
+  }, [skinImageData]);
+
   const sessionStatusSnapshotRef = useRef(new Map<string, SessionStatus>());
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
@@ -831,12 +853,19 @@ export function App() {
             skinImageData ? 'aegis-skin-host--active' : ''
           }`}
         >
-          {skinImageData ? (
-            <div
-              aria-hidden
-              className="aegis-skin-layer"
-              style={{ backgroundImage: `url("${skinImageData}")`, opacity: skinOpacity }}
-            />
+          {skinImageData && skinLayout ? (
+            <div aria-hidden className="aegis-skin-layer" style={{ opacity: skinOpacity }}>
+              <img
+                src={skinImageData}
+                alt=""
+                draggable={false}
+                className={
+                  skinLayout === 'portrait'
+                    ? 'aegis-skin-layer__image--portrait'
+                    : 'aegis-skin-layer__image--cover'
+                }
+              />
+            </div>
           ) : null}
           {/* Top drag region */}
           <div className="relative h-12 drag-region flex-shrink-0 bg-[var(--chat-pane-surface)]">

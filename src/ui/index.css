@@ -473,12 +473,34 @@ body {
   position: absolute;
   inset: 0;
   z-index: 0;
+  overflow: hidden;
   pointer-events: none;
-  background-size: cover;
-  background-position: center;
-  /* Soften the left edge so chat text stays readable over busy images. */
+}
+
+/* Landscape-ish images fill the whole area; soften the left edge so chat
+   text stays readable over busy images. */
+.aegis-skin-layer__image--cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
   -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 1) 45%);
   mask-image: linear-gradient(to right, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 1) 45%);
+}
+
+/* Portrait images pin to the right at full height so the subject is never
+   cropped; the mask fades the image's own left edge into the chat surface. */
+.aegis-skin-layer__image--portrait {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: auto;
+  max-width: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, rgba(0, 0, 0, 1) 38%);
+  mask-image: linear-gradient(to right, transparent, rgba(0, 0, 0, 1) 38%);
 }
 
 .aegis-sidebar,
