@@ -2957,7 +2957,15 @@ button.aegis-mdx-metadata-key:hover {
 
 .group\/session:hover .marquee-title-outer[data-overflowing='true'] .marquee-title-inner,
 .marquee-title-outer[data-overflowing='true']:hover .marquee-title-inner {
+  /* Un-truncate for real: the inner element's own ellipsis clipping never
+     painted the hidden text, so the scroll animation just slid a truncated
+     label around. Size the block to the full text (width: max-content) and
+     let the OUTER's overflow:hidden do the clipping while translateX reveals
+     the tail. */
   max-width: none;
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
   animation: marquee-title-scroll var(--marquee-duration, 6s) ease-in-out infinite alternate;
 }
 

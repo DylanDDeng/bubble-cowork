@@ -82,6 +82,10 @@ function ScrollingTitle({ title, className = '' }: { title: string; className?: 
     measure();
     const observer = new ResizeObserver(measure);
     if (outerRef.current) observer.observe(outerRef.current);
+    // Content width changes without the outer resizing (font swap-in, late
+    // glyph layout) — watch the inner too so overflow detection never goes
+    // stale.
+    if (innerRef.current) observer.observe(innerRef.current);
     return () => observer.disconnect();
   }, [title]);
 
