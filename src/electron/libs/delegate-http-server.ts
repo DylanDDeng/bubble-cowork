@@ -17,6 +17,7 @@ import {
   DELEGATE_MCP_SERVER_NAME,
   DELEGATE_TARGET_PROVIDERS,
   DELEGATE_TOOL_NAME,
+  getDelegateStatus,
   runDelegateTask,
 } from './delegate-service';
 import { upsertCodexMcpServer } from './codex-mcp-settings';
@@ -77,7 +78,9 @@ const DELEGATE_TOOL_DESCRIPTION = [
   'its full trace is visible to the user in a side panel. Use for hand-offs the user asked for',
   '(e.g. "have claude review this") or when a second, independent perspective is genuinely useful.',
   'The call blocks until the delegated agent finishes and returns its final answer plus the list',
-  'of files it changed. Delegated agents cannot delegate further.',
+  'of files it changed. If the result instead says the delegation is still running, it includes a',
+  'handle — poll delegate_status with that handle until it completes; do NOT retry delegate_task.',
+  'Delegated agents cannot delegate further.',
 ].join(' ');
 
 function buildMcpServer() {
@@ -124,6 +127,23 @@ function buildMcpServer() {
         reasoningEffort: typeof args.reasoning_effort === 'string' ? args.reasoning_effort : undefined,
         callerSessionId: null,
       });
+      return {
+        content: [{ type: 'text' as const, text: result.summary }],
+        ...(result.ok ? {} : { isError: true }),
+      };
+    }
+  );
+  server.registerTool(
+    'delegate_status',
+    {
+      description:
+        'Check on a delegation that delegate_task reported as still running. Returns the final answer once the delegated agent completes; otherwise reports elapsed time — poll again in 30-60 seconds.',
+      inputSchema: {
+        handle: z.string().describe('The handle from the delegate_task "still running" result.'),
+      },
+    },
+    async (args: Record<string, unknown>) => {
+      const result = getDelegateStatus(String(args.handle ?? ''));
       return {
         content: [{ type: 'text' as const, text: result.summary }],
         ...(result.ok ? {} : { isError: true }),

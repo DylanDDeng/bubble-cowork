@@ -30,6 +30,11 @@ export const DELEGATE_TARGET_PROVIDERS: AgentProvider[] = [
 
 const DELEGATE_TIMEOUT_MS = Number(process.env.AEGIS_DELEGATE_TIMEOUT_MS || '') || 30 * 60 * 1000;
 const COMPLETION_POLL_MS = 500;
+// Leads whose MCP client enforces a short, unconfigurable request timeout
+// (kimi: hard 60s, no resetTimeoutOnProgress) get the two-phase degradation:
+// the call waits briefly, then returns a handle for delegate_status polling.
+const ASYNC_LEAD_PROVIDERS = new Set<AgentProvider>(['kimi']);
+const ASYNC_INITIAL_WAIT_MS = 45_000;
 const ATTRIBUTION_RETRY_MS = 10_000;
 const ATTRIBUTION_POLL_MS = 250;
 const SUMMARY_TEXT_LIMIT = 6_000;
@@ -81,7 +86,7 @@ export interface DelegateTaskRequest {
 
 export interface DelegateTaskResult {
   ok: boolean;
-  status: 'completed' | 'error' | 'timeout' | 'rejected';
+  status: 'completed' | 'error' | 'timeout' | 'rejected' | 'running';
   agent?: AgentProvider;
   summary: string;
 }
@@ -580,9 +585,39 @@ async function attributeCall(
   }
 }
 
+/**
+ * Poll a delegation previously returned as `running` (two-phase leads).
+ * The execution registry is retained after settle, so the handle stays valid
+ * for the whole app run.
+ */
+export function getDelegateStatus(handle: string): DelegateTaskResult {
+  const activeHost = host;
+  const exec = executionsByExecSession.get(String(handle || '').trim());
+  if (!activeHost || !exec || !exec.execSessionId) {
+    return rejected(`Unknown delegation handle "${handle}".`);
+  }
+  const row = activeHost.getSession(exec.execSessionId);
+  if (row?.status === 'running') {
+    const elapsed = Math.round((Date.now() - exec.startedAt) / 1000);
+    return {
+      ok: true,
+      status: 'running',
+      agent: exec.agent,
+      summary: `The ${exec.agent} delegation is still running (${elapsed}s elapsed). Poll again in 30-60 seconds.`,
+    };
+  }
+  const finalStatus: DelegateTaskResult['status'] = !row || row.status === 'error' ? 'error' : 'completed';
+  return {
+    ok: finalStatus === 'completed',
+    status: finalStatus,
+    agent: exec.agent,
+    summary: buildDelegateSummary(exec, finalStatus),
+  };
+}
+
 export async function runDelegateTask(
   request: DelegateTaskRequest,
-  overrides?: { timeoutMs?: number; attributionTimeoutMs?: number }
+  overrides?: { timeoutMs?: number; attributionTimeoutMs?: number; asyncWaitMs?: number }
 ): Promise<DelegateTaskResult> {
   const activeHost = host;
   if (!activeHost) return rejected('The delegate service is not available in this build.');
@@ -707,7 +742,13 @@ export async function runDelegateTask(
     executionsByExecSession.set(execSessionId, exec);
 
     const timeoutMs = overrides?.timeoutMs ?? DELEGATE_TIMEOUT_MS;
+    // Two-phase degradation for leads whose MCP client kills long requests:
+    // wait briefly (short tasks still answer synchronously), then hand back a
+    // handle for delegate_status polling — each poll fits their budget.
+    const asyncLead = ASYNC_LEAD_PROVIDERS.has((parentRow.provider || 'claude') as AgentProvider);
+    const asyncWaitMs = overrides?.asyncWaitMs ?? ASYNC_INITIAL_WAIT_MS;
     const deadline = Date.now() + timeoutMs;
+    const asyncDeadline = Date.now() + asyncWaitMs;
     let finalStatus: DelegateTaskResult['status'] = 'completed';
     for (;;) {
       await sleep(COMPLETION_POLL_MS);
@@ -719,6 +760,30 @@ export async function runDelegateTask(
       if (row.status !== 'running') {
         finalStatus = row.status === 'error' ? 'error' : 'completed';
         break;
+      }
+      if (asyncLead && Date.now() >= asyncDeadline) {
+        // The child keeps running (mirroring continues); a watchdog enforces
+        // the overall ceiling since no caller is waiting on this promise.
+        const remaining = deadline - Date.now();
+        setTimeout(() => {
+          try {
+            if (activeHost.getSession(execSessionId)?.status === 'running') {
+              activeHost.stopSession(execSessionId);
+            }
+          } catch (error) {
+            console.warn('Delegate watchdog stop failed:', error);
+          }
+        }, Math.max(remaining, 0));
+        return {
+          ok: true,
+          status: 'running',
+          agent,
+          summary: [
+            `The ${agent} delegation is running (its live trace is visible to the user in the side panel).`,
+            `It has not finished yet — call delegate_status with {"handle": "${execSessionId}"} to check on it.`,
+            'Poll every 30-60 seconds until it reports completed, then use its result.',
+          ].join('\n'),
+        };
       }
       if (Date.now() >= deadline) {
         try {

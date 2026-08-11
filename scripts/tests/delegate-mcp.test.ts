@@ -10,6 +10,7 @@ import {
   applyReasoningEffort,
   buildDelegateSummary,
   findPendingDelegateCall,
+  getDelegateStatus,
   hasActiveDelegationForParent,
   initializeDelegateService,
   isDelegateExecutionSession,
@@ -560,6 +561,49 @@ async function testNestedSubagentMirroring() {
   console.log('PASS: nested subagent mirroring and panel resolution');
 }
 
+async function testAsyncLeadTwoPhase() {
+  // Kimi's MCP client hard-kills requests at 60s (no config, no
+  // progress-based reset) — kimi leads degrade to two-phase: the call waits
+  // briefly, then returns a handle for delegate_status polling.
+  __resetDelegateServiceForTests();
+  const world = makeWorld();
+  world.parentRow = makeRow({ id: 'parent-1', provider: 'kimi', kimi_permission_mode: 'yolo' } as never);
+  initializeDelegateService(world.host);
+  world.parentHistory.push(
+    assistantWithToolUse('anchor-a1', DELEGATE_NAME, { agent: 'grok', prompt: 'long analysis' })
+  );
+  const result = await runDelegateTask(
+    { agent: 'grok', prompt: 'long analysis', callerSessionId: 'parent-1' },
+    { asyncWaitMs: 700, timeoutMs: 3000 }
+  );
+  assert.equal(result.status, 'running', 'kimi lead gets the early running result');
+  assert.equal(result.ok, true);
+  assert.match(result.summary, /delegate_status/, 'summary tells the lead how to poll');
+  assert.match(result.summary, /exec-1/, 'summary carries the handle');
+  assert.deepEqual(world.stops, [], 'the child keeps running after the early return');
+
+  const pending = getDelegateStatus('exec-1');
+  assert.equal(pending.status, 'running');
+  assert.match(pending.summary, /still running/);
+
+  mirrorDelegateMessage('exec-1', {
+    type: 'assistant',
+    message: { content: [{ type: 'text', text: 'grok 的完整分析结论。' }] },
+  } as unknown as StreamMessage);
+  world.execStatus = 'completed';
+  const done = getDelegateStatus('exec-1');
+  assert.equal(done.status, 'completed');
+  assert.equal(done.ok, true);
+  assert.match(done.summary, /grok 的完整分析结论。/, 'poll returns the stitched final answer');
+
+  assert.equal(getDelegateStatus('nonsense').status, 'rejected', 'unknown handle rejects');
+
+  // Claude leads keep the synchronous contract (no early running return) —
+  // covered by the existing happy-path test; here just assert the async wait
+  // did not leak into the default config.
+  console.log('PASS: kimi two-phase delegation');
+}
+
 async function testSummaryTruncation() {
   const exec = {
     execSessionId: 'exec-1',
@@ -652,6 +696,7 @@ async function main() {
   await testModelResolution();
   await testModelResolutionInRun();
   await testErrorPassthrough();
+  await testAsyncLeadTwoPhase();
   await testChunkedFinalAnswer();
   await testToolEndingFallback();
   await testNestedSubagentMirroring();

@@ -205,8 +205,24 @@ assert.equal(initResult.result?.serverInfo?.name, 'aegis-delegate', 'server iden
 const listResponse = await mcpPost({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
 assert.equal(listResponse.status, 200);
 const listResult = await listResponse.json();
-const toolNames = (listResult.result?.tools ?? []).map((tool) => tool.name);
-assert.deepEqual(toolNames, ['delegate_task'], 'delegate_task is the only tool');
+const toolNames = (listResult.result?.tools ?? []).map((tool) => tool.name).sort();
+assert.deepEqual(
+  toolNames,
+  ['delegate_status', 'delegate_task'],
+  'delegate_task + the two-phase polling tool are exposed'
+);
+
+// delegate_status with an unknown handle → tool-level error
+const statusResponse = await mcpPost({
+  jsonrpc: '2.0',
+  id: 5,
+  method: 'tools/call',
+  params: { name: 'delegate_status', arguments: { handle: 'nope' } },
+});
+assert.equal(statusResponse.status, 200);
+const statusResult = await statusResponse.json();
+assert.equal(statusResult.result?.isError, true, 'unknown handle surfaces as a tool error');
+assert.match(statusResult.result?.content?.[0]?.text ?? '', /Unknown delegation handle/);
 
 // tools/call with an out-of-enum agent → schema-level validation error the
 // model can read (the zod enum rejects before the handler runs)
