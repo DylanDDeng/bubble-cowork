@@ -268,11 +268,15 @@ export function writeCodexDelegateEntry(info: DelegateHttpServerInfo): void {
  * Kimi's MCP config has no env-var indirection for auth — the header carries
  * the literal per-run token; the entry is rewritten on every launch anyway
  * (the port is ephemeral), and a stale entry outside a live Aegis fails fast.
+ * toolTimeoutMs lifts kimi's MCP client above its 60s SDK default (the
+ * per-server field has the highest precedence in kimi-code's resolution), so
+ * kimi leads get the same blocking delegate contract as Claude/codex.
  */
 export function writeKimiDelegateEntry(info: DelegateHttpServerInfo): void {
   upsertKimiMcpServerRaw(DELEGATE_MCP_SERVER_NAME, {
     url: info.url,
     headers: { Authorization: `Bearer ${info.token}` },
+    toolTimeoutMs: CODEX_TOOL_TIMEOUT_SEC * 1000,
   });
 }
 

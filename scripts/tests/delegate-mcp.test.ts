@@ -562,10 +562,12 @@ async function testNestedSubagentMirroring() {
 }
 
 async function testAsyncLeadTwoPhase() {
-  // Kimi's MCP client hard-kills requests at 60s (no config, no
-  // progress-based reset) — kimi leads degrade to two-phase: the call waits
-  // briefly, then returns a handle for delegate_status polling.
+  // Two-phase fallback for leads whose MCP request timeout proves
+  // uncontrollable — opt-in via AEGIS_DELEGATE_ASYNC_LEADS (default: all
+  // leads use the blocking contract; kimi's 60s SDK default is lifted by the
+  // per-server toolTimeoutMs in mcp.json instead).
   __resetDelegateServiceForTests();
+  process.env.AEGIS_DELEGATE_ASYNC_LEADS = 'kimi';
   const world = makeWorld();
   world.parentRow = makeRow({ id: 'parent-1', provider: 'kimi', kimi_permission_mode: 'yolo' } as never);
   initializeDelegateService(world.host);
@@ -597,11 +599,8 @@ async function testAsyncLeadTwoPhase() {
   assert.match(done.summary, /grok 的完整分析结论。/, 'poll returns the stitched final answer');
 
   assert.equal(getDelegateStatus('nonsense').status, 'rejected', 'unknown handle rejects');
-
-  // Claude leads keep the synchronous contract (no early running return) —
-  // covered by the existing happy-path test; here just assert the async wait
-  // did not leak into the default config.
-  console.log('PASS: kimi two-phase delegation');
+  delete process.env.AEGIS_DELEGATE_ASYNC_LEADS;
+  console.log('PASS: two-phase delegation (opt-in async leads)');
 }
 
 async function testSummaryTruncation() {

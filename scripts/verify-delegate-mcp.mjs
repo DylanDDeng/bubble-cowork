@@ -163,6 +163,11 @@ for (const rel of [['.kimi', 'mcp.json'], ['.kimi-code', 'mcp.json']]) {
   assert.ok(kimiEntry, `${rel.join('/')} gets the delegate entry`);
   assert.equal(kimiEntry.url, info.url, `${rel.join('/')} carries the live URL`);
   assert.equal(kimiEntry.headers?.Authorization, `Bearer ${info.token}`, `${rel.join('/')} carries the bearer header`);
+  assert.equal(
+    kimiEntry.toolTimeoutMs,
+    2100 * 1000,
+    `${rel.join('/')} lifts kimi's MCP tool timeout above the 60s SDK default`
+  );
 }
 
 const MCP_HEADERS = {

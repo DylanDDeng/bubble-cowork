@@ -30,10 +30,21 @@ export const DELEGATE_TARGET_PROVIDERS: AgentProvider[] = [
 
 const DELEGATE_TIMEOUT_MS = Number(process.env.AEGIS_DELEGATE_TIMEOUT_MS || '') || 30 * 60 * 1000;
 const COMPLETION_POLL_MS = 500;
-// Leads whose MCP client enforces a short, unconfigurable request timeout
-// (kimi: hard 60s, no resetTimeoutOnProgress) get the two-phase degradation:
-// the call waits briefly, then returns a handle for delegate_status polling.
-const ASYNC_LEAD_PROVIDERS = new Set<AgentProvider>(['kimi']);
+// Two-phase degradation for leads whose MCP client request timeout we cannot
+// lift: the call waits briefly, then returns a handle for delegate_status
+// polling. Currently EMPTY by default — kimi's 60s SDK default is lifted via
+// the per-server toolTimeoutMs in mcp.json (highest precedence in
+// kimi-code's resolution), so all v1 leads get the blocking contract. Set
+// AEGIS_DELEGATE_ASYNC_LEADS=kimi[,..] to re-enable the fallback if a lead's
+// timeout proves uncontrollable after all.
+function asyncLeadProviders(): Set<string> {
+  return new Set(
+    String(process.env.AEGIS_DELEGATE_ASYNC_LEADS || '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
 const ASYNC_INITIAL_WAIT_MS = 45_000;
 const ATTRIBUTION_RETRY_MS = 10_000;
 const ATTRIBUTION_POLL_MS = 250;
@@ -745,7 +756,7 @@ export async function runDelegateTask(
     // Two-phase degradation for leads whose MCP client kills long requests:
     // wait briefly (short tasks still answer synchronously), then hand back a
     // handle for delegate_status polling — each poll fits their budget.
-    const asyncLead = ASYNC_LEAD_PROVIDERS.has((parentRow.provider || 'claude') as AgentProvider);
+    const asyncLead = asyncLeadProviders().has(parentRow.provider || 'claude');
     const asyncWaitMs = overrides?.asyncWaitMs ?? ASYNC_INITIAL_WAIT_MS;
     const deadline = Date.now() + timeoutMs;
     const asyncDeadline = Date.now() + asyncWaitMs;

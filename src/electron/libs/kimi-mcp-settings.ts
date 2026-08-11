@@ -20,6 +20,10 @@ interface KimiMcpEntry {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** Per-server MCP timeouts (ms) — highest precedence in kimi-code's
+   * resolution (beats KIMI_MCP_TOOL_TIMEOUT_MS and config.toml [mcp]). */
+  toolTimeoutMs?: number;
+  startupTimeoutMs?: number;
 }
 
 interface KimiMcpFile {
