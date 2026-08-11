@@ -41,8 +41,8 @@ function OutlineCardChips({ item }: { item: SessionUserPromptSummary }) {
   );
 }
 
-const TICK_PITCH_PX = 8;
-const RAIL_MAX_HEIGHT_PX = 340;
+const TICK_PITCH_PX = 14;
+const RAIL_MAX_HEIGHT_PX = 520;
 const MIN_TICKS = 2;
 const TICK_BASE_WIDTH_PX = 8;
 const TICK_MAX_WIDTH_PX = 14;
