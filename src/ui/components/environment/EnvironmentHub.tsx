@@ -205,7 +205,7 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
   return (
     <DropdownMenu.Root>
       <div
-        className={`no-drag inline-flex h-6 overflow-hidden rounded-[9px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] ${
+        className={`no-drag inline-flex h-6 overflow-hidden rounded-[9px] border border-[var(--border)] bg-[var(--chat-chrome-chip-surface)] [backdrop-filter:var(--chat-chrome-chip-backdrop)] text-[var(--text-secondary)] ${
           disabled ? 'opacity-45' : ''
         }`}
       >

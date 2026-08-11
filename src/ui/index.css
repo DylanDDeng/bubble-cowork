@@ -458,6 +458,10 @@ body {
 :root {
   --chat-pane-surface: var(--bg-primary);
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  /* Opaque chrome chips (e.g. the editor picker capsule) that sit directly
+     on the chat surface; frosted while a skin is active. */
+  --chat-chrome-chip-surface: var(--bg-primary);
+  --chat-chrome-chip-backdrop: none;
 }
 
 .aegis-skin-host {
@@ -467,6 +471,8 @@ body {
 .aegis-skin-host--active {
   --chat-pane-surface: transparent;
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
+  --chat-chrome-chip-surface: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  --chat-chrome-chip-backdrop: blur(10px) saturate(140%);
 }
 
 .aegis-skin-layer {
