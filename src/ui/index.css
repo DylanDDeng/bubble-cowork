@@ -452,6 +452,35 @@ body {
   background-color: var(--app-sidebar-surface);
 }
 
+/* Skin (wallpaper) — a user-picked image layered under the chat area.
+   Chat surfaces paint through these vars so the wallpaper shows only while
+   a skin is active; without one they resolve to the normal opaque colors. */
+:root {
+  --chat-pane-surface: var(--bg-primary);
+  --chat-pane-surface-muted: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+}
+
+.aegis-skin-host {
+  position: relative;
+}
+
+.aegis-skin-host--active {
+  --chat-pane-surface: transparent;
+  --chat-pane-surface-muted: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
+}
+
+.aegis-skin-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  /* Soften the left edge so chat text stays readable over busy images. */
+  -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 1) 45%);
+  mask-image: linear-gradient(to right, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 1) 45%);
+}
+
 .aegis-sidebar,
 .aegis-sidebar :is(button, input, textarea, select, div, span, p, h1, h2, h3, label) {
   font-size: 13px !important;

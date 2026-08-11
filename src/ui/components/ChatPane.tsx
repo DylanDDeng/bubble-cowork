@@ -1771,10 +1771,8 @@ export function ChatPane({
 
   return (
     <div
-      className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)] transition-colors ${
-        isActive
-          ? 'bg-[var(--bg-primary)]'
-          : 'bg-[color-mix(in_srgb,var(--bg-primary)_96%,var(--bg-secondary))]'
+      className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-colors ${
+        isActive ? 'bg-[var(--chat-pane-surface)]' : 'bg-[var(--chat-pane-surface-muted)]'
       }`}
       onMouseDown={() => {
         if (!isActive && (sessionId || !onDropSession)) {

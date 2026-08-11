@@ -387,6 +387,11 @@ export interface AppState {
   themeState: ThemeState;
   uiFontFamily: string;
   chatCodeFontFamily: string;
+  // 皮肤壁纸:skinImage 是 userData/skins 里的文件名(持久化),
+  // skinImageData 是运行时 data URL(不持久化,启动时按文件名重新读取)。
+  skinImage: string | null;
+  skinImageData: string | null;
+  skinOpacity: number;
 }
 
 // Store Actions
@@ -538,6 +543,10 @@ export interface AppActions {
   resetThemeVariant: (variant: ThemeVariant) => void;
   setUiFontFamily: (value: string) => void;
   setChatCodeFontFamily: (value: string) => void;
+  // 皮肤 Actions
+  setSkinImage: (fileName: string, dataUrl: string) => void;
+  setSkinOpacity: (opacity: number) => void;
+  clearSkin: () => void;
 }
 
 // Request to inject text/attachments into the active chat composer from

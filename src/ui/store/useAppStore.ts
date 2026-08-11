@@ -71,6 +71,14 @@ import { applySessionAgentSelection } from '../utils/session-model';
 // handleServerEvent where set/get are in scope.
 const streamDeltaCoalescer = new StreamDeltaCoalescer();
 
+const DEFAULT_SKIN_OPACITY = 0.3;
+
+// Clamp so a bad persisted value can't fully hide the wallpaper or drown the UI.
+function sanitizeSkinOpacity(value: unknown): number {
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_SKIN_OPACITY;
+  return Math.min(0.8, Math.max(0.05, numeric));
+}
+
 function applyAppearance({
   theme,
   themeState,
@@ -993,6 +1001,10 @@ export const useAppStore = create<Store>()(
       themeState: DEFAULT_THEME_STATE,
       uiFontFamily: DEFAULT_UI_FONT_FAMILY,
       chatCodeFontFamily: '',
+      // 皮肤壁纸
+      skinImage: null,
+      skinImageData: null,
+      skinOpacity: DEFAULT_SKIN_OPACITY,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -2329,6 +2341,18 @@ export const useAppStore = create<Store>()(
     const { theme, themeState, uiFontFamily } = get();
     applyAppearance({ theme, themeState, uiFontFamily, chatCodeFontFamily });
   },
+
+  setSkinImage: (fileName, dataUrl) => {
+    set({ skinImage: fileName, skinImageData: dataUrl });
+  },
+
+  setSkinOpacity: (opacity) => {
+    set({ skinOpacity: sanitizeSkinOpacity(opacity) });
+  },
+
+  clearSkin: () => {
+    set({ skinImage: null, skinImageData: null });
+  },
     }),
     {
       name: 'cowork-app-storage',
@@ -2361,6 +2385,8 @@ export const useAppStore = create<Store>()(
         themeState: state.themeState,
         uiFontFamily: state.uiFontFamily,
         chatCodeFontFamily: state.chatCodeFontFamily,
+        skinImage: state.skinImage,
+        skinOpacity: state.skinOpacity,
         draftSessions: Object.fromEntries(
           Object.entries(state.sessions).filter(([, session]) => session.isDraft)
         ),
@@ -2392,6 +2418,8 @@ export const useAppStore = create<Store>()(
           themeState?: ThemeState;
           uiFontFamily?: string;
           chatCodeFontFamily?: string;
+          skinImage?: string | null;
+          skinOpacity?: number;
           draftSessions?: Record<string, SessionView>;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
@@ -2480,11 +2508,33 @@ export const useAppStore = create<Store>()(
           themeState,
           uiFontFamily,
           chatCodeFontFamily,
+          skinImage: typeof persisted?.skinImage === 'string' ? persisted.skinImage : null,
+          skinOpacity: sanitizeSkinOpacity(persisted?.skinOpacity),
         };
       },
     }
   )
 );
+
+// 皮肤壁纸只持久化文件名;启动时按文件名把 data URL 读回内存。
+if (typeof window !== 'undefined' && typeof window.electron?.readSkinImage === 'function') {
+  const { skinImage, skinImageData } = useAppStore.getState();
+  if (skinImage && !skinImageData) {
+    window.electron
+      .readSkinImage(skinImage)
+      .then((dataUrl) => {
+        const state = useAppStore.getState();
+        if (state.skinImage !== skinImage) return;
+        if (dataUrl) {
+          useAppStore.setState({ skinImageData: dataUrl });
+        } else {
+          // The saved file is gone — drop the stale reference.
+          useAppStore.setState({ skinImage: null, skinImageData: null });
+        }
+      })
+      .catch(() => {});
+  }
+}
 
 // 监听系统主题变化
 if (typeof window !== 'undefined') {

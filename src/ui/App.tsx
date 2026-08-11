@@ -239,6 +239,8 @@ export function App() {
     themeState,
     uiFontFamily,
     chatCodeFontFamily,
+    skinImageData,
+    skinOpacity,
   } = useAppStore(
     useShallow((s) => ({
       connected: s.connected,
@@ -282,6 +284,8 @@ export function App() {
       themeState: s.themeState,
       uiFontFamily: s.uiFontFamily,
       chatCodeFontFamily: s.chatCodeFontFamily,
+      skinImageData: s.skinImageData,
+      skinOpacity: s.skinOpacity,
     }))
   );
 
@@ -822,9 +826,20 @@ export function App() {
       ) : activeWorkspace === 'prs' ? (
         <PullRequestsView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden rounded-l-[12px] bg-[var(--bg-primary)]">
+        <div
+          className={`aegis-skin-host flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden rounded-l-[12px] bg-[var(--bg-primary)] ${
+            skinImageData ? 'aegis-skin-host--active' : ''
+          }`}
+        >
+          {skinImageData ? (
+            <div
+              aria-hidden
+              className="aegis-skin-layer"
+              style={{ backgroundImage: `url("${skinImageData}")`, opacity: skinOpacity }}
+            />
+          ) : null}
           {/* Top drag region */}
-          <div className="h-12 drag-region flex-shrink-0 bg-[var(--bg-primary)]">
+          <div className="relative h-12 drag-region flex-shrink-0 bg-[var(--chat-pane-surface)]">
             <div className="flex h-full items-center justify-between px-3">
               <div className="flex min-w-0 items-center gap-2">
                 <div className="ml-[72px] flex h-7 w-7 shrink-0 items-center justify-center">

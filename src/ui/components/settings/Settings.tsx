@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot } from '../icons';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Image, Trash2 } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
@@ -240,6 +240,30 @@ function GeneralSettingsContent({
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const lightTheme = resolveThemePack(themeState, 'light');
   const darkTheme = resolveThemePack(themeState, 'dark');
+  const skinImageData = useAppStore((s) => s.skinImageData);
+  const skinOpacity = useAppStore((s) => s.skinOpacity);
+  const setSkinImage = useAppStore((s) => s.setSkinImage);
+  const setSkinOpacity = useAppStore((s) => s.setSkinOpacity);
+  const clearSkin = useAppStore((s) => s.clearSkin);
+
+  const handleChooseSkin = async () => {
+    try {
+      const result = await window.electron.selectSkinImage();
+      if (!result) return;
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+      setSkinImage(result.fileName, result.dataUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to set skin image.');
+    }
+  };
+
+  const handleClearSkin = () => {
+    clearSkin();
+    window.electron.clearSkinImage().catch(() => {});
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -297,6 +321,73 @@ function GeneralSettingsContent({
             <ThemeOption label="System" value="system" current={theme} onClick={() => setTheme('system')} icon={<Monitor className="w-3.5 h-3.5" />} />
           </div>
         </SettingsRow>
+
+        <SettingsRow
+          variant="card"
+          label="Skin"
+          description="Layer a wallpaper image behind the chat area."
+        >
+          <div className="flex items-center gap-2">
+            {skinImageData ? (
+              <>
+                <img
+                  src={skinImageData}
+                  alt="Current skin"
+                  className="h-8 w-14 rounded-[var(--radius-lg)] border border-[var(--border)] object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleChooseSkin()}
+                  className="inline-flex h-8 items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                >
+                  Replace
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearSkin}
+                  aria-label="Remove skin"
+                  title="Remove skin"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void handleChooseSkin()}
+                className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              >
+                <Image className="h-3.5 w-3.5" />
+                Choose Image
+              </button>
+            )}
+          </div>
+        </SettingsRow>
+
+        {skinImageData ? (
+          <SettingsRow
+            variant="card"
+            label="Skin Opacity"
+            description="How strongly the wallpaper shows through."
+          >
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={5}
+                max={80}
+                step={1}
+                value={Math.round(skinOpacity * 100)}
+                onChange={(event) => setSkinOpacity(Number(event.target.value) / 100)}
+                aria-label="Skin opacity"
+                className="w-[180px] accent-[var(--accent)]"
+              />
+              <span className="w-9 text-right text-[12px] tabular-nums text-[var(--text-muted)]">
+                {Math.round(skinOpacity * 100)}%
+              </span>
+            </div>
+          </SettingsRow>
+        ) : null}
       </SettingsGroup>
 
       <NotificationSettingsGroup />

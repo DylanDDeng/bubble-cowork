@@ -261,6 +261,19 @@ const LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD = 500;
 const LONG_PROMPT_ATTACHMENT_INSTRUCTION =
   'The main request is attached as a text file. Read the attachment first, then respond normally.';
 
+const MAX_SKIN_IMAGE_BYTES = 24 * 1024 * 1024; // 24MB
+const SKIN_IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+
+function getSkinsDir(): string {
+  return join(app.getPath('userData'), 'skins');
+}
+
 function normalizeWorkspaceChannelId(value?: string | null): string {
   const trimmed = value?.trim();
   return trimmed || DEFAULT_WORKSPACE_CHANNEL_ID;
@@ -6532,6 +6545,92 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return { ok: true, relativePath, name: fileName };
     }
   );
+
+  // RPC: 选择皮肤壁纸图片,拷贝到 userData/skins 并返回 data URL。
+  ipcMainHandle(
+    'select-skin-image',
+    async (): Promise<{ ok: true; fileName: string; dataUrl: string } | { ok: false; message: string } | null> => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }],
+      });
+
+      if (result.canceled || !result.filePaths[0]) {
+        return null;
+      }
+
+      const sourcePath = result.filePaths[0];
+      const ext = extname(sourcePath).toLowerCase();
+      const mimeType = SKIN_IMAGE_MIME_BY_EXTENSION[ext];
+      if (!mimeType) {
+        return { ok: false, message: 'Only PNG, JPG, GIF, or WebP images are supported.' };
+      }
+
+      let sourceStat;
+      try {
+        sourceStat = await fsPromises.stat(sourcePath);
+      } catch {
+        return { ok: false, message: 'Selected image was not found.' };
+      }
+      if (!sourceStat.isFile()) {
+        return { ok: false, message: 'Selected image is not a file.' };
+      }
+      if (sourceStat.size > MAX_SKIN_IMAGE_BYTES) {
+        return { ok: false, message: 'Skin images must be 24MB or smaller.' };
+      }
+
+      const skinsDir = getSkinsDir();
+      const fileName = `skin-${Date.now()}${ext}`;
+      try {
+        await fsPromises.mkdir(skinsDir, { recursive: true });
+        for (const entry of await fsPromises.readdir(skinsDir)) {
+          await fsPromises.unlink(join(skinsDir, entry)).catch(() => {});
+        }
+        await fsPromises.copyFile(sourcePath, join(skinsDir, fileName));
+      } catch (error) {
+        return { ok: false, message: `Failed to save skin image: ${String(error)}` };
+      }
+
+      const buffer = await fsPromises.readFile(join(skinsDir, fileName));
+      return { ok: true, fileName, dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}` };
+    }
+  );
+
+  // RPC: 按文件名读取已保存的皮肤壁纸(data URL);文件缺失返回 null。
+  ipcMainHandle('read-skin-image', async (_event, fileName: string): Promise<string | null> => {
+    if (!fileName || typeof fileName !== 'string') {
+      return null;
+    }
+    const safeName = basename(fileName);
+    const mimeType = SKIN_IMAGE_MIME_BY_EXTENSION[extname(safeName).toLowerCase()];
+    if (!mimeType) {
+      return null;
+    }
+    try {
+      const filePath = join(getSkinsDir(), safeName);
+      const stat = await fsPromises.stat(filePath);
+      if (!stat.isFile() || stat.size > MAX_SKIN_IMAGE_BYTES) {
+        return null;
+      }
+      const buffer = await fsPromises.readFile(filePath);
+      return `data:${mimeType};base64,${buffer.toString('base64')}`;
+    } catch {
+      return null;
+    }
+  });
+
+  // RPC: 删除已保存的皮肤壁纸文件。
+  ipcMainHandle('clear-skin-image', async (): Promise<boolean> => {
+    try {
+      const skinsDir = getSkinsDir();
+      for (const entry of await fsPromises.readdir(skinsDir)) {
+        await fsPromises.unlink(join(skinsDir, entry)).catch(() => {});
+      }
+    } catch {
+      // Directory may not exist yet — nothing to clear.
+    }
+    return true;
+  });
 
   ipcMainHandle(
     'read-markdown-image-asset',

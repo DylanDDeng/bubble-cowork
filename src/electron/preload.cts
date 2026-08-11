@@ -784,6 +784,19 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('select-markdown-image-asset', cwd, markdownFilePath);
   },
 
+  // 皮肤壁纸:选择/读取/清除
+  selectSkinImage: () => {
+    return ipcRenderer.invoke('select-skin-image');
+  },
+
+  readSkinImage: (fileName: string) => {
+    return ipcRenderer.invoke('read-skin-image', fileName);
+  },
+
+  clearSkinImage: () => {
+    return ipcRenderer.invoke('clear-skin-image');
+  },
+
   readMarkdownImageAsset: (cwd: string, markdownFilePath: string, imageSrc: string) => {
     return ipcRenderer.invoke('read-markdown-image-asset', cwd, markdownFilePath, imageSrc);
   },
