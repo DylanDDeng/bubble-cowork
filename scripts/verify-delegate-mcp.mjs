@@ -121,6 +121,7 @@ if (run.status !== 0) process.exit(run.status ?? 1);
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-delegate-home-'));
 process.env.HOME = fakeHome;
+delete process.env.KIMI_CODE_HOME; // must resolve inside the fake home
 fs.mkdirSync(path.join(fakeHome, '.codex'), { recursive: true });
 
 const serviceMod = await import(
@@ -153,12 +154,16 @@ assert.ok(codexConfig.includes('bearer_token_env_var = "AEGIS_DELEGATE_TOKEN"'),
 assert.ok(codexConfig.includes('tool_timeout_sec = 2100'), 'entry lifts the codex tool timeout');
 assert.equal(process.env.AEGIS_DELEGATE_TOKEN, info.token, 'token exported for spawned CLIs');
 
-// kimi lead entry: ~/.kimi/mcp.json gets the endpoint with the bearer header
-const kimiConfig = JSON.parse(fs.readFileSync(path.join(fakeHome, '.kimi', 'mcp.json'), 'utf8'));
-const kimiEntry = kimiConfig.mcpServers?.['aegis-delegate'];
-assert.ok(kimiEntry, 'kimi config gets the delegate entry');
-assert.equal(kimiEntry.url, info.url, 'kimi entry carries the live URL');
-assert.equal(kimiEntry.headers?.Authorization, `Bearer ${info.token}`, 'kimi entry carries the bearer header');
+// kimi lead entry: BOTH the legacy CLI path (~/.kimi/mcp.json) and the
+// kimi-code server runtime path (~/.kimi-code/mcp.json) get the endpoint —
+// the daemon only reads the latter.
+for (const rel of [['.kimi', 'mcp.json'], ['.kimi-code', 'mcp.json']]) {
+  const kimiConfig = JSON.parse(fs.readFileSync(path.join(fakeHome, ...rel), 'utf8'));
+  const kimiEntry = kimiConfig.mcpServers?.['aegis-delegate'];
+  assert.ok(kimiEntry, `${rel.join('/')} gets the delegate entry`);
+  assert.equal(kimiEntry.url, info.url, `${rel.join('/')} carries the live URL`);
+  assert.equal(kimiEntry.headers?.Authorization, `Bearer ${info.token}`, `${rel.join('/')} carries the bearer header`);
+}
 
 const MCP_HEADERS = {
   'Content-Type': 'application/json',

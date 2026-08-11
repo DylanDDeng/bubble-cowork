@@ -48,12 +48,23 @@ function writeConfig(configPath: string, config: KimiMcpFile): void {
   }
 }
 
+// kimi-code（server 运行时）的配置根：KIMI_CODE_HOME 优先，缺省 ~/.kimi-code。
+// MCP 配置在 <KIMI_CODE_HOME>/mcp.json —— ~/.kimi/mcp.json 是老 kimi-cli 的
+// 路径，daemon 不读（二进制里的 mcp.migrated-from-kimi-cli.json 即迁移痕迹）。
+function kimiCodeMcpPath(): string {
+  const home = process.env.KIMI_CODE_HOME?.trim() || join(homedir(), '.kimi-code');
+  return join(home, 'mcp.json');
+}
+
 // 程序化 upsert 单个条目（Aegis 自己的 delegate server）：直接改 raw 文件里的
-// 这一个键，其它条目与未知字段完全不经过转换、原样保留。
+// 这一个键，其它条目与未知字段完全不经过转换、原样保留。同时写老 CLI 路径与
+// kimi-code 路径，两个运行时都能看到。
 export function upsertKimiMcpServerRaw(name: string, entry: KimiMcpEntry): void {
-  const config = readConfig(KIMI_GLOBAL_MCP_PATH);
-  config.mcpServers = { ...(config.mcpServers || {}), [name]: entry };
-  writeConfig(KIMI_GLOBAL_MCP_PATH, config);
+  for (const configPath of [KIMI_GLOBAL_MCP_PATH, kimiCodeMcpPath()]) {
+    const config = readConfig(configPath);
+    config.mcpServers = { ...(config.mcpServers || {}), [name]: entry };
+    writeConfig(configPath, config);
+  }
 }
 
 // 读取指定 mcp.json 的 MCP 服务器，映射到应用内统一的 McpServerConfig。
