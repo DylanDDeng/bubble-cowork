@@ -796,6 +796,12 @@ export function App() {
     return -1;
   }, [activeSession?.messages]);
 
+  const chatSurfaceVisible =
+    !showSettings &&
+    activeWorkspace === 'chat' &&
+    (chatLayoutMode === 'split' || Boolean(activeSession && !showNewSession));
+  const skinVisible = chatSurfaceVisible && Boolean(skinImageData && skinLayout);
+
   // First-run (or zero-agents) takeover: the main UI is unusable without at
   // least one working agent, so detection/install guidance becomes the page.
   if (agentOnboarding.visible) {
@@ -822,9 +828,31 @@ export function App() {
       {/* Sidebar */}
       {!showSettings && <Sidebar />}
 
+      {/* Shared chat surface: the wallpaper lives here so it spans both the
+          conversation and the utility workspace (including fullscreen). */}
+      <div
+        className={`aegis-skin-host relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--bg-primary)] ${
+          chatSurfaceVisible ? 'rounded-l-[12px]' : ''
+        } ${skinVisible ? 'aegis-skin-host--active' : ''}`}
+      >
+        {skinVisible ? (
+          <div aria-hidden className="aegis-skin-layer" style={{ opacity: skinOpacity }}>
+            <img
+              src={skinImageData!}
+              alt=""
+              draggable={false}
+              className={
+                skinLayout === 'portrait'
+                  ? 'aegis-skin-layer__image--portrait'
+                  : 'aegis-skin-layer__image--cover'
+              }
+            />
+          </div>
+        ) : null}
+
       {/* Main content area — hidden (display:none) when a right panel is fullscreened.
           Uses display:contents when visible so its children still participate as flex items
-          of the outer app row (preserves existing layout). */}
+          of the shared chat surface (preserves existing layout). */}
       <div className={rightPanelFullscreen ? 'hidden' : 'contents'}>
       {!showSettings && activeWorkspace === 'chat' && !sessionsLoaded ? (
         <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
@@ -853,24 +881,8 @@ export function App() {
         <PullRequestsView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
         <div
-          className={`aegis-skin-host flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden rounded-l-[12px] bg-[var(--bg-primary)] ${
-            skinImageData ? 'aegis-skin-host--active' : ''
-          }`}
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--chat-pane-surface)]"
         >
-          {skinImageData && skinLayout ? (
-            <div aria-hidden className="aegis-skin-layer" style={{ opacity: skinOpacity }}>
-              <img
-                src={skinImageData}
-                alt=""
-                draggable={false}
-                className={
-                  skinLayout === 'portrait'
-                    ? 'aegis-skin-layer__image--portrait'
-                    : 'aegis-skin-layer__image--cover'
-                }
-              />
-            </div>
-          ) : null}
           {/* Top drag region */}
           <div className="relative h-12 drag-region flex-shrink-0 bg-[var(--chat-pane-surface)]">
             <div className="flex h-full items-center justify-between px-3">
@@ -1048,6 +1060,7 @@ export function App() {
         </RightUtilityWorkspace>
       ) : null}
       </AnimatePresence>
+      </div>
 
       {!showSettings && activeWorkspace === 'chat' && activeUtilityPanel === null ? (
         <div className="fixed right-3 top-2.5 z-[90] no-drag">
@@ -1191,7 +1204,7 @@ function RightUtilityWorkspace({
       data-right-utility-workspace
       data-active-panel={activePanel ?? 'none'}
       aria-hidden={hidden}
-      className={`relative flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--bg-primary)] ${
+      className={`relative flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--utility-pane-surface)] backdrop-[var(--utility-pane-backdrop)] ${
         fullscreen ? 'flex-1' : 'flex-shrink-0'
       }`}
       style={{
@@ -1367,12 +1380,21 @@ function RightUtilityTabStrip({
   onTogglePanel: () => void;
   onToggleFullscreen: (() => void) | null;
 }) {
+  const tabListRef = useRef<HTMLDivElement | null>(null);
   const items = [
     { id: 'files' as const, label: 'Files', icon: FolderClosed, shortcut: '⌘P', disabled: false },
     { id: 'browser' as const, label: 'Browser', icon: Globe, shortcut: '⌘T', disabled: !browserAvailable },
     { id: 'review' as const, label: 'Review', icon: FileDiff, shortcut: '⌃⌘G', disabled: false },
     { id: 'terminal' as const, label: 'Terminal', icon: SquareTerminal, shortcut: '⌃`', disabled: false },
   ];
+
+  useEffect(() => {
+    if (!activeTab) return;
+    const tab = tabListRef.current?.querySelector<HTMLElement>(
+      `[data-utility-tab="${CSS.escape(activeTab)}"]`
+    );
+    tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeTab, tabs.length]);
 
   return (
     <div
@@ -1381,14 +1403,17 @@ function RightUtilityTabStrip({
       // so dialog backdrops dim this strip like everything else. The old
       // z-[120] predates the native launcher popup and let the strip float
       // above every dialog overlay.
-      className="drag-region relative z-[80] flex h-10 shrink-0 items-center gap-1 overflow-visible bg-[var(--bg-primary)] px-2"
+      className="drag-region relative z-[80] flex h-10 shrink-0 items-center gap-1 overflow-visible bg-[var(--utility-pane-surface-strong)] backdrop-[var(--utility-pane-backdrop)] px-2"
       // In fullscreen with the sidebar collapsed the strip becomes the topmost
       // bar at the window's left edge, so it must clear the traffic lights.
       style={windowControlsInset ? { paddingLeft: 'var(--app-window-controls-inset-left)' } : undefined}
     >
-      <div className="no-drag flex min-w-0 max-w-full items-center overflow-x-auto">
-	        {tabs.map((tab, index) => {
-	          const Icon = getUtilityTabIcon(tab.kind);
+      <div
+        ref={tabListRef}
+        className="no-drag flex min-w-0 max-w-full items-center overflow-x-auto"
+      >
+        {tabs.map((tab, index) => {
+          const Icon = getUtilityTabIcon(tab.kind);
           const active = activeTab === tab.id;
           const prevTab = tabs[index - 1];
           const showDivider = index > 0 && !active && prevTab?.id !== activeTab;

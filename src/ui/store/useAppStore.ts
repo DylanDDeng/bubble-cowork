@@ -66,6 +66,14 @@ import {
 } from '../utils/sidebar-width';
 import { StreamDeltaCoalescer } from '../utils/stream-delta-coalescer';
 import { applySessionAgentSelection } from '../utils/session-model';
+import {
+  addRightUtilityTab,
+  getRightUtilityTabKind,
+  isRightUtilityBrowserTab,
+  isRightUtilityFileTab,
+  resolveRightUtilityTabOpen,
+  resolveRightUtilityTabOpenPreservingActive,
+} from '../utils/right-utility-tabs';
 
 // P1: renderer-side coalescing of streaming text/thinking deltas. Lives at
 // module scope (one per renderer); the emitter is bound inside
@@ -344,109 +352,6 @@ function normalizeChatPanes(
       surface: 'chat',
     },
   };
-}
-
-let rightUtilityFileTabCounter = 0;
-let rightUtilityBrowserTabCounter = 0;
-
-function isRightUtilityFileTab(
-  target: ProjectUtilityPanelTarget | null | undefined
-): target is ProjectUtilityPanelTarget {
-  return target === 'files' || Boolean(target?.startsWith('files:'));
-}
-
-function isRightUtilityBrowserTab(
-  target: ProjectUtilityPanelTarget | null | undefined
-): target is ProjectUtilityPanelTarget {
-  return target === 'browser' || Boolean(target?.startsWith('browser:'));
-}
-
-function isRightUtilitySubagentTab(
-  target: ProjectUtilityPanelTarget | null | undefined
-): target is ProjectUtilityPanelTarget {
-  return target === 'subagent' || Boolean(target?.startsWith('subagent:'));
-}
-
-function getRightUtilityTabKind(
-  target: ProjectUtilityPanelTarget
-): ProjectUtilityPanelKind {
-  if (isRightUtilityFileTab(target)) return 'files';
-  if (isRightUtilityBrowserTab(target)) return 'browser';
-  if (isRightUtilitySubagentTab(target)) return 'subagent';
-  return target as ProjectUtilityPanelKind;
-}
-
-function createRightUtilityFileTabId(): ProjectUtilityPanelTarget {
-  rightUtilityFileTabCounter += 1;
-  return `files:${Date.now().toString(36)}-${rightUtilityFileTabCounter}`;
-}
-
-function createRightUtilityBrowserTabId(): ProjectUtilityPanelTarget {
-  rightUtilityBrowserTabCounter += 1;
-  return `browser:${Date.now().toString(36)}-${rightUtilityBrowserTabCounter}`;
-}
-
-function resolveRightUtilityTabOpen(
-  tabs: ProjectUtilityPanelTarget[],
-  target: ProjectUtilityPanelKind,
-  options?: { newTab?: boolean }
-): { tabs: ProjectUtilityPanelTarget[]; activeTab: ProjectUtilityPanelTarget } {
-  if (target === 'files') {
-    const existing = tabs.find(isRightUtilityFileTab);
-    const activeTab = options?.newTab || !existing
-      ? createRightUtilityFileTabId()
-      : existing;
-    return {
-      tabs: tabs.includes(activeTab) ? tabs : [...tabs, activeTab],
-      activeTab,
-    };
-  }
-
-  if (target === 'browser') {
-    const activeTab = options?.newTab ? createRightUtilityBrowserTabId() : 'browser';
-    return {
-      tabs: tabs.includes(activeTab) ? tabs : [...tabs, activeTab],
-      activeTab,
-    };
-  }
-
-  return {
-    tabs: tabs.includes(target) ? tabs : [...tabs, target],
-    activeTab: target,
-  };
-}
-
-function resolveRightUtilityTabOpenPreservingActive(
-  tabs: ProjectUtilityPanelTarget[],
-  target: ProjectUtilityPanelKind,
-  activeTab: ProjectUtilityPanelTarget | null
-): { tabs: ProjectUtilityPanelTarget[]; activeTab: ProjectUtilityPanelTarget } {
-  if (target === 'files' && isRightUtilityFileTab(activeTab)) {
-    return {
-      tabs: addRightUtilityTab(tabs, activeTab),
-      activeTab,
-    };
-  }
-  if (target === 'browser' && isRightUtilityBrowserTab(activeTab)) {
-    return {
-      tabs: addRightUtilityTab(tabs, activeTab),
-      activeTab,
-    };
-  }
-  if (target !== 'files' && activeTab === target) {
-    return {
-      tabs: addRightUtilityTab(tabs, activeTab),
-      activeTab,
-    };
-  }
-  return resolveRightUtilityTabOpen(tabs, target);
-}
-
-function addRightUtilityTab(
-  tabs: ProjectUtilityPanelTarget[],
-  target: ProjectUtilityPanelTarget
-): ProjectUtilityPanelTarget[] {
-  return tabs.includes(target) ? tabs : [...tabs, target];
 }
 
 function getInitialRightUtilityTab(

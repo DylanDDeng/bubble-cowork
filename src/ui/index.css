@@ -252,6 +252,10 @@
  * to keep visual language consistent across the app.
  * ------------------------------------------------------------------------- */
 .popover-surface {
+  /* Electron computes window drag regions geometrically, ignoring stacking
+   * order: a popup painted over a `drag-region` bar (e.g. the file-preview
+   * breadcrumb) would otherwise swallow clicks into window-drag / zoom. */
+  -webkit-app-region: no-drag;
   background-color: var(--popover-bg);
   border: 1px solid var(--popover-border);
   border-radius: var(--popover-radius);
@@ -452,12 +456,15 @@ body {
   background-color: var(--app-sidebar-surface);
 }
 
-/* Skin (wallpaper) — a user-picked image layered under the chat area.
-   Chat surfaces paint through these vars so the wallpaper shows only while
+/* Skin (wallpaper) — a user-picked image layered under the chat workspace.
+   Chat and utility surfaces paint through these vars so the wallpaper shows only while
    a skin is active; without one they resolve to the normal opaque colors. */
 :root {
   --chat-pane-surface: var(--bg-primary);
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  --utility-pane-surface: var(--bg-primary);
+  --utility-pane-surface-strong: var(--bg-primary);
+  --utility-pane-backdrop: none;
   /* Opaque chrome chips (e.g. the editor picker capsule) that sit directly
      on the chat surface; frosted while a skin is active. */
   --chat-chrome-chip-surface: var(--bg-primary);
@@ -471,8 +478,19 @@ body {
 .aegis-skin-host--active {
   --chat-pane-surface: transparent;
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
+  --utility-pane-surface: color-mix(in srgb, var(--bg-primary) 58%, transparent);
+  --utility-pane-surface-strong: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  --utility-pane-backdrop: blur(14px) saturate(120%);
   --chat-chrome-chip-surface: color-mix(in srgb, var(--bg-primary) 55%, transparent);
   --chat-chrome-chip-backdrop: blur(10px) saturate(140%);
+}
+
+/* Utility panels historically painted several full-size opaque primary
+   surfaces. When a skin is active, make those surfaces part of the same
+   frosted layer so the shared wallpaper remains visible throughout Files,
+   Review, Terminal, and subagent panels without weakening modal surfaces. */
+.aegis-skin-host--active [data-right-utility-workspace] [class~="bg-[var(--bg-primary)]"] {
+  background-color: var(--utility-pane-surface);
 }
 
 .aegis-skin-layer {
