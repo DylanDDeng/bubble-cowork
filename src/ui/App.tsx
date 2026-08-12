@@ -219,6 +219,7 @@ export function App() {
     activeRightUtilityTab,
     rightUtilityPanelHidden,
     rightUtilityInstantRevealPending,
+    pendingProjectFileOpen,
     rightPanelFullscreen,
     sessionsLoaded,
     setProjectTreeCollapsed,
@@ -228,6 +229,7 @@ export function App() {
     setBrowserPanelOpen,
     setActiveRightUtilityTab,
     openRightUtilityTab,
+    clearPendingProjectFileOpen,
     closeRightUtilityTab: closeRightUtilityTabInStore,
     closeRightUtilityPanels: closeRightUtilityPanelsInStore,
     showRightUtilityPanels,
@@ -264,6 +266,7 @@ export function App() {
       activeRightUtilityTab: s.activeRightUtilityTab,
       rightUtilityPanelHidden: s.rightUtilityPanelHidden,
       rightUtilityInstantRevealPending: s.rightUtilityInstantRevealPending,
+      pendingProjectFileOpen: s.pendingProjectFileOpen,
       rightPanelFullscreen: s.rightPanelFullscreen,
       sessionsLoaded: s.sessionsLoaded,
       setProjectTreeCollapsed: s.setProjectTreeCollapsed,
@@ -273,6 +276,7 @@ export function App() {
       setBrowserPanelOpen: s.setBrowserPanelOpen,
       setActiveRightUtilityTab: s.setActiveRightUtilityTab,
       openRightUtilityTab: s.openRightUtilityTab,
+      clearPendingProjectFileOpen: s.clearPendingProjectFileOpen,
       closeRightUtilityTab: s.closeRightUtilityTab,
       closeRightUtilityPanels: s.closeRightUtilityPanels,
       showRightUtilityPanels: s.showRightUtilityPanels,
@@ -991,6 +995,8 @@ export function App() {
               onClose={() => closeRightUtilityTab(tabId)}
               onActiveFileTabChange={(file) => updateProjectFileTabLabel(tabId, file)}
               onOpenUtilityTab={openRightUtilityTab}
+              openRequest={pendingProjectFileOpen?.tabId === tabId ? pendingProjectFileOpen : null}
+              onOpenRequestConsumed={clearPendingProjectFileOpen}
               sharedPanelWidth={rightUtilityPanelWidth}
               onSharedPanelWidthChange={setRightUtilityPanelWidth}
               isFullscreen={rightPanelFullscreen === 'files' && activeRightUtilityTab === tabId}

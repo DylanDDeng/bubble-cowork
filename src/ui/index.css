@@ -1729,6 +1729,83 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
   overflow-wrap: anywhere;
 }
 
+.aegis-markdown-source-toggle {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.aegis-markdown-source-toggle:hover,
+.aegis-markdown-source-toggle.is-active {
+  border-color: var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.aegis-markdown-source-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-primary);
+}
+
+.aegis-markdown-source-editor .cm-scroller {
+  font-size: 14px;
+  line-height: 1.55;
+  font-variant-ligatures: none;
+}
+
+.aegis-markdown-source-editor .cm-content {
+  padding: 8px 16px 72px 10px;
+  color: color-mix(in srgb, var(--text-primary) 94%, var(--text-secondary));
+}
+
+.aegis-markdown-source-editor .cm-gutters {
+  padding-top: 8px;
+  color: color-mix(in srgb, var(--text-muted) 84%, transparent);
+}
+
+.aegis-markdown-source-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 34px;
+  padding: 0 4px 0 8px;
+}
+
+.aegis-markdown-source-editor .cm-activeLine,
+.aegis-markdown-source-editor .cm-activeLineGutter {
+  background: transparent;
+}
+
+.aegis-markdown-source-editor .aegis-markdown-source-completed-task,
+.aegis-markdown-source-editor .aegis-markdown-source-completed-task *,
+.aegis-markdown-source-editor .aegis-markdown-source-wiki-link,
+.aegis-markdown-source-editor .aegis-markdown-source-wiki-link * {
+  color: var(--success) !important;
+}
+
+.aegis-markdown-source-error {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  max-width: min(420px, calc(100% - 24px));
+  border: 1px solid color-mix(in srgb, var(--error) 32%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--error) 10%, var(--bg-primary));
+  padding: 7px 10px;
+  color: var(--error);
+  font-size: 12px;
+}
+
 .aegis-mdx-editor-shell,
 .aegis-mdx-split {
   display: flex;

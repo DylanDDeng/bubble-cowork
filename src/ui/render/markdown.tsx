@@ -21,7 +21,7 @@ import { useAppStore } from '../store/useAppStore';
 import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
 import { Globe } from '../components/icons';
 import { faviconUrlForHostname, isFaviconPlaceholder } from '../utils/link-favicons';
-import { resolveProjectTreeFile } from '../utils/resolve-tree-file';
+import { resolveProjectFileReference } from '../utils/project-file-navigation';
 
 interface MDContentProps {
   content: string;
@@ -294,6 +294,7 @@ function useProjectFileNavigation() {
     projectTree,
     projectTreeCwd,
     openRightUtilityTab,
+    openProjectFileInRightPanel,
   } = useAppStore();
   const session = activeSessionId ? sessions[activeSessionId] : null;
   const cwd = session?.cwd || projectCwd || null;
@@ -303,53 +304,58 @@ function useProjectFileNavigation() {
 
   const openProjectFile = (projectFile: ProjectFileLink) => {
     if (!cwd && !projectFile.external) return;
+    void (async () => {
+      try {
+        const resolved = projectFile.external
+          ? {
+              status: 'resolved' as const,
+              cwd: projectFile.path.replace(/\\/g, '/').replace(/\/[^/]*$/, '') || '/',
+              path: projectFile.path,
+            }
+          : await resolveProjectFileReference({
+              requestedPath: projectFile.path,
+              primaryRoots: [cwd, session?.projectCwd],
+              workspaceRoots: [
+                ...Object.values(sessions).flatMap((item) => [item.cwd, item.projectCwd]),
+                ...await window.electron.getRecentCwds(20),
+              ],
+              loadTree: async (root) =>
+                projectTreeCwd === root && projectTree
+                  ? projectTree
+                  : window.electron.getProjectTree(root),
+            });
 
-    // HTML references in an agent response are result-oriented: clicking one
-    // opens the rendered page in the built-in browser. Clicking the same file
-    // in the Files panel remains source-oriented and follows its own handler.
-    if (
-      cwd &&
-      activeSessionId &&
-      !projectFile.external &&
-      isHtmlFilePath(projectFile.path)
-    ) {
-      void (async () => {
-        try {
-          let tree = projectTreeCwd === cwd ? projectTree : null;
-          if (!tree) {
-            tree = await window.electron.getProjectTree(cwd);
-          }
-          const resolvedPath = tree
-            ? resolveProjectTreeFile(tree, projectFile.path) ?? projectFile.path
-            : projectFile.path;
+        if (resolved.status === 'not-found') {
+          toast.error(`Couldn’t find “${projectFile.path}” in known workspaces.`);
+          return;
+        }
+        if (resolved.status === 'ambiguous') {
+          toast.error(`Multiple files match “${projectFile.path}”. Use a more specific path.`);
+          return;
+        }
+
+        // HTML references in agent responses are result-oriented and open in
+        // the built-in browser after resolving through the same workspace path.
+        if (activeSessionId && isHtmlFilePath(resolved.path)) {
           await openHtmlFileInBrowserTab({
-            cwd,
-            filePath: resolvedPath,
+            cwd: resolved.cwd,
+            filePath: resolved.path,
             sessionId: activeSessionId,
           });
           openRightUtilityTab('browser', { instantReveal: true });
-        } catch (error) {
-          toast.error(`Failed to open HTML preview: ${error}`);
+          return;
         }
-      })();
-      return;
-    }
 
-    // Non-HTML references continue to open as source in the Files panel. The
-    // panel resolves partial paths before reading the file.
-    // instantReveal: content-driven opens skip the width tween — animating
-    // layout width reflows the whole transcript every frame (jank).
-    openRightUtilityTab('files', { instantReveal: true });
-
-    window.setTimeout(() => {
-      window.dispatchEvent(
-        new CustomEvent('aegis:open-project-file', {
-          detail: projectFile.external
-            ? { path: projectFile.path, external: true, lineStart: projectFile.line }
-            : { cwd, path: projectFile.path, lineStart: projectFile.line },
-        })
-      );
-    }, 0);
+        openProjectFileInRightPanel({
+          cwd: resolved.cwd,
+          path: resolved.path,
+          external: projectFile.external,
+          lineStart: projectFile.line,
+        });
+      } catch (error) {
+        toast.error(`Failed to open file: ${String(error)}`);
+      }
+    })();
   };
 
   return { cwd, roots, openProjectFile };

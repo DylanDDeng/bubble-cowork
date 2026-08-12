@@ -5,10 +5,8 @@ import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
-import { resolveProjectTreeFile } from '../utils/resolve-tree-file';
 import TextFileReader from './TextFileReader';
 import { FileTypeIcon } from './FileTypeIcon';
-import { ProjectMarkdownEditor, type ProjectMarkdownEditorBridge } from './ProjectMarkdownEditor';
 import { CsvPreview, XlsxPreview } from './SpreadsheetPreview';
 import { ProjectMdxPreview, ProjectMdxProperties, parseMdxDocument } from './ProjectMdxPreview';
 import { ProjectTextEditor, type ProjectTextEditorHandle } from './ProjectTextEditor';
@@ -25,7 +23,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from './ui/context-menu';
-import type { ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
+import type { ProjectFileOpenRequest, ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
 
 type ProjectPanelTab = 'files';
 type ViewMode = 'view' | 'code' | 'split';
@@ -658,6 +656,8 @@ export function ProjectTreePanel({
   sharedPanelWidth,
   onSharedPanelWidthChange,
   onOpenUtilityTab,
+  openRequest,
+  onOpenRequestConsumed,
   isFullscreen = false,
   onToggleFullscreen,
   topInset = 0,
@@ -670,6 +670,8 @@ export function ProjectTreePanel({
   sharedPanelWidth?: number;
   onSharedPanelWidthChange?: (width: number) => void;
   onOpenUtilityTab?: (target: ProjectUtilityPanelKind) => void;
+  openRequest?: ProjectFileOpenRequest | null;
+  onOpenRequestConsumed?: (requestId: number) => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   topInset?: number;
@@ -710,8 +712,9 @@ export function ProjectTreePanel({
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
   const latestPreviewWidthRef = useRef(previewPanelWidth);
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [selectedFileCwd, setSelectedFileCwd] = useState<string | null>(null);
+  const [navigationCwd, setNavigationCwd] = useState<string | null>(openRequest?.cwd ?? null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(openRequest?.path ?? null);
+  const [selectedFileCwd, setSelectedFileCwd] = useState<string | null>(openRequest?.cwd ?? null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
   const [openFileTabs, setOpenFileTabs] = useState<OpenProjectFileTab[]>([]);
   const openFileTabsRef = useRef<OpenProjectFileTab[]>([]);
@@ -719,7 +722,7 @@ export function ProjectTreePanel({
   const [viewMode, setViewMode] = useState<ViewMode>('view');
   const [mdxRevealTarget, setMdxRevealTarget] = useState<{ line: number; token: number } | null>(null);
   const mdxRevealTokenRef = useRef(0);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(Boolean(openRequest));
   const [showPreviewLoading, setShowPreviewLoading] = useState(false);
   const previewRequestIdRef = useRef(0);
   const [draftText, setDraftText] = useState('');
@@ -729,8 +732,11 @@ export function ProjectTreePanel({
   const saveErrorRef = useRef<string | null>(null);
   const saveStateRef = useRef<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const selectedEditableTextPreviewRef = useRef<ProjectFilePreview | null>(null);
-  const activeMarkdownBridgeRef = useRef<ProjectMarkdownEditorBridge | null>(null);
   const activeTextEditorBridgeRef = useRef<ProjectTextEditorHandle | null>(null);
+  const pendingEditorViewStateRestoreRef = useRef<{
+    tabId: string;
+    viewState: ProjectEditorViewState;
+  } | null>(null);
   const normalizedSharedPanelWidth =
     typeof sharedPanelWidth === 'number' && Number.isFinite(sharedPanelWidth)
       ? sharedPanelWidth
@@ -831,11 +837,12 @@ export function ProjectTreePanel({
     saveErrorRef.current = next;
     setSaveError(next);
   }, []);
-  const registerMarkdownBridge = useCallback((bridge: ProjectMarkdownEditorBridge | null) => {
-    activeMarkdownBridgeRef.current = bridge;
-  }, []);
   const registerTextEditorBridge = useCallback((bridge: ProjectTextEditorHandle | null) => {
     activeTextEditorBridgeRef.current = bridge;
+    const pending = pendingEditorViewStateRestoreRef.current;
+    if (!bridge || !pending || pending.tabId !== activeFileTabIdRef.current) return;
+    pendingEditorViewStateRestoreRef.current = null;
+    window.requestAnimationFrame(() => bridge.restoreViewState(pending.viewState));
   }, []);
   const copiedTimerRef = useRef<number | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
@@ -848,7 +855,7 @@ export function ProjectTreePanel({
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const activeCwd = activeSession?.cwd || null;
-  const cwd = activeCwd || projectCwd || null;
+  const cwd = navigationCwd || activeCwd || projectCwd || null;
   const activeFileTabId = selectedFileCwd && selectedFilePath
     ? getProjectFileTabId(selectedFileCwd, selectedFilePath)
     : null;
@@ -864,6 +871,21 @@ export function ProjectTreePanel({
   useEffect(() => {
     activeFileTabIdRef.current = activeFileTabId;
   }, [activeFileTabId]);
+
+  // Consume a stored selection once when a tab becomes active in source mode.
+  // Draft/autosave updates also replace openFileTabs, so restoring from that
+  // array would move the caret after every keystroke.
+  useEffect(() => {
+    if (viewMode !== 'code' || !activeFileTabId || previewLoading) return;
+    const pending = pendingEditorViewStateRestoreRef.current;
+    if (!pending || pending.tabId !== activeFileTabId) return;
+    window.requestAnimationFrame(() => {
+      const bridge = activeTextEditorBridgeRef.current;
+      if (!bridge || pendingEditorViewStateRestoreRef.current !== pending) return;
+      pendingEditorViewStateRestoreRef.current = null;
+      bridge.restoreViewState(pending.viewState);
+    });
+  }, [activeFileTabId, previewLoading, viewMode]);
 
   // Local text reads usually finish within a frame. Rendering a loading label
   // immediately makes that fast path look slower than it is, so only reveal it
@@ -901,7 +923,6 @@ export function ProjectTreePanel({
   const captureActiveEditorViewState = useCallback(() => {
     if (!activeFileTabId) return;
     const viewState =
-      activeMarkdownBridgeRef.current?.getViewState() ||
       activeTextEditorBridgeRef.current?.getViewState() ||
       null;
     updateOpenFileTabs((current) =>
@@ -912,6 +933,21 @@ export function ProjectTreePanel({
       )
     );
   }, [activeFileTabId, updateOpenFileTabs, viewMode]);
+
+  const toggleMarkdownSource = useCallback(() => {
+    if (viewMode === 'code') {
+      captureActiveEditorViewState();
+      setViewMode('view');
+      return;
+    }
+    if (activeFileTabId) {
+      const tab = openFileTabsRef.current.find((item) => item.id === activeFileTabId);
+      pendingEditorViewStateRestoreRef.current = tab?.viewState
+        ? { tabId: activeFileTabId, viewState: tab.viewState }
+        : null;
+    }
+    setViewMode('code');
+  }, [activeFileTabId, captureActiveEditorViewState, viewMode]);
 
   const prepareActiveFileForTransition = useCallback(async () => {
     captureActiveEditorViewState();
@@ -991,6 +1027,9 @@ export function ProjectTreePanel({
 
   const applyCachedFileTab = useCallback((tab: OpenProjectFileTab) => {
     previewRequestIdRef.current += 1;
+    pendingEditorViewStateRestoreRef.current = tab.viewState
+      ? { tabId: tab.id, viewState: tab.viewState }
+      : null;
     selectedEditableTextPreviewRef.current = tab.preview;
     rememberDiskContent(tab.preview.text);
     setSelectedFilePath(tab.filePath);
@@ -1197,6 +1236,9 @@ export function ProjectTreePanel({
   }, [expandedPaths, filteredTree]);
 
   useEffect(() => {
+    // An atomic transcript-link request already owns the initial selection.
+    // Do not blank it while switching the Files panel to that workspace root.
+    if (openRequest && openRequest.cwd === cwd) return;
     setExpandedPaths(new Set());
     setTreeFilter('');
     initRootRef.current = null;
@@ -1711,7 +1753,7 @@ export function ProjectTreePanel({
 
   const selectExternalFilePath = useCallback(async (
     filePath: string,
-    options: { lineStart?: number; lineEnd?: number } = {}
+    options: { cwd?: string; lineStart?: number; lineEnd?: number } = {}
   ) => {
     const reader = window.electron.readProjectFilePreview;
     if (typeof reader !== 'function') return;
@@ -1721,7 +1763,7 @@ export function ProjectTreePanel({
     }
 
     const name = filePath.split('/').filter(Boolean).pop() || filePath;
-    const fileCwd = dirnameOfPath(filePath);
+    const fileCwd = options.cwd || dirnameOfPath(filePath);
     setSelectedFilePath(filePath);
     setSelectedFileCwd(fileCwd);
     setViewMode('view');
@@ -1813,6 +1855,23 @@ export function ProjectTreePanel({
     setDraftTextSynced,
     setSaveStateSynced,
   ]);
+
+  useEffect(() => {
+    if (!openRequest) return;
+    let cancelled = false;
+    setNavigationCwd(openRequest.cwd);
+    void (async () => {
+      await selectExternalFilePath(openRequest.path, {
+        cwd: openRequest.cwd,
+        lineStart: openRequest.lineStart,
+        lineEnd: openRequest.lineEnd,
+      });
+      if (!cancelled) onOpenRequestConsumed?.(openRequest.id);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openRequest?.id]);
 
   const closePreview = useCallback(() => {
     setSelectedFilePath(null);
@@ -1933,37 +1992,6 @@ export function ProjectTreePanel({
       : dirnameOfPath(treeMenu.node.path)
     : visibleTree?.path || cwd;
 
-  useEffect(() => {
-    const handleOpenProjectFile = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        cwd?: string;
-        path?: string;
-        external?: boolean;
-        lineStart?: number;
-        lineEnd?: number;
-      }>).detail;
-      if (!detail?.path) return;
-      if (detail.external) {
-        void selectExternalFilePath(detail.path, {
-          lineStart: detail.lineStart,
-          lineEnd: detail.lineEnd,
-        });
-        return;
-      }
-      if (detail.cwd && cwd && detail.cwd !== cwd) return;
-      // Chat messages reference files by bare name or partial path; resolve
-      // against the loaded tree so "workstream-stages.ts" opens
-      // src/ui/utils/workstream-stages.ts instead of "File not found".
-      const resolved = visibleTree
-        ? resolveProjectTreeFile(visibleTree, detail.path)
-        : null;
-      void selectFilePath(resolved ?? detail.path, undefined, false);
-    };
-
-    window.addEventListener('aegis:open-project-file', handleOpenProjectFile);
-    return () => window.removeEventListener('aegis:open-project-file', handleOpenProjectFile);
-  }, [cwd, selectExternalFilePath, selectFilePath, visibleTree]);
-
   const handleCopyPath = async (path: string) => {
     try {
       await navigator.clipboard.writeText(path);
@@ -2022,17 +2050,6 @@ export function ProjectTreePanel({
       return changed ? next : current;
     });
   }, [activeFileTabId, updateOpenFileTabs, viewMode]);
-
-  useEffect(() => {
-    if (!activeFileTabId || previewLoading || !selectedEditableTextPreview) return;
-    const tab = openFileTabs.find((item) => item.id === activeFileTabId);
-    if (!tab?.viewState) return;
-    const viewState = tab.viewState;
-    window.requestAnimationFrame(() => {
-      activeMarkdownBridgeRef.current?.restoreViewState(viewState);
-      activeTextEditorBridgeRef.current?.restoreViewState(viewState);
-    });
-  }, [activeFileTabId, openFileTabs, previewLoading, selectedEditableTextPreview]);
 
   // Mirror unsaved text to the main process for the synchronous quit fallback.
   useEffect(() => {
@@ -2167,7 +2184,6 @@ export function ProjectTreePanel({
   }, [canSaveText, draftText, handleSaveText, selectedEditableTextPreview]);
 
   const flushProjectEditorBeforeClose = useCallback(async (): Promise<ProjectEditorFlushResult> => {
-    activeMarkdownBridgeRef.current?.flush();
     activeTextEditorBridgeRef.current?.flush();
     const saveOk = await handleSaveText();
     const currentPreview = selectedEditableTextPreviewRef.current;
@@ -2206,7 +2222,6 @@ export function ProjectTreePanel({
     // The final close path also flushes pending composition state before saving.
     const getDirtyContent = (flushEditor: boolean): string | null => {
       if (flushEditor) {
-        activeMarkdownBridgeRef.current?.flush();
         activeTextEditorBridgeRef.current?.flush();
       }
       const currentPreview = selectedEditableTextPreviewRef.current;
@@ -2342,7 +2357,6 @@ export function ProjectTreePanel({
       if (!detail.exists) return;
 
       const composing =
-        (activeMarkdownBridgeRef.current?.isComposing() ?? false) ||
         (activeTextEditorBridgeRef.current?.isComposing() ?? false);
 
       // Seed the known-contents set on the very first event so the originally
@@ -2398,7 +2412,6 @@ export function ProjectTreePanel({
     const pending = pendingExternalReloadRef.current;
     if (!pending) return;
     if (
-      activeMarkdownBridgeRef.current?.isComposing() ||
       activeTextEditorBridgeRef.current?.isComposing()
     ) {
       return;
@@ -2592,6 +2605,12 @@ export function ProjectTreePanel({
     selectedPreview?.editable &&
     !!selectedFileCwd &&
     !!selectedFilePath;
+  const isEditableMarkdownFile =
+    !previewLoading &&
+    selectedPreview?.kind === 'markdown' &&
+    selectedPreview.editable &&
+    !!selectedFileCwd &&
+    !!selectedFilePath;
   const activeOpenFileTab = activeFileTabId
     ? openFileTabs.find((tab) => tab.id === activeFileTabId) || null
     : null;
@@ -2667,6 +2686,20 @@ export function ProjectTreePanel({
         }
         aria-hidden={collapsed && !isFullscreen}
       >
+        {openRequest && selectedFilePath !== openRequest.path ? (
+          <div className="absolute inset-0 z-[80] flex min-h-0 flex-col bg-[var(--bg-primary)]">
+            <div className="border-b border-[var(--tree-item-border)] px-3 py-1.5">
+              <PreviewBreadcrumb
+                cwd={openRequest.cwd}
+                filePath={openRequest.path}
+                fileName={basenameOfPath(openRequest.path)}
+              />
+            </div>
+            <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
+              Opening file…
+            </div>
+          </div>
+        ) : null}
         {!embedded && !selectedFilePath && !isFullscreen && (
           <div
             className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
@@ -3016,6 +3049,16 @@ export function ProjectTreePanel({
               }
             />
             <div className="no-drag flex flex-shrink-0 items-center gap-1">
+              {isEditableMarkdownFile && (
+                <button
+                  type="button"
+                  className={`aegis-markdown-source-toggle${viewMode === 'code' ? ' is-active' : ''}`}
+                  onClick={toggleMarkdownSource}
+                  aria-pressed={viewMode === 'code'}
+                >
+                  {viewMode === 'code' ? 'View preview' : 'View source'}
+                </button>
+              )}
               <OpenWithButton cwd={selectedFileCwd || cwd} filePath={selectedFilePath} />
               {isMdxFilePreview && (
                 <ViewModeToggle
@@ -3130,6 +3173,16 @@ export function ProjectTreePanel({
                   <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 
                   <div className="no-drag flex flex-shrink-0 items-center gap-1">
+                    {isEditableMarkdownFile && (
+                      <button
+                        type="button"
+                        className={`aegis-markdown-source-toggle${viewMode === 'code' ? ' is-active' : ''}`}
+                        onClick={toggleMarkdownSource}
+                        aria-pressed={viewMode === 'code'}
+                      >
+                        {viewMode === 'code' ? 'View preview' : 'View source'}
+                      </button>
+                    )}
                     {selectedFilePath ? (
                       <OpenWithButton cwd={selectedFileCwd || cwd} filePath={selectedFilePath} />
                     ) : null}
@@ -3197,6 +3250,16 @@ export function ProjectTreePanel({
                   />
 
                   <div className="flex items-center gap-1 flex-shrink-0 no-drag">
+                    {isEditableMarkdownFile && (
+                      <button
+                        type="button"
+                        className={`aegis-markdown-source-toggle${viewMode === 'code' ? ' is-active' : ''}`}
+                        onClick={toggleMarkdownSource}
+                        aria-pressed={viewMode === 'code'}
+                      >
+                        {viewMode === 'code' ? 'View preview' : 'View source'}
+                      </button>
+                    )}
                     <OpenWithButton cwd={selectedFileCwd || cwd} filePath={selectedFilePath} />
                     {isMdxFilePreview && (
                       <ViewModeToggle
@@ -3326,19 +3389,28 @@ export function ProjectTreePanel({
 
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
                   selectedPreview.editable && selectedFileCwd && selectedFilePath ? (
-                    <ProjectMarkdownEditor
-                      value={draftText}
-                      cwd={selectedFileCwd}
-                      filePath={selectedFilePath}
-                      fileName={selectedPreview.name}
-                      hideTitleBar
-                      windowControlsInset={isFullscreen && !embedded}
-                      saveState={saveState}
-                      saveError={saveError}
-                      onChange={handleDraftTextChange}
-                      onSave={handleSaveText}
-                      onRegisterBridge={registerMarkdownBridge}
-                    />
+                    viewMode === 'code' ? (
+                      <div className="aegis-markdown-source-shell">
+                        <ProjectTextEditor
+                          ref={registerTextEditorBridge}
+                          value={draftText}
+                          onChange={handleDraftTextChange}
+                          onSave={() => handleSaveText()}
+                          fileName={selectedPreview.name}
+                          markdownSourceStyle
+                          className="aegis-markdown-source-editor"
+                        />
+                        {saveState === 'error' && saveError && (
+                          <div className="aegis-markdown-source-error">{saveError}</div>
+                        )}
+                      </div>
+                    ) : (
+                      <MDContent
+                        content={draftText}
+                        allowHtml={false}
+                        className="project-markdown-preview"
+                      />
+                    )
                   ) : (
                     <MDContent
                       content={selectedPreview.text}

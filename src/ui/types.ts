@@ -186,6 +186,17 @@ export type ProjectUtilityPanelTarget =
   // One top-level tab PER subagent (the tool_use id after the colon) — there
   // is no wrapper "subagent" tab; each subagent is its own strip tab.
   | `subagent:${string}`;
+export interface ProjectFileOpenInput {
+  cwd: string;
+  path: string;
+  external?: boolean;
+  lineStart?: number;
+  lineEnd?: number;
+}
+export interface ProjectFileOpenRequest extends ProjectFileOpenInput {
+  id: number;
+  tabId: ProjectUtilityPanelTarget;
+}
 export type ProjectUtilityTabDescriptor = {
   id: ProjectUtilityPanelTarget;
   kind: ProjectUtilityPanelKind;
@@ -331,6 +342,8 @@ export interface AppState {
    * panel width tween; cleared by App after the reveal commits.
    */
   rightUtilityInstantRevealPending: boolean;
+  /** Atomic file-link navigation consumed by the active Files panel. */
+  pendingProjectFileOpen: ProjectFileOpenRequest | null;
   clearRightUtilityInstantReveal: () => void;
   reviewDiffSelection: ReviewDiffSelection | null;
   terminalDrawerOpen: boolean;
@@ -476,6 +489,8 @@ export interface AppActions {
       instantReveal?: boolean;
     }
   ) => void;
+  openProjectFileInRightPanel: (request: ProjectFileOpenInput) => void;
+  clearPendingProjectFileOpen: (requestId: number) => void;
   setReviewDiffSelection: (selection: ReviewDiffSelectionInput | null) => void;
   openReviewDiff: (selection: ReviewDiffSelectionInput) => void;
   /** Open (or focus) the dedicated top-level tab for a subagent (parentToolUseId). */

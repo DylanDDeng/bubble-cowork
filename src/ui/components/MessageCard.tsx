@@ -791,24 +791,19 @@ function MemoryCitationsBlock({
   block: ContentBlock & { type: 'memory_citations' };
 }) {
   const [expanded, setExpanded] = useState(false);
-  const { openRightUtilityTab } = useAppStore();
+  const { openProjectFileInRightPanel } = useAppStore();
   const count = block.citations.length;
 
   const openCitation = (citation: (ContentBlock & { type: 'memory_citations' })['citations'][number]) => {
     if (!citation.source.trim()) return;
-    openRightUtilityTab('files', { instantReveal: true });
-    window.setTimeout(() => {
-      window.dispatchEvent(
-        new CustomEvent('aegis:open-project-file', {
-          detail: {
-            path: citation.source,
-            external: true,
-            lineStart: citation.lineStart,
-            lineEnd: citation.lineEnd,
-          },
-        })
-      );
-    }, 0);
+    const normalized = citation.source.replace(/\\/g, '/');
+    openProjectFileInRightPanel({
+      cwd: normalized.replace(/\/[^/]*$/, '') || '/',
+      path: citation.source,
+      external: true,
+      lineStart: citation.lineStart,
+      lineEnd: citation.lineEnd,
+    });
   };
 
   return (

@@ -22,6 +22,7 @@ import type {
   WorkspaceSurface,
   ProjectUtilityPanelKind,
   ProjectUtilityPanelTarget,
+  ProjectFileOpenInput,
   ReviewDiffSelection,
   ReviewDiffSelectionInput,
   SessionView,
@@ -98,6 +99,7 @@ type SetState = (
   partial: Store | Partial<Store> | ((state: Store) => Store | Partial<Store>)
 ) => void;
 const runtimeNoticeClearTimers = new Map<string, number>();
+let projectFileOpenRequestCounter = 0;
 
 function normalizeReviewDiffSelection(selection: ReviewDiffSelectionInput): ReviewDiffSelection {
   return {
@@ -950,6 +952,7 @@ export const useAppStore = create<Store>()(
       activeRightUtilityTab: initialRightUtilityTab,
       rightUtilityPanelHidden: false,
       rightUtilityInstantRevealPending: false,
+      pendingProjectFileOpen: null,
       reviewDiffSelection: null,
       terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
@@ -1795,6 +1798,46 @@ export const useAppStore = create<Store>()(
 
       return patch;
     });
+  },
+
+  openProjectFileInRightPanel: (request: ProjectFileOpenInput) => {
+    set((state) => {
+      const opened = resolveRightUtilityTabOpen(state.rightUtilityTabs, 'files');
+      const isReveal =
+        state.rightUtilityPanelHidden ||
+        state.rightUtilityTabs.length === 0 ||
+        !state.activeRightUtilityTab;
+      projectFileOpenRequestCounter += 1;
+      return {
+        rightUtilityTabs: opened.tabs,
+        activeRightUtilityTab: opened.activeTab,
+        rightUtilityPanelHidden: false,
+        rightUtilityInstantRevealPending:
+          isReveal || state.rightUtilityInstantRevealPending,
+        projectPanelView: 'files',
+        projectTreeCollapsed: false,
+        browserPanelOpen: false,
+        rightPanelFullscreen:
+          state.rightPanelFullscreen === 'browser'
+            ? null
+            : state.rightPanelFullscreen === 'review'
+              ? 'files'
+              : state.rightPanelFullscreen,
+        pendingProjectFileOpen: {
+          ...request,
+          id: projectFileOpenRequestCounter,
+          tabId: opened.activeTab,
+        },
+      };
+    });
+  },
+
+  clearPendingProjectFileOpen: (requestId) => {
+    set((state) =>
+      state.pendingProjectFileOpen?.id === requestId
+        ? { pendingProjectFileOpen: null }
+        : state
+    );
   },
 
   clearRightUtilityInstantReveal: () => {

@@ -1,7 +1,12 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { Compartment, EditorState, EditorSelection, Transaction } from '@codemirror/state';
 import {
+  Decoration,
+  DecorationSet,
   EditorView,
+  MatchDecorator,
+  ViewPlugin,
+  ViewUpdate,
   keymap,
   lineNumbers,
   highlightActiveLine,
@@ -31,6 +36,8 @@ interface ProjectTextEditorProps {
    * MDX call sites) — code files MUST pass it or they get Markdown parsing.
    */
   fileName?: string;
+  /** Apply the Codex-like source treatment used only by Markdown files. */
+  markdownSourceStyle?: boolean;
 }
 
 export interface ProjectTextEditorHandle {
@@ -62,6 +69,29 @@ function resolveLanguageDescription(fileName: string | undefined): LanguageDescr
   return LanguageDescription.matchFilename(languages, name);
 }
 
+const markdownSourceDecorator = new MatchDecorator({
+  regexp: /(\[[xX]\](?=\s|$)|\[\[[^\]\n]+\]\])/g,
+  decoration: (match) => Decoration.mark({
+    class: match[0].startsWith('[[')
+      ? 'aegis-markdown-source-wiki-link'
+      : 'aegis-markdown-source-completed-task',
+  }),
+});
+
+const markdownSourceDecorations = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+
+  constructor(view: EditorView) {
+    this.decorations = markdownSourceDecorator.createDeco(view);
+  }
+
+  update(update: ViewUpdate) {
+    this.decorations = markdownSourceDecorator.updateDeco(update, this.decorations);
+  }
+}, {
+  decorations: (plugin) => plugin.decorations,
+});
+
 export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectTextEditorProps>(function ProjectTextEditor({
   value,
   onChange,
@@ -69,6 +99,7 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
   className,
   revealTarget,
   fileName,
+  markdownSourceStyle = false,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -204,6 +235,7 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
       keymap.of([...customKeymap, ...historyKeymap]),
       updateListener,
       EditorView.lineWrapping,
+      ...(markdownSourceStyle ? [markdownSourceDecorations] : []),
       // Language is applied by the fileName effect below (the editor instance
       // is reused across file switches, so it can't be fixed at mount).
       languageCompartmentRef.current.of([]),

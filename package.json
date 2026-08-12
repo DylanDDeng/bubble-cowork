@@ -40,6 +40,7 @@
     "verify:composer-link-chip": "node scripts/verify-composer-link-chip.mjs",
     "verify:fork-session": "node scripts/verify-fork-session.mjs",
     "verify:markdown-editor": "node scripts/verify-markdown-editor.mjs",
+    "verify:project-file-navigation": "npx tsx scripts/tests/project-file-navigation.test.ts",
     "verify:acp-narration": "npx tsx scripts/tests/acp-narration-split.test.ts",
     "verify:grok-streaming": "npx tsx scripts/tests/grok-streaming-partial.test.ts",
     "verify:review-diff-panel": "node scripts/verify-review-diff-panel.mjs",
