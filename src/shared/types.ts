@@ -1537,7 +1537,7 @@ export type StreamMessage =
       subtype: 'token_usage';
       uuid: string;
       session_id: string;
-      provider: 'codex' | 'kimi';
+      provider: 'codex' | 'kimi' | 'grok';
       usage: CodexContextUsage;
     })
   | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean })

@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { readFileSync, writeFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { buildGrokEnv, resolveGrokBinary } from '../grok-cli';
+import { readGrokSessionSignals } from '../grok-session-files';
 import { AcpJsonRpcClient, type AcpJsonRpcIncomingRequest } from './acp-json-rpc-client';
 import type {
   ProviderAdapter,
@@ -83,6 +84,52 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Grok reports cost in USD ticks (bitcents): 1 USD = 1e10 ticks. The CLI's
+ * `costUsdTicks` field divides by this to yield a dollar amount (verified
+ * against xAI's cost-tracking docs, e.g. 37756000 ticks = $0.0037756).
+ */
+const GROK_COST_TICKS_PER_USD = 1e10;
+
+interface GrokTurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  reasoningTokens: number;
+  costUSD: number;
+}
+
+/**
+ * Extract per-turn usage from the session/prompt response. Grok returns it on
+ * the result's `_meta.usage` (camelCase), alongside top-level `_meta` token
+ * fields as a fallback. See the ACP probe payload: inputTokens/outputTokens/
+ * cachedReadTokens/cacheCreationTokens/reasoningTokens/costUsdTicks.
+ */
+function extractGrokTurnUsage(result: unknown): GrokTurnUsage {
+  const record = getRecord(result);
+  const meta = getRecord(record?._meta);
+  const usage = getRecord(meta?.usage) || getRecord(record?.usage) || {};
+  const num = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+  const inputTokens = num(usage.inputTokens) || num(meta?.inputTokens);
+  const outputTokens = num(usage.outputTokens) || num(meta?.outputTokens);
+  const cacheReadTokens = num(usage.cachedReadTokens) || num(meta?.cachedReadTokens);
+  const cacheCreationTokens = num(usage.cacheCreationTokens) || num(meta?.cacheCreationTokens);
+  const reasoningTokens = num(usage.reasoningTokens) || num(meta?.reasoningTokens);
+  const costUsdTicks = num(usage.costUsdTicks);
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    reasoningTokens,
+    costUSD: costUsdTicks / GROK_COST_TICKS_PER_USD,
+  };
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -416,6 +463,11 @@ export class GrokAcpAdapter implements ProviderAdapter {
       model,
     });
 
+    // Grok's signals.json persists on disk, so a restored session can show its
+    // context watermark before the first turn of this run — unlike codex/kimi
+    // whose watermark only exists at runtime and relies on transcript history.
+    this.hydrateContextFromDisk(active);
+
     if (input.prompt || input.attachments?.length) {
       await this.sendTurn({
         threadId: input.threadId,
@@ -448,11 +500,13 @@ export class GrokAcpAdapter implements ProviderAdapter {
 
     try {
       await this.applyPermissionMode(session, input.grokPermissionMode);
-      await session.rpc.request('session/prompt', {
+      const promptResult = await session.rpc.request('session/prompt', {
         sessionId: session.providerSessionId,
         prompt: buildPromptBlocks(input.prompt, input.attachments),
       });
       this.finalizeStreaming(session);
+      const turnUsage = extractGrokTurnUsage(promptResult);
+      this.emitGrokTokenUsage(session, turnUsage);
       session.status = 'completed';
       this.emit({
         type: 'message',
@@ -461,8 +515,21 @@ export class GrokAcpAdapter implements ProviderAdapter {
           type: 'result',
           subtype: 'success',
           duration_ms: 0,
-          total_cost_usd: 0,
-          usage: { input_tokens: 0, output_tokens: 0 },
+          total_cost_usd: turnUsage.costUSD,
+          usage: {
+            input_tokens: turnUsage.inputTokens,
+            output_tokens: turnUsage.outputTokens,
+            cache_creation_input_tokens: turnUsage.cacheCreationTokens,
+            cache_read_input_tokens: turnUsage.cacheReadTokens,
+            reasoning_output_tokens: turnUsage.reasoningTokens,
+            total_tokens:
+              turnUsage.inputTokens +
+              turnUsage.outputTokens +
+              turnUsage.cacheReadTokens +
+              turnUsage.cacheCreationTokens +
+              turnUsage.reasoningTokens,
+          },
+          model: session.model,
         },
       });
       this.emit({ type: 'status_change', threadId: input.threadId, status: 'completed' });
@@ -1189,6 +1256,77 @@ export class GrokAcpAdapter implements ProviderAdapter {
       });
       session.currentAssistant = undefined;
     }
+  }
+
+  /**
+   * Hydrate the context ring from Grok's on-disk signals.json. Called right
+   * after a session binds (new or resumed): a restored session shows its last
+   * known watermark immediately, before any turn runs in this process. Fresh
+   * sessions have no signals.json yet, so this is a no-op there.
+   */
+  private hydrateContextFromDisk(session: ActiveGrokSession): void {
+    const signals = readGrokSessionSignals(session.cwd, session.providerSessionId);
+    if (!signals || signals.contextWindowTokens <= 0) {
+      return;
+    }
+    this.emit({
+      type: 'message',
+      threadId: session.threadId,
+      message: {
+        type: 'system',
+        subtype: 'token_usage',
+        uuid: 'grok-token-usage:' + session.threadId + ':hydrate',
+        session_id: session.threadId,
+        provider: 'grok',
+        usage: {
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          reasoningOutputTokens: 0,
+          totalTokens: signals.contextTokensUsed,
+          contextWindow: signals.contextWindowTokens,
+        },
+      },
+    });
+  }
+
+  /**
+   * Emit the codex-style context ring for Grok. Context occupancy comes from
+   * Grok's own signals.json watermark (contextTokensUsed, written when a turn
+   * settles and after every auto-compaction), NOT from summing per-turn usage
+   * — the latter keeps growing and never reflects post-compact occupancy.
+   * Per-turn input/output/cache/reasoning tokens ride the same message for
+   * the detail rows.
+   */
+  private emitGrokTokenUsage(session: ActiveGrokSession, turnUsage: GrokTurnUsage): void {
+    const signals = readGrokSessionSignals(session.cwd, session.providerSessionId);
+    const contextWindow = signals?.contextWindowTokens ?? 0;
+    if (contextWindow <= 0) {
+      // No window size on disk yet (fresh session); the ring needs a
+      // denominator, so skip until signals.json lands. The result message
+      // still carries per-turn token/cost regardless.
+      return;
+    }
+    const contextTokens = signals?.contextTokensUsed ?? turnUsage.inputTokens;
+    this.emit({
+      type: 'message',
+      threadId: session.threadId,
+      message: {
+        type: 'system',
+        subtype: 'token_usage',
+        uuid: 'grok-token-usage:' + session.threadId + ':' + Date.now(),
+        session_id: session.threadId,
+        provider: 'grok',
+        usage: {
+          inputTokens: turnUsage.inputTokens,
+          cachedInputTokens: turnUsage.cacheReadTokens,
+          outputTokens: turnUsage.outputTokens,
+          reasoningOutputTokens: turnUsage.reasoningTokens,
+          totalTokens: contextTokens,
+          contextWindow,
+        },
+      },
+    });
   }
 
   private emitToolUse(threadId: string, update: GrokSessionUpdate): void {

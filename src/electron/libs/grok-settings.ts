@@ -1,6 +1,8 @@
 import { execFile } from 'child_process';
+import { readFileSync } from 'fs';
+import path from 'path';
 import type { GrokModelConfig } from '../../shared/types';
-import { buildGrokEnv, resolveGrokBinary } from './grok-cli';
+import { buildGrokEnv, GROK_HOME_DIR, resolveGrokBinary } from './grok-cli';
 
 const EMPTY_GROK_MODEL_CONFIG: GrokModelConfig = {
   defaultModel: null,
@@ -34,6 +36,25 @@ function execFileText(command: string, args: string[]): Promise<string> {
 function parseDefaultModel(output: string): string | null {
   const match = output.match(/^Default model:\s*(\S+)/m);
   return match?.[1]?.trim() || null;
+}
+
+/**
+ * Read a model's context window size from ~/.grok/models_cache.json, which
+ * the CLI populates from the model catalog (context_window, e.g. 500000 for
+ * grok-4.6). `grok models` does not print it, so the cache is the source of
+ * truth for the context ring's denominator. Returns null on any miss.
+ */
+function readModelsCacheContextWindow(modelName: string): number | null {
+  try {
+    const raw = readFileSync(path.join(GROK_HOME_DIR, 'models_cache.json'), 'utf8');
+    const parsed = JSON.parse(raw) as {
+      models?: Record<string, { info?: { context_window?: unknown } }>;
+    };
+    const value = parsed.models?.[modelName]?.info?.context_window;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseAvailableModels(output: string): string[] {
@@ -86,7 +107,7 @@ export async function getGrokModelConfig(): Promise<GrokModelConfig> {
     provider: null,
     enabled: true,
     isDefault: defaultModel === name,
-    maxContextSize: null,
+    maxContextSize: readModelsCacheContextWindow(name),
     capabilities: [],
   }));
 

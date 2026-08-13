@@ -63,3 +63,50 @@ export function resolveGrokSessionRelativeFile(
   hits.sort((left, right) => right.mtime - left.mtime);
   return hits[0]?.path ?? null;
 }
+
+export interface GrokSessionSignals {
+  /** Current context occupancy in tokens — Grok's own post-compaction watermark. */
+  contextTokensUsed: number;
+  /** The model's context window size in tokens. */
+  contextWindowTokens: number;
+  /** contextTokensUsed / contextWindowTokens * 100, precomputed by Grok. */
+  contextWindowUsage: number;
+  /** How many auto-compactions this session has performed so far. */
+  compactionCount: number;
+  /** Cumulative tokens sent before compaction ran (billing/telemetry signal). */
+  totalTokensBeforeCompaction: number;
+}
+
+function toFiniteNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Read a Grok session's signals.json — the authoritative context watermark
+ * that Grok itself maintains (updated when a turn settles, including right
+ * after an auto-compaction). Prefer this over summing per-turn usage, which
+ * keeps growing after compaction and never reflects the post-compact
+ * occupancy.
+ */
+export function readGrokSessionSignals(
+  cwd: string,
+  sessionId: string,
+  home = homedir()
+): GrokSessionSignals | null {
+  for (const group of listSessionGroupsForCwd(grokSessionsRoot(home), cwd)) {
+    const signalsPath = join(group, sessionId, 'signals.json');
+    try {
+      const parsed = JSON.parse(readFileSync(signalsPath, 'utf8')) as Record<string, unknown>;
+      return {
+        contextTokensUsed: toFiniteNumber(parsed.contextTokensUsed),
+        contextWindowTokens: toFiniteNumber(parsed.contextWindowTokens),
+        contextWindowUsage: toFiniteNumber(parsed.contextWindowUsage),
+        compactionCount: toFiniteNumber(parsed.compactionCount),
+        totalTokensBeforeCompaction: toFiniteNumber(parsed.totalTokensBeforeCompaction),
+      };
+    } catch {
+      // No signals.json for this session yet (or it was cleaned up).
+    }
+  }
+  return null;
+}

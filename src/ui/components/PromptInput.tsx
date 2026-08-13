@@ -419,6 +419,7 @@ export function PromptInput({
   const isPiContextVisible = runtimeProvider === 'pi' && activeSession?.provider === 'pi';
   const isBubbleContextVisible = runtimeProvider === 'bubble' && activeSession?.provider === 'bubble';
   const isQoderContextVisible = runtimeProvider === 'qoder' && activeSession?.provider === 'qoder';
+  const isGrokContextVisible = runtimeProvider === 'grok' && activeSession?.provider === 'grok';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
   const openCodeContextModel = isOpenCodeContextVisible ? selectedModel || activeSession?.model || null : null;
   const piContextModel = isPiContextVisible ? selectedModel || activeSession?.model || null : null;
@@ -427,10 +428,10 @@ export function PromptInput({
 
   const codexContextSnapshot = useMemo(
     () =>
-      isCodexContextVisible || isKimiContextVisible
+      isCodexContextVisible || isKimiContextVisible || isGrokContextVisible
         ? getLatestCodexContextSnapshot(activeSession.messages)
         : null,
-    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible]
+    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible, isGrokContextVisible]
   );
   const claudeContextSnapshot = useMemo(() => {
     if (!isClaudeContextVisible) {
