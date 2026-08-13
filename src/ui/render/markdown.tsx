@@ -22,6 +22,7 @@ import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview'
 import { Globe } from '../components/icons';
 import { faviconUrlForHostname, isFaviconPlaceholder } from '../utils/link-favicons';
 import { resolveProjectFileReference } from '../utils/project-file-navigation';
+import { pickProjectFileMatch } from '../components/ProjectFileMatchDialog';
 
 interface MDContentProps {
   content: string;
@@ -329,17 +330,21 @@ function useProjectFileNavigation() {
           toast.error(`Couldn’t find “${projectFile.path}” in known workspaces.`);
           return;
         }
-        if (resolved.status === 'ambiguous') {
-          toast.error(`Multiple files match “${projectFile.path}”. Use a more specific path.`);
-          return;
-        }
+
+        const target = resolved.status === 'ambiguous'
+          ? await pickProjectFileMatch({
+              requestedPath: projectFile.path,
+              matches: resolved.matches,
+            })
+          : resolved;
+        if (!target) return;
 
         // HTML references in agent responses are result-oriented and open in
         // the built-in browser after resolving through the same workspace path.
-        if (activeSessionId && isHtmlFilePath(resolved.path)) {
+        if (activeSessionId && isHtmlFilePath(target.path)) {
           await openHtmlFileInBrowserTab({
-            cwd: resolved.cwd,
-            filePath: resolved.path,
+            cwd: target.cwd,
+            filePath: target.path,
             sessionId: activeSessionId,
           });
           openRightUtilityTab('browser', { instantReveal: true });
@@ -347,8 +352,8 @@ function useProjectFileNavigation() {
         }
 
         openProjectFileInRightPanel({
-          cwd: resolved.cwd,
-          path: resolved.path,
+          cwd: target.cwd,
+          path: target.path,
           external: projectFile.external,
           lineStart: projectFile.line,
         });

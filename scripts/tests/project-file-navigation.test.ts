@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { resolveProjectFileReference } from '../../src/ui/utils/project-file-navigation';
+import {
+  chooseProjectFileMatches,
+  resolveProjectFileReference,
+} from '../../src/ui/utils/project-file-navigation';
 import type { ProjectTreeNode } from '../../src/ui/types';
 
 function tree(root: string, paths: string[]): ProjectTreeNode {
@@ -69,7 +72,10 @@ assert.deepEqual(
   }),
   {
     status: 'ambiguous',
-    paths: [`${garden}/工作文档/公众号选题.md`, `${archive}/旧稿/公众号选题.md`],
+    matches: [
+      { cwd: garden, path: `${garden}/工作文档/公众号选题.md`, relativePath: '工作文档/公众号选题.md' },
+      { cwd: archive, path: `${archive}/旧稿/公众号选题.md`, relativePath: '旧稿/公众号选题.md' },
+    ],
   },
   'duplicate best matches must be reported instead of guessed'
 );
@@ -95,15 +101,112 @@ assert.deepEqual(
   'an exact relative match must outrank another workspace basename match'
 );
 
-const [markdownSource, messageCardSource, treePanelSource, storeSource] = await Promise.all([
+const coworkerWithWorktree = '/Users/test/coworker-with-worktree';
+const worktreeCheckout = '/Users/test/coworker-with-worktree/.worktrees/iso-fix';
+trees.set(coworkerWithWorktree, tree(coworkerWithWorktree, [
+  'src/shared/types.ts',
+  'src/ui/types.ts',
+  'src/electron/types.ts',
+  '.worktrees/iso-fix/src/shared/types.ts',
+]));
+trees.set(worktreeCheckout, tree(worktreeCheckout, [
+  'src/shared/types.ts',
+  'src/ui/types.ts',
+  'src/electron/types.ts',
+]));
+
+assert.deepEqual(
+  await resolveProjectFileReference({
+    requestedPath: 'shared/types.ts',
+    primaryRoots: [coworkerWithWorktree],
+    workspaceRoots: [],
+    loadTree,
+  }),
+  { status: 'resolved', cwd: coworkerWithWorktree, path: `${coworkerWithWorktree}/src/shared/types.ts` },
+  'a shallower in-tree suffix must beat a nested worktree clone of the same path'
+);
+
+assert.deepEqual(
+  await resolveProjectFileReference({
+    requestedPath: 'shared/types.ts',
+    primaryRoots: [worktreeCheckout, coworkerWithWorktree],
+    workspaceRoots: [],
+    loadTree,
+  }),
+  { status: 'resolved', cwd: worktreeCheckout, path: `${worktreeCheckout}/src/shared/types.ts` },
+  'a worktree session cwd must win over the same relative file in the project root'
+);
+
+assert.deepEqual(
+  await resolveProjectFileReference({
+    requestedPath: 'shared/types.ts',
+    primaryRoots: ['/Users/test/empty', coworkerWithWorktree],
+    workspaceRoots: [],
+    loadTree,
+  }),
+  { status: 'resolved', cwd: coworkerWithWorktree, path: `${coworkerWithWorktree}/src/shared/types.ts` },
+  'the next primary root should resolve when the session cwd has no match'
+);
+
+assert.deepEqual(
+  await resolveProjectFileReference({
+    requestedPath: 'types.ts',
+    primaryRoots: [coworkerWithWorktree],
+    workspaceRoots: [],
+    loadTree,
+  }),
+  {
+    status: 'ambiguous',
+    matches: [
+      { cwd: coworkerWithWorktree, path: `${coworkerWithWorktree}/src/electron/types.ts`, relativePath: 'src/electron/types.ts' },
+      { cwd: coworkerWithWorktree, path: `${coworkerWithWorktree}/src/shared/types.ts`, relativePath: 'src/shared/types.ts' },
+      { cwd: coworkerWithWorktree, path: `${coworkerWithWorktree}/src/ui/types.ts`, relativePath: 'src/ui/types.ts' },
+    ],
+  },
+  'same-depth basename matches in one project must stay ambiguous'
+);
+
+const worktreeOnlyUiApp = '/Users/test/worktree-ui-app';
+const projectRootApp = '/Users/test/project-root-app';
+trees.set(worktreeOnlyUiApp, tree(worktreeOnlyUiApp, ['src/ui/App.tsx']));
+trees.set(projectRootApp, tree(projectRootApp, ['App.tsx']));
+
+assert.deepEqual(
+  await resolveProjectFileReference({
+    requestedPath: 'App.tsx',
+    primaryRoots: [worktreeOnlyUiApp, projectRootApp],
+    workspaceRoots: [],
+    loadTree,
+  }),
+  { status: 'resolved', cwd: projectRootApp, path: `${projectRootApp}/App.tsx` },
+  'an exact match in the project root must outrank a suffix in the session cwd'
+);
+
+assert.deepEqual(
+  chooseProjectFileMatches(
+    [
+      { cwd: coworker, path: `${coworker}/src/types.ts`, relativePath: 'src/types.ts', kind: 'basename' },
+      { cwd: coworker, path: `${coworker}/src/ui/types.ts`, relativePath: 'src/ui/types.ts', kind: 'basename' },
+    ],
+    [coworker]
+  ),
+  { status: 'resolved', cwd: coworker, path: `${coworker}/src/types.ts` },
+  'a unique shallower basename must win over a deeper one'
+);
+
+const [markdownSource, messageCardSource, treePanelSource, storeSource, appSource] = await Promise.all([
   readFile(new URL('../../src/ui/render/markdown.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../../src/ui/components/MessageCard.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../../src/ui/components/ProjectTreePanel.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../../src/ui/store/useAppStore.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../src/ui/App.tsx', import.meta.url), 'utf8'),
 ]);
 assert.ok(!`${markdownSource}${messageCardSource}${treePanelSource}`.includes('aegis:open-project-file'));
+assert.ok(!markdownSource.includes('Use a more specific path'));
+assert.ok(markdownSource.includes('pickProjectFileMatch'));
 assert.ok(markdownSource.includes('openProjectFileInRightPanel'));
 assert.ok(messageCardSource.includes('openProjectFileInRightPanel'));
+assert.ok(appSource.includes('ProjectFileMatchDialogHost'));
 assert.match(storeSource, /pendingProjectFileOpen:\s*\{/);
 assert.match(storeSource, /rightUtilityTabs:\s*opened\.tabs/);
 

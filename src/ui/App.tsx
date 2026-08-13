@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo, useState, useCallback, type ReactNode } fro
 import * as Dialog from '@/ui/components/ui/dialog';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import { ConfirmDialogHost } from '@/ui/components/ui/confirm-dialog';
+import { ProjectFileMatchDialogHost } from '@/ui/components/ProjectFileMatchDialog';
 import { Toaster, toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -1077,6 +1078,7 @@ export function App() {
 
       {/* Themed replacement for window.confirm() — see confirmDialog() */}
       <ConfirmDialogHost />
+      <ProjectFileMatchDialogHost />
 
       {/* Toast notifications */}
       <Toaster

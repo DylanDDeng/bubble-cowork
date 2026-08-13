@@ -1,10 +1,20 @@
 import type { ProjectTreeNode } from '../types';
-import { findProjectTreeFileMatches } from './resolve-tree-file';
+import {
+  findProjectTreeFileMatches,
+  type ProjectTreeFileMatchKind,
+} from './resolve-tree-file';
+
+export interface ProjectFileReferenceMatch {
+  cwd: string;
+  path: string;
+  relativePath: string;
+  kind: ProjectTreeFileMatchKind;
+}
 
 export type ResolvedProjectFileReference =
   | { status: 'resolved'; cwd: string; path: string }
   | { status: 'not-found' }
-  | { status: 'ambiguous'; paths: string[] };
+  | { status: 'ambiguous'; matches: Array<Pick<ProjectFileReferenceMatch, 'cwd' | 'path' | 'relativePath'>> };
 
 function normalizeRoot(root: string | null | undefined): string | null {
   const normalized = root?.trim().replace(/\\/g, '/').replace(/\/+$/, '');
@@ -23,10 +33,113 @@ function uniqueRoots(roots: Array<string | null | undefined>): string[] {
   return result;
 }
 
+function bestKindOf(matches: ProjectFileReferenceMatch[]): ProjectTreeFileMatchKind {
+  if (matches.some((match) => match.kind === 'exact')) return 'exact';
+  if (matches.some((match) => match.kind === 'suffix')) return 'suffix';
+  return 'basename';
+}
+
+function relativeDepth(relativePath: string): number {
+  return relativePath.split('/').filter(Boolean).length;
+}
+
 /**
- * Resolve a relative transcript file reference without guessing.
- * Primary roots win when they contain a unique match. Other known workspaces
- * are considered only when the active session cannot resolve the reference.
+ * Same relative path in two checkouts is one file (worktree copy).
+ * Earlier roots win — session cwd is listed before the project root.
+ */
+function dedupeByRelativePath(
+  matches: ProjectFileReferenceMatch[],
+  rootOrder: string[]
+): ProjectFileReferenceMatch[] {
+  const rank = new Map(rootOrder.map((root, index) => [root, index]));
+  const byRelative = new Map<string, ProjectFileReferenceMatch>();
+  for (const match of matches) {
+    const existing = byRelative.get(match.relativePath);
+    if (!existing) {
+      byRelative.set(match.relativePath, match);
+      continue;
+    }
+    const existingRank = rank.get(existing.cwd) ?? Number.POSITIVE_INFINITY;
+    const nextRank = rank.get(match.cwd) ?? Number.POSITIVE_INFINITY;
+    if (nextRank < existingRank) {
+      byRelative.set(match.relativePath, match);
+    }
+  }
+  return Array.from(byRelative.values());
+}
+
+/**
+ * Pick a unique winner from already-collected matches.
+ *
+ * Copies of the same relative path collapse first. Remaining candidates
+ * keep exact > suffix > basename, then the unique shallowest path. Equal
+ * kind and depth is true ambiguity — the caller should let the user pick.
+ */
+export function chooseProjectFileMatches(
+  matches: ProjectFileReferenceMatch[],
+  rootOrder: string[]
+): ResolvedProjectFileReference {
+  if (matches.length === 0) return { status: 'not-found' };
+
+  const kind = bestKindOf(matches);
+  const unique = dedupeByRelativePath(
+    matches.filter((match) => match.kind === kind),
+    rootOrder
+  );
+  if (unique.length === 1) {
+    return { status: 'resolved', cwd: unique[0].cwd, path: unique[0].path };
+  }
+
+  const minDepth = Math.min(...unique.map((match) => relativeDepth(match.relativePath)));
+  const shallowest = unique.filter((match) => relativeDepth(match.relativePath) === minDepth);
+  if (shallowest.length === 1) {
+    return { status: 'resolved', cwd: shallowest[0].cwd, path: shallowest[0].path };
+  }
+
+  const sorted = [...shallowest].sort((left, right) => {
+    if (left.relativePath !== right.relativePath) {
+      return left.relativePath < right.relativePath ? -1 : 1;
+    }
+    return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
+  });
+  return {
+    status: 'ambiguous',
+    matches: sorted.map(({ cwd, path, relativePath }) => ({ cwd, path, relativePath })),
+  };
+}
+
+async function collectMatches(
+  roots: string[],
+  requestedPath: string,
+  loadTree: (cwd: string) => Promise<ProjectTreeNode | null>
+): Promise<ProjectFileReferenceMatch[]> {
+  const matches: ProjectFileReferenceMatch[] = [];
+  await Promise.all(roots.map(async (cwd) => {
+    try {
+      const tree = await loadTree(cwd);
+      if (!tree) return;
+      for (const match of findProjectTreeFileMatches(tree, requestedPath)) {
+        matches.push({
+          cwd,
+          path: match.path,
+          relativePath: match.relativePath,
+          kind: match.kind,
+        });
+      }
+    } catch {
+      // One stale recent workspace must not prevent other roots resolving.
+    }
+  }));
+  return matches;
+}
+
+/**
+ * Resolve a relative transcript file reference.
+ *
+ * Primary roots (session cwd, then project root) are one group: copies of
+ * the same relative path collapse, exact beats a weaker match across those
+ * roots, and only a unique winner opens automatically. Other known
+ * workspaces are consulted only when the active project has no match.
  */
 export async function resolveProjectFileReference(options: {
   requestedPath: string;
@@ -41,36 +154,14 @@ export async function resolveProjectFileReference(options: {
   const primarySet = new Set(primaryRoots);
   const secondaryRoots = uniqueRoots(options.workspaceRoots).filter((root) => !primarySet.has(root));
 
-  const resolveTier = async (roots: string[]): Promise<ResolvedProjectFileReference> => {
-    const matches: Array<{ cwd: string; path: string; kind: string }> = [];
-    await Promise.all(roots.map(async (cwd) => {
-      try {
-        const tree = await options.loadTree(cwd);
-        if (!tree) return;
-        for (const match of findProjectTreeFileMatches(tree, requestedPath)) {
-          matches.push({ cwd, path: match.path, kind: match.kind });
-        }
-      } catch {
-        // One stale recent workspace must not prevent other roots resolving.
-      }
-    }));
-
-    if (matches.length === 0) return { status: 'not-found' };
-    const bestKind = matches.some((match) => match.kind === 'exact')
-      ? 'exact'
-      : matches.some((match) => match.kind === 'suffix')
-        ? 'suffix'
-        : 'basename';
-    const best = matches.filter((match) => match.kind === bestKind);
-    const byPath = new Map(best.map((match) => [match.path, match]));
-    const unique = Array.from(byPath.values());
-    if (unique.length === 1) {
-      return { status: 'resolved', cwd: unique[0].cwd, path: unique[0].path };
-    }
-    return { status: 'ambiguous', paths: unique.map((match) => match.path) };
-  };
-
-  const primary = await resolveTier(primaryRoots);
+  const primary = chooseProjectFileMatches(
+    await collectMatches(primaryRoots, requestedPath, options.loadTree),
+    primaryRoots
+  );
   if (primary.status !== 'not-found') return primary;
-  return resolveTier(secondaryRoots);
+
+  return chooseProjectFileMatches(
+    await collectMatches(secondaryRoots, requestedPath, options.loadTree),
+    secondaryRoots
+  );
 }

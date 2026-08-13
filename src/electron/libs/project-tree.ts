@@ -17,6 +17,7 @@ const IGNORED_DIRECTORY_NAMES = new Set([
   '.cache',
   '.vite',
   '.idea',
+  '.worktrees',
 ]);
 
 async function buildNode(fullPath: string, name: string): Promise<ProjectTreeNode> {
