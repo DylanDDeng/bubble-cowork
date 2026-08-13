@@ -297,6 +297,13 @@ export interface SessionView {
    * session leaves the running state.
    */
   toolLiveOutput?: Record<string, string>;
+  /**
+   * Codex: id of the turn currently running (from `turn/started`). Transient
+   * — never hydrated from history, cleared when a new turn begins. Drives the
+   * turn-scoped active plan card: a plan_update docks on the composer only
+   * while its turnId matches.
+   */
+  activeCodexTurnId?: string | null;
   streaming: SessionStreamingState;
   runtimeNotice?: 'completed' | 'error';
   updatedAt: number;

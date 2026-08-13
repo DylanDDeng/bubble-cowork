@@ -11,7 +11,7 @@ type ProjectFilePreview =
       editable?: boolean;
     }
   | {
-      kind: 'image' | 'pdf' | 'pptx' | 'binary' | 'unsupported' | 'too_large' | 'error';
+      kind: 'image' | 'video' | 'pdf' | 'pptx' | 'binary' | 'unsupported' | 'too_large' | 'error';
       path: string;
       name: string;
       ext: string;
@@ -77,8 +77,8 @@ function buildPreviewSection(mentionPath: string, preview: ProjectFilePreview): 
     return `File: ${mentionPath}\n[Skipped: file is too large to inline safely.]`;
   }
 
-  if (preview.kind === 'image') {
-    return `File: ${mentionPath}\n[Referenced image file: not inlined into text context.]`;
+  if (preview.kind === 'image' || preview.kind === 'video') {
+    return `File: ${mentionPath}\n[Referenced ${preview.kind} file: not inlined into text context.]`;
   }
 
   if (preview.kind === 'pdf' || preview.kind === 'pptx') {

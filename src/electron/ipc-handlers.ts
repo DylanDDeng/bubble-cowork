@@ -99,6 +99,7 @@ import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/open
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { getKimiModelConfig, mergeKimiServerModelMetadata } from './libs/kimi-settings';
 import { getGrokModelConfig } from './libs/grok-settings';
+import { resolveGrokSessionRelativeFile } from './libs/grok-session-files';
 import { getPiModelConfig } from './libs/pi-settings';
 import {
   getBubbleModelConfig,
@@ -223,6 +224,7 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGeneratorConfig,
   AgentProvider,
+  BubbleRewindInput,
   ClaudeRewindInput,
   ClaudeRewindFilesOutcome,
   ClaudeRewindResult,
@@ -334,6 +336,9 @@ const LOCAL_PREVIEW_MIME_TYPES: Record<string, string> = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.ico': 'image/x-icon',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
   '.txt': 'text/plain; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
   '.woff': 'font/woff',
@@ -667,6 +672,14 @@ type ProjectFilePreview =
       ext: string;
       size: number;
       dataUrl: string;
+    }
+  | {
+      kind: 'video';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      previewUrl: string;
     }
   | {
       kind: 'pdf';
@@ -1682,6 +1695,11 @@ function buildLocalAssistantMessage(text: string): StreamMessage {
 
 function shouldPersistProviderMessage(message: StreamMessage): boolean {
   if (message.type === 'stream_event') {
+    return false;
+  }
+  // Turn-scope marker for the renderer's active plan card; meaningless in a
+  // rebuilt transcript.
+  if (message.type === 'turn_started') {
     return false;
   }
   if (message.type === 'assistant' && message.streaming === true) {
@@ -5441,6 +5459,103 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return { ok: true, filesAvailable, files: filesOutcome, removedPrompt };
   });
 
+  // Bubble rewind: restore files (SDK checkpoint) and/or truncate the
+  // conversation back to the state before a given user message ran. Mirrors
+  // claude-rewind's interaction; the anchor is a user-turn entry id resolved
+  // from the display user_prompt's ordinal (and, when it matches, its text).
+  ipcMainHandle('bubble-rewind', async (_event, input: BubbleRewindInput): Promise<ClaudeRewindResult> => {
+    const { sessionId, anchorIndex, anchorPrompt, scope, dryRun } = input || ({} as BubbleRewindInput);
+    const session = sessions.getSession(sessionId);
+    if (!session) {
+      return { ok: false, message: 'Session not found.', filesAvailable: false };
+    }
+    if (session.provider !== 'bubble') {
+      return { ok: false, message: 'Rewind is only available for Bubble sessions.', filesAvailable: false };
+    }
+
+    ensureProviderService();
+    const service = getProviderService();
+    const anchors = await service.listRewindAnchors(sessionId);
+
+    // Resolve the Aegis user_prompt ordinal (plus optional prompt text) to the
+    // SDK user-turn entry id that anchors the rewind. Ordinal matching holds
+    // because both lists are chronological and 1:1 in normal flow.
+    let anchorId: string | null = null;
+    const normalizedPrompt = anchorPrompt?.trim();
+    if (normalizedPrompt) {
+      anchorId = anchors.find((anchor) => anchor.text.trim() === normalizedPrompt)?.id ?? null;
+    }
+    if (!anchorId && Number.isInteger(anchorIndex) && anchorIndex >= 0 && anchorIndex < anchors.length) {
+      anchorId = anchors[anchorIndex].id;
+    }
+    if (!anchorId) {
+      return { ok: false, message: 'No rewindable message found in this Bubble session.', filesAvailable: true };
+    }
+
+    const result = await service.rewind(sessionId, anchorId, scope, dryRun);
+    if (dryRun || !result.ok || scope === 'files') {
+      return result;
+    }
+
+    // Conversation truncation on the Aegis transcript. Unlike Claude there is
+    // no separate SDK user-message uuid in the transcript, so the display
+    // user_prompt at `anchorIndex` is the cut point (drop it and everything
+    // after, restoring its text to the composer).
+    const history = sessions.getSessionHistory(sessionId);
+    let cutPosition = -1;
+    let seenUserPrompts = 0;
+    for (let index = 0; index < history.length; index += 1) {
+      if (history[index]?.type === 'user_prompt') {
+        if (seenUserPrompts === anchorIndex) {
+          cutPosition = index;
+          break;
+        }
+        seenUserPrompts += 1;
+      }
+    }
+    if (cutPosition < 0) {
+      return {
+        ok: false,
+        message: 'The rewind anchor was not found in this session history.',
+        filesAvailable: result.filesAvailable,
+        files: result.files,
+      };
+    }
+
+    const cutMessage = history[cutPosition];
+    const removedPrompt = cutMessage?.type === 'user_prompt' ? cutMessage.prompt : null;
+    const preservedHistory = history.slice(0, cutPosition);
+
+    let lastPrompt = '';
+    for (let index = preservedHistory.length - 1; index >= 0; index -= 1) {
+      const message = preservedHistory[index];
+      if (message?.type === 'user_prompt') {
+        lastPrompt = message.prompt;
+        break;
+      }
+    }
+
+    sessions.replaceSessionHistory(sessionId, preservedHistory);
+    sessions.updateSessionStatus(sessionId, 'completed');
+    sessions.updateLastPrompt(sessionId, lastPrompt);
+
+    broadcast(mainWindow, {
+      type: 'session.history',
+      payload: { sessionId, status: 'completed', messages: preservedHistory },
+    });
+    broadcast(mainWindow, {
+      type: 'session.status',
+      payload: {
+        sessionId,
+        status: 'completed',
+        provider: 'bubble',
+        hiddenFromThreads: session.hidden_from_threads === 1,
+      },
+    });
+
+    return { ok: true, filesAvailable: result.filesAvailable, files: result.files, removedPrompt };
+  });
+
   // 把现有 thread 本身挪进新 worktree（不 fork 对话，provider 无关）：
   // 同一个会话继续聊，只是 cwd 换成隔离检出。
   const movesInFlight = new Set<string>();
@@ -6689,6 +6804,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   );
 
+  ipcMainHandle(
+    'resolve-grok-session-file',
+    async (_event, cwd: string, relativePath: string): Promise<string | null> => {
+      if (!cwd || !relativePath) return null;
+      return resolveGrokSessionRelativeFile(cwd, relativePath);
+    }
+  );
+
   // RPC: 读取项目文件预览（安全：仅允许 cwd 内的文件；PDF 走本地流式预览）
   ipcMainHandle(
     'read-project-file-preview',
@@ -6768,10 +6891,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       }
 
       // Images
-      if (ext === '.png' || ext === '.jpg' || ext === '.jpeg') {
+      if (ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.gif' || ext === '.webp') {
         try {
           const buffer = await fsPromises.readFile(validation.targetReal);
-          const mimeType = ATTACHMENT_MIME_TYPES[ext] || 'application/octet-stream';
+          const mimeType = LOCAL_PREVIEW_MIME_TYPES[ext] || ATTACHMENT_MIME_TYPES[ext] || 'application/octet-stream';
           return {
             kind: 'image',
             path: validation.targetReal,
@@ -6787,6 +6910,37 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
             name,
             ext,
             message: `Failed to read image: ${String(error)}`,
+          };
+        }
+      }
+
+      if (ext === '.mp4' || ext === '.webm' || ext === '.mov') {
+        try {
+          const preview = await getLocalPreviewUrl(validation.rootReal, validation.targetReal);
+          if (!preview.ok) {
+            return {
+              kind: 'error',
+              path: validation.targetReal,
+              name,
+              ext,
+              message: preview.message,
+            };
+          }
+          return {
+            kind: 'video',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            previewUrl: preview.url,
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to create video preview: ${String(error)}`,
           };
         }
       }

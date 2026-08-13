@@ -72,6 +72,13 @@ export function getToolSummary(name: string, input: unknown): string {
       const prompt = getStringField(input, 'prompt');
       return prompt ? prompt.slice(0, 50) : '';
     }
+    case 'image_gen':
+    case 'image_edit':
+    case 'image_to_video':
+    case 'reference_to_video':
+    case 'imagine':
+    case 'imagine-video':
+      return getStringField(input, 'prompt') || '';
     default: {
       const json = safeJsonStringify(input);
       return json.length > 80 ? json.slice(0, 80) : json;
@@ -114,6 +121,12 @@ const TOOL_VERBS: Record<string, VerbPair> = {
   web_search: ['Searching', 'Searched'],
   task: ['Running', 'Ran'],
   todo_write: ['Updating', 'Updated'],
+  image_gen: ['Generating', 'Generated'],
+  image_edit: ['Editing', 'Edited'],
+  image_to_video: ['Animating', 'Animated'],
+  reference_to_video: ['Animating', 'Animated'],
+  imagine: ['Generating', 'Generated'],
+  'imagine-video': ['Animating', 'Animated'],
 };
 
 const SHELL_TOOL_VERBS: Record<string, VerbPair> = {
@@ -438,6 +451,16 @@ export function classifyToolUse(toolName: string, input: unknown): CanonicalTool
   // runs another agent whose trace mirrors into this session exactly like a
   // subagent — render it as one, not as a generic MCP row.
   if (normalized === 'delegate_task' || normalized.endsWith('__delegate_task')) return 'subagent';
+  if (
+    normalized === 'image_gen' ||
+    normalized === 'image_edit' ||
+    normalized === 'image_to_video' ||
+    normalized === 'reference_to_video' ||
+    normalized === 'imagine' ||
+    normalized === 'imagine-video'
+  ) {
+    return 'image_view';
+  }
   if (normalized === 'todowrite' || normalized === 'todo_write') return 'todo_update';
   if (normalized === 'askuserquestion' || normalized === 'question') return 'approval';
   if (

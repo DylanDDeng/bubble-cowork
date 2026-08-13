@@ -24,6 +24,8 @@ import { AssistantCopyAction, MessageCard, getAssistantMarkdownToCopy } from './
 import { ChatOutlineRail } from './ChatOutlineRail';
 import { buildSessionUserPromptSummaries } from '../../shared/outline-summary';
 import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
+import { GeneratedMediaGallery } from './GeneratedMediaGallery';
+import { extractGeneratedMediaFromMessages } from '../utils/generated-media';
 import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
@@ -35,7 +37,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { TurnChangesCard } from './TurnChangesCard';
 import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
 import { CodexActivePlanCard } from './CodexActivePlanCard';
-import { ClaudeRewindDialog, type ClaudeRewindTarget } from './ClaudeRewindDialog';
+import { RewindDialog, type RewindTarget } from './ClaudeRewindDialog';
 import {
   buildTurnChangeContext,
   type TurnChangeSummary,
@@ -996,14 +998,26 @@ export function ChatPane({
     if (!session || session.provider !== 'codex' || session.status !== 'running') {
       return null;
     }
+    // Plans are turn-scoped: only the running turn's plan may dock on the
+    // composer. Matching against the active turn id (recorded from
+    // `turn/started`) keeps a steered turn's plan alive while evicting the
+    // previous turn's completed plan the moment a new turn begins.
+    const activeTurnId = session.activeCodexTurnId;
+    if (!activeTurnId) {
+      return null;
+    }
     for (let index = session.messages.length - 1; index >= 0; index -= 1) {
       const message = session.messages[index];
-      if (message?.type === 'plan_update' && message.steps.length > 0) {
+      if (
+        message?.type === 'plan_update' &&
+        message.steps.length > 0 &&
+        message.turnId === activeTurnId
+      ) {
         return message;
       }
     }
     return null;
-  }, [session?.messages, session?.provider, session?.status]);
+  }, [session?.messages, session?.provider, session?.status, session?.activeCodexTurnId]);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!session) {
@@ -1169,16 +1183,34 @@ export function ChatPane({
     return 'Working';
   }, [apiRetry, isCompacting]);
 
-  // ── Claude rewind ──────────────────────────────────────────────────────────
-  const [rewindTarget, setRewindTarget] = useState<ClaudeRewindTarget | null>(null);
+  // ── Rewind (claude + bubble) ────────────────────────────────────────────
+  const [rewindTarget, setRewindTarget] = useState<RewindTarget | null>(null);
 
-  // The checkpoint anchor is the SDK user message (uuid-bearing) that follows
-  // the display-only user_prompt; older histories may not have one persisted.
+  // Resolve the display user_prompt to a provider rewind anchor. Claude uses
+  // the SDK user message (uuid-bearing) that follows the user_prompt; Bubble
+  // uses the user_prompt's ordinal among user prompts (the SDK anchors by the
+  // same chronological order).
   const resolveRewindTarget = useCallback(
-    (userPromptIndex: number): ClaudeRewindTarget | null => {
-      if (!sessionId || !session || session.provider !== 'claude') return null;
+    (userPromptIndex: number): RewindTarget | null => {
+      if (!sessionId || !session) return null;
       const promptMessage = session.messages[userPromptIndex];
       if (promptMessage?.type !== 'user_prompt') return null;
+
+      if (session.provider === 'bubble') {
+        let ordinal = 0;
+        for (let index = 0; index <= userPromptIndex; index += 1) {
+          if (session.messages[index]?.type === 'user_prompt') ordinal += 1;
+        }
+        return {
+          sessionId,
+          provider: 'bubble',
+          anchorIndex: ordinal - 1,
+          anchorPrompt: promptMessage.prompt || '',
+          promptPreview: promptMessage.prompt || '',
+        };
+      }
+
+      if (session.provider !== 'claude') return null;
       for (let index = userPromptIndex + 1; index < session.messages.length; index += 1) {
         const message = session.messages[index];
         if (!message) continue;
@@ -1190,6 +1222,7 @@ export function ChatPane({
         if (!blocks.some((block) => block?.type === 'text')) continue;
         return {
           sessionId,
+          provider: 'claude',
           anchorMessageId: uuid,
           promptPreview: promptMessage.prompt || '',
         };
@@ -1215,8 +1248,8 @@ export function ChatPane({
       }
       toast.error('No rewindable message found in this session.');
     };
-    window.addEventListener('aegis-claude-rewind-open', handler);
-    return () => window.removeEventListener('aegis-claude-rewind-open', handler);
+    window.addEventListener('aegis-rewind-open', handler);
+    return () => window.removeEventListener('aegis-rewind-open', handler);
   }, [resolveRewindTarget, session, sessionId]);
   const activeTurnStartedAt = useMemo(() => {
     if (!session || lastUserPromptIndex < 0) {
@@ -1930,6 +1963,36 @@ export function ChatPane({
 
               <TurnDiffContext.Provider value={turnDiffContextValue}>
                 {timelineItems.map((item, idx) => {
+                  const nextItem = timelineItems[idx + 1];
+                  const turnEndIndex = item.type === 'work'
+                    ? Math.max(...item.group.originalIndices)
+                    : item.originalIndex;
+                  let turnStartIndex = 0;
+                  for (let cursor = turnEndIndex; cursor >= 0; cursor -= 1) {
+                    if (session.messages[cursor]?.type === 'user_prompt') {
+                      turnStartIndex = cursor;
+                      break;
+                    }
+                  }
+                  const turnMessages = session.messages.slice(turnStartIndex, turnEndIndex + 1);
+                  const turnMedia = extractGeneratedMediaFromMessages(turnMessages);
+                  const previousItem = timelineItems[idx - 1];
+                  const workStillActive = previousItem?.type === 'work' && previousItem.active;
+                  const answerFollows = nextItem?.type === 'message'
+                    && nextItem.assistantPresentation === 'answer';
+                  // One gallery only: keep it in the live workstream until that
+                  // trace is no longer active, then move it above the answer.
+                  const workMedia = item.type === 'work' && (item.active || !answerFollows)
+                    ? turnMedia
+                    : [];
+                  const answerMedia = item.type === 'message'
+                    && item.assistantPresentation === 'answer'
+                    && !workStillActive
+                    ? turnMedia
+                    : [];
+                  const turnMediaGallery = answerMedia.length > 0
+                    ? <GeneratedMediaGallery items={answerMedia} cwd={session.cwd ?? null} />
+                    : null;
                   const turnCard = turnCardByTimelineIndex.get(idx);
                   if (item.type === 'work') {
                     const anchor = String(item.group.originalIndices[0]);
@@ -1964,6 +2027,8 @@ export function ChatPane({
                             toolLiveOutputMap={item.active ? toolLiveOutputMap : undefined}
                             defaultExpanded={item.defaultExpanded}
                             resetKey={item.disclosureResetKey}
+                            generatedMedia={workMedia}
+                            mediaCwd={session.cwd ?? null}
                           />
                         </div>
                         {copyActionText ? <AssistantCopyAction text={copyActionText} /> : null}
@@ -1995,6 +2060,7 @@ export function ChatPane({
                             : undefined
                         }
                       >
+                        {turnMediaGallery}
                         <MessageCard
                           sessionId={sessionId}
                           message={item.message}
@@ -2016,7 +2082,8 @@ export function ChatPane({
                                   canEditAndRetry: item.originalIndex === lastUserPromptIndex,
                                   isSessionRunning: session.status === 'running',
                                   onRewind:
-                                    session.provider === 'claude' && resolveRewindTarget(item.originalIndex)
+                                    (session.provider === 'claude' || session.provider === 'bubble') &&
+                                    resolveRewindTarget(item.originalIndex)
                                       ? () => {
                                           const target = resolveRewindTarget(item.originalIndex);
                                           if (target) setRewindTarget(target);
@@ -2172,7 +2239,7 @@ export function ChatPane({
           </>
           )}
 
-          <ClaudeRewindDialog
+          <RewindDialog
             target={rewindTarget}
             onClose={() => setRewindTarget(null)}
             onRewound={(removedPrompt) => {

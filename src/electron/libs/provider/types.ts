@@ -220,6 +220,20 @@ export interface ProviderAdapter {
    */
   forkThread?(input: { cwd: string; providerThreadId: string }): Promise<string>;
 
+  /**
+   * Manual `/rewind` (bubble): restore files and/or truncate the provider
+   * session to just before the given anchor (a user-turn entry id). `dryRun`
+   * reports the file outcome without executing.
+   */
+  rewind?(
+    threadId: string,
+    anchorId: string,
+    scope: 'conversation' | 'files' | 'both',
+    dryRun?: boolean
+  ): Promise<ProviderRewindResult>;
+  /** User turns the provider can rewind to (oldest first). */
+  listRewindAnchors?(threadId: string): Promise<ProviderRewindAnchor[]>;
+
   // Optional provider discovery APIs
   getComposerCapabilities?(): ProviderComposerCapabilities;
   getRateLimits?(): Promise<CodexRateLimitReport>;
@@ -236,6 +250,26 @@ export interface ProviderAdapter {
 
   // Event stream (all events from this provider)
   readonly events: EventEmitter;
+}
+
+export interface ProviderRewindAnchor {
+  id: string;
+  preview: string;
+  text: string;
+}
+
+export interface ProviderRewindFilesOutcome {
+  canRewind: boolean;
+  error?: string;
+  filesChanged?: string[];
+}
+
+export interface ProviderRewindResult {
+  ok: boolean;
+  message?: string;
+  filesAvailable: boolean;
+  files?: ProviderRewindFilesOutcome | null;
+  removedPrompt?: string | null;
 }
 
 // ── Session Directory ──────────────────────────────────────────────────────
@@ -284,6 +318,13 @@ export interface ProviderService {
   getRateLimits(provider: ProviderKind): Promise<CodexRateLimitReport | null>;
   getPlanUsage(provider: ProviderKind): Promise<QoderPlanUsageReport | null>;
   listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
+  rewind(
+    threadId: string,
+    anchorId: string,
+    scope: 'conversation' | 'files' | 'both',
+    dryRun?: boolean
+  ): Promise<ProviderRewindResult>;
+  listRewindAnchors(threadId: string): Promise<ProviderRewindAnchor[]>;
   listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
   readPlugin(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;
   installPlugin(input: ProviderInstallPluginInput): Promise<void>;

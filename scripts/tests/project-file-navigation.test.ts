@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   chooseProjectFileMatches,
+  resolveExistingProjectFile,
   resolveProjectFileReference,
 } from '../../src/ui/utils/project-file-navigation';
 import type { ProjectTreeNode } from '../../src/ui/types';
@@ -194,6 +195,36 @@ assert.deepEqual(
   'a unique shallower basename must win over a deeper one'
 );
 
+assert.deepEqual(
+  await resolveExistingProjectFile(
+    'images/1.jpg',
+    [coworker],
+    async (cwd, relativePath) => cwd === coworker && relativePath === 'images/1.jpg'
+      ? `${coworker}/images/1.jpg`
+      : null
+  ),
+  { status: 'resolved', cwd: coworker, path: `${coworker}/images/1.jpg` },
+  'a newly written relative file should resolve from disk when the tree is stale'
+);
+
+assert.deepEqual(
+  await resolveExistingProjectFile('images/1.jpg', [coworker], async () => null),
+  { status: 'not-found' }
+);
+
+assert.deepEqual(
+  await resolveProjectFileReference({
+    requestedPath: 'images/1.jpg',
+    primaryRoots: [coworker],
+    workspaceRoots: [],
+    loadTree,
+    statFile: async (cwd, relativePath) =>
+      cwd === coworker && relativePath === 'images/1.jpg' ? `${coworker}/images/1.jpg` : null,
+  }),
+  { status: 'resolved', cwd: coworker, path: `${coworker}/images/1.jpg` },
+  'disk fallback must recover a new file the cached tree does not contain'
+);
+
 const [markdownSource, messageCardSource, treePanelSource, storeSource, appSource] = await Promise.all([
   readFile(new URL('../../src/ui/render/markdown.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../../src/ui/components/MessageCard.tsx', import.meta.url), 'utf8'),
@@ -206,6 +237,8 @@ assert.ok(!markdownSource.includes('Use a more specific path'));
 assert.ok(markdownSource.includes('pickProjectFileMatch'));
 assert.ok(markdownSource.includes('openProjectFileInRightPanel'));
 assert.ok(messageCardSource.includes('openProjectFileInRightPanel'));
+assert.ok(treePanelSource.includes('selectVisibleProjectTree'));
+assert.ok(treePanelSource.includes('shouldPublishProjectTreeToStore'));
 assert.ok(appSource.includes('ProjectFileMatchDialogHost'));
 assert.match(storeSource, /pendingProjectFileOpen:\s*\{/);
 assert.match(storeSource, /rightUtilityTabs:\s*opened\.tabs/);

@@ -65,6 +65,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
 import { extractLatestSuccessfulHtmlArtifactFromLatestTurn } from './utils/artifacts';
+import { extractGeneratedMediaFromMessages } from './utils/generated-media';
+import { openGeneratedMediaInFilesPanel } from './components/GeneratedMediaGallery';
 import { openHtmlFileInBrowserTab } from './utils/html-preview';
 import { getBrowserUtilitySessionId } from './utils/browser-utility';
 import { StructuredResponse } from './components/StructuredResponse';
@@ -734,34 +736,64 @@ export function App() {
       }
 
       const artifact = extractLatestSuccessfulHtmlArtifactFromLatestTurn(session.messages);
-      if (!artifact) {
+      if (artifact) {
+        const previewKey = `${session.id}:${artifact.toolUseId}`;
+        if (autoPreviewedArtifactsRef.current.has(previewKey)) {
+          pendingAutoPreviewSessionsRef.current.delete(session.id);
+          continue;
+        }
+        autoPreviewedArtifactsRef.current.add(previewKey);
+
+        const sessionId = session.id;
+        void openHtmlFileInBrowserTab({
+          cwd: session.cwd,
+          filePath: artifact.filePath,
+          sessionId,
+        })
+          .then(() => {
+            if (sessionId === activeSessionId) {
+              setRightPanelLauncherOpen(false);
+              openRightUtilityTab('browser');
+            }
+            pendingAutoPreviewSessionsRef.current.delete(sessionId);
+          })
+          .catch((error) => {
+            autoPreviewedArtifactsRef.current.delete(previewKey);
+            toast.error(`Failed to open in browser panel: ${error}`);
+          });
         continue;
       }
 
-      const previewKey = `${session.id}:${artifact.toolUseId}`;
-      if (autoPreviewedArtifactsRef.current.has(previewKey)) {
+      let latestPromptIndex = -1;
+      for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+        if (session.messages[index]?.type === 'user_prompt') {
+          latestPromptIndex = index;
+          break;
+        }
+      }
+      const generatedMedia = latestPromptIndex >= 0
+        ? extractGeneratedMediaFromMessages(session.messages.slice(latestPromptIndex))
+        : [];
+      const latestMedia = generatedMedia[generatedMedia.length - 1];
+      if (!latestMedia) {
+        continue;
+      }
+
+      const mediaKey = `${session.id}:media:${latestMedia.path}`;
+      if (autoPreviewedArtifactsRef.current.has(mediaKey)) {
         pendingAutoPreviewSessionsRef.current.delete(session.id);
         continue;
       }
-      autoPreviewedArtifactsRef.current.add(previewKey);
-
-      const sessionId = session.id;
-      void openHtmlFileInBrowserTab({
-        cwd: session.cwd,
-        filePath: artifact.filePath,
-        sessionId,
-      })
-        .then(() => {
-          if (sessionId === activeSessionId) {
-            setRightPanelLauncherOpen(false);
-            openRightUtilityTab('browser');
-          }
-          pendingAutoPreviewSessionsRef.current.delete(sessionId);
-        })
-        .catch((error) => {
-          autoPreviewedArtifactsRef.current.delete(previewKey);
-          toast.error(`Failed to open in browser panel: ${error}`);
-        });
+      autoPreviewedArtifactsRef.current.add(mediaKey);
+      if (session.id === activeSessionId) {
+        setRightPanelLauncherOpen(false);
+        openGeneratedMediaInFilesPanel(
+          latestMedia,
+          session.cwd,
+          useAppStore.getState().openProjectFileInRightPanel
+        );
+      }
+      pendingAutoPreviewSessionsRef.current.delete(session.id);
     }
 
     sessionStatusSnapshotRef.current = nextStatuses;

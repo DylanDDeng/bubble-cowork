@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import * as Dialog from '@/ui/components/ui/dialog';
 import { History } from './icons';
-import type { ClaudeRewindFilesOutcome, ClaudeRewindScope } from '../types';
+import type { ClaudeRewindFilesOutcome, ClaudeRewindResult, ClaudeRewindScope } from '../types';
 
-export interface ClaudeRewindTarget {
+export interface RewindTarget {
   sessionId: string;
-  /** UUID of the SDK user message anchoring the checkpoint. */
-  anchorMessageId: string;
+  provider: 'claude' | 'bubble';
+  /** Claude: UUID of the SDK user message anchoring the checkpoint. */
+  anchorMessageId?: string;
+  /** Bubble: 0-based ordinal of the target user_prompt + its display text. */
+  anchorIndex?: number;
+  anchorPrompt?: string;
   /** Prompt text of the user message being rewound past, for display. */
   promptPreview: string;
 }
@@ -17,12 +21,36 @@ type FilesPreviewState =
   | { status: 'unavailable' }
   | { status: 'ready'; outcome: ClaudeRewindFilesOutcome };
 
-export function ClaudeRewindDialog({
+/** Route the rewind to the right provider IPC (claude vs bubble). */
+function runRewind(input: {
+  target: RewindTarget;
+  scope: ClaudeRewindScope;
+  dryRun?: boolean;
+}): Promise<ClaudeRewindResult> {
+  const { target, scope, dryRun } = input;
+  if (target.provider === 'bubble') {
+    return window.electron.bubbleRewind({
+      sessionId: target.sessionId,
+      anchorIndex: target.anchorIndex ?? -1,
+      ...(target.anchorPrompt ? { anchorPrompt: target.anchorPrompt } : {}),
+      scope,
+      dryRun,
+    });
+  }
+  return window.electron.claudeRewind({
+    sessionId: target.sessionId,
+    anchorMessageId: target.anchorMessageId ?? '',
+    scope,
+    dryRun,
+  });
+}
+
+export function RewindDialog({
   target,
   onClose,
   onRewound,
 }: {
-  target: ClaudeRewindTarget | null;
+  target: RewindTarget | null;
   onClose: () => void;
   /** Called after a successful rewind; carries the removed prompt text (if any). */
   onRewound?: (removedPrompt: string | null) => void;
@@ -44,13 +72,11 @@ export function ClaudeRewindDialog({
     setFilesPreview({ status: 'loading' });
     setExecuting(false);
 
-    void window.electron
-      .claudeRewind({
-        sessionId: target.sessionId,
-        anchorMessageId: target.anchorMessageId,
-        scope: 'files',
-        dryRun: true,
-      })
+    void runRewind({
+      target,
+      scope: 'files',
+      dryRun: true,
+    })
       .then((result) => {
         if (cancelled) return;
         if (!result.filesAvailable || !result.files) {
@@ -78,11 +104,7 @@ export function ClaudeRewindDialog({
     if (!target || executing) return;
     setExecuting(true);
     try {
-      const result = await window.electron.claudeRewind({
-        sessionId: target.sessionId,
-        anchorMessageId: target.anchorMessageId,
-        scope,
-      });
+      const result = await runRewind({ target, scope });
       if (!result.ok) {
         toast.error(result.message || 'Rewind failed.');
         return;

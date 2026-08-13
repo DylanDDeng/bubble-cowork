@@ -113,6 +113,9 @@ declare global {
     claudeRewind: (
       input: import('./shared/types').ClaudeRewindInput
     ) => Promise<import('./shared/types').ClaudeRewindResult>;
+    bubbleRewind: (
+      input: import('./shared/types').BubbleRewindInput
+    ) => Promise<import('./shared/types').ClaudeRewindResult>;
     moveSessionToWorktree: (
       sessionId: string
     ) => Promise<{ ok: boolean; message?: string }>;
@@ -294,6 +297,7 @@ declare global {
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
     downloadAttachment: (filePath: string, suggestedName?: string) => Promise<{ filePath: string | null; error?: string }>;
     readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
+    resolveGrokSessionFile: (cwd: string, relativePath: string) => Promise<string | null>;
     createProjectAttachment: (cwd: string, filePath: string) => Promise<Attachment | null>;
     createProjectFile: (cwd: string, parentPath: string, name: string) => Promise<{ ok: boolean; path?: string; tree?: ProjectTreeNode; message?: string }>;
     createProjectFolder: (cwd: string, parentPath: string, name: string) => Promise<{ ok: boolean; path?: string; tree?: ProjectTreeNode; message?: string }>;

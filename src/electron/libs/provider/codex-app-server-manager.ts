@@ -1860,6 +1860,7 @@ export class CodexAppServerManager extends EventEmitter {
             session.activeTurnId = turnId;
             session.status = 'running';
           }
+          this.emit('turn_started', { threadId, turnId });
         }
         break;
       }

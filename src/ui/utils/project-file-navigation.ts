@@ -146,6 +146,7 @@ export async function resolveProjectFileReference(options: {
   primaryRoots: Array<string | null | undefined>;
   workspaceRoots: Array<string | null | undefined>;
   loadTree: (cwd: string) => Promise<ProjectTreeNode | null>;
+  statFile?: (cwd: string, relativePath: string) => Promise<string | null>;
 }): Promise<ResolvedProjectFileReference> {
   const requestedPath = options.requestedPath.trim();
   if (!requestedPath) return { status: 'not-found' };
@@ -160,8 +161,42 @@ export async function resolveProjectFileReference(options: {
   );
   if (primary.status !== 'not-found') return primary;
 
-  return chooseProjectFileMatches(
+  const onDisk = options.statFile
+    ? await resolveExistingProjectFile(requestedPath, primaryRoots, options.statFile)
+    : { status: 'not-found' as const };
+  if (onDisk.status !== 'not-found') return onDisk;
+
+  const secondary = chooseProjectFileMatches(
     await collectMatches(secondaryRoots, requestedPath, options.loadTree),
     secondaryRoots
   );
+  if (secondary.status !== 'not-found') return secondary;
+
+  if (!options.statFile) return secondary;
+  return resolveExistingProjectFile(requestedPath, secondaryRoots, options.statFile);
+}
+
+/**
+ * Newly written files (e.g. Grok `images/1.jpg`) are often missing from the
+ * cached project tree. A direct disk check against known roots recovers them.
+ */
+export async function resolveExistingProjectFile(
+  requestedPath: string,
+  roots: Array<string | null | undefined>,
+  statFile: (cwd: string, relativePath: string) => Promise<string | null>
+): Promise<ResolvedProjectFileReference> {
+  const relativePath = requestedPath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+  if (!relativePath) return { status: 'not-found' };
+
+  for (const cwd of uniqueRoots(roots)) {
+    try {
+      const absolutePath = await statFile(cwd, relativePath);
+      if (absolutePath) {
+        return { status: 'resolved', cwd, path: absolutePath };
+      }
+    } catch {
+      // Keep scanning other roots.
+    }
+  }
+  return { status: 'not-found' };
 }

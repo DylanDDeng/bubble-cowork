@@ -1381,6 +1381,40 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
   font-weight: 450;
 }
 
+.markdown-content .md-generated-image-button {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.markdown-content .md-generated-image {
+  display: block;
+  max-width: min(100%, 360px);
+  max-height: 320px;
+  margin: 0.35rem 0;
+  border-radius: 14px;
+  object-fit: contain;
+}
+
+.markdown-content .md-generated-image-fallback,
+.markdown-content .md-generated-image-pending {
+  display: inline;
+  color: var(--text-muted);
+  font-size: 0.92em;
+}
+
+.markdown-content .md-generated-image-fallback {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .markdown-content .md-app-link-globe {
   display: block;
   color: var(--accent);

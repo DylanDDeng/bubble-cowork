@@ -50,10 +50,14 @@ import { SubagentAvatar } from './SubagentAvatar';
 import { getSubagentPersona } from '../utils/subagent-persona';
 import { ProviderIcon } from './AgentModelPicker';
 import type { AgentProvider } from '../../shared/types';
+import { GeneratedMediaGallery } from './GeneratedMediaGallery';
+import { isMediaGenerationTool, type GeneratedMediaItem } from '../utils/generated-media';
 
 interface AssistantWorkstreamProps {
   model: WorkstreamModel;
   className?: string;
+  generatedMedia?: GeneratedMediaItem[];
+  mediaCwd?: string | null;
 }
 
 const VISIBLE_COMPACT_ENTRIES = 8;
@@ -61,11 +65,37 @@ const MAX_TRACE_TEXT_CHARS = 20_000;
 const MAX_TITLE_CHARS = 800;
 const MAX_TOOL_OUTPUT_CHARS = 120_000;
 
-export function AssistantWorkstream({ model, className = '' }: AssistantWorkstreamProps) {
+export function AssistantWorkstream({
+  model,
+  className = '',
+  generatedMedia,
+  mediaCwd,
+}: AssistantWorkstreamProps) {
   const [overflowOpen, setOverflowOpen] = useState(false);
   // Hooks must run in the same order every render — keep useMemo above any
   // conditional early return.
   const groups = useMemo(() => groupEntries(model.entries), [model.entries]);
+  const lastMediaGroupIndex = useMemo(() => {
+    if (!generatedMedia?.length) return -1;
+    const mediaToolIds = new Set(
+      generatedMedia.map((item) => item.toolUseId).filter((id): id is string => Boolean(id))
+    );
+    let lastCompact = -1;
+    let lastMedia = -1;
+    groups.forEach((group, index) => {
+      if (group.kind !== 'compact') return;
+      lastCompact = index;
+      const hasReadyMediaTool = group.entries.some(
+        (entry) =>
+          entry.type === 'tool' &&
+          entry.status !== 'pending' &&
+          entry.status !== 'error' &&
+          (isMediaGenerationTool(entry.toolName) || mediaToolIds.has(entry.block.id))
+      );
+      if (hasReadyMediaTool) lastMedia = index;
+    });
+    return lastMedia >= 0 ? lastMedia : lastCompact;
+  }, [generatedMedia, groups]);
 
   if (model.entries.length === 0 && !model.todoProgress) {
     return null;
@@ -74,16 +104,24 @@ export function AssistantWorkstream({ model, className = '' }: AssistantWorkstre
   return (
     <div className={`my-2 ${className}`.trim()}>
       {groups.map((group, idx) => {
-        if (group.kind === 'text') {
-          return <TextSegment key={`g${idx}`} entry={group.entry} />;
-        }
-        return (
+        const body = group.kind === 'text' ? (
+          <TextSegment key={`g${idx}`} entry={group.entry} />
+        ) : (
           <CompactGroup
             key={`g${idx}`}
             entries={group.entries}
             overflowOpen={overflowOpen}
             onToggleOverflow={() => setOverflowOpen((v) => !v)}
           />
+        );
+        if (idx !== lastMediaGroupIndex || !generatedMedia?.length) {
+          return body;
+        }
+        return (
+          <div key={`g${idx}-media`}>
+            {body}
+            <GeneratedMediaGallery items={generatedMedia} cwd={mediaCwd ?? null} />
+          </div>
         );
       })}
       {model.todoProgress ? (

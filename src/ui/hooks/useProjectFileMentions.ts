@@ -43,7 +43,13 @@ export function useProjectFileMentions({
       .then((tree) => {
         if (cancelled) return;
         setLocalTree(tree);
-        setProjectTree(current, tree);
+        // The Files panel may be temporarily rooted on an external folder
+        // (Grok session images, citation paths). Overwriting that cache
+        // blanks the rail with "No files found".
+        const cacheCwd = useAppStore.getState().projectTreeCwd;
+        if (!cacheCwd || cacheCwd === current) {
+          setProjectTree(current, tree);
+        }
       })
       .finally(() => {
         if (!cancelled) {

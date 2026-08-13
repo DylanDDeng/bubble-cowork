@@ -189,8 +189,52 @@ export type BubbleSdkInstance = {
   runTurn(sessionId: string, options: BubbleRunTurnOptions): AsyncGenerator<BubbleAgentEvent>;
 };
 
+/**
+ * Structural mirror of the SDK's SessionManager surface, used by the adapter
+ * to run manual `/compact` and `/rewind` outside of a live turn. The SDK
+ * re-exports SessionManager from its main entry; we reconstruct it from the
+ * on-disk session file (keyed by the adapter's providerSessionId).
+ */
+export type BubbleCompactResult = {
+  compacted: boolean;
+  summary?: string;
+  droppedEntries?: number;
+};
+
+export type BubbleUserTurn = {
+  /** Session log entry id that anchors /rewind (also the checkpoint turn). */
+  id: string;
+  preview: string;
+  text: string;
+  timestamp: number;
+};
+
+export type BubbleCheckpointStore = {
+  /** Unique files first captured during exactly the given turn. */
+  filesTouchedAt(turn: string): string[];
+  /** Unique files first captured at or after the given turn (rewind preview). */
+  filesTouchedSince(turn: string): string[];
+  restoreTo(turn: string): Promise<{
+    restored: string[];
+    deleted: string[];
+    failed: string[];
+  }>;
+};
+
+export type BubbleSessionManager = {
+  getMessages(): unknown[];
+  getCompactionPlan(): { oldMessages: unknown[] } | null;
+  compact(): BubbleCompactResult;
+  applyLLMCompaction(summary: string): BubbleCompactResult;
+  getCheckpoints(): BubbleCheckpointStore;
+  listUserTurns(): BubbleUserTurn[];
+  rewindToEntry(entryId: string): { removedEntries: number; targetText: string } | undefined;
+  getSessionFile(): string;
+};
+
 export type BubbleSdkModule = {
   BubbleSdk: new (options?: { defaultCwd?: string }) => BubbleSdkInstance;
+  SessionManager: new (file: string) => BubbleSessionManager;
 };
 
 export type BubbleBuiltinProviderDefinition = {
@@ -266,6 +310,34 @@ export async function getBubbleSdk(defaultCwd?: string): Promise<BubbleSdkInstan
     sdkInstance = new BubbleSdk(defaultCwd ? { defaultCwd } : undefined);
   }
   return sdkInstance;
+}
+
+/**
+ * Reconstruct the SDK's SessionManager for an adapter session so manual
+ * `/compact` / `/rewind` can mutate the same on-disk log the live turns
+ * append to. The providerSessionId is the session file's basename (minus
+ * `.jsonl`), which `sdk.listSessions()` reports as `name`.
+ */
+export async function getBubbleSessionManager(
+  sdk: BubbleSdkInstance,
+  sessionId: string
+): Promise<BubbleSessionManager> {
+  const { SessionManager } = await loadBubbleSdk();
+  const normalized = sessionId.trim();
+  if (normalized) {
+    try {
+      const match = sdk.listSessions().find((summary) => summary.name === normalized);
+      if (match) {
+        return new SessionManager(match.file);
+      }
+    } catch (error) {
+      console.warn('[BubbleSdk] failed to resolve session for manager:', error);
+    }
+  }
+  // A fresh session is persisted lazily (nothing on disk before the first
+  // message), so `/compact` / `/rewind` only ever run against a session that
+  // already has a discoverable on-disk file.
+  throw new Error(`Unknown Bubble session "${sessionId}" on disk.`);
 }
 
 /**

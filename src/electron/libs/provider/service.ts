@@ -2,6 +2,8 @@ import { EventEmitter } from 'events';
 import type {
   ProviderAdapter,
   ProviderKind,
+  ProviderRewindAnchor,
+  ProviderRewindResult,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
   ProviderSession,
@@ -230,6 +232,29 @@ class ProviderServiceImpl implements ProviderService {
     }
 
     return adapter.listSkills(input);
+  }
+
+  async rewind(
+    threadId: string,
+    anchorId: string,
+    scope: 'conversation' | 'files' | 'both',
+    dryRun?: boolean
+  ): Promise<ProviderRewindResult> {
+    const provider = this.directory.getProvider(threadId);
+    const adapter = provider ? registry.getAdapter(provider) : null;
+    if (!adapter?.rewind) {
+      return { ok: false, message: 'This provider does not support rewind.', filesAvailable: false };
+    }
+    return adapter.rewind(threadId, anchorId, scope, dryRun);
+  }
+
+  async listRewindAnchors(threadId: string): Promise<ProviderRewindAnchor[]> {
+    const provider = this.directory.getProvider(threadId);
+    const adapter = provider ? registry.getAdapter(provider) : null;
+    if (!adapter?.listRewindAnchors) {
+      return [];
+    }
+    return adapter.listRewindAnchors(threadId);
   }
 
   async listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult> {

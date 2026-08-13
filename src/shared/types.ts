@@ -971,6 +971,19 @@ export interface ClaudeRewindResult {
   removedPrompt?: string | null;
 }
 
+// ── Bubble rewind (conversation/files checkpoint restore) ──────────────────
+
+export interface BubbleRewindInput {
+  sessionId: string;
+  /** 0-based ordinal of the target user_prompt among user prompts. */
+  anchorIndex: number;
+  /** Display prompt text of the target user_prompt, for exact-match resolution. */
+  anchorPrompt?: string;
+  scope: ClaudeRewindScope;
+  /** Preview only: report what a files rewind would change without executing. */
+  dryRun?: boolean;
+}
+
 export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;
@@ -1544,6 +1557,14 @@ export type StreamMessage =
       turnId: string;
       explanation?: string | null;
       steps: PlanStep[];
+    })
+  | (StreamMessageBase & {
+      // Turn-scope marker (codex): tells the renderer which turn is currently
+      // running so turn-scoped UI (the active plan card) can match plan_update
+      // turnIds against it. Transient — never persisted, never rendered.
+      type: 'turn_started';
+      uuid: string;
+      turnId: string;
     })
   | (StreamMessageBase & {
       type: 'proposed_plan';

@@ -28,6 +28,12 @@ import type {
   ProviderSkillDescriptor,
   StreamMessage,
 } from '../../../shared/types';
+import {
+  extractMediaPathsFromValue,
+  isMediaGenerationTool,
+  mediaKindFromToolName,
+  withGeneratedMediaInput,
+} from '../../../shared/generated-media';
 
 type PromptBlock =
   | { type: 'text'; text: string }
@@ -122,6 +128,14 @@ function extractSkillsFromCommands(availableCommands: unknown): ProviderSkillDes
     ];
   });
   return skills.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function extractGrokToolName(update: GrokSessionUpdate): string {
+  const meta = getRecord(update._meta);
+  const tool = getRecord(meta?.['x.ai/tool']);
+  const metaName = getString(tool?.name).trim();
+  if (metaName) return metaName;
+  return getString(update.title) || 'GrokTool';
 }
 
 function extractTextContent(content: unknown): string {
@@ -1181,7 +1195,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
     const session = this.sessions.get(threadId);
     if (!session) return;
     const id = getString(update.toolCallId) || uuidv4();
-    const name = getString(update.title) || 'GrokTool';
+    const name = extractGrokToolName(update);
     const rawInput = getRecord(update.rawInput) || {};
     const existing = session.toolCalls.get(id);
     // A new tool call closes the current text/thinking block: Grok narrates
@@ -1228,7 +1242,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
     const parsedInput = text ? parseJsonRecord(text) : null;
     if (!parsedInput) return;
     const existing = session.toolCalls.get(id);
-    const name = existing?.name || getString(update.title) || 'GrokTool';
+    const name = existing?.name || extractGrokToolName(update);
     const createdAt = existing?.createdAt || Date.now();
     session.toolCalls.set(id, {
       name,
@@ -1251,7 +1265,43 @@ export class GrokAcpAdapter implements ProviderAdapter {
     if (!id) return;
     const status = getString(update.status);
     const text = this.extractToolOutput(update);
-    if (!text) return;
+    const session = this.sessions.get(threadId);
+    const toolName = session?.toolCalls.get(id)?.name || extractGrokToolName(update);
+    const fallbackKind = mediaKindFromToolName(toolName);
+    const generatedMedia = isMediaGenerationTool(toolName) || fallbackKind
+      ? extractMediaPathsFromValue(
+          { text, rawOutput: update.rawOutput, content: update.content, locations: update.locations },
+          fallbackKind
+        )
+      : [];
+    if (session && generatedMedia.length > 0) {
+      const existing = session.toolCalls.get(id);
+      const prompt = typeof existing?.input?.prompt === 'string' ? existing.input.prompt : undefined;
+      const media = generatedMedia.map((item) => ({ ...item, toolUseId: id, prompt }));
+      const nextInput = withGeneratedMediaInput(existing?.input || {}, media);
+      session.toolCalls.set(id, {
+        name: existing?.name || toolName,
+        input: nextInput,
+        createdAt: existing?.createdAt || Date.now(),
+      });
+      this.emit({
+        type: 'message',
+        threadId,
+        message: {
+          type: 'assistant',
+          uuid: `grok-tool-use:${threadId}:${id}`,
+          createdAt: existing?.createdAt,
+          message: {
+            content: [{ type: 'tool_use', id, name: existing?.name || toolName, input: nextInput }],
+          },
+        },
+      });
+    }
+    if (!text && generatedMedia.length === 0) return;
+    const resultText = text
+      || generatedMedia.map((item) => item.path).join('\n')
+      || status
+      || 'Updated';
     const message: StreamMessage = {
       type: 'assistant',
       uuid: `grok-tool-result:${threadId}:${id}:${uuidv4()}`,
@@ -1260,7 +1310,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
           {
             type: 'tool_result',
             tool_use_id: id,
-            content: text || status || 'Updated',
+            content: resultText,
             is_error: status === 'failed',
           },
         ],

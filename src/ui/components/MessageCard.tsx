@@ -251,7 +251,7 @@ function UserPromptCard({
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
     onResend: (prompt: string, attachments?: Attachment[]) => void;
-    /** Claude only: rewind conversation/files back to before this message. */
+    /** Claude + Bubble: rewind conversation/files back to before this message. */
     onRewind?: () => void;
   };
   sessionId?: string | null;

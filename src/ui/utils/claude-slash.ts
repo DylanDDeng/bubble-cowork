@@ -143,7 +143,9 @@ const CODEX_COMMAND_DEFINITIONS: Record<
   },
 };
 
-// Bubble UI-local commands (handled by the composer, never sent to the model).
+// Bubble UI-local commands. `/plan` is handled by the composer; `/compact` and
+// `/rewind` are intercepted by the bubble adapter / rewind dialog instead of
+// being sent to the model, matching Claude Code's interaction.
 const BUBBLE_COMMAND_DEFINITIONS: Record<
   string,
   { title: string; description: string; submitOnSelect?: boolean; inputHint?: string }
@@ -151,6 +153,14 @@ const BUBBLE_COMMAND_DEFINITIONS: Record<
   plan: {
     title: '/plan',
     description: 'Switch into planning mode',
+  },
+  compact: {
+    title: '/compact',
+    description: 'Compact the current conversation context',
+  },
+  rewind: {
+    title: '/rewind',
+    description: 'Rewind the conversation and/or files to an earlier checkpoint',
   },
 };
 

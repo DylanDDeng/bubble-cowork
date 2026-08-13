@@ -604,6 +604,18 @@ export class CodexAdapter implements ProviderAdapter {
     // internal values kept only for older binaries.)
     this.manager.on('thread_status_changed', () => {});
 
+    this.manager.on('turn_started', ({ threadId, turnId }) => {
+      if (typeof turnId !== 'string' || !turnId) {
+        return;
+      }
+      const message: StreamMessage = {
+        type: 'turn_started',
+        uuid: `codex-turn:${threadId}:${turnId}`,
+        turnId,
+      };
+      this.emit({ type: 'message', threadId, message });
+    });
+
     this.manager.on('plan_updated', ({ threadId, params }) => {
       const p = params as Record<string, unknown>;
       const turnId = typeof p.turnId === 'string' ? p.turnId : '';

@@ -25,6 +25,7 @@ import type {
 } from './types';
 import {
   getBubbleSdk,
+  getBubbleSessionManager,
   type BubbleAgentEvent,
   type BubbleApprovalDecision,
   type BubbleApprovalRequest,
@@ -34,6 +35,7 @@ import {
   type BubbleSdkInstance,
   type BubbleTokenUsage,
 } from './bubble-sdk-loader';
+import type { ProviderRewindAnchor, ProviderRewindResult } from './types';
 
 const ONE_SHOT_TIMEOUT_MS = 120_000;
 
@@ -44,7 +46,7 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
   mcpServers: true,
   imageAttachments: true,
   forkThread: false,
-  compactThread: false,
+  compactThread: true,
   planMode: true,
 };
 
@@ -378,6 +380,15 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       throw new Error(`Bubble is already running a turn for thread "${input.threadId}"`);
     }
 
+    // Manual `/compact` is handled locally (mirrors Claude Code): it compacts
+    // the persisted session and emits a compact_boundary instead of a model
+    // turn. The pre-reset usage snapshot is the best preTokens approximation.
+    const trimmedPrompt = input.prompt.trim();
+    if (!input.attachments?.length && trimmedPrompt.toLowerCase() === '/compact') {
+      await this.runCompact(session, session.usage.total_tokens || 0);
+      return;
+    }
+
     const text = buildPromptText(input.prompt, input.attachments);
     const prompt = await buildPromptParts(text, input.attachments);
     if (typeof prompt === 'string' && !prompt.trim()) {
@@ -571,6 +582,148 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       })),
       source: 'bubble-sdk',
     };
+  }
+
+  /**
+   * User turns the persisted session can rewind to (oldest first). The entry
+   * id also names the checkpoint turn, so it doubles as the `/rewind` anchor
+   * passed back into `rewind()`.
+   */
+  async listRewindAnchors(threadId: string): Promise<ProviderRewindAnchor[]> {
+    const session = this.sessions.get(threadId);
+    if (!session) {
+      return [];
+    }
+    try {
+      const sdk = await getBubbleSdk(session.cwd);
+      const manager = await getBubbleSessionManager(sdk, session.providerSessionId);
+      return manager.listUserTurns().map((turn) => ({
+        id: turn.id,
+        preview: turn.preview,
+        text: turn.text,
+      }));
+    } catch (error) {
+      console.warn('[BubbleSdkAdapter] failed to list rewind anchors:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Restore files and/or truncate the persisted session to just before the
+   * given anchor (a user-turn entry id). `dryRun` reports what a files rewind
+   * would change without executing. The Aegis-side transcript truncation is
+   * handled by the IPC layer; this only mutates the SDK's on-disk session.
+   */
+  async rewind(
+    threadId: string,
+    anchorId: string,
+    scope: 'conversation' | 'files' | 'both',
+    dryRun?: boolean
+  ): Promise<ProviderRewindResult> {
+    const session = this.sessions.get(threadId);
+    if (!session) {
+      return { ok: false, message: 'No Bubble session found for thread.', filesAvailable: false };
+    }
+
+    try {
+      const sdk = await getBubbleSdk(session.cwd);
+      const manager = await getBubbleSessionManager(sdk, session.providerSessionId);
+      const checkpoints = manager.getCheckpoints();
+
+      if (dryRun) {
+        const filesChanged = checkpoints.filesTouchedSince?.(anchorId) ?? [];
+        return {
+          ok: true,
+          filesAvailable: true,
+          files: { canRewind: true, filesChanged },
+          removedPrompt: null,
+        };
+      }
+
+      let filesOutcome: ProviderRewindResult['files'] = null;
+      if (scope === 'files' || scope === 'both') {
+        const restored = await checkpoints.restoreTo(anchorId);
+        filesOutcome = {
+          canRewind: true,
+          filesChanged: [...restored.restored, ...restored.deleted],
+          ...(restored.failed.length > 0
+            ? { error: `Failed to restore: ${restored.failed.join(', ')}` }
+            : {}),
+        };
+      }
+
+      let removedPrompt: string | null = null;
+      if (scope === 'conversation' || scope === 'both') {
+        const result = manager.rewindToEntry(anchorId);
+        if (!result) {
+          return {
+            ok: false,
+            message: 'The rewind anchor was not found in this Bubble session.',
+            filesAvailable: true,
+            files: filesOutcome,
+          };
+        }
+        removedPrompt = result.targetText || null;
+      }
+
+      return { ok: true, filesAvailable: true, files: filesOutcome, removedPrompt };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+        filesAvailable: false,
+      };
+    }
+  }
+
+  /**
+   * Run manual `/compact` locally: compact the persisted session and emit the
+   * same transcript markers Claude Code does (a compact_boundary, then a
+   * result that finalizes the turn).
+   */
+  private async runCompact(session: ActiveBubbleSession, preTokens: number): Promise<void> {
+    session.status = 'running';
+    session.turnActive = true;
+    session.durationStartMs = Date.now();
+    session.durationEndMs = undefined;
+    session.usage = createEmptyUsage();
+    session.totalCostUsd = 0;
+    session.currentAssistant = null;
+    this.emit({ type: 'status_change', threadId: session.threadId, status: 'running' });
+
+    try {
+      const sdk = await getBubbleSdk(session.cwd);
+      const manager = await getBubbleSessionManager(sdk, session.providerSessionId);
+      const plan = manager.getCompactionPlan();
+      const compacted = plan ? manager.compact().compacted : false;
+
+      if (compacted) {
+        this.emitMessage(session, {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: `bubble-compact:${session.threadId}:${uuidv4()}`,
+          session_id: session.threadId,
+          compactMetadata: { trigger: 'manual', preTokens },
+        });
+      } else {
+        this.emitAssistantText(session, 'Session is already compact enough.');
+      }
+
+      this.finishTurn(session, null);
+    } catch (error) {
+      this.finishTurn(session, error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      session.turnActive = false;
+    }
+  }
+
+  private emitAssistantText(session: ActiveBubbleSession, text: string): void {
+    this.emitMessage(session, {
+      type: 'assistant',
+      uuid: `bubble-assistant:${session.threadId}:${uuidv4()}`,
+      createdAt: Date.now(),
+      message: { content: [{ type: 'text', text }] },
+    });
   }
 
   // ── Turn loop ──────────────────────────────────────────────────────────

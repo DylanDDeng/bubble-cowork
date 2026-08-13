@@ -24,6 +24,11 @@ import {
   ContextMenuSeparator,
 } from './ui/context-menu';
 import type { ProjectFileOpenRequest, ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
+import {
+  isSameProjectTreeRoot,
+  selectVisibleProjectTree,
+  shouldPublishProjectTreeToStore,
+} from '../utils/project-tree-visibility';
 
 type ProjectPanelTab = 'files';
 type ViewMode = 'view' | 'code' | 'split';
@@ -81,6 +86,14 @@ type ProjectFilePreview =
       ext: string;
       size: number;
       dataUrl: string;
+    }
+  | {
+      kind: 'video';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      previewUrl: string;
     }
   | {
       kind: 'pdf';
@@ -713,6 +726,8 @@ export function ProjectTreePanel({
   const startWidthRef = useRef(0);
   const latestPreviewWidthRef = useRef(previewPanelWidth);
   const [navigationCwd, setNavigationCwd] = useState<string | null>(openRequest?.cwd ?? null);
+  const [panelTree, setPanelTree] = useState<ProjectTreeNode | null>(null);
+  const [panelTreeCwd, setPanelTreeCwd] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(openRequest?.path ?? null);
   const [selectedFileCwd, setSelectedFileCwd] = useState<string | null>(openRequest?.cwd ?? null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
@@ -855,7 +870,16 @@ export function ProjectTreePanel({
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const activeCwd = activeSession?.cwd || null;
-  const cwd = navigationCwd || activeCwd || projectCwd || null;
+  const workspaceCwd = activeCwd || projectCwd || null;
+  const cwd = navigationCwd || workspaceCwd || null;
+
+  const applyPanelTree = useCallback((root: string, tree: ProjectTreeNode | null) => {
+    setPanelTree(tree);
+    setPanelTreeCwd(root);
+    if (shouldPublishProjectTreeToStore(root, workspaceCwd)) {
+      setProjectTree(root, tree);
+    }
+  }, [setProjectTree, workspaceCwd]);
   const activeFileTabId = selectedFileCwd && selectedFilePath
     ? getProjectFileTabId(selectedFileCwd, selectedFilePath)
     : null;
@@ -1154,7 +1178,8 @@ export function ProjectTreePanel({
     const current = cwd?.trim() || '';
 
     if (!current) {
-      setProjectTree(null, null);
+      setPanelTree(null);
+      setPanelTreeCwd(null);
       setProjectTreeError(null);
       if (prevCwdRef.current) {
         window.electron.unwatchProjectTree(prevCwdRef.current);
@@ -1177,6 +1202,7 @@ export function ProjectTreePanel({
     }
     prevCwdRef.current = current;
 
+    const publishToStore = shouldPublishProjectTreeToStore(current, workspaceCwd);
     setLoading(true);
     setProjectTreeError(null);
     window.electron
@@ -1185,17 +1211,19 @@ export function ProjectTreePanel({
         if (cancelled) return;
         if (tree) {
           setProjectTreeError(null);
-          setProjectTree(current, tree);
-          void window.electron.watchProjectTree(current);
+          applyPanelTree(current, tree);
+          if (publishToStore) {
+            void window.electron.watchProjectTree(current);
+          }
         } else {
           setProjectTreeError('Project folder not found.');
-          setProjectTree(current, null);
+          applyPanelTree(current, null);
         }
       })
       .catch(() => {
         if (cancelled) return;
         setProjectTreeError('Unable to read project folder.');
-        setProjectTree(current, null);
+        applyPanelTree(current, null);
       })
       .finally(() => {
         if (!cancelled) {
@@ -1207,14 +1235,26 @@ export function ProjectTreePanel({
       cancelled = true;
       window.electron.unwatchProjectTree(current);
     };
-  }, [cwd, setProjectTree, shouldWatchProjectTree]);
+  }, [applyPanelTree, cwd, shouldWatchProjectTree, workspaceCwd]);
 
-  const visibleTree = useMemo(() => {
-    if (!cwd || !projectTree || projectTreeCwd !== cwd) {
-      return null;
+  useEffect(() => {
+    if (projectTree && isSameProjectTreeRoot(projectTreeCwd, cwd)) {
+      setPanelTree(projectTree);
+      setPanelTreeCwd(cwd);
     }
-    return projectTree;
   }, [cwd, projectTree, projectTreeCwd]);
+
+  const visibleTree = useMemo(
+    () =>
+      selectVisibleProjectTree({
+        cwd,
+        projectTree,
+        projectTreeCwd,
+        panelTree,
+        panelTreeCwd,
+      }),
+    [cwd, panelTree, panelTreeCwd, projectTree, projectTreeCwd]
+  );
   const visibleNodes = useMemo(
     () => visibleTree?.children || [],
     [visibleTree]
@@ -1518,7 +1558,7 @@ export function ProjectTreePanel({
         return;
       }
 
-      setProjectTree(cwd, result.tree);
+      applyPanelTree(cwd, result.tree);
       expandPath(targetParentPath);
       updateOpenFileTabs((current) =>
         current.map((tab) => {
@@ -1570,7 +1610,7 @@ export function ProjectTreePanel({
     } finally {
       setMovingProjectEntryPath(null);
     }
-  }, [canDropEntryOnParent, cwd, expandPath, selectedFilePath, setProjectTree, updateOpenFileTabs]);
+  }, [applyPanelTree, canDropEntryOnParent, cwd, expandPath, selectedFilePath, updateOpenFileTabs]);
 
   const handleProjectEntryDragStart = useCallback((event: DragEvent<HTMLDivElement>, node: ProjectTreeNode) => {
     if (node.kind !== 'file' && node.kind !== 'dir') return;
@@ -1733,7 +1773,7 @@ export function ProjectTreePanel({
         return;
       }
 
-      setProjectTree(cwd, result.tree);
+      applyPanelTree(cwd, result.tree);
       expandPath(createDraft.parentPath);
       if (createDraft.kind === 'folder') {
         expandPath(result.path);
@@ -1749,7 +1789,7 @@ export function ProjectTreePanel({
         current ? { ...current, submitting: false, error: String(error) } : current
       );
     }
-  }, [createDraft, cwd, expandPath, selectFilePath, setProjectTree]);
+  }, [applyPanelTree, createDraft, cwd, expandPath, selectFilePath]);
 
   const selectExternalFilePath = useCallback(async (
     filePath: string,
@@ -1954,7 +1994,7 @@ export function ProjectTreePanel({
         toast.error(result?.message || 'Failed to delete file.');
         return;
       }
-      setProjectTree(cwd, result.tree);
+      applyPanelTree(cwd, result.tree);
 
       // If the deleted file is currently being previewed, close it.
       const normalizedDeleted = normalizeProjectPath(node.path);
@@ -1969,7 +2009,7 @@ export function ProjectTreePanel({
     } catch (error) {
       toast.error(`Failed to delete: ${String(error)}`);
     }
-  }, [closePreview, cwd, selectedFilePath, setProjectTree, updateOpenFileTabs]);
+  }, [applyPanelTree, closePreview, cwd, selectedFilePath, updateOpenFileTabs]);
 
   // 单实例右键菜单：树的容器/根/每一行都调这里，只记录坐标和目标节点，
   // 菜单本体是应用统一样式的 ContextMenuAtPoint（不再走原生系统菜单）
@@ -3360,6 +3400,15 @@ export function ProjectTreePanel({
                     src={selectedPreview.dataUrl}
                     alt={selectedPreview.name}
                     className="max-w-full rounded-md"
+                  />
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'video' && (
+                  <video
+                    src={selectedPreview.previewUrl}
+                    className="max-w-full rounded-md"
+                    controls
+                    playsInline
                   />
                 )}
 

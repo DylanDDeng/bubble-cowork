@@ -13,6 +13,8 @@ import {
 } from '../utils/workstream-stages';
 import { TodoProgressCard } from './TodoProgressCard';
 import { useTurnDiffContext } from './TurnDiffContext';
+import { GeneratedMediaGallery } from './GeneratedMediaGallery';
+import type { GeneratedMediaItem } from '../utils/generated-media';
 
 type AssistantMessage = StreamMessage & { type: 'assistant' };
 
@@ -42,6 +44,8 @@ interface ToolExecutionBatchProps {
   defaultExpanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   resetKey?: string | number | null;
+  generatedMedia?: GeneratedMediaItem[];
+  mediaCwd?: string | null;
 }
 
 export function ToolExecutionBatch({
@@ -59,6 +63,8 @@ export function ToolExecutionBatch({
   defaultExpanded,
   onExpandedChange,
   resetKey,
+  generatedMedia,
+  mediaCwd,
 }: ToolExecutionBatchProps) {
   const batchIsRunning = isSessionRunning && isLastBatch;
   const model = useMemo(
@@ -86,6 +92,8 @@ export function ToolExecutionBatch({
       defaultExpanded={defaultExpanded}
       onExpandedChange={onExpandedChange}
       resetKey={disclosureResetKey}
+      generatedMedia={generatedMedia}
+      mediaCwd={mediaCwd}
     />
   );
 }
@@ -97,6 +105,8 @@ export function WorkstreamDisclosure({
   expanded,
   onExpandedChange,
   resetKey,
+  generatedMedia,
+  mediaCwd,
 }: {
   model: WorkstreamModel;
   isRunning: boolean;
@@ -104,11 +114,29 @@ export function WorkstreamDisclosure({
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   resetKey?: string | number | null;
+  generatedMedia?: GeneratedMediaItem[];
+  mediaCwd?: string | null;
 }) {
   const isControlled = typeof expanded === 'boolean';
   const [uncontrolledExpanded, setUncontrolledExpanded] = useState(() => defaultExpanded);
   const previousResetKeyRef = useRef(resetKey);
   const resolvedExpanded = isControlled ? expanded : uncontrolledExpanded;
+  const hasPendingWork = model.entries.some((entry) => {
+    if (entry.type === 'approval') return entry.state === 'waiting';
+    if (entry.type === 'thinking') return entry.state === 'active';
+    if (entry.type === 'note') return entry.state === 'streaming';
+    if (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') {
+      return entry.status === 'pending';
+    }
+    return false;
+  });
+  // Once every tool in this trace has settled, the remaining turn is just
+  // the answer. Treat the workstream as finished so the toggle looks like
+  // "Show work · 2 stages · Worked for 23s" instead of an open in-progress trace.
+  // Keep the trace open for the whole running turn. Collapsing on a brief
+  // tool-idle gap, then expanding again when the next message arrives, is
+  // what made the workstream flicker mid-run.
+  const previousRunningRef = useRef(isRunning);
 
   useEffect(() => {
     if (isControlled) {
@@ -123,6 +151,17 @@ export function WorkstreamDisclosure({
     previousResetKeyRef.current = resetKey;
     setUncontrolledExpanded(defaultExpanded);
   }, [defaultExpanded, isControlled, resetKey]);
+
+  useEffect(() => {
+    if (isControlled) {
+      previousRunningRef.current = isRunning;
+      return;
+    }
+    if (previousRunningRef.current && !isRunning) {
+      setUncontrolledExpanded(false);
+    }
+    previousRunningRef.current = isRunning;
+  }, [isControlled, isRunning]);
 
   const setExpanded = (nextExpanded: boolean) => {
     if (isControlled) {
@@ -140,7 +179,7 @@ export function WorkstreamDisclosure({
     return null;
   }
 
-  const showWorking = resolvedExpanded && isRunning;
+  const showWorking = resolvedExpanded && isRunning && hasPendingWork;
 
   return (
     <>
@@ -150,7 +189,13 @@ export function WorkstreamDisclosure({
         isRunning={isRunning}
         onToggle={() => setExpanded(!resolvedExpanded)}
       />
-      {resolvedExpanded ? <AssistantWorkstream model={model} /> : null}
+      {resolvedExpanded ? (
+        <AssistantWorkstream
+          model={model}
+          generatedMedia={generatedMedia}
+          mediaCwd={mediaCwd}
+        />
+      ) : null}
       {showWorking ? <WorkingFooter startedAt={model.startedAt} /> : null}
     </>
   );

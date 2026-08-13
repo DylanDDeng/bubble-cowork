@@ -219,6 +219,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('claude-rewind', input);
   },
 
+  bubbleRewind: (input: unknown) => {
+    return ipcRenderer.invoke('bubble-rewind', input);
+  },
+
   moveSessionToWorktree: (sessionId: string) => {
     return ipcRenderer.invoke('move-session-to-worktree', sessionId);
   },
@@ -758,6 +762,10 @@ contextBridge.exposeInMainWorld('electron', {
   // 读取项目文件预览
   readProjectFilePreview: (cwd: string, filePath: string) => {
     return ipcRenderer.invoke('read-project-file-preview', cwd, filePath);
+  },
+
+  resolveGrokSessionFile: (cwd: string, relativePath: string) => {
+    return ipcRenderer.invoke('resolve-grok-session-file', cwd, relativePath);
   },
 
   createProjectAttachment: (cwd: string, filePath: string) => {

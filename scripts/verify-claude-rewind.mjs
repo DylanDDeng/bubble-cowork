@@ -73,11 +73,11 @@ assert.ok(
 
 const chatPane = read('src/ui/components/ChatPane.tsx');
 assert.ok(
-  chatPane.includes('resolveRewindTarget') && chatPane.includes('<ClaudeRewindDialog'),
+  chatPane.includes('resolveRewindTarget') && chatPane.includes('<RewindDialog'),
   'ChatPane must resolve the SDK user-message anchor and render the dialog'
 );
 assert.ok(
-  chatPane.includes("addEventListener('aegis-claude-rewind-open'"),
+  chatPane.includes("addEventListener('aegis-rewind-open'"),
   'ChatPane must listen for the /rewind composer command'
 );
 
@@ -90,7 +90,7 @@ assert.ok(
 const promptInput = read('src/ui/components/PromptInput.tsx');
 assert.ok(
   promptInput.includes("prompt.trim().toLowerCase() === '/rewind'") &&
-    promptInput.includes("CustomEvent('aegis-claude-rewind-open'"),
+    promptInput.includes("CustomEvent('aegis-rewind-open'"),
   'the composer must intercept /rewind locally (case-insensitively) instead of sending it to the model'
 );
 assert.ok(

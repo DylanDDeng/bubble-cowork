@@ -1,4 +1,4 @@
-import { isValidElement, memo, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { isValidElement, memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -23,6 +23,41 @@ import { Globe } from '../components/icons';
 import { faviconUrlForHostname, isFaviconPlaceholder } from '../utils/link-favicons';
 import { resolveProjectFileReference } from '../utils/project-file-navigation';
 import { pickProjectFileMatch } from '../components/ProjectFileMatchDialog';
+import {
+  extractGeneratedMediaFromMessages,
+  findGeneratedMediaForPath,
+  resolveGeneratedMediaPath,
+  stripGeneratedMediaEmbeds,
+} from '../utils/generated-media';
+
+async function statProjectFile(cwd: string, relativePath: string): Promise<string | null> {
+  try {
+    const preview = await window.electron.readProjectFilePreview(cwd, relativePath) as {
+      kind?: string;
+      path?: string;
+    };
+    if (preview && preview.kind !== 'error' && preview.path) return preview.path;
+  } catch {
+    // Fall through to the Grok session directory.
+  }
+  try {
+    return await window.electron.resolveGrokSessionFile(cwd, relativePath);
+  } catch {
+    return null;
+  }
+}
+
+function dirnameOfPath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/');
+  const index = normalized.lastIndexOf('/');
+  return index > 0 ? normalized.slice(0, index) : '/';
+}
+
+function isUnderRoot(root: string | null | undefined, filePath: string): boolean {
+  if (!root) return false;
+  const prefix = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  return filePath === prefix || filePath.startsWith(`${prefix}/`);
+}
 
 interface MDContentProps {
   content: string;
@@ -307,12 +342,24 @@ function useProjectFileNavigation() {
     if (!cwd && !projectFile.external) return;
     void (async () => {
       try {
+        const transcriptHit = session
+          ? findGeneratedMediaForPath(
+              projectFile.path,
+              extractGeneratedMediaFromMessages(session.messages)
+            )
+          : null;
         const resolved = projectFile.external
           ? {
               status: 'resolved' as const,
               cwd: projectFile.path.replace(/\\/g, '/').replace(/\/[^/]*$/, '') || '/',
               path: projectFile.path,
             }
+          : transcriptHit
+            ? {
+                status: 'resolved' as const,
+                cwd: cwd || dirnameOfPath(resolveGeneratedMediaPath(cwd, transcriptHit.path)),
+                path: resolveGeneratedMediaPath(cwd, transcriptHit.path),
+              }
           : await resolveProjectFileReference({
               requestedPath: projectFile.path,
               primaryRoots: [cwd, session?.projectCwd],
@@ -324,6 +371,7 @@ function useProjectFileNavigation() {
                 projectTreeCwd === root && projectTree
                   ? projectTree
                   : window.electron.getProjectTree(root),
+              statFile: statProjectFile,
             });
 
         if (resolved.status === 'not-found') {
@@ -351,10 +399,20 @@ function useProjectFileNavigation() {
           return;
         }
 
+        const insideProject = isUnderRoot(cwd, target.path) || isUnderRoot(session?.projectCwd, target.path);
+        if (insideProject) {
+          try {
+            const tree = await window.electron.getProjectTree(target.cwd);
+            if (tree) useAppStore.getState().setProjectTree(target.cwd, tree);
+          } catch {
+            // Opening the file still succeeds if the tree refresh fails.
+          }
+        }
+
         openProjectFileInRightPanel({
-          cwd: target.cwd,
+          cwd: insideProject ? (cwd || target.cwd) : dirnameOfPath(target.path),
           path: target.path,
-          external: projectFile.external,
+          external: projectFile.external || !insideProject,
           lineStart: projectFile.line,
         });
       } catch (error) {
@@ -364,6 +422,131 @@ function useProjectFileNavigation() {
   };
 
   return { cwd, roots, openProjectFile };
+}
+
+function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
+  const { cwd, roots, openProjectFile } = useProjectFileNavigation();
+  const [preview, setPreview] = useState<{ kind: 'image' | 'video'; src: string } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const generatedMediaMatch = useAppStore((state) => {
+    if (!src) return null;
+    const session = state.activeSessionId ? state.sessions[state.activeSessionId] : null;
+    if (!session) return null;
+    return findGeneratedMediaForPath(src, extractGeneratedMediaFromMessages(session.messages));
+  });
+
+  const remote = Boolean(src && /^(?:https?:|data:|blob:)/i.test(src));
+  const hideForGallery = Boolean(!remote && generatedMediaMatch);
+
+  useEffect(() => {
+    if (!src || remote || hideForGallery) return;
+    let cancelled = false;
+    setPreview(null);
+    setFailed(false);
+
+    void (async () => {
+      const sessions = useAppStore.getState().sessions;
+      const session = useAppStore.getState().activeSessionId
+        ? sessions[useAppStore.getState().activeSessionId!]
+        : null;
+      const candidates = [src.replace(/^\.\//, '')];
+      const base = candidates[0].split('/').pop();
+      if (base && base !== candidates[0]) candidates.push(base);
+      if (base && !candidates[0].includes('/')) {
+        candidates.push(`images/${base}`, `assets/${base}`, `videos/${base}`);
+      }
+
+      try {
+        for (const requestedPath of candidates) {
+          const projectFile = getProjectFileLink(requestedPath, roots)
+            || getInlineProjectFileCode(requestedPath);
+          if (!projectFile) continue;
+          const resolved = projectFile.external
+            ? {
+                status: 'resolved' as const,
+                cwd: projectFile.path.replace(/\\/g, '/').replace(/\/[^/]*$/, '') || '/',
+                path: projectFile.path,
+              }
+            : await resolveProjectFileReference({
+                requestedPath: projectFile.path,
+                primaryRoots: [cwd, session?.projectCwd],
+                workspaceRoots: Object.values(sessions).flatMap((item) => [item.cwd, item.projectCwd]),
+                loadTree: async (root) =>
+                  useAppStore.getState().projectTreeCwd === root && useAppStore.getState().projectTree
+                    ? useAppStore.getState().projectTree
+                    : window.electron.getProjectTree(root),
+                statFile: statProjectFile,
+              });
+          if (resolved.status !== 'resolved') continue;
+          const previewCwd = isUnderRoot(resolved.cwd, resolved.path)
+            ? resolved.cwd
+            : dirnameOfPath(resolved.path);
+          const filePreview = await window.electron.readProjectFilePreview(
+            previewCwd,
+            resolved.path
+          ) as { kind?: string; dataUrl?: string; previewUrl?: string };
+          if (cancelled) return;
+          if (filePreview?.kind === 'image' && filePreview.dataUrl) {
+            setPreview({ kind: 'image', src: filePreview.dataUrl });
+            return;
+          }
+          if (filePreview?.kind === 'video' && filePreview.previewUrl) {
+            setPreview({ kind: 'video', src: filePreview.previewUrl });
+            return;
+          }
+        }
+        if (!cancelled) setFailed(true);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, hideForGallery, remote, src]);
+
+  if (!src) return null;
+  if (hideForGallery) return null;
+
+  if (remote) {
+    return <img src={src} alt={alt || ''} className="md-generated-image" />;
+  }
+
+  const open = () => {
+    const projectFile = getProjectFileLink(src, roots) || getInlineProjectFileCode(src);
+    if (projectFile) openProjectFile(projectFile);
+  };
+
+  if (preview?.kind === 'video') {
+    return (
+      <video
+        src={preview.src}
+        className="md-generated-image"
+        controls
+        playsInline
+        aria-label={alt || 'Generated video'}
+      />
+    );
+  }
+
+  if (preview?.kind === 'image') {
+    return (
+      <button type="button" onClick={open} className="md-generated-image-button" title={alt || src}>
+        <img src={preview.src} alt={alt || ''} className="md-generated-image" />
+      </button>
+    );
+  }
+
+  if (failed) {
+    return (
+      <button type="button" onClick={open} className="md-generated-image-fallback" title={src}>
+        {alt || src}
+      </button>
+    );
+  }
+
+  return <span className="md-generated-image-pending">{alt || 'Loading image…'}</span>;
 }
 
 function MarkdownAnchor({
@@ -604,6 +787,7 @@ const components: Components = {
   ol: ({ children }) => <ol className="list-decimal pl-6 my-2">{children}</ol>,
   li: ({ children }) => <li className="my-1">{children}</li>,
   a: ({ href, children }) => <MarkdownAnchor href={href}>{children}</MarkdownAnchor>,
+  img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} />,
   blockquote: ({ children }) => (
     <blockquote className="border-l-[3px] border-[var(--border)] pl-4 my-2 text-[var(--text-secondary)]">
       {children}
@@ -656,6 +840,18 @@ const components: Components = {
 };
 
 function MDContentImpl({ content, className = '', allowHtml = false }: MDContentProps) {
+  const sessionMessages = useAppStore((state) => {
+    const session = state.activeSessionId ? state.sessions[state.activeSessionId] : null;
+    return session?.messages;
+  });
+  const generatedMedia = useMemo(
+    () => (sessionMessages ? extractGeneratedMediaFromMessages(sessionMessages) : []),
+    [sessionMessages]
+  );
+  const renderedContent = useMemo(
+    () => stripGeneratedMediaEmbeds(content, generatedMedia),
+    [content, generatedMedia]
+  );
   const disallowedElements = ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base'];
 
   const rehypePlugins = useMemo(() => {
@@ -667,18 +863,18 @@ function MDContentImpl({ content, className = '', allowHtml = false }: MDContent
 
   const fallback = (
     <div className="md-code-block">
-      <HighlightedCode code={content} showLineNumbers={false} />
+      <HighlightedCode code={renderedContent} showLineNumbers={false} />
     </div>
   );
 
   // 处理空内容
-  if (!content || content.trim() === '') {
+  if (!renderedContent || renderedContent.trim() === '') {
     return null;
   }
 
   return (
     <div className={`markdown-content ${className}`}>
-      <ErrorBoundary fallback={fallback} resetKey={content}>
+      <ErrorBoundary fallback={fallback} resetKey={renderedContent}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={rehypePlugins}
@@ -686,7 +882,7 @@ function MDContentImpl({ content, className = '', allowHtml = false }: MDContent
           unwrapDisallowed={true}
           components={components}
         >
-          {content}
+          {renderedContent}
         </ReactMarkdown>
       </ErrorBoundary>
     </div>

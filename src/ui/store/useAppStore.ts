@@ -2740,6 +2740,14 @@ function handleSessionStatus(
         [sessionId]: {
           ...session,
           status,
+          // A fresh turn is starting: drop the previous turn's id NOW so the
+          // old plan card can't resurface in the window before codex sends
+          // `turn/started`. Mid-turn running re-broadcasts (and steers, which
+          // never leave the running state) keep the id.
+          activeCodexTurnId:
+            status === 'running' && session.status !== 'running'
+              ? null
+              : session.activeCodexTurnId ?? null,
           title: title || session.title,
           scope: scope || session.scope || 'project',
           agentId:
@@ -3088,6 +3096,25 @@ function handleStreamMessage(
     }));
     // mcp_status is a status-only update, not a transcript message.
     if (message.type === 'mcp_status') return;
+  }
+
+  // Turn-scope marker (codex): record which turn is running so turn-scoped UI
+  // can match plan_update turnIds against it. Not a transcript message.
+  if (message.type === 'turn_started') {
+    set((state) => {
+      const currentSession = state.sessions[sessionId];
+      if (!currentSession || currentSession.activeCodexTurnId === message.turnId) {
+        return state;
+      }
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [sessionId]: { ...currentSession, activeCodexTurnId: message.turnId },
+        },
+      };
+    });
+    return;
   }
 
   set((state) => {

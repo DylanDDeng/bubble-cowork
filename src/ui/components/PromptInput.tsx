@@ -697,10 +697,24 @@ export function PromptInput({
       return;
     }
 
+    const trimmedImagine = prompt.trim();
+    if (
+      runtimeProvider === 'grok' &&
+      attachments.length === 0 &&
+      /^\/imagine(?:-video)?$/i.test(trimmedImagine)
+    ) {
+      toast.error(
+        trimmedImagine.toLowerCase() === '/imagine-video'
+          ? 'Add a description after /imagine-video.'
+          : 'Add a description after /imagine.'
+      );
+      return;
+    }
+
     // `/rewind` is a local UI command (checkpoint restore), not a prompt for
     // the model: open the rewind dialog instead of dispatching a turn.
     if (
-      runtimeProvider === 'claude' &&
+      (runtimeProvider === 'claude' || runtimeProvider === 'bubble') &&
       prompt.trim().toLowerCase() === '/rewind' &&
       attachments.length === 0 &&
       activeSession.id
@@ -708,7 +722,7 @@ export function PromptInput({
       setPrompt('');
       setCursorIndex(0);
       window.dispatchEvent(
-        new CustomEvent('aegis-claude-rewind-open', { detail: { sessionId: activeSession.id } })
+        new CustomEvent('aegis-rewind-open', { detail: { sessionId: activeSession.id } })
       );
       return;
     }
