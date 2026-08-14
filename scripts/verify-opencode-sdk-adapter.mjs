@@ -196,7 +196,7 @@ assert.ok(
   'PromptInput must render OpenCode context usage like other providers, including waiting state'
 );
 assert.ok(
-  promptInput.includes('OpenCodePermissionModePicker') &&
+  promptInput.includes('OPENCODE_PERMISSION_MODE_OPTIONS') &&
     promptInput.includes("runtimeProvider === 'opencode'") &&
     promptInput.includes('agentSelection.opencodePermissionMode') &&
     promptInput.includes('agentSelection.setOpencodePermissionMode'),
@@ -211,15 +211,15 @@ assert.ok(
   'OpenCode context indicator must support an empty waiting state before first usage'
 );
 
-const openCodePermissionPicker = read('src/ui/components/OpenCodePermissionModePicker.tsx');
+const permissionPickerSrc = read('src/ui/components/PermissionModePicker.tsx');
+const openCodeOptionsBlock =
+  permissionPickerSrc.match(/OPENCODE_PERMISSION_MODE_OPTIONS[\s\S]*?\];/)?.[0] ?? '';
 assert.ok(
-  openCodePermissionPicker.includes('OpenCodePermissionMode') &&
-    openCodePermissionPicker.includes('Plan') &&
-    openCodePermissionPicker.includes("'plan'") &&
-    openCodePermissionPicker.includes('Full Access') &&
-    openCodePermissionPicker.includes("'defaultPermissions'") &&
-    openCodePermissionPicker.includes("'fullAccess'"),
-  'OpenCode permission picker must expose default, plan, and full access modes'
+  openCodeOptionsBlock.includes("'defaultPermissions'") &&
+    openCodeOptionsBlock.includes("'plan'") &&
+    openCodeOptionsBlock.includes("'fullAccess'") &&
+    openCodeOptionsBlock.includes('Full Access'),
+  'Unified permission picker must expose OpenCode default, plan, and full access modes'
 );
 
 const composerSelection = read('src/ui/hooks/useComposerAgentSelection.ts');

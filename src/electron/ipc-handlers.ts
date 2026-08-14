@@ -2204,50 +2204,6 @@ function buildHandoffContextText(params: {
   return truncateHandoffText(joined, Math.max(0, params.maxChars ?? HANDOFF_CONTEXT_MAX_CHARS));
 }
 
-// DeepSeek cannot resume a runtime session: dsh's JSONL persistence is
-// write-only (rc.6), so every respawn — app restart, model or permission-mode
-// switch — boots a blank session even though Aegis still holds the thread's
-// history. Other providers rebuild context by resuming a bootstrap session
-// (bootstrapClaudeSessionFromHistory et al.); with no resume channel, the
-// only carrier is the first prompt itself, so this reuses the handoff
-// transcript shape (recent turns nearly verbatim, earlier turns as one-line
-// bullets, char-budgeted) with restart framing instead of handoff framing.
-function buildDeepseekRestoredContextText(history: StreamMessage[]): string | null {
-  const entries = collectHandoffTranscriptEntries(history);
-  if (entries.length === 0) {
-    return null;
-  }
-
-  const earlier = entries.slice(0, -HANDOFF_RECENT_MESSAGE_COUNT);
-  const recent = entries.slice(-HANDOFF_RECENT_MESSAGE_COUNT);
-  const sections: string[] = [
-    'This is an ongoing conversation whose runtime was restarted. The transcript below is restored context from before the restart, not new input. Absorb it silently and respond only to the latest user message.',
-  ];
-
-  if (earlier.length > 0) {
-    sections.push(
-      'Earlier conversation summary:\n' +
-        earlier
-          .map(
-            (entry) =>
-              `- ${entry.role}: ${truncateHandoffText(entry.text.replace(/\s+/g, ' ').trim(), HANDOFF_EARLIER_MESSAGE_CHAR_LIMIT)}`
-          )
-          .join('\n')
-    );
-  }
-
-  sections.push(
-    'Most recent messages:\n' +
-      recent
-        .map(
-          (entry) => `${entry.role}:\n${truncateHandoffText(entry.text.trim(), HANDOFF_RECENT_MESSAGE_CHAR_LIMIT)}`
-        )
-        .join('\n\n')
-  );
-
-  return truncateHandoffText(sections.join('\n\n').trim(), HANDOFF_CONTEXT_MAX_CHARS);
-}
-
 function buildLatestEditSummaryPrompt(history: StreamMessage[]): string {
   const transcript = buildHistoryTranscript(history);
   const lines = [
@@ -9812,23 +9768,10 @@ async function handleSessionContinue(
     }
   }
 
-  // This point is always a cold spawn (the warm-reuse branch returned above),
-  // and a fresh DeepSeek runtime holds no context. Inline the prior
-  // transcript into the first prompt — invisible to the UI and stored
-  // history, which keep outgoingPrompt. A handoff prompt already carries its
-  // own transcript; a provider switch keeps the other providers' behavior.
-  const deepseekRestoredContext =
-    nextProvider === 'deepseek' && !providerChanged && !handoffContextText
-      ? buildDeepseekRestoredContextText(historyBeforeContinue)
-      : null;
-  const coldStartRunnerPrompt = deepseekRestoredContext
-    ? `<restored_context>\n${deepseekRestoredContext}\n</restored_context>\n\n<latest_user_message>\n${runnerPrompt}\n</latest_user_message>`
-    : runnerPrompt;
-
   startRunner(
     mainWindow,
     sessions.getSession(sessionId),
-    coldStartRunnerPrompt,
+    runnerPrompt,
     nextResumeSessionId,
     outgoingAttachments,
     nextProvider,

@@ -107,12 +107,15 @@ assert.ok(
 );
 
 const permissionUtil = read('src/ui/utils/bubble-permission.ts');
-const permissionPicker = read('src/ui/components/BubblePermissionModePicker.tsx');
+const permissionPicker =
+  read('src/ui/components/PermissionModePicker.tsx').match(
+    /BUBBLE_PERMISSION_MODE_OPTIONS[\s\S]*?\];/
+  )?.[0] ?? '';
 const warmSend = read('src/electron/libs/warm-send-options.ts');
 assert.ok(
   permissionUtil.includes('cowork.preferredBubblePermissionMode') &&
     permissionPicker.includes("'bypassPermissions'") &&
-    permissionPicker.includes('FullAccessPermissionIcon') &&
+    permissionPicker.includes("tone: 'full-access'") &&
     warmSend.includes("'bubblePermissionMode'") &&
     warmSend.includes('bubblePermissionMode: next.bubblePermissionMode'),
   'Bubble permission mode must have a picker, a stored preference, and warm-send coverage'
@@ -123,7 +126,7 @@ const slashDefs = read('src/ui/utils/claude-slash.ts');
 const promptInputSrc = read('src/ui/components/PromptInput.tsx');
 const agentLoopSrc = read('src/electron/libs/agent-loop.ts');
 assert.ok(
-  !/'default',\s*\n\s*'plan'/.test(permissionPicker) &&
+  /mode: 'plan',[^}]*hidden: true/.test(permissionPicker) &&
     permissionUtil.includes("value === 'bypassPermissions' ? value : 'default'") &&
     slashDefs.includes('BUBBLE_COMMAND_DEFINITIONS') &&
     promptInputSrc.includes("agentSelection.provider === 'bubble' && agentSelection.bubbleExecutionMode === 'plan'") &&

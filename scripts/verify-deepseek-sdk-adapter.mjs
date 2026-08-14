@@ -36,8 +36,18 @@ assert.ok(
   'profile cordis.yml must mount the SDK server, model catalog, env-driven sandbox, and auto-deny approvals'
 );
 assert.ok(
-  fs.existsSync(path.join(root, 'dev-fixtures/deepseek-harness/runtime-bin.mjs')),
-  'profile must ship the app-boot runtime bin'
+  fs.existsSync(path.join(root, 'dev-fixtures/deepseek-harness/runtime-bin.mjs')) &&
+    fs.existsSync(path.join(root, 'dev-fixtures/deepseek-harness/runtime-resume-shim.mjs')),
+  'profile must ship the app-boot runtime bin and native-resume shim'
+);
+const runtimeBin = read('dev-fixtures/deepseek-harness/runtime-bin.mjs');
+const resumeShim = read('dev-fixtures/deepseek-harness/runtime-resume-shim.mjs');
+assert.ok(
+  runtimeBin.includes('installDeepseekSdkResumeShim') &&
+    resumeShim.includes('server.ctx.agents.resume') &&
+    resumeShim.includes('AEGIS_DSH_RESUME_SESSION_ID') &&
+    resumeShim.includes('AEGIS_DSH_RESUME_CWD_MISMATCH'),
+  'runtime must resume stored same-cwd sessions and reject unsafe fallback cases explicitly'
 );
 
 // ── Settings / runtime probe ────────────────────────────────────────────────
@@ -223,24 +233,116 @@ assert.ok(
   'steer must be enabled end to end: composer queue/steer UI + mid-turn respawn guard'
 );
 
+// ── Composer permission picker (unified mapping) ────────────────────────────
+const unifiedPicker = read('src/ui/components/PermissionModePicker.tsx');
+const deepseekOptionsBlock =
+  unifiedPicker.match(/DEEPSEEK_PERMISSION_MODE_OPTIONS[\s\S]*?\];/)?.[0] ?? '';
+assert.ok(
+  deepseekOptionsBlock.includes("'workspace-write'") &&
+    deepseekOptionsBlock.includes("'danger-full-access'") &&
+    deepseekOptionsBlock.includes("tone: 'full-access'"),
+  'unified permission picker must map deepseek workspace-write + danger-full-access modes'
+);
+const permissionUtil = read('src/ui/utils/deepseek-permission.ts');
+const newSession = read('src/ui/components/NewSessionView.tsx');
+assert.ok(
+  permissionUtil.includes('cowork.preferredDeepseekPermissionMode') &&
+    composerSelection.includes('loadPreferredDeepseekPermissionMode') &&
+    composerSelection.includes('setDeepseekPermissionMode') &&
+    promptInput.includes('DEEPSEEK_PERMISSION_MODE_OPTIONS') &&
+    promptInput.includes('agentSelection.deepseekPermissionMode') &&
+    newSession.includes('DEEPSEEK_PERMISSION_MODE_OPTIONS') &&
+    newSession.includes('agentSelection.deepseekPermissionMode'),
+  'composer must render the deepseek picker and send the stored mode preference end to end'
+);
+
 // ── History bootstrap (respawn context restore) ─────────────────────────────
-// dsh persistence is write-only: a respawned runtime cannot resume, so the
-// cold-start continue path must inline the prior transcript into the first
-// prompt (handoff-shaped, char-budgeted), leaving the stored/displayed
-// user_prompt untouched. Warm sends and handoff prompts must never carry it.
+// Same-cwd restarts pass the stored DSH id and send only the latest user
+// message. Missing logs and cwd mismatches must fail loudly.
 assert.ok(
-  ipc.includes('function buildDeepseekRestoredContextText') &&
-    ipc.includes('collectHandoffTranscriptEntries(history)') &&
-    /nextProvider === 'deepseek' && !providerChanged && !handoffContextText/.test(ipc) &&
-    ipc.includes('buildDeepseekRestoredContextText(historyBeforeContinue)') &&
-    ipc.includes('<restored_context>') &&
-    ipc.includes('<latest_user_message>') &&
-    ipc.includes('coldStartRunnerPrompt'),
-  'session-continue cold start must rebuild DeepSeek context from stored history in the first prompt'
+  !ipc.includes('buildDeepseekRestoredContextText') &&
+    !ipc.includes('<restored_context>') &&
+    !ipc.includes('deepseekFallbackPrompt'),
+  'session continue must not rebuild or inject a transcript for DeepSeek'
 );
 assert.ok(
-  adapter.includes('input.resumeSessionId is deliberately ignored'),
-  'adapter must keep minting fresh session ids (write-only persistence; resume trips id-collision)'
+  adapter.includes('harness.session(input.resumeSessionId)') &&
+    adapter.includes('AEGIS_DSH_RESUME_SESSION_ID') &&
+    !adapter.includes('replaceWithFreshSession') &&
+    !adapter.includes('resumeFallbackPrompt') &&
+    !agentLoop.includes('deepseekResumeFallbackPrompt'),
+  'adapter must pass the durable id through without any fresh-session fallback'
 );
+
+// Exercise the dependency-free resume policy without requiring the fixture's
+// ignored node_modules installation in CI.
+const {
+  openSessionWithNativeResume,
+  RESUME_CWD_MISMATCH_CODE,
+  RESUME_NOT_FOUND_CODE,
+} = await import('../dev-fixtures/deepseek-harness/runtime-resume-shim.mjs');
+const sessionId = (value) => value;
+const makeServer = (headers) => {
+  const resumed = [];
+  const server = {
+    cwd: '/workspace',
+    provider: 'deepseek-official',
+    model: 'deepseek-v4-pro',
+    sessions: new Map(),
+    ctx: {
+      get: (name) => name === 'sessionPersistence' ? { list: async () => headers } : undefined,
+      agents: {
+        resume: async (options) => {
+          resumed.push(options);
+          return { agent: { id: options.resumeSessionId } };
+        },
+      },
+    },
+  };
+  return { server, resumed };
+};
+
+{
+  const { server, resumed } = makeServer([{ id: 'stored', cwd: '/workspace' }]);
+  const record = await openSessionWithNativeResume({
+    server,
+    sessionId: 'stored',
+    SessionId: sessionId,
+    createFresh: () => assert.fail('stored session must not be recreated'),
+    expectedResumeSessionId: 'stored',
+  });
+  assert.equal(record.handle.agent.id, 'stored');
+  assert.equal(resumed.length, 1);
+  assert.equal(server.sessions.get('stored'), record);
+}
+
+{
+  const { server } = makeServer([]);
+  const created = await openSessionWithNativeResume({
+    server,
+    sessionId: 'fresh',
+    SessionId: sessionId,
+    createFresh: async () => ({ fresh: true }),
+    expectedResumeSessionId: undefined,
+  });
+  assert.deepEqual(created, { fresh: true });
+}
+
+for (const testCase of [
+  { headers: [], expected: RESUME_NOT_FOUND_CODE },
+  { headers: [{ id: 'stored', cwd: '/other' }], expected: RESUME_CWD_MISMATCH_CODE },
+]) {
+  const { server } = makeServer(testCase.headers);
+  await assert.rejects(
+    openSessionWithNativeResume({
+      server,
+      sessionId: 'stored',
+      SessionId: sessionId,
+      createFresh: () => assert.fail('unsafe resume must fail loudly'),
+      expectedResumeSessionId: 'stored',
+    }),
+    (error) => error instanceof Error && error.message.includes(testCase.expected)
+  );
+}
 
 console.log('deepseek-sdk-adapter: wiring checks passed');

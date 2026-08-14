@@ -10,15 +10,10 @@ import path from 'node:path';
 const root = process.cwd();
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
-// 1. Each permission picker supports menuSide and has BOTH directional classes.
-for (const file of [
-  'src/ui/components/ClaudePermissionModePicker.tsx',
-  'src/ui/components/CodexPermissionModePicker.tsx',
-  'src/ui/components/KimiPermissionModePicker.tsx',
-  'src/ui/components/OpenCodePermissionModePicker.tsx',
-  'src/ui/components/QoderPermissionModePicker.tsx',
-  'src/ui/components/BubblePermissionModePicker.tsx',
-]) {
+// 1. The unified permission picker (one component, per-provider mode maps)
+//    supports menuSide and has BOTH directional classes.
+{
+  const file = 'src/ui/components/PermissionModePicker.tsx';
   const src = read(file);
   assert.ok(/menuSide\??:\s*'top'\s*\|\s*'bottom'/.test(src), `${file}: missing menuSide prop`);
   assert.ok(src.includes("menuSide = 'top'"), `${file}: menuSide should default to 'top'`);
@@ -50,7 +45,7 @@ const prompt = read('src/ui/components/PromptInput.tsx');
 assert.ok(prompt.includes("menuSide = 'top'"), 'PromptInput: menuSide should default to top');
 assert.equal(
   (prompt.match(/menuSide=\{menuSide\}/g) || []).length,
-  7,
+  8,
   'PromptInput: model and permission pickers should receive menuSide={menuSide}'
 );
 // PromptInput supports a 'landing' surface that wraps the input in a gray tray
@@ -72,7 +67,7 @@ assert.ok(
 const newSession = read('src/ui/components/NewSessionView.tsx');
 assert.equal(
   (newSession.match(/menuSide="bottom"/g) || []).length,
-  7,
+  8,
   'NewSessionView: model picker and all permission pickers should pass menuSide="bottom"'
 );
 

@@ -40,13 +40,17 @@ import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import * as Dialog from './ui/dialog';
 import { PROVIDERS } from '../utils/provider';
 import type { AgentProvider } from '../types';
-import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
+import {
+  PermissionModePicker,
+  BUBBLE_PERMISSION_MODE_OPTIONS,
+  CLAUDE_PERMISSION_MODE_OPTIONS,
+  CODEX_PERMISSION_MODE_OPTIONS,
+  DEEPSEEK_PERMISSION_MODE_OPTIONS,
+  KIMI_PERMISSION_MODE_OPTIONS,
+  OPENCODE_PERMISSION_MODE_OPTIONS,
+  QODER_PERMISSION_MODE_OPTIONS,
+} from './PermissionModePicker';
 import { ClaudePlanModePill } from './ClaudePlanModePill';
-import { CodexPermissionModePicker } from './CodexPermissionModePicker';
-import { KimiPermissionModePicker } from './KimiPermissionModePicker';
-import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
-import { QoderPermissionModePicker } from './QoderPermissionModePicker';
-import { BubblePermissionModePicker } from './BubblePermissionModePicker';
 import {
   useComposerAgentSelection,
   type ComposerModelOption,
@@ -830,6 +834,10 @@ export function PromptInput({
             runtimeProvider === 'qoder'
               ? agentSelection.qoderPermissionMode
               : undefined,
+          deepseekPermissionMode:
+            runtimeProvider === 'deepseek'
+              ? agentSelection.deepseekPermissionMode
+              : undefined,
           bubblePermissionMode:
             runtimeProvider === 'bubble'
               ? agentSelection.bubbleExecutionMode === 'plan'
@@ -931,6 +939,10 @@ export function PromptInput({
         qoderPermissionMode:
           runtimeProvider === 'qoder'
             ? agentSelection.qoderPermissionMode
+            : undefined,
+        deepseekPermissionMode:
+          runtimeProvider === 'deepseek'
+            ? agentSelection.deepseekPermissionMode
             : undefined,
         bubblePermissionMode:
           runtimeProvider === 'bubble'
@@ -1495,8 +1507,9 @@ export function PromptInput({
                 <Plus className="h-4 w-4" />
               </button>
               {agentSelection.provider === 'codex' && (
-                <CodexPermissionModePicker
+                <PermissionModePicker
                   value={agentSelection.codexPermissionMode}
+                  options={CODEX_PERMISSION_MODE_OPTIONS}
                   onChange={agentSelection.setCodexPermissionMode}
                   menuSide={menuSide}
                 />
@@ -1513,8 +1526,10 @@ export function PromptInput({
                 />
               )}
               {agentSelection.provider === 'claude' && (
-                <ClaudePermissionModePicker
+                <PermissionModePicker
                   value={agentSelection.claudePermissionMode}
+                  options={CLAUDE_PERMISSION_MODE_OPTIONS}
+                  menuMinWidthClass="min-w-[176px]"
                   onChange={(mode) => {
                     agentSelection.setClaudePermissionMode(mode);
                     if (activeSession) {
@@ -1537,31 +1552,46 @@ export function PromptInput({
                 />
               )}
               {agentSelection.provider === 'opencode' && (
-                <OpenCodePermissionModePicker
+                <PermissionModePicker
                   value={agentSelection.opencodePermissionMode}
+                  options={OPENCODE_PERMISSION_MODE_OPTIONS}
                   onChange={agentSelection.setOpencodePermissionMode}
                   disabled={isBusy}
                   menuSide={menuSide}
                 />
               )}
               {(agentSelection.provider === 'kimi' || agentSelection.provider === 'grok') && (
-                <KimiPermissionModePicker
+                <PermissionModePicker
                   value={agentSelection.kimiPermissionMode}
+                  options={KIMI_PERMISSION_MODE_OPTIONS}
                   onChange={agentSelection.setKimiPermissionMode}
                   menuSide={menuSide}
                 />
               )}
               {agentSelection.provider === 'qoder' && (
-                <QoderPermissionModePicker
+                <PermissionModePicker
                   value={agentSelection.qoderPermissionMode}
+                  options={QODER_PERMISSION_MODE_OPTIONS}
+                  menuMinWidthClass="min-w-[176px]"
                   onChange={agentSelection.setQoderPermissionMode}
                   disabled={isBusy}
                   menuSide={menuSide}
                 />
               )}
+              {agentSelection.provider === 'deepseek' && (
+                <PermissionModePicker
+                  value={agentSelection.deepseekPermissionMode}
+                  options={DEEPSEEK_PERMISSION_MODE_OPTIONS}
+                  onChange={agentSelection.setDeepseekPermissionMode}
+                  disabled={isBusy}
+                  menuSide={menuSide}
+                />
+              )}
               {agentSelection.provider === 'bubble' && (
-                <BubblePermissionModePicker
+                <PermissionModePicker
                   value={agentSelection.bubblePermissionMode}
+                  options={BUBBLE_PERMISSION_MODE_OPTIONS}
+                  menuMinWidthClass="min-w-[176px]"
                   onChange={agentSelection.setBubblePermissionMode}
                   disabled={isBusy}
                   menuSide={menuSide}

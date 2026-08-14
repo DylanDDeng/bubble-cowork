@@ -44,6 +44,7 @@ import {
   KimiThinking,
   OpenCodePermissionMode,
   QoderPermissionMode,
+  DeepseekPermissionMode,
   BubblePermissionMode,
 } from '../../shared/types';
 import {
@@ -95,6 +96,10 @@ import {
   loadPreferredQoderPermissionMode,
   savePreferredQoderPermissionMode,
 } from '../utils/qoder-permission';
+import {
+  loadPreferredDeepseekPermissionMode,
+  savePreferredDeepseekPermissionMode,
+} from '../utils/deepseek-permission';
 import {
   loadPreferredBubblePermissionMode,
   savePreferredBubblePermissionMode,
@@ -1246,6 +1251,12 @@ export function useComposerAgentSelection(input?: {
   const [qoderPermissionMode, setQoderPermissionModeState] = useState<QoderPermissionMode>(() =>
     loadPreferredQoderPermissionMode()
   );
+  // DeepSeek keeps no per-session mode either (the runtime pins it via env at
+  // spawn; a change respawns through the ipc config-drift path), so the
+  // composer preference is the single source — same as kimi/grok/qoder.
+  const [deepseekPermissionMode, setDeepseekPermissionModeState] = useState<DeepseekPermissionMode>(() =>
+    loadPreferredDeepseekPermissionMode()
+  );
   // Bubble picker preference (default/full-access) is composer-owned like
   // qoder; plan is a separate execution-mode axis like claude/codex, seeded
   // and resynced from the session's live mode so plan approval flips it back.
@@ -1317,6 +1328,11 @@ export function useComposerAgentSelection(input?: {
     savePreferredQoderPermissionMode(mode);
   }, []);
 
+  const setDeepseekPermissionMode = useCallback((mode: DeepseekPermissionMode) => {
+    setDeepseekPermissionModeState(mode);
+    savePreferredDeepseekPermissionMode(mode);
+  }, []);
+
   const setBubblePermissionMode = useCallback((mode: BubblePermissionMode) => {
     setBubblePermissionModeState(mode);
     savePreferredBubblePermissionMode(mode);
@@ -1366,6 +1382,8 @@ export function useComposerAgentSelection(input?: {
     setOpencodePermissionMode,
     qoderPermissionMode,
     setQoderPermissionMode,
+    deepseekPermissionMode,
+    setDeepseekPermissionMode,
     bubblePermissionMode,
     setBubblePermissionMode,
     bubbleExecutionMode,

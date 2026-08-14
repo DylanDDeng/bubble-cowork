@@ -45,13 +45,11 @@ import type {
  *
  * Contract notes (pre-release wire, pinned 0.1.0-rc.6):
  * - No mid-turn cancel on the wire: stop = close the runtime (EOF → SIGTERM →
- *   SIGKILL ladder inside the SDK client). Sessions persist as JSONL under
- *   the profile, but that log is write-only in rc.6 — a fresh runtime cannot
- *   rehydrate it (reopening a persisted id is an id-collision error), so
- *   every start mints a fresh session id. Conversation continuity across a
- *   respawn comes from the ipc continue path instead, which inlines the
- *   stored transcript into the first prompt (buildDeepseekRestoredContextText
- *   in ipc-handlers.ts).
+ *   SIGKILL ladder inside the SDK client). The rc.6 JSON-RPC server omits its
+ *   core agents.resume() path, so the Aegis runtime bin installs a narrow
+ *   create-or-resume shim before boot. Same-cwd restarts restore the complete
+ *   persisted DSH log; missing or wrong-cwd logs fail loudly instead of
+ *   silently creating a context-disconnected replacement.
  * - No approval channel: sandbox escalations fail closed (profile pins
  *   approval policy `never`); no permission_request events are ever emitted.
  * - Model and sandbox mode are fixed per spawned runtime (initialize + env);
@@ -187,15 +185,17 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
     const permissionMode = normalizeDeepseekPermissionMode(input.deepseekPermissionMode);
     const model = input.model?.trim() || getDeepseekModelConfig().defaultModel || undefined;
-    const harness = await this.spawnHarness(input.cwd, model, permissionMode);
+    const harness = await this.spawnHarness(
+      input.cwd,
+      model,
+      permissionMode,
+      input.resumeSessionId
+    );
 
-    // Always mint a fresh session id. Reusing the stored id looked like a
-    // resume path, but dsh's JSONL persistence is write-only in rc.6: a new
-    // runtime opening a known id trips its guard — `already has a persisted
-    // log on disk that does not match this live session (id collision)` — and
-    // the first prompt rejects. Context does not survive a respawn either
-    // way; input.resumeSessionId is deliberately ignored.
-    const session = harness.session();
+    // session(id) is only a client-side handle; the Aegis runtime shim decides
+    // on the first prompt whether that durable identity must be resumed or a
+    // new identity created. Without a stored id the SDK mints a fresh session.
+    const session = harness.session(input.resumeSessionId);
     const subscription = harness.client.subscribeSessionTree(session.id);
 
     const active: ActiveDeepseekSession = {
@@ -234,7 +234,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     return {
       threadId: input.threadId,
       provider: 'deepseek',
-      providerSessionId: session.id,
+      providerSessionId: active.providerSessionId,
       status: 'running',
       model,
     };
@@ -448,7 +448,8 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   private async spawnHarness(
     cwd: string,
     model: string | undefined,
-    permissionMode: DeepseekPermissionMode
+    permissionMode: DeepseekPermissionMode,
+    resumeSessionId?: string
   ): Promise<DshHarness> {
     const profileDir = resolveDeepseekProfileDir();
     if (!profileDir) {
@@ -475,6 +476,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
           // Electron's process.execPath is Electron itself; run as plain node.
           ELECTRON_RUN_AS_NODE: '1',
           DSH_SESSION_ROOT: path.join(profileDir, '.sessions'),
+          ...(resumeSessionId ? { AEGIS_DSH_RESUME_SESSION_ID: resumeSessionId } : {}),
         },
       },
       cwd,
