@@ -196,6 +196,8 @@ export interface GrokModelConfig {
     isDefault: boolean;
     maxContextSize?: number | null;
     capabilities?: string[];
+    /** Reasoning effort tiers this model supports (models_cache.json), e.g. ['low','medium','high','xhigh']. */
+    reasoningEfforts?: GrokReasoningEffort[];
   }>;
 }
 

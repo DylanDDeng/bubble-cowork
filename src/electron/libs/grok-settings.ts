@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { readFileSync } from 'fs';
 import path from 'path';
-import type { GrokModelConfig } from '../../shared/types';
+import type { GrokModelConfig, GrokReasoningEffort } from '../../shared/types';
 import { buildGrokEnv, GROK_HOME_DIR, resolveGrokBinary } from './grok-cli';
 
 const EMPTY_GROK_MODEL_CONFIG: GrokModelConfig = {
@@ -38,22 +38,52 @@ function parseDefaultModel(output: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
+const GROK_REASONING_EFFORTS: GrokReasoningEffort[] = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+];
+
 /**
- * Read a model's context window size from ~/.grok/models_cache.json, which
- * the CLI populates from the model catalog (context_window, e.g. 500000 for
- * grok-4.6). `grok models` does not print it, so the cache is the source of
- * truth for the context ring's denominator. Returns null on any miss.
+ * Read a model's context window size and reasoning-effort tiers from
+ * ~/.grok/models_cache.json, which the CLI populates from the model catalog
+ * (context_window = 500000 for grok-4.6; reasoning_efforts lists the tiers the
+ * model actually supports). `grok models` prints neither, so the cache is the
+ * source of truth. Both fall back to null/empty on any miss.
  */
-function readModelsCacheContextWindow(modelName: string): number | null {
+function readModelsCacheEntry(modelName: string): {
+  contextWindow: number | null;
+  reasoningEfforts: GrokReasoningEffort[];
+} {
   try {
     const raw = readFileSync(path.join(GROK_HOME_DIR, 'models_cache.json'), 'utf8');
     const parsed = JSON.parse(raw) as {
-      models?: Record<string, { info?: { context_window?: unknown } }>;
+      models?: Record<
+        string,
+        {
+          info?: {
+            context_window?: unknown;
+            reasoning_efforts?: Array<{ value?: unknown }>;
+          };
+        }
+      >;
     };
-    const value = parsed.models?.[modelName]?.info?.context_window;
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+    const info = parsed.models?.[modelName]?.info;
+    const contextWindow =
+      typeof info?.context_window === 'number' && Number.isFinite(info.context_window) && info.context_window > 0
+        ? info.context_window
+        : null;
+    const reasoningEfforts = (info?.reasoning_efforts ?? [])
+      .map((entry) => entry?.value)
+      .filter((value): value is GrokReasoningEffort =>
+        typeof value === 'string' && (GROK_REASONING_EFFORTS as string[]).includes(value)
+      );
+    return { contextWindow, reasoningEfforts };
   } catch {
-    return null;
+    return { contextWindow: null, reasoningEfforts: [] };
   }
 }
 
@@ -101,15 +131,19 @@ export async function getGrokModelConfig(): Promise<GrokModelConfig> {
     modelNames.push(defaultModel);
   }
 
-  const availableModels: GrokAvailableModel[] = modelNames.map((name) => ({
-    name,
-    label: name,
-    provider: null,
-    enabled: true,
-    isDefault: defaultModel === name,
-    maxContextSize: readModelsCacheContextWindow(name),
-    capabilities: [],
-  }));
+  const availableModels: GrokAvailableModel[] = modelNames.map((name) => {
+    const entry = readModelsCacheEntry(name);
+    return {
+      name,
+      label: name,
+      provider: null,
+      enabled: true,
+      isDefault: defaultModel === name,
+      maxContextSize: entry.contextWindow,
+      capabilities: [],
+      reasoningEfforts: entry.reasoningEfforts,
+    };
+  });
 
   return {
     defaultModel,

@@ -4,15 +4,17 @@ import type { GrokReasoningEffort } from '../types';
 const STORAGE_KEY = 'cowork.preferredGrokReasoningEfforts';
 
 /**
- * UI-facing efforts for Grok Build.
- * Live ACP model metadata for grok-4.5 only advertises low / medium / high
- * (default high). Docs may mention xhigh for /effort, but the agent does not
- * list it — keep the picker aligned with what the CLI actually supports.
+ * Fallback effort list for Grok Build, used only when a model's own
+ * reasoning_efforts are unavailable (e.g. the "Default" picker entry, which
+ * carries no concrete model name). The real per-model tiers come from
+ * ~/.grok/models_cache.json: grok-4.6 advertises xhigh/high/medium/low,
+ * grok-4.5 advertises high/medium/low.
  */
 export const GROK_REASONING_EFFORT_OPTIONS: GrokReasoningEffort[] = [
   'low',
   'medium',
   'high',
+  'xhigh',
 ];
 
 export const GROK_REASONING_EFFORT_LABELS: Record<GrokReasoningEffort, string> = {

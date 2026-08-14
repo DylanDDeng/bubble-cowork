@@ -9,6 +9,7 @@ import type {
   ClaudeReasoningEffort,
   CodexReasoningEffort,
   CodexModelConfig,
+  GrokModelConfig,
   GrokReasoningEffort,
   KimiThinking,
 } from '../../shared/types';
@@ -252,6 +253,15 @@ function codexEffortOptionsForModel(
 }
 const claudeEffortOptions: ClaudeReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const grokEffortOptions: GrokReasoningEffort[] = GROK_REASONING_EFFORT_OPTIONS;
+
+function grokEffortOptionsForModel(
+  models: GrokModelConfig['availableModels'] | undefined,
+  model: string | null | undefined
+): GrokReasoningEffort[] {
+  const matched = (models ?? []).find((entry) => entry.name === model);
+  const supported = matched?.reasoningEfforts ?? [];
+  return supported.length > 0 ? supported : grokEffortOptions;
+}
 
 export function ComposerModelPicker({
   value,
@@ -816,12 +826,14 @@ const KimiAgentSubContent: FC<{
 const GrokAgentSubContent: FC<{
   modelOptions: ComposerModelOption[];
   selectedModel: string | null;
+  grokModels?: GrokModelConfig['availableModels'];
   grokReasoningEffort: GrokReasoningEffort | null;
   onSelectModel: (option: ComposerModelOption) => void;
   onGrokReasoningEffortChange: (effort: GrokReasoningEffort) => void;
 }> = ({
   modelOptions,
   selectedModel,
+  grokModels,
   grokReasoningEffort,
   onSelectModel,
   onGrokReasoningEffortChange,
@@ -831,7 +843,7 @@ const GrokAgentSubContent: FC<{
       <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
         Reasoning
       </div>
-      {grokEffortOptions.map((effort) => {
+      {grokEffortOptionsForModel(grokModels, selectedModel).map((effort) => {
         const isSelected = grokReasoningEffort === effort;
         return (
           <DropdownMenu.Item
@@ -1033,6 +1045,7 @@ export function ComposerAgentModelPicker({
   onModelChange,
   // Agent-specific props
   codexModels,
+  grokModels,
   claudeReasoningEffort,
   onClaudeReasoningEffortChange,
   codexReasoningEffort,
@@ -1055,6 +1068,7 @@ export function ComposerAgentModelPicker({
   onAgentChange: (provider: AgentProvider) => void;
   onModelChange: (option: ComposerModelOption, provider?: AgentProvider) => void;
   codexModels?: CodexModelConfig['availableModels'];
+  grokModels?: GrokModelConfig['availableModels'];
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
   onClaudeReasoningEffortChange?: (effort: ClaudeReasoningEffort) => void;
   codexReasoningEffort?: CodexReasoningEffort | null;
@@ -1272,6 +1286,7 @@ export function ComposerAgentModelPicker({
                       <GrokAgentSubContent
                         modelOptions={modelOptions}
                         selectedModel={modelValue}
+                        grokModels={grokModels}
                         grokReasoningEffort={grokReasoningEffort ?? null}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
                         onGrokReasoningEffortChange={(effort) => {

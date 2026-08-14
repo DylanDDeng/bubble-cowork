@@ -1622,6 +1622,7 @@ export function PromptInput({
                 onAgentChange={handleAgentChange}
                 onModelChange={handleModelChange}
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
+                grokModels={agentSelection.grokModels.length > 0 ? agentSelection.grokModels : undefined}
                 claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
                 onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}

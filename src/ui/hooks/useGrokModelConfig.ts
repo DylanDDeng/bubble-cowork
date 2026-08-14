@@ -33,6 +33,7 @@ function normalizeGrokModelConfig(raw: Partial<GrokModelConfig> | null | undefin
               capabilities: (model.capabilities || []).filter(
                 (value): value is string => typeof value === 'string' && value.trim().length > 0
               ),
+              reasoningEfforts: Array.isArray(model.reasoningEfforts) ? model.reasoningEfforts : [],
             };
           })
           .filter((model): model is NonNullable<typeof model> => Boolean(model))
@@ -45,6 +46,7 @@ function normalizeGrokModelConfig(raw: Partial<GrokModelConfig> | null | undefin
             isDefault: defaultModel === name,
             maxContextSize: null,
             capabilities: [],
+            reasoningEfforts: [],
           })
         );
 

@@ -1074,6 +1074,12 @@ export function useComposerAgentSelection(input?: {
     return enabled.length > 0 ? enabled : codexModelConfig.availableModels;
   }, [codexModelConfig]);
 
+  const grokModels = useMemo(() => {
+    // Keep enabled models in the order the cache reports them.
+    const enabled = grokModelConfig.availableModels.filter((model) => model.enabled !== false);
+    return enabled.length > 0 ? enabled : grokModelConfig.availableModels;
+  }, [grokModelConfig]);
+
   // Fast mode state
   const supportsCodexFastModeCheck = useMemo(
     () => provider === 'codex' && supportsCodexFastMode(codexModelConfig, model ?? undefined),
@@ -1260,6 +1266,7 @@ export function useComposerAgentSelection(input?: {
     selectModel,
     codexModelConfig,
     codexModels,
+    grokModels,
     claudeReasoningEffort,
     setClaudeReasoningEffort,
     codexReasoningEffort,
