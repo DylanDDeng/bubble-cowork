@@ -13,6 +13,7 @@ import type {
   ClaudeCompatibleProvidersConfig,
   ClaudeReasoningEffort,
   CodexReasoningEffort,
+  DeepseekReasoningEffort,
   GrokReasoningEffort,
   GrokPermissionMode,
   ProjectTreeNode,
@@ -96,6 +97,8 @@ export type {
   GrokModelConfig,
   DeepseekModelConfig,
   DeepseekPermissionMode,
+  DeepseekAgentPreset,
+  DeepseekReasoningEffort,
   PiModelConfig,
   BubbleModelConfig,
   BubbleProvidersConfig,
@@ -271,6 +274,8 @@ export interface SessionView {
   grokPermissionMode?: import('../shared/types').GrokPermissionMode;
   grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
   deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
+  deepseekAgentPreset?: import('../shared/types').DeepseekAgentPreset;
+  deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   pinned?: boolean;
   folderPath?: string | null;

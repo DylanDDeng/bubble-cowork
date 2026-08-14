@@ -543,6 +543,11 @@ contextBridge.exposeInMainWorld('electron', {
   ): Promise<ProviderListSkillsResult> => {
     return ipcRenderer.invoke('grok-list-skills', input);
   },
+  listDeepseekSkills: (
+    input: Omit<ProviderListSkillsInput, 'provider'>
+  ): Promise<ProviderListSkillsResult> => {
+    return ipcRenderer.invoke('deepseek-list-skills', input);
+  },
   readCodexPlugin: (
     input: Omit<ProviderReadPluginInput, 'provider'>
   ): Promise<ProviderReadPluginResult> => {

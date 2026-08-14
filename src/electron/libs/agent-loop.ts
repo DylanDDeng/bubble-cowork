@@ -167,6 +167,8 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       grokPermissionMode: options.grokPermissionMode,
       grokReasoningEffort: options.grokReasoningEffort,
       deepseekPermissionMode: options.deepseekPermissionMode,
+      deepseekAgentPreset: options.deepseekAgentPreset,
+      deepseekReasoningEffort: options.deepseekReasoningEffort,
       opencodePermissionMode: options.opencodePermissionMode,
       qoderPermissionMode: options.qoderPermissionMode,
       bubblePermissionMode: options.bubblePermissionMode,
@@ -292,6 +294,8 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
             grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
             deepseekPermissionMode:
               sendOptions?.deepseekPermissionMode ?? options.deepseekPermissionMode,
+            deepseekReasoningEffort:
+              sendOptions?.deepseekReasoningEffort ?? options.deepseekReasoningEffort,
             opencodePermissionMode:
               sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
             qoderPermissionMode: sendOptions?.qoderPermissionMode ?? options.qoderPermissionMode,

@@ -51,6 +51,7 @@ import {
   QODER_PERMISSION_MODE_OPTIONS,
 } from './PermissionModePicker';
 import { ClaudePlanModePill } from './ClaudePlanModePill';
+import { DeepseekAgentPresetPicker } from './DeepseekAgentPresetPicker';
 import {
   useComposerAgentSelection,
   type ComposerModelOption,
@@ -277,6 +278,8 @@ export function PromptInput({
       activeSession?.provider === 'claude' ? activeSession.claudeReasoningEffort || null : null,
     grokReasoningEffort:
       activeSession?.provider === 'grok' ? activeSession.grokReasoningEffort || null : null,
+    deepseekAgentPreset:
+      activeSession?.provider === 'deepseek' ? activeSession.deepseekAgentPreset || null : null,
     onSelectionChange: handleSessionAgentSelectionChange,
   });
   const runtimeProvider = agentSelection.provider;
@@ -838,6 +841,14 @@ export function PromptInput({
             runtimeProvider === 'deepseek'
               ? agentSelection.deepseekPermissionMode
               : undefined,
+          deepseekAgentPreset:
+            runtimeProvider === 'deepseek'
+              ? agentSelection.deepseekAgentPreset
+              : undefined,
+          deepseekReasoningEffort:
+            runtimeProvider === 'deepseek'
+              ? agentSelection.deepseekReasoningEffort
+              : undefined,
           bubblePermissionMode:
             runtimeProvider === 'bubble'
               ? agentSelection.bubbleExecutionMode === 'plan'
@@ -943,6 +954,10 @@ export function PromptInput({
         deepseekPermissionMode:
           runtimeProvider === 'deepseek'
             ? agentSelection.deepseekPermissionMode
+            : undefined,
+        deepseekReasoningEffort:
+          runtimeProvider === 'deepseek'
+            ? agentSelection.deepseekReasoningEffort
             : undefined,
         bubblePermissionMode:
           runtimeProvider === 'bubble'
@@ -1579,6 +1594,15 @@ export function PromptInput({
                 />
               )}
               {agentSelection.provider === 'deepseek' && (
+                <DeepseekAgentPresetPicker
+                  value={agentSelection.deepseekAgentPreset}
+                  onChange={agentSelection.setDeepseekAgentPreset}
+                  disabled={isBusy}
+                  readOnly={!activeSession?.isDraft}
+                  menuSide={menuSide}
+                />
+              )}
+              {agentSelection.provider === 'deepseek' && (
                 <PermissionModePicker
                   value={agentSelection.deepseekPermissionMode}
                   options={DEEPSEEK_PERMISSION_MODE_OPTIONS}
@@ -1663,6 +1687,8 @@ export function PromptInput({
                 onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                 grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
                 onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
+                deepseekReasoningEffort={agentSelection.deepseekReasoningEffort}
+                onDeepseekReasoningEffortChange={agentSelection.setDeepseekReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
                 kimiThinkingOptions={agentSelection.kimiThinkingOptions}

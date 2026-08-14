@@ -23,7 +23,9 @@ import type {
   KimiThinking,
   GrokPermissionMode,
   GrokReasoningEffort,
+  DeepseekAgentPreset,
   DeepseekPermissionMode,
+  DeepseekReasoningEffort,
   OpenCodePermissionMode,
   QoderPermissionMode,
   BubblePermissionMode,
@@ -90,6 +92,8 @@ export interface ProviderSessionStartInput {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   deepseekPermissionMode?: DeepseekPermissionMode;
+  deepseekAgentPreset?: DeepseekAgentPreset;
+  deepseekReasoningEffort?: DeepseekReasoningEffort;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -116,6 +120,7 @@ export interface ProviderSendTurnInput {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   deepseekPermissionMode?: DeepseekPermissionMode;
+  deepseekReasoningEffort?: DeepseekReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;

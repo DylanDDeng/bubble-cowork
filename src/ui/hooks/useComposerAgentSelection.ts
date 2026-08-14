@@ -44,7 +44,9 @@ import {
   KimiThinking,
   OpenCodePermissionMode,
   QoderPermissionMode,
+  DeepseekAgentPreset,
   DeepseekPermissionMode,
+  DeepseekReasoningEffort,
   BubblePermissionMode,
 } from '../../shared/types';
 import {
@@ -97,9 +99,17 @@ import {
   savePreferredQoderPermissionMode,
 } from '../utils/qoder-permission';
 import {
+  loadPreferredDeepseekAgentPreset,
+  savePreferredDeepseekAgentPreset,
+} from '../utils/deepseek-agent-preset';
+import {
   loadPreferredDeepseekPermissionMode,
   savePreferredDeepseekPermissionMode,
 } from '../utils/deepseek-permission';
+import {
+  loadPreferredDeepseekReasoningEffort,
+  savePreferredDeepseekReasoningEffort,
+} from '../utils/deepseek-reasoning';
 import {
   loadPreferredBubblePermissionMode,
   savePreferredBubblePermissionMode,
@@ -571,6 +581,7 @@ export function useComposerAgentSelection(input?: {
   opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
   grokReasoningEffort?: GrokReasoningEffort | null;
+  deepseekAgentPreset?: DeepseekAgentPreset | null;
   onSelectionChange?: (selection: AgentModelSelection) => void;
 }) {
   const claudeModelConfig = useClaudeModelConfig();
@@ -1257,6 +1268,12 @@ export function useComposerAgentSelection(input?: {
   const [deepseekPermissionMode, setDeepseekPermissionModeState] = useState<DeepseekPermissionMode>(() =>
     loadPreferredDeepseekPermissionMode()
   );
+  const [deepseekAgentPreset, setDeepseekAgentPresetState] = useState<DeepseekAgentPreset>(() =>
+    input?.deepseekAgentPreset || loadPreferredDeepseekAgentPreset()
+  );
+  const [deepseekReasoningEffort, setDeepseekReasoningEffortState] = useState<DeepseekReasoningEffort>(() =>
+    loadPreferredDeepseekReasoningEffort()
+  );
   // Bubble picker preference (default/full-access) is composer-owned like
   // qoder; plan is a separate execution-mode axis like claude/codex, seeded
   // and resynced from the session's live mode so plan approval flips it back.
@@ -1291,6 +1308,12 @@ export function useComposerAgentSelection(input?: {
   useEffect(() => {
     setOpencodePermissionModeState(input?.opencodePermissionMode || loadPreferredOpencodePermissionMode());
   }, [input?.opencodePermissionMode, input?.selectionKey]);
+
+  useEffect(() => {
+    setDeepseekAgentPresetState(
+      input?.deepseekAgentPreset || loadPreferredDeepseekAgentPreset()
+    );
+  }, [input?.deepseekAgentPreset, input?.selectionKey]);
 
   const setClaudePermissionMode = useCallback(
     (mode: ClaudePermissionMode, options?: { savePreference?: boolean }) => {
@@ -1331,6 +1354,16 @@ export function useComposerAgentSelection(input?: {
   const setDeepseekPermissionMode = useCallback((mode: DeepseekPermissionMode) => {
     setDeepseekPermissionModeState(mode);
     savePreferredDeepseekPermissionMode(mode);
+  }, []);
+
+  const setDeepseekAgentPreset = useCallback((preset: DeepseekAgentPreset) => {
+    setDeepseekAgentPresetState(preset);
+    savePreferredDeepseekAgentPreset(preset);
+  }, []);
+
+  const setDeepseekReasoningEffort = useCallback((effort: DeepseekReasoningEffort) => {
+    setDeepseekReasoningEffortState(effort);
+    savePreferredDeepseekReasoningEffort(effort);
   }, []);
 
   const setBubblePermissionMode = useCallback((mode: BubblePermissionMode) => {
@@ -1384,6 +1417,10 @@ export function useComposerAgentSelection(input?: {
     setQoderPermissionMode,
     deepseekPermissionMode,
     setDeepseekPermissionMode,
+    deepseekAgentPreset,
+    setDeepseekAgentPreset,
+    deepseekReasoningEffort,
+    setDeepseekReasoningEffort,
     bubblePermissionMode,
     setBubblePermissionMode,
     bubbleExecutionMode,

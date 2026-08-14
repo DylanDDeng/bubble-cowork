@@ -107,6 +107,10 @@ export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high'
  * a wider retry; danger-full-access never asks.
  */
 export type DeepseekPermissionMode = 'workspace-write' | 'danger-full-access';
+/** DeepSeek Harness agent composition, matching the official Web UI presets. */
+export type DeepseekAgentPreset = 'standard' | 'code' | 'minimal' | 'cordis';
+/** DeepSeek Harness reasoning policy; forwarded to the runtime profile. */
+export type DeepseekReasoningEffort = 'off' | 'high' | 'max';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
 // Mirrors Bubble SDK's PermissionMode union (runTurn({ mode })).
 export type BubblePermissionMode = 'default' | 'plan' | 'bypassPermissions';
@@ -947,6 +951,8 @@ export interface SessionStartPayload {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   deepseekPermissionMode?: DeepseekPermissionMode;
+  deepseekAgentPreset?: DeepseekAgentPreset;
+  deepseekReasoningEffort?: DeepseekReasoningEffort;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -1025,6 +1031,7 @@ export interface SessionContinuePayload {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   deepseekPermissionMode?: DeepseekPermissionMode;
+  deepseekReasoningEffort?: DeepseekReasoningEffort;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -1285,6 +1292,8 @@ export interface SessionInfo {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   deepseekPermissionMode?: DeepseekPermissionMode;
+  deepseekAgentPreset?: DeepseekAgentPreset;
+  deepseekReasoningEffort?: DeepseekReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
@@ -1341,6 +1350,8 @@ export interface SessionStatusPayload {
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
   deepseekPermissionMode?: DeepseekPermissionMode;
+  deepseekAgentPreset?: DeepseekAgentPreset;
+  deepseekReasoningEffort?: DeepseekReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
@@ -1573,6 +1584,8 @@ export type StreamMessage =
       usage: Usage;
       model?: string;
       modelUsage?: Record<string, ClaudeModelUsage>;
+      /** Provider-specific usage fold version for safe historical repair. */
+      usageAccounting?: string;
     })
   | (StreamMessageBase & {
       type: 'plan_update';

@@ -498,6 +498,7 @@ function freshSessionViewFromInfo(info: import('../../shared/types').SessionInfo
     kimiRuntime: info.kimiRuntime,
     grokPermissionMode: info.grokPermissionMode,
     grokReasoningEffort: info.grokReasoningEffort,
+    deepseekAgentPreset: info.deepseekAgentPreset,
     opencodePermissionMode: info.opencodePermissionMode,
     bubblePermissionMode: info.bubblePermissionMode,
     pinned: info.pinned || false,
@@ -546,6 +547,7 @@ function createDraftSessionView(
     | 'codexReasoningEffort'
     | 'codexFastMode'
     | 'kimiPermissionMode'
+    | 'deepseekAgentPreset'
     | 'opencodePermissionMode'
     | 'teamMode'
     | 'teamId'
@@ -590,6 +592,7 @@ function createDraftSessionView(
     codexReasoningEffort: options?.codexReasoningEffort,
     codexFastMode: options?.codexFastMode,
     kimiPermissionMode: options?.kimiPermissionMode,
+    deepseekAgentPreset: options?.deepseekAgentPreset,
     opencodePermissionMode: options?.opencodePermissionMode,
     hiddenFromThreads: false,
     messages: [],
@@ -2575,6 +2578,7 @@ function handleSessionList(
       kimiRuntime: session.kimiRuntime,
       grokPermissionMode: session.grokPermissionMode,
       grokReasoningEffort: session.grokReasoningEffort,
+      deepseekAgentPreset: session.deepseekAgentPreset,
       opencodePermissionMode: session.opencodePermissionMode,
       bubblePermissionMode: session.bubblePermissionMode,
       pinned: session.pinned || false,
@@ -2680,6 +2684,7 @@ function handleSessionStatus(
     kimiPermissionMode?: SessionInfo['kimiPermissionMode'];
     grokPermissionMode?: SessionInfo['grokPermissionMode'];
     grokReasoningEffort?: SessionInfo['grokReasoningEffort'];
+    deepseekAgentPreset?: SessionInfo['deepseekAgentPreset'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
     bubblePermissionMode?: SessionInfo['bubblePermissionMode'];
     hiddenFromThreads?: boolean;
@@ -2717,6 +2722,7 @@ function handleSessionStatus(
     kimiPermissionMode,
     grokPermissionMode,
     grokReasoningEffort,
+    deepseekAgentPreset,
     opencodePermissionMode,
     bubblePermissionMode,
     hiddenFromThreads,
@@ -2812,6 +2818,10 @@ function handleSessionStatus(
             grokPermissionMode !== undefined ? grokPermissionMode : session.grokPermissionMode,
           grokReasoningEffort:
             grokReasoningEffort !== undefined ? grokReasoningEffort : session.grokReasoningEffort,
+          deepseekAgentPreset:
+            deepseekAgentPreset !== undefined
+              ? deepseekAgentPreset
+              : session.deepseekAgentPreset,
           opencodePermissionMode:
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
@@ -2878,6 +2888,7 @@ function handleSessionStatus(
       kimiPermissionMode,
       grokPermissionMode,
       grokReasoningEffort,
+      deepseekAgentPreset,
       opencodePermissionMode,
       hiddenFromThreads: hiddenFromThreads === true,
       channelId: normalizeWorkspaceChannelId(channelId),

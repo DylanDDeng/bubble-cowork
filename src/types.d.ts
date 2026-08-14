@@ -210,6 +210,7 @@ declare global {
     listQoderSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listBubbleSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listGrokSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
+    listDeepseekSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     readCodexPlugin: (input: Omit<ProviderReadPluginInput, 'provider'>) => Promise<ProviderReadPluginResult>;
     readCodexSkillContent: (skillPath: string) => Promise<{ ok: boolean; content?: string; message?: string }>;
     installCodexPlugin: (input: Omit<ProviderInstallPluginInput, 'provider'>) => Promise<void>;

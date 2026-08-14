@@ -8,6 +8,9 @@ import {
   resolveDeepseekProfileDir,
   resolveDeepseekRuntimeEntry,
 } from '../deepseek-cli';
+import { listDeepseekSkills } from '../deepseek-skills';
+import { estimateDeepseekUsageCost } from '../deepseek-pricing';
+import { normalizeDeepseekAgentPreset } from '../../../shared/deepseek-agent-preset';
 import {
   loadDeepseekSdk,
   type DshContentBlock,
@@ -29,8 +32,13 @@ import type {
 } from './types';
 import type {
   Attachment,
+  DeepseekAgentPreset,
   DeepseekPermissionMode,
+  DeepseekReasoningEffort,
   PermissionResult,
+  ProviderComposerCapabilities,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
   StreamMessage,
 } from '../../../shared/types';
 
@@ -52,8 +60,8 @@ import type {
  *   silently creating a context-disconnected replacement.
  * - No approval channel: sandbox escalations fail closed (profile pins
  *   approval policy `never`); no permission_request events are ever emitted.
- * - Model and sandbox mode are fixed per spawned runtime (initialize + env);
- *   a switch respawns via the ipc config-drift path.
+ * - Model, sandbox mode and reasoning effort are fixed per spawned runtime
+ *   (initialize + env); a switch respawns via the ipc config-drift path.
  */
 
 interface TurnState {
@@ -62,6 +70,8 @@ interface TurnState {
   currentThinking?: { blockIndex: number };
   currentText?: { blockIndex: number };
   usage: { input: number; output: number; cacheRead: number; reasoning: number };
+  /** rc.6 emits the same sample as a usage chunk and committed message. */
+  usageByStep: Map<string, { input: number; output: number; cacheRead: number; reasoning: number }>;
   endReason?: { kind: string; message?: string };
   startedAt: number;
 }
@@ -73,6 +83,8 @@ interface ActiveDeepseekSession {
   cwd: string;
   model?: string;
   permissionMode: DeepseekPermissionMode;
+  agentPreset: DeepseekAgentPreset;
+  reasoningEffort: DeepseekReasoningEffort;
   harness: DshHarness;
   session: DshHarnessSession;
   /**
@@ -92,7 +104,7 @@ interface ActiveDeepseekSession {
 
 const CAPABILITIES: ProviderAdapterCapabilities = {
   sessionModelSwitch: false,
-  skillDiscovery: false,
+  skillDiscovery: true,
   pluginDiscovery: false,
   mcpServers: false,
   imageAttachments: false,
@@ -123,6 +135,10 @@ function getArray(value: unknown): unknown[] {
 
 function normalizeDeepseekPermissionMode(value: unknown): DeepseekPermissionMode {
   return value === 'danger-full-access' ? 'danger-full-access' : 'workspace-write';
+}
+
+function normalizeDeepseekReasoningEffort(value: unknown): DeepseekReasoningEffort {
+  return value === 'off' || value === 'high' ? value : 'max';
 }
 
 /**
@@ -182,13 +198,37 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
 
   private sessions = new Map<string, ActiveDeepseekSession>();
 
+  getComposerCapabilities(): ProviderComposerCapabilities {
+    return {
+      provider: 'deepseek',
+      supportsSkillMentions: false,
+      supportsSkillDiscovery: true,
+      supportsNativeSlashCommandDiscovery: true,
+      supportsPluginMentions: false,
+      supportsPluginDiscovery: false,
+      supportsRuntimeModelList: false,
+    };
+  }
+
+  async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
+    return {
+      skills: listDeepseekSkills(input.cwd),
+      source: 'deepseek-harness',
+      cached: false,
+    };
+  }
+
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
     const permissionMode = normalizeDeepseekPermissionMode(input.deepseekPermissionMode);
+    const agentPreset = normalizeDeepseekAgentPreset(input.deepseekAgentPreset);
+    const reasoningEffort = normalizeDeepseekReasoningEffort(input.deepseekReasoningEffort);
     const model = input.model?.trim() || getDeepseekModelConfig().defaultModel || undefined;
     const harness = await this.spawnHarness(
       input.cwd,
       model,
       permissionMode,
+      agentPreset,
+      reasoningEffort,
       input.resumeSessionId
     );
 
@@ -205,6 +245,8 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       cwd: input.cwd,
       model,
       permissionMode,
+      agentPreset,
+      reasoningEffort,
       harness,
       session,
       subscription,
@@ -275,6 +317,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     active.turn = {
       nextBlockIndex: 0,
       usage: { input: 0, output: 0, cacheRead: 0, reasoning: 0 },
+      usageByStep: new Map(),
       startedAt: Date.now(),
     };
     this.emit({ type: 'status_change', threadId: input.threadId, status: 'running' });
@@ -295,7 +338,18 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
           type: 'result',
           subtype: failed ? 'error' : 'success',
           duration_ms: turn ? Date.now() - turn.startedAt : 0,
-          total_cost_usd: 0,
+          total_cost_usd: turn
+            ? estimateDeepseekUsageCost(
+                active.model,
+                {
+                  inputTokens: turn.usage.input,
+                  outputTokens: turn.usage.output,
+                  cacheReadTokens: turn.usage.cacheRead,
+                  reasoningTokens: turn.usage.reasoning,
+                },
+                turn.startedAt
+              )
+            : 0,
           usage: {
             input_tokens: turn?.usage.input ?? 0,
             output_tokens: turn?.usage.output ?? 0,
@@ -303,6 +357,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
             reasoning_output_tokens: turn?.usage.reasoning ?? 0,
           },
           model: active.model,
+          usageAccounting: 'deepseek-step-last-wins-v1',
         },
       });
       if (failed) {
@@ -334,6 +389,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
           duration_ms: active.turn ? Date.now() - active.turn.startedAt : 0,
           total_cost_usd: 0,
           usage: { input_tokens: 0, output_tokens: 0 },
+          usageAccounting: 'deepseek-step-last-wins-v1',
         },
       });
       this.emit({
@@ -433,8 +489,10 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     input: ProviderSessionStartInput
   ): Promise<{ text: string; sessionId?: string; model?: string }> {
     const permissionMode = normalizeDeepseekPermissionMode(input.deepseekPermissionMode);
+    const agentPreset = normalizeDeepseekAgentPreset(input.deepseekAgentPreset);
+    const reasoningEffort = normalizeDeepseekReasoningEffort(input.deepseekReasoningEffort);
     const model = input.model?.trim() || getDeepseekModelConfig().defaultModel || undefined;
-    const harness = await this.spawnHarness(input.cwd, model, permissionMode);
+    const harness = await this.spawnHarness(input.cwd, model, permissionMode, agentPreset, reasoningEffort);
     try {
       const result = await harness.run(buildPromptBlocks(input.prompt, input.attachments));
       return { text: result.finalResponse, sessionId: result.sessionId, model };
@@ -449,6 +507,8 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     cwd: string,
     model: string | undefined,
     permissionMode: DeepseekPermissionMode,
+    agentPreset: DeepseekAgentPreset,
+    reasoningEffort: DeepseekReasoningEffort,
     resumeSessionId?: string
   ): Promise<DshHarness> {
     const profileDir = resolveDeepseekProfileDir();
@@ -472,7 +532,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
         disposeEofGraceMs: 1500,
         disposeGraceMs: 1500,
         env: {
-          ...buildDeepseekEnv({ cwd, permissionMode }),
+          ...buildDeepseekEnv({ cwd, permissionMode, agentPreset, reasoningEffort }),
           // Electron's process.execPath is Electron itself; run as plain node.
           ELECTRON_RUN_AS_NODE: '1',
           DSH_SESSION_ROOT: path.join(profileDir, '.sessions'),
@@ -512,7 +572,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     const data = getRecord(event.data) || {};
     switch (event.type) {
       case 'assistant/chunk':
-        this.handleAssistantChunk(active, getRecord(data.chunk) || {});
+        this.handleAssistantChunk(active, data);
         break;
       case 'assistant/message':
         this.handleAssistantMessage(active, data);
@@ -547,10 +607,11 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
 
   private handleAssistantChunk(
     active: ActiveDeepseekSession,
-    chunk: Record<string, unknown>
+    data: Record<string, unknown>
   ): void {
     const turn = active.turn;
     if (!turn) return;
+    const chunk = getRecord(data.chunk) || {};
     switch (chunk.type) {
       case 'reasoning-delta': {
         const text = getString(chunk.text) || getString(chunk.delta);
@@ -577,7 +638,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
         break;
       }
       case 'usage':
-        this.accumulateUsage(active, getRecord(chunk.usage) || chunk);
+        this.setUsageSample(active, data, getRecord(chunk.usage) || chunk);
         break;
       default:
         // block-start/block-end/tool-call-delta/finish: the committed
@@ -610,7 +671,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   ): void {
     const message = getRecord(data.message);
     if (!message) return;
-    this.accumulateUsage(active, getRecord(data.usage));
+    this.setUsageSample(active, data, getRecord(data.usage));
 
     const content: Array<{ type: 'thinking'; thinking: string } | { type: 'text'; text: string }> = [];
     for (const block of getArray(message.content)) {
@@ -691,16 +752,34 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
 
   // ── Usage / context ring ───────────────────────────────────────────────────
 
-  private accumulateUsage(
+  private setUsageSample(
     active: ActiveDeepseekSession,
+    data: Record<string, unknown>,
     usage: Record<string, unknown> | null
   ): void {
     const turn = active.turn;
     if (!turn || !usage) return;
-    turn.usage.input += getNumber(usage.inputTokens);
-    turn.usage.output += getNumber(usage.outputTokens);
-    turn.usage.cacheRead += getNumber(usage.cacheReadTokens);
-    turn.usage.reasoning += getNumber(usage.reasoningTokens);
+    const eventTurn = getNumber(data.turn);
+    const eventStep = getNumber(data.step);
+    const key = `${eventTurn}:${eventStep}`;
+    const next = {
+      input: getNumber(usage.inputTokens),
+      output: getNumber(usage.outputTokens),
+      cacheRead: getNumber(usage.cacheReadTokens),
+      reasoning: getNumber(usage.reasoningTokens),
+    };
+    const previous = turn.usageByStep.get(key);
+    if (previous) {
+      turn.usage.input -= previous.input;
+      turn.usage.output -= previous.output;
+      turn.usage.cacheRead -= previous.cacheRead;
+      turn.usage.reasoning -= previous.reasoning;
+    }
+    turn.usageByStep.set(key, next);
+    turn.usage.input += next.input;
+    turn.usage.output += next.output;
+    turn.usage.cacheRead += next.cacheRead;
+    turn.usage.reasoning += next.reasoning;
   }
 
   /**
@@ -713,8 +792,9 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     if (!turn || !active.contextWindow || active.contextWindow <= 0) {
       return;
     }
-    const contextTokens =
-      turn.usage.input + turn.usage.cacheRead + turn.usage.output + turn.usage.reasoning;
+    // reasoningTokens is a subdivision of outputTokens in the Harness usage
+    // contract, so adding it again would overstate both occupancy and cost.
+    const contextTokens = turn.usage.input + turn.usage.cacheRead + turn.usage.output;
     this.emit({
       type: 'message',
       threadId: active.threadId,

@@ -90,6 +90,7 @@ import {
   setCodexRuntimeModelCatalog,
 } from './libs/codex-settings';
 import { normalizeCodexReasoningEffort as normalizeCodexReasoningEffortShared } from '../shared/codex-reasoning';
+import { normalizeDeepseekAgentPreset } from '../shared/deepseek-agent-preset';
 import { buildWarmSendOptions } from './libs/warm-send-options';
 import { findMachineQoderCli } from './libs/provider/qoder-sdk-loader';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
@@ -605,6 +606,12 @@ function normalizeDeepseekPermissionMode(
   value?: string | null
 ): import('../shared/types').DeepseekPermissionMode | undefined {
   return value === 'workspace-write' || value === 'danger-full-access' ? value : undefined;
+}
+
+function normalizeDeepseekReasoningEffort(
+  value?: string | null
+): import('../shared/types').DeepseekReasoningEffort | undefined {
+  return value === 'off' || value === 'high' || value === 'max' ? value : undefined;
 }
 
 function normalizeGrokReasoningEffort(
@@ -3504,16 +3511,18 @@ const runnerHandles = new Map<
     claudeReasoningEffort?: import('../shared/types').ClaudeReasoningEffort;
     codexExecutionMode?: import('../shared/types').CodexExecutionMode;
     codexPermissionMode?: import('../shared/types').CodexPermissionMode;
-	    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
-	    codexFastMode?: boolean;
-	    kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
-	    kimiThinking?: import('../shared/types').KimiThinking;
-	    grokPermissionMode?: import('../shared/types').GrokPermissionMode;
-	    grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
-	    deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
-	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
-	    qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
-	    bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
+    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+    codexFastMode?: boolean;
+    kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+    kimiThinking?: import('../shared/types').KimiThinking;
+    grokPermissionMode?: import('../shared/types').GrokPermissionMode;
+    grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
+    deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
+    deepseekAgentPreset?: import('../shared/types').DeepseekAgentPreset;
+    deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
+    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+    qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
+    bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
     onTurnDone?: (status: SessionStatus, message?: string) => void;
@@ -6068,6 +6077,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     ensureProviderService();
     return getProviderService().listSkills({
       provider: 'grok',
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
+    });
+  });
+
+  ipcMainHandle('deepseek-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'deepseek',
       cwd: input?.cwd,
       threadId: input?.threadId,
       forceReload: input?.forceReload,
@@ -8637,6 +8656,10 @@ function buildSessionInfoFromRow(
     codexReasoningEffort: normalizeCodexReasoningEffort(row.codex_reasoning_effort),
     codexFastMode: normalizeCodexFastMode(row.codex_fast_mode),
     opencodePermissionMode: normalizeOpenCodePermissionMode(row.opencode_permission_mode),
+    deepseekAgentPreset:
+      row.provider === 'deepseek'
+        ? normalizeDeepseekAgentPreset(row.deepseek_agent_preset)
+        : undefined,
     kimiRuntime:
       row.provider === 'kimi'
         ? row.kimi_session_id
@@ -8723,6 +8746,8 @@ async function handleSessionStart(
     grokPermissionMode,
     grokReasoningEffort,
     deepseekPermissionMode,
+    deepseekAgentPreset,
+    deepseekReasoningEffort,
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
@@ -8819,6 +8844,10 @@ async function handleSessionStart(
     chosenProvider === 'bubble' ? normalizeBubblePermissionMode(bubblePermissionMode) : undefined;
   const selectedDeepseekPermissionMode =
     chosenProvider === 'deepseek' ? normalizeDeepseekPermissionMode(deepseekPermissionMode) : undefined;
+  const selectedDeepseekAgentPreset =
+    chosenProvider === 'deepseek' ? normalizeDeepseekAgentPreset(deepseekAgentPreset) : undefined;
+  const selectedDeepseekReasoningEffort =
+    chosenProvider === 'deepseek' ? normalizeDeepseekReasoningEffort(deepseekReasoningEffort) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -8871,6 +8900,7 @@ async function handleSessionStart(
     codexFastMode: chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     opencodePermissionMode:
       chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+    deepseekAgentPreset: selectedDeepseekAgentPreset,
     hiddenFromThreads: hiddenFromThreads === true,
     channelId: normalizeWorkspaceChannelId(channelId),
     teamMode: normalizedTeamMode,
@@ -8919,6 +8949,7 @@ async function handleSessionStart(
       qoderPermissionMode: selectedQoderPermissionMode,
       bubblePermissionMode: selectedBubblePermissionMode,
       deepseekPermissionMode: selectedDeepseekPermissionMode,
+      deepseekAgentPreset: selectedDeepseekAgentPreset,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
@@ -9099,7 +9130,8 @@ async function handleSessionStart(
     selectedKimiThinking,
     selectedQoderPermissionMode,
     selectedBubblePermissionMode,
-    selectedDeepseekPermissionMode
+    selectedDeepseekPermissionMode,
+    selectedDeepseekReasoningEffort
   );
   return session.id;
 }
@@ -9132,6 +9164,7 @@ async function handleSessionContinue(
     grokPermissionMode,
     grokReasoningEffort,
     deepseekPermissionMode,
+    deepseekReasoningEffort,
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
@@ -9311,6 +9344,9 @@ async function handleSessionContinue(
   const nextDeepseekPermissionMode = nextProvider === 'deepseek'
     ? normalizeDeepseekPermissionMode(deepseekPermissionMode)
     : undefined;
+  const nextDeepseekReasoningEffort = nextProvider === 'deepseek'
+    ? normalizeDeepseekReasoningEffort(deepseekReasoningEffort)
+    : undefined;
   const nextTeamMode = teamMode !== undefined
     ? normalizeSessionTeamMode(teamMode)
     : normalizeSessionTeamMode(session.team_mode);
@@ -9358,6 +9394,10 @@ async function handleSessionContinue(
     nextProvider === 'deepseek' &&
     nextDeepseekPermissionMode !== undefined &&
     runnerHandles.get(sessionId)?.deepseekPermissionMode !== nextDeepseekPermissionMode;
+  const deepseekReasoningEffortChanged =
+    nextProvider === 'deepseek' &&
+    nextDeepseekReasoningEffort !== undefined &&
+    runnerHandles.get(sessionId)?.deepseekReasoningEffort !== nextDeepseekReasoningEffort;
   const opencodePermissionModeChanged =
     nextProvider === 'opencode' &&
     normalizeOpenCodePermissionMode(
@@ -9598,6 +9638,7 @@ async function handleSessionContinue(
       (nextProvider === 'codex' && !codexMidTurn && codexFastModeChanged) ||
       (nextProvider === 'grok' && grokReasoningEffortChanged) ||
       (!deepseekMidTurn && deepseekPermissionModeChanged) ||
+      (!deepseekMidTurn && deepseekReasoningEffortChanged) ||
       (nextProvider === 'opencode' && opencodePermissionModeChanged) ||
       (nextProvider === 'claude' &&
         (
@@ -9659,6 +9700,7 @@ async function handleSessionContinue(
         grokPermissionMode: nextGrokPermissionMode,
         grokReasoningEffort: nextGrokReasoningEffort,
         deepseekPermissionMode: nextDeepseekPermissionMode,
+        deepseekReasoningEffort: nextDeepseekReasoningEffort,
         opencodePermissionMode: nextOpenCodePermissionMode,
         qoderPermissionMode: nextQoderPermissionMode,
         bubblePermissionMode: nextBubblePermissionMode,
@@ -9671,23 +9713,28 @@ async function handleSessionContinue(
         nextProvider === 'codex' ? codexMentions : undefined,
         sendOptions
       );
-	      if (nextProvider === 'codex') {
-	        existingEntry.codexExecutionMode = nextCodexExecutionMode;
-	        existingEntry.codexPermissionMode = nextCodexPermissionMode;
-	        existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
-	        existingEntry.codexFastMode = nextCodexFastMode;
-	      }
-	      if (nextProvider === 'kimi') {
-	        existingEntry.kimiPermissionMode = nextKimiPermissionMode;
-	        existingEntry.kimiThinking = nextKimiThinking;
-	      }
-	      if (nextProvider === 'grok') {
-	        existingEntry.grokPermissionMode = nextGrokPermissionMode;
-	        existingEntry.grokReasoningEffort = nextGrokReasoningEffort;
-	      }
-	      if (nextProvider === 'deepseek' && nextDeepseekPermissionMode !== undefined) {
-	        existingEntry.deepseekPermissionMode = nextDeepseekPermissionMode;
-	      }
+      if (nextProvider === 'codex') {
+        existingEntry.codexExecutionMode = nextCodexExecutionMode;
+        existingEntry.codexPermissionMode = nextCodexPermissionMode;
+        existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
+        existingEntry.codexFastMode = nextCodexFastMode;
+      }
+      if (nextProvider === 'kimi') {
+        existingEntry.kimiPermissionMode = nextKimiPermissionMode;
+        existingEntry.kimiThinking = nextKimiThinking;
+      }
+      if (nextProvider === 'grok') {
+        existingEntry.grokPermissionMode = nextGrokPermissionMode;
+        existingEntry.grokReasoningEffort = nextGrokReasoningEffort;
+      }
+      if (nextProvider === 'deepseek' && !deepseekMidTurn) {
+        if (nextDeepseekPermissionMode !== undefined) {
+          existingEntry.deepseekPermissionMode = nextDeepseekPermissionMode;
+        }
+        if (nextDeepseekReasoningEffort !== undefined) {
+          existingEntry.deepseekReasoningEffort = nextDeepseekReasoningEffort;
+        }
+      }
       return true;
     }
   }
@@ -9799,7 +9846,8 @@ async function handleSessionContinue(
     nextKimiThinking,
     nextQoderPermissionMode,
     nextBubblePermissionMode,
-    nextDeepseekPermissionMode
+    nextDeepseekPermissionMode,
+    nextDeepseekReasoningEffort
   );
   return true;
 }
@@ -9845,7 +9893,8 @@ function startRunner(
   kimiThinking?: import('../shared/types').KimiThinking,
   qoderPermissionMode?: import('../shared/types').QoderPermissionMode,
   bubblePermissionMode?: import('../shared/types').BubblePermissionMode,
-  deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode
+  deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode,
+  deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort
 ): void {
   if (!session) return;
 
@@ -9855,6 +9904,10 @@ function startRunner(
       : session;
   const sessionState = getSessionState(session.id);
   const provider = providerOverride || session.provider || 'claude';
+  const normalizedDeepseekAgentPreset =
+    provider === 'deepseek'
+      ? normalizeDeepseekAgentPreset(session.deepseek_agent_preset)
+      : undefined;
   if (provider === 'claude' && prompt.trim().length > 0) {
     markClaudePromptDispatched(session.id, 'cold-start', Boolean(resumeSessionId));
   }
@@ -9941,6 +9994,8 @@ function startRunner(
     grokPermissionMode,
     grokReasoningEffort,
     deepseekPermissionMode,
+    deepseekAgentPreset: normalizedDeepseekAgentPreset,
+    deepseekReasoningEffort,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
@@ -10732,18 +10787,21 @@ function startRunner(
       provider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
     codexFastMode:
       provider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
-	    opencodePermissionMode:
-	      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
-	    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
-	    kimiThinking: provider === 'kimi' ? normalizeKimiThinking(kimiThinking) : undefined,
-	    qoderPermissionMode: provider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined,
-	    bubblePermissionMode: provider === 'bubble' ? normalizeBubblePermissionMode(bubblePermissionMode) : undefined,
+    opencodePermissionMode:
+      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
+    kimiThinking: provider === 'kimi' ? normalizeKimiThinking(kimiThinking) : undefined,
+    qoderPermissionMode: provider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined,
+    bubblePermissionMode: provider === 'bubble' ? normalizeBubblePermissionMode(bubblePermissionMode) : undefined,
     grokPermissionMode:
       provider === 'grok' ? normalizeGrokPermissionMode(grokPermissionMode) : undefined,
     grokReasoningEffort:
       provider === 'grok' ? normalizeGrokReasoningEffort(grokReasoningEffort) : undefined,
     deepseekPermissionMode:
       provider === 'deepseek' ? normalizeDeepseekPermissionMode(deepseekPermissionMode) : undefined,
+    deepseekAgentPreset: normalizedDeepseekAgentPreset,
+    deepseekReasoningEffort:
+      provider === 'deepseek' ? normalizeDeepseekReasoningEffort(deepseekReasoningEffort) : undefined,
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,

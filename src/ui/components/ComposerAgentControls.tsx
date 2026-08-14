@@ -9,6 +9,7 @@ import type {
   ClaudeReasoningEffort,
   CodexReasoningEffort,
   CodexModelConfig,
+  DeepseekReasoningEffort,
   GrokModelConfig,
   GrokReasoningEffort,
   KimiThinking,
@@ -17,6 +18,10 @@ import {
   GROK_REASONING_EFFORT_LABELS,
   GROK_REASONING_EFFORT_OPTIONS,
 } from '../utils/grok-reasoning';
+import {
+  DEEPSEEK_REASONING_EFFORT_LABELS,
+  DEEPSEEK_REASONING_EFFORT_OPTIONS,
+} from '../utils/deepseek-reasoning';
 import { formatCodexModelLabel } from '../utils/codex-model';
 import { formatCodexReasoningEffortLabel } from '../utils/codex-reasoning';
 import {
@@ -895,6 +900,70 @@ const GrokAgentSubContent: FC<{
   );
 };
 
+const DeepseekAgentSubContent: FC<{
+  modelOptions: ComposerModelOption[];
+  selectedModel: string | null;
+  reasoningEffort: DeepseekReasoningEffort;
+  onSelectModel: (option: ComposerModelOption) => void;
+  onReasoningEffortChange: (effort: DeepseekReasoningEffort) => void;
+}> = ({
+  modelOptions,
+  selectedModel,
+  reasoningEffort,
+  onSelectModel,
+  onReasoningEffortChange,
+}) => (
+  <>
+    <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+      Reasoning
+    </div>
+    {DEEPSEEK_REASONING_EFFORT_OPTIONS.map((effort) => {
+      const isSelected = reasoningEffort === effort;
+      return (
+        <DropdownMenu.Item
+          key={effort}
+          onSelect={() => onReasoningEffortChange(effort)}
+          className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+        >
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+            {DEEPSEEK_REASONING_EFFORT_LABELS[effort]}
+          </span>
+          {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+        </DropdownMenu.Item>
+      );
+    })}
+
+    <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+
+    <DropdownMenu.Sub>
+      <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
+        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+          Model
+        </span>
+        <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+      </DropdownMenu.SubTrigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.SubContent
+          sideOffset={6}
+          alignOffset={-4}
+          className="z-50 w-[200px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+        >
+          <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+            Models
+          </div>
+          <div className="max-h-[240px] overflow-y-auto">
+            <ModelSubContent
+              modelOptions={modelOptions}
+              selectedValue={selectedModel}
+              onSelectModel={onSelectModel}
+            />
+          </div>
+        </DropdownMenu.SubContent>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Sub>
+  </>
+);
+
 const CodexAgentSubContent: FC<{
   codexModels: CodexModelConfig['availableModels'] | undefined;
   selectedModel: string | null;
@@ -1056,6 +1125,8 @@ export function ComposerAgentModelPicker({
   onCodexReasoningEffortChange,
   grokReasoningEffort,
   onGrokReasoningEffortChange,
+  deepseekReasoningEffort,
+  onDeepseekReasoningEffortChange,
   codexFastMode,
   onCodexFastModeChange,
   kimiThinkingOptions,
@@ -1079,6 +1150,8 @@ export function ComposerAgentModelPicker({
   onCodexReasoningEffortChange?: (effort: CodexReasoningEffort) => void;
   grokReasoningEffort?: GrokReasoningEffort | null;
   onGrokReasoningEffortChange?: (effort: GrokReasoningEffort) => void;
+  deepseekReasoningEffort?: DeepseekReasoningEffort;
+  onDeepseekReasoningEffortChange?: (effort: DeepseekReasoningEffort) => void;
   codexFastMode?: boolean;
   onCodexFastModeChange?: (enabled: boolean) => void;
   /** Thinking tiers valid for the selected kimi model (metadata-derived). */
@@ -1121,6 +1194,9 @@ export function ComposerAgentModelPicker({
   const grokEffortSuffix = agentProvider === 'grok' && grokReasoningEffort
     ? ` ${grokEffortLabels[grokReasoningEffort]}`
     : '';
+  const deepseekEffortSuffix = agentProvider === 'deepseek' && deepseekReasoningEffort
+    ? ` ${DEEPSEEK_REASONING_EFFORT_LABELS[deepseekReasoningEffort]}`
+    : '';
   const kimiThinkingSuffix =
     agentProvider === 'kimi' &&
     (kimiThinkingOptions?.length ?? 0) > 0 &&
@@ -1130,7 +1206,12 @@ export function ComposerAgentModelPicker({
         ? ' Thinking'
         : ` ${formatKimiThinkingLabel(kimiThinkingChecked)}`
       : '';
-  const effortSuffix = claudeEffortSuffix || codexEffortSuffix || grokEffortSuffix || kimiThinkingSuffix;
+  const effortSuffix =
+    claudeEffortSuffix ||
+    codexEffortSuffix ||
+    grokEffortSuffix ||
+    deepseekEffortSuffix ||
+    kimiThinkingSuffix;
 
   return (
     <DropdownMenu.Root>
@@ -1296,6 +1377,46 @@ export function ComposerAgentModelPicker({
                         onGrokReasoningEffortChange={(effort) => {
                           onAgentChange(provider);
                           onGrokReasoningEffortChange?.(effort);
+                        }}
+                      />
+                    </DropdownMenu.SubContent>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Sub>
+              );
+            }
+
+            if (provider === 'deepseek') {
+              return (
+                <DropdownMenu.Sub key={provider}>
+                  <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">
+                    <AgentIcon provider={provider} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                        {agentLabel(provider)}
+                      </span>
+                      {hint ? (
+                        <span className="block truncate text-[11px] text-[var(--text-muted)]">{hint}</span>
+                      ) : null}
+                    </span>
+                    {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
+                      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(readiness.state)}`} aria-hidden="true" />
+                    ) : null}
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.SubContent
+                      sideOffset={6}
+                      alignOffset={-4}
+                      className="z-50 w-[220px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+                    >
+                      <DeepseekAgentSubContent
+                        modelOptions={modelOptions}
+                        selectedModel={modelValue}
+                        reasoningEffort={deepseekReasoningEffort ?? 'max'}
+                        onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        onReasoningEffortChange={(effort) => {
+                          onAgentChange(provider);
+                          onDeepseekReasoningEffortChange?.(effort);
                         }}
                       />
                     </DropdownMenu.SubContent>

@@ -1,7 +1,12 @@
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
-import type { DeepseekModelConfig, DeepseekPermissionMode } from '../../shared/types';
+import type {
+  DeepseekAgentPreset,
+  DeepseekModelConfig,
+  DeepseekPermissionMode,
+  DeepseekReasoningEffort,
+} from '../../shared/types';
 
 /**
  * DeepSeek Harness launch profile: a directory holding package.json (the dsh
@@ -70,11 +75,15 @@ export function hasDeepseekCredentials(): boolean {
  * Child environment for the runtime process. DSH_CWD anchors the sandbox
  * policy and file tools to the thread workspace; DSH_PERMISSION_MODE selects
  * the sandbox mode (the SDK wire has no approval channel, so escalations
- * fail closed under workspace-write).
+ * fail closed under workspace-write). DSH_REASONING_EFFORT configures the
+ * profile's per-runtime conversation default. AEGIS_DSH_AGENT_PRESET selects
+ * the model-facing Cordis composition before the SDK handshake begins.
  */
 export function buildDeepseekEnv(options: {
   cwd: string;
   permissionMode?: DeepseekPermissionMode;
+  agentPreset?: DeepseekAgentPreset;
+  reasoningEffort?: DeepseekReasoningEffort;
 }): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   const apiKey = resolveDeepseekApiKey();
@@ -83,6 +92,8 @@ export function buildDeepseekEnv(options: {
   }
   env.DSH_CWD = options.cwd;
   env.DSH_PERMISSION_MODE = options.permissionMode || 'workspace-write';
+  env.AEGIS_DSH_AGENT_PRESET = options.agentPreset || 'standard';
+  env.DSH_REASONING_EFFORT = options.reasoningEffort || 'max';
   return env;
 }
 

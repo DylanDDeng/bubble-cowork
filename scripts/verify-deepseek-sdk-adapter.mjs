@@ -4,7 +4,11 @@
 // adapter to that contract and to the registration surface.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -31,9 +35,23 @@ assert.ok(
     cordisYml.includes("name: '@deepseek-ai/dsh-llm-deepseek'") &&
     cordisYml.includes('models:') &&
     cordisYml.includes('DSH_PERMISSION_MODE') &&
+    cordisYml.includes('DSH_REASONING_EFFORT') &&
     cordisYml.includes('DSH_CWD') &&
     cordisYml.includes('policy: never'),
   'profile cordis.yml must mount the SDK server, model catalog, env-driven sandbox, and auto-deny approvals'
+);
+assert.ok(
+  /skills:\s*\n\s+enabled:[^\n]*AEGIS_DSH_AGENT_PRESET/.test(cordisYml),
+  'profile must mount the Harness filesystem skill provider and native /name invocation tool'
+);
+assert.ok(
+  cordisYml.includes('AEGIS_DSH_AGENT_PRESET') &&
+    cordisYml.includes("=== 'code' ? 'code' : 'native'") &&
+    cordisYml.includes("name: '@deepseek-ai/dsh-code-runtime-worker-thread'") &&
+    cordisYml.includes("name: '@deepseek-ai/dsh-tool-bash-persistent'") &&
+    cordisYml.includes("name: '@deepseek-ai/dsh-tool-str-replace-editor'") &&
+    cordisYml.includes("name: '@deepseek-ai/dsh-tool-cordis'"),
+  'profile must compose real Standard, PTC, Minimal and Creator runtime capabilities'
 );
 assert.ok(
   fs.existsSync(path.join(root, 'dev-fixtures/deepseek-harness/runtime-bin.mjs')) &&
@@ -63,6 +81,8 @@ assert.ok(
     cli.includes("'.deepseek'") &&
     cli.includes("'config.toml'") &&
     cli.includes('DSH_PERMISSION_MODE') &&
+    cli.includes('AEGIS_DSH_AGENT_PRESET') &&
+    cli.includes('DSH_REASONING_EFFORT') &&
     cli.includes('DSH_CWD'),
   'deepseek-cli must resolve the API key (env + TUI config) and build the runtime env'
 );
@@ -95,6 +115,12 @@ assert.ok(
   'adapter must register provider=deepseek over the SDK loader'
 );
 assert.ok(
+  adapter.includes('listDeepseekSkills') &&
+    adapter.includes('supportsSkillDiscovery: true') &&
+    adapter.includes("source: 'deepseek-harness'"),
+  'adapter must expose the Harness filesystem skill catalog to the composer'
+);
+assert.ok(
   adapter.includes("'reasoning-delta'") &&
     adapter.includes("'text-delta'") &&
     adapter.includes('thinking_delta') &&
@@ -113,6 +139,13 @@ assert.ok(
     adapter.includes("subtype: 'token_usage'") &&
     adapter.includes('contextWindow'),
   'adapter must emit the codex-style context ring from request/context + usage'
+);
+assert.ok(
+  adapter.includes('usageByStep') &&
+    adapter.includes('turn.usageByStep.get(key)') &&
+    adapter.includes('estimateDeepseekUsageCost') &&
+    !adapter.includes('turn.usage.output + turn.usage.reasoning'),
+  'adapter must de-duplicate rc.6 usage samples, estimate cost, and not double-count reasoning'
 );
 assert.ok(
   adapter.includes("type: 'result'") &&
@@ -142,8 +175,10 @@ const agentLoop = read('src/electron/libs/agent-loop.ts');
 assert.ok(
   agentLoop.includes('service.registerAdapter(new DeepseekSdkAdapter())') &&
     agentLoop.includes('deepseekPermissionMode: options.deepseekPermissionMode') &&
-    agentLoop.includes("sendOptions?.deepseekPermissionMode ?? options.deepseekPermissionMode"),
-  'agent-loop must register the adapter and forward deepseekPermissionMode on start and warm send'
+    agentLoop.includes("sendOptions?.deepseekPermissionMode ?? options.deepseekPermissionMode") &&
+    agentLoop.includes('deepseekReasoningEffort: options.deepseekReasoningEffort') &&
+    agentLoop.includes("sendOptions?.deepseekReasoningEffort ?? options.deepseekReasoningEffort"),
+  'agent-loop must register the adapter and forward DeepSeek runtime options on start and warm send'
 );
 
 const service = read('src/electron/libs/provider/service.ts');
@@ -155,8 +190,10 @@ assert.ok(
   /ProviderKind =[^;]*'deepseek'/.test(providerTypes) &&
     /AgentProvider =[^;]*'deepseek'/.test(sharedTypes) &&
     sharedTypes.includes("'deepseek_local'") &&
-    sharedTypes.includes('DeepseekPermissionMode'),
-  'provider/shared types must include deepseek, deepseek_local and DeepseekPermissionMode'
+    sharedTypes.includes('DeepseekPermissionMode') &&
+    sharedTypes.includes("DeepseekAgentPreset = 'standard' | 'code' | 'minimal' | 'cordis'") &&
+    sharedTypes.includes("DeepseekReasoningEffort = 'off' | 'high' | 'max'"),
+  'provider/shared types must include DeepSeek identity, presets, permissions and reasoning tiers'
 );
 assert.ok(
   /token_usage[\s\S]{0,200}'codex' \| 'kimi' \| 'grok' \| 'deepseek'/.test(sharedTypes),
@@ -166,8 +203,10 @@ assert.ok(
 const warmSend = read('src/electron/libs/warm-send-options.ts');
 assert.ok(
   warmSend.includes("'deepseekPermissionMode'") &&
-    warmSend.includes('deepseekPermissionMode: next.deepseekPermissionMode'),
-  'warm-send envelope must carry deepseekPermissionMode unconditionally'
+    warmSend.includes('deepseekPermissionMode: next.deepseekPermissionMode') &&
+    warmSend.includes("'deepseekReasoningEffort'") &&
+    warmSend.includes('deepseekReasoningEffort: next.deepseekReasoningEffort'),
+  'warm-send envelope must carry DeepSeek runtime options unconditionally'
 );
 
 const sessionStore = read('src/electron/libs/session-store.ts');
@@ -178,6 +217,118 @@ assert.ok(
     sessionStore.includes("'deepseek_local'"),
   'session store must persist deepseek session ids and source origin'
 );
+assert.ok(
+  sessionStore.includes("provider === 'deepseek'") &&
+    sessionStore.includes('official DeepSeek API list prices') &&
+    sessionStore.includes('peak/off-peak schedule') &&
+    sessionStore.includes("result.usageAccounting !== 'deepseek-step-last-wins-v1'"),
+  'DeepSeek Usage settings must label estimates and repair legacy doubled usage'
+);
+assert.ok(
+  sessionStore.includes("deepseek_agent_preset TEXT DEFAULT 'standard'") &&
+    sessionStore.includes("ensureColumn('sessions', 'deepseek_agent_preset'") &&
+    sessionStore.includes('normalizeDeepseekAgentPreset(params.deepseekAgentPreset)'),
+  'session store must persist and normalize the DeepSeek agent preset'
+);
+
+// Pricing is based on disjoint Harness buckets: uncached input, cache hits,
+// and output. reasoningTokens is already included in outputTokens.
+{
+  const {
+    estimateDeepseekUsageCost,
+    isDeepseekPeakPeriod,
+  } = require('../dist-electron/electron/libs/deepseek-pricing.js');
+  const usage = {
+    inputTokens: 1_000_000,
+    cacheReadTokens: 1_000_000,
+    outputTokens: 1_000_000,
+    reasoningTokens: 500_000,
+  };
+  const closeTo = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-12);
+
+  closeTo(
+    estimateDeepseekUsageCost('deepseek-v4-flash', usage, Date.parse('2026-08-14T12:00:00Z')),
+    0.4228
+  );
+  closeTo(
+    estimateDeepseekUsageCost('deepseek-v4-pro', usage, Date.parse('2026-08-14T12:00:00Z')),
+    1.308625
+  );
+  assert.equal(isDeepseekPeakPeriod(Date.parse('2026-08-17T00:59:59Z')), false);
+  assert.equal(isDeepseekPeakPeriod(Date.parse('2026-08-17T01:00:00Z')), true);
+  assert.equal(isDeepseekPeakPeriod(Date.parse('2026-08-17T04:00:00Z')), false);
+  assert.equal(isDeepseekPeakPeriod(Date.parse('2026-08-17T06:00:00Z')), true);
+  assert.equal(isDeepseekPeakPeriod(Date.parse('2026-08-17T10:00:00Z')), false);
+  closeTo(
+    estimateDeepseekUsageCost('deepseek-v4-flash', usage, Date.parse('2026-08-17T02:00:00Z')),
+    1.774
+  );
+  closeTo(
+    estimateDeepseekUsageCost('deepseek-v4-flash', usage, Date.parse('2026-08-17T05:00:00Z')),
+    0.887
+  );
+  closeTo(
+    estimateDeepseekUsageCost('deepseek-v4-pro', usage, Date.parse('2026-08-17T02:00:00Z')),
+    5.324
+  );
+  closeTo(
+    estimateDeepseekUsageCost('deepseek-v4-pro', usage, Date.parse('2026-08-17T05:00:00Z')),
+    2.662
+  );
+  assert.equal(estimateDeepseekUsageCost('unknown-model', usage), 0);
+}
+
+// rc.6 publishes the same per-step usage on the streaming usage chunk and
+// the committed assistant message. Exercise the adapter's last-wins fold so
+// Settings and billing receive one sample, not two.
+{
+  const { DeepseekSdkAdapter } = require('../dist-electron/electron/libs/provider/deepseek-sdk-adapter.js');
+  const adapterInstance = new DeepseekSdkAdapter();
+  const emitted = [];
+  adapterInstance.events.on('event', (event) => emitted.push(event));
+  let active;
+  const notify = (type, data) => adapterInstance.handleNotification(active, {
+    method: 'session.event',
+    params: {
+      sessionId: 'provider-session',
+      event: { type, data },
+    },
+  });
+  const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, reasoningTokens: 7 };
+  active = {
+    threadId: 'thread-cost',
+    providerSessionId: 'provider-session',
+    status: 'running',
+    cwd: '/tmp',
+    model: 'deepseek-v4-flash',
+    permissionMode: 'workspace-write',
+    reasoningEffort: 'max',
+    harness: {},
+    subscription: { close() {} },
+    session: {
+      id: 'provider-session',
+      async run() {
+        notify('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage } });
+        notify('assistant/message', { turn: 1, step: 1, message: { content: [] }, usage });
+        notify('turn/end', { reason: { kind: 'completed' } });
+        return {};
+      },
+    },
+  };
+  adapterInstance.sessions.set(active.threadId, active);
+  await adapterInstance.sendTurn({ threadId: active.threadId, prompt: 'hello' });
+  const resultEvent = emitted.find(
+    (event) => event.type === 'message' && event.message?.type === 'result'
+  );
+  assert.ok(resultEvent, 'adapter must emit a result carrying priced usage');
+  assert.deepEqual(resultEvent.message.usage, {
+    input_tokens: 100,
+    output_tokens: 20,
+    cache_read_input_tokens: 5,
+    reasoning_output_tokens: 7,
+  });
+  assert.ok(resultEvent.message.total_cost_usd > 0, 'known DeepSeek models must emit a positive cost');
+}
 
 const ipc = read('src/electron/ipc-handlers.ts');
 assert.ok(
@@ -186,8 +337,11 @@ assert.ok(
     ipc.includes('formatDeepseekRuntimeBlockingMessage') &&
     ipc.includes('selectedDeepseekPermissionMode') &&
     ipc.includes('nextDeepseekPermissionMode') &&
-    ipc.includes('deepseekPermissionModeChanged'),
-  'ipc-handlers must wire model config, init persistence, runtime gates and mode plumbing'
+    ipc.includes('deepseekPermissionModeChanged') &&
+    ipc.includes('selectedDeepseekReasoningEffort') &&
+    ipc.includes('nextDeepseekReasoningEffort') &&
+    ipc.includes('deepseekReasoningEffortChanged'),
+  'ipc-handlers must wire model config, init persistence, runtime gates and config-drift plumbing'
 );
 
 // ── Bridge + UI ─────────────────────────────────────────────────────────────
@@ -200,6 +354,67 @@ assert.ok(
     uiTypes.includes('DeepseekModelConfig'),
   'bridge chain must expose getDeepseekModelConfig end to end'
 );
+const slashSkills = read('src/ui/hooks/useProviderSlashSkills.ts');
+const capabilityMenu = read('src/ui/hooks/useClaudeSkillAutocomplete.ts');
+assert.ok(
+  preload.includes("ipcRenderer.invoke('deepseek-list-skills'") &&
+    typesDts.includes('listDeepseekSkills') &&
+    ipc.includes("ipcMainHandle('deepseek-list-skills'") &&
+    slashSkills.includes("'deepseek'") &&
+    slashSkills.includes('window.electron.listDeepseekSkills') &&
+    capabilityMenu.includes("provider === 'deepseek'"),
+  'DeepSeek skill discovery must reach the shared slash menu through preload and IPC'
+);
+
+// Exercise the catalog mirror against the same project/user precedence and
+// user-invocable policy used by dsh-skill-filesystem.
+{
+  const { listDeepseekSkills } = require('../dist-electron/electron/libs/deepseek-skills.js');
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-deepseek-skills-'));
+  const project = path.join(tempRoot, 'project');
+  const nestedCwd = path.join(project, 'packages', 'app');
+  const dshHome = path.join(tempRoot, 'dsh-home');
+  const agentsHome = path.join(tempRoot, 'agents-home');
+  const writeSkill = (rootPath, directory, frontmatter) => {
+    const skillDir = path.join(rootPath, directory);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `---\n${frontmatter}\n---\nInstructions.\n`);
+  };
+  fs.mkdirSync(path.join(project, '.git'), { recursive: true });
+  fs.mkdirSync(nestedCwd, { recursive: true });
+  writeSkill(
+    path.join(project, '.agents', 'skills'),
+    'project-version',
+    'name: shared-skill\ndescription: project wins'
+  );
+  writeSkill(
+    path.join(agentsHome, 'skills'),
+    'user-version',
+    'name: shared-skill\ndescription: user loses'
+  );
+  writeSkill(
+    path.join(dshHome, 'skills'),
+    'model-only',
+    'name: model-only\ndescription: hidden from slash\nuser-invocable: false'
+  );
+
+  const previousDshHome = process.env.DSH_HOME;
+  const previousAgentsHome = process.env.DSH_AGENTS_HOME;
+  process.env.DSH_HOME = dshHome;
+  process.env.DSH_AGENTS_HOME = agentsHome;
+  try {
+    const skills = listDeepseekSkills(nestedCwd);
+    assert.deepEqual(skills.map((skill) => skill.name), ['shared-skill']);
+    assert.equal(skills[0].description, 'project wins');
+    assert.equal(skills[0].scope, 'project-agents');
+  } finally {
+    if (previousDshHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousDshHome;
+    if (previousAgentsHome === undefined) delete process.env.DSH_AGENTS_HOME;
+    else process.env.DSH_AGENTS_HOME = previousAgentsHome;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
 
 const providers = read('src/ui/utils/provider.ts');
 const picker = read('src/ui/components/ProviderPicker.tsx');
@@ -216,6 +431,10 @@ assert.ok(
     composerSelection.includes('savePreferredDeepseekModel') &&
     usage.includes("id: 'deepseek'"),
   'UI must list DeepSeek across picker, onboarding, readiness, composer and usage settings'
+);
+assert.ok(
+  usage.includes('estimatedCost={estimatedCost}') && !usage.includes('activeReport!.note'),
+  'Usage settings must mark estimated costs without rendering an explanatory note row'
 );
 
 const contextUsage = read('src/ui/utils/context-usage.ts');
@@ -254,6 +473,60 @@ assert.ok(
     newSession.includes('DEEPSEEK_PERMISSION_MODE_OPTIONS') &&
     newSession.includes('agentSelection.deepseekPermissionMode'),
   'composer must render the deepseek picker and send the stored mode preference end to end'
+);
+
+// ── Composer reasoning picker ──────────────────────────────────────────────
+const composerControls = read('src/ui/components/ComposerAgentControls.tsx');
+const reasoningUtil = read('src/ui/utils/deepseek-reasoning.ts');
+assert.ok(
+  reasoningUtil.includes("'off'") &&
+    reasoningUtil.includes("'high'") &&
+    reasoningUtil.includes("'max'") &&
+    reasoningUtil.includes("DEFAULT_DEEPSEEK_REASONING_EFFORT: DeepseekReasoningEffort = 'max'") &&
+    composerSelection.includes('loadPreferredDeepseekReasoningEffort') &&
+    composerSelection.includes('setDeepseekReasoningEffort') &&
+    composerControls.includes('DeepseekAgentSubContent') &&
+    composerControls.includes('DEEPSEEK_REASONING_EFFORT_OPTIONS') &&
+    promptInput.includes('agentSelection.deepseekReasoningEffort') &&
+    newSession.includes('agentSelection.deepseekReasoningEffort'),
+  'composer must offer off/high/max and send the persisted DeepSeek reasoning preference'
+);
+assert.ok(
+  adapter.includes('normalizeDeepseekReasoningEffort') &&
+    adapter.includes('buildDeepseekEnv({ cwd, permissionMode, agentPreset, reasoningEffort })') &&
+    ipc.includes('(!deepseekMidTurn && deepseekReasoningEffortChanged)'),
+  'DeepSeek reasoning changes must reach the runtime env and respawn outside an in-flight turn'
+);
+
+// ── Agent preset picker and fixed-session semantics ────────────────────────
+const presetPicker = read('src/ui/components/DeepseekAgentPresetPicker.tsx');
+const presetUtil = read('src/ui/utils/deepseek-agent-preset.ts');
+assert.ok(
+  presetPicker.includes("value: 'standard'") &&
+    presetPicker.includes("value: 'code'") &&
+    presetPicker.includes("value: 'minimal'") &&
+    presetPicker.includes("value: 'cordis'") &&
+    presetPicker.includes("label: 'PTC'") &&
+    presetPicker.includes("label: 'Creator'") &&
+    presetPicker.includes('readOnly') &&
+    presetUtil.includes('cowork.preferredDeepseekAgentPreset'),
+  'composer must expose all four presets and make the existing-session picker read-only'
+);
+assert.ok(
+  composerSelection.includes('loadPreferredDeepseekAgentPreset') &&
+    composerSelection.includes('setDeepseekAgentPreset') &&
+    promptInput.includes('deepseekAgentPreset:') &&
+    promptInput.includes('readOnly={!activeSession?.isDraft}') &&
+    newSession.includes('agentSelection.deepseekAgentPreset') &&
+    appStore.includes('deepseekAgentPreset: session.deepseekAgentPreset'),
+  'preset selection must reach new-session IPC and round-trip through renderer session state'
+);
+assert.ok(
+  adapter.includes('normalizeDeepseekAgentPreset(input.deepseekAgentPreset)') &&
+    adapter.includes('buildDeepseekEnv({ cwd, permissionMode, agentPreset, reasoningEffort })') &&
+    ipc.includes('normalizeDeepseekAgentPreset(session.deepseek_agent_preset)') &&
+    ipc.includes('deepseekAgentPreset: normalizedDeepseekAgentPreset'),
+  'adapter must launch the stored preset and resume with the persisted session binding'
 );
 
 // ── History bootstrap (respawn context restore) ─────────────────────────────

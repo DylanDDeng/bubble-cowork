@@ -7,7 +7,7 @@
 // Usage: node scripts/probe-deepseek-sdk.mjs [prompt]
 // Reads DEEPSEEK_API_KEY from the environment, falling back to ~/.deepseek/config.toml.
 
-import { mkdtempSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -40,9 +40,26 @@ if (!apiKey) {
 
 const cwd = mkdtempSync(join(tmpdir(), 'deepseek-sdk-probe-'));
 writeFileSync(join(cwd, 'hello.txt'), 'probe workspace\n');
-const prompt =
-  process.argv[2] ||
-  'Read hello.txt with your file tools, then create probe-out.txt containing done. Reply with the single word: finished.';
+const skillSmoke = process.argv[2] === '--skill-smoke';
+if (skillSmoke) {
+  const skillDir = join(cwd, '.agents', 'skills', 'aegis-skill-smoke');
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    [
+      '---',
+      'name: aegis-skill-smoke',
+      'description: Verify native DeepSeek Harness slash skill invocation.',
+      '---',
+      'When invoked, reply with exactly AEGIS_SKILL_OK and no other text.',
+      '',
+    ].join('\n')
+  );
+}
+const prompt = skillSmoke
+  ? '/aegis-skill-smoke'
+  : process.argv[2] ||
+    'Read hello.txt with your file tools, then create probe-out.txt containing done. Reply with the single word: finished.';
 
 const timer = setTimeout(() => {
   console.error('FAIL timeout after 240s');
@@ -77,12 +94,15 @@ const dumpPath = join(tmpdir(), 'deepseek-sdk-probe-events.json');
 writeFileSync(dumpPath, JSON.stringify(result.events, null, 1));
 console.error('full dump:', dumpPath);
 
-const pass =
-  (kinds['assistant/message'] ?? 0) > 0 &&
-  (kinds['tool/call'] ?? 0) > 0 &&
-  (kinds['tool/result'] ?? 0) > 0 &&
-  (kinds['turn/end'] ?? 0) === 1 &&
-  result.finalResponse.length > 0;
+const pass = skillSmoke
+  ? result.finalResponse.trim() === 'AEGIS_SKILL_OK' &&
+    (kinds['assistant/message'] ?? 0) > 0 &&
+    (kinds['turn/end'] ?? 0) === 1
+  : (kinds['assistant/message'] ?? 0) > 0 &&
+    (kinds['tool/call'] ?? 0) > 0 &&
+    (kinds['tool/result'] ?? 0) > 0 &&
+    (kinds['turn/end'] ?? 0) === 1 &&
+    result.finalResponse.length > 0;
 clearTimeout(timer);
 console.log(pass ? 'PROBE PASS' : 'PROBE FAIL');
 process.exit(pass ? 0 : 1);

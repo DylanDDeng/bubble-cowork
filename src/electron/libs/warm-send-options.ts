@@ -27,6 +27,7 @@ export type WarmSendOptions = Pick<
   | 'grokPermissionMode'
   | 'grokReasoningEffort'
   | 'deepseekPermissionMode'
+  | 'deepseekReasoningEffort'
   | 'opencodePermissionMode'
   | 'qoderPermissionMode'
   | 'bubblePermissionMode'
@@ -43,6 +44,7 @@ export function buildWarmSendOptions(next: WarmSendOptions): WarmSendOptions {
     grokPermissionMode: next.grokPermissionMode,
     grokReasoningEffort: next.grokReasoningEffort,
     deepseekPermissionMode: next.deepseekPermissionMode,
+    deepseekReasoningEffort: next.deepseekReasoningEffort,
     opencodePermissionMode: next.opencodePermissionMode,
     qoderPermissionMode: next.qoderPermissionMode,
     bubblePermissionMode: next.bubblePermissionMode,

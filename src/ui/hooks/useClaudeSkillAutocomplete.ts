@@ -156,7 +156,8 @@ export function useComposerCapabilityMenu({
         provider === 'kimi' ||
         provider === 'qoder' ||
         provider === 'grok' ||
-        provider === 'bubble'
+        provider === 'bubble' ||
+        provider === 'deepseek'
       ) {
         return providerSlashSkills;
       }
@@ -213,12 +214,16 @@ export function useComposerCapabilityMenu({
     if (!enabled || !enableSkills) {
       return null;
     }
-    // Codex matches the codex app: `/` can summon skills too, `$` stays the
-    // canonical mention prefix.
+    // Claude/Codex accept both mention forms. DeepSeek's Harness-native
+    // user-explicit invocation is `/name` only.
     const state = parseSelectedSkillPrompt(
       prompt,
       recognitionSkills,
-      provider === 'claude' || provider === 'codex' ? ['/', '$'] : ['$']
+      provider === 'claude' || provider === 'codex'
+        ? ['/', '$']
+        : provider === 'deepseek'
+          ? ['/']
+          : ['$']
     );
     // Codex builtin commands win over same-named skills on `/` tokens: the
     // skill path strips the token into a reference, which would bypass the
@@ -246,13 +251,13 @@ export function useComposerCapabilityMenu({
             provider === 'kimi' ||
             provider === 'qoder' ||
             provider === 'grok' ||
-            provider === 'bubble')),
-      // Codex/Kimi/Qoder/Grok match the codex app: `/` reaches the full skill
-      // catalog, same budget as the `$` menu (Claude keeps the compact
-      // 8-slot mix). Grok invokes its skills as slash commands, so `/` is the
-      // only way in.
+            provider === 'bubble' ||
+            provider === 'deepseek')),
+      // Provider slash catalogs get the full menu budget (Claude keeps the
+      // compact 8-slot mix). Grok and DeepSeek invoke skills as slash commands,
+      // so `/` is their native entry point.
       skillLimit:
-        provider === 'codex' || provider === 'kimi' || provider === 'qoder' || provider === 'grok' || provider === 'bubble'
+        provider === 'codex' || provider === 'kimi' || provider === 'qoder' || provider === 'grok' || provider === 'bubble' || provider === 'deepseek'
           ? 80
           : undefined,
     });
@@ -282,15 +287,15 @@ export function useComposerCapabilityMenu({
     (!selectedCommandState || composerTrigger.kind === 'slash-command');
 
   const selectSkill = (skill: ClaudeSkillSummary) => {
-    // Kimi, Qoder and Bubble have no skill-reference pipeline: the runtime
+    // Kimi, Qoder, Bubble and DeepSeek have no skill-reference pipeline: the runtime
     // expands the prompt text inside the turn (kimi as `/skill:<name> <args>`,
-    // qoder/bubble as `/<name> <args>` — skills double as slash commands,
-    // verified live), so insert exactly that token.
+    // qoder/bubble/deepseek as `/<name> <args>` — verified live), so insert
+    // exactly that token.
     const next = replaceComposerTriggerOrLeadingToken({
       prompt,
       trigger: composerTrigger,
       fallbackPrefix:
-        provider === 'kimi' || provider === 'qoder' || provider === 'bubble'
+        provider === 'kimi' || provider === 'qoder' || provider === 'bubble' || provider === 'deepseek'
           ? '/'
           : skillMentionPrefix(provider),
       name: provider === 'kimi' ? `skill:${skill.name}` : skill.name,
@@ -381,17 +386,21 @@ export function useComposerCapabilityMenu({
         ? 'Skills'
         : triggerKind === 'slash-model'
           ? 'Models'
-          : provider === 'claude' || provider === 'codex' || provider === 'bubble'
-            ? 'Commands & Skills'
-            : 'Commands',
+          : provider === 'deepseek'
+            ? 'Skills'
+            : provider === 'claude' || provider === 'codex' || provider === 'bubble'
+              ? 'Commands & Skills'
+              : 'Commands',
     emptyMessage:
       triggerKind === 'skill'
         ? 'No matching skills.'
         : triggerKind === 'slash-model'
           ? 'No matching models.'
-          : provider === 'claude' || provider === 'codex' || provider === 'bubble'
-            ? 'No matching commands or skills.'
-            : 'No matching commands.',
+          : provider === 'deepseek'
+            ? 'No matching skills.'
+            : provider === 'claude' || provider === 'codex' || provider === 'bubble'
+              ? 'No matching commands or skills.'
+              : 'No matching commands.',
     suggestions,
     availableSkills,
     availableCommands,

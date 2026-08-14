@@ -7,6 +7,8 @@ import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { normalizeCodexReasoningEffort } from '../../shared/codex-reasoning';
+import { normalizeDeepseekAgentPreset } from '../../shared/deepseek-agent-preset';
+import { estimateDeepseekUsageCost } from './deepseek-pricing';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type { ArtifactRow, DerivedSummaryRow } from '../types';
 import type {
@@ -25,6 +27,7 @@ import type {
   CodexExecutionMode,
   CodexPermissionMode,
   CodexReasoningEffort,
+  DeepseekAgentPreset,
   OpenCodePermissionMode,
   ClaudeModelUsage,
   LatestClaudeModelUsage,
@@ -374,6 +377,7 @@ export function initialize(): void {
       qoder_session_id TEXT,
       bubble_session_id TEXT,
       deepseek_session_id TEXT,
+      deepseek_agent_preset TEXT DEFAULT 'standard',
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       conversation_scope TEXT DEFAULT 'project',
@@ -527,6 +531,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'qoder_session_id', 'TEXT');
   ensureColumn('sessions', 'bubble_session_id', 'TEXT');
   ensureColumn('sessions', 'deepseek_session_id', 'TEXT');
+  ensureColumn('sessions', 'deepseek_agent_preset', "TEXT DEFAULT 'standard'");
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
@@ -1190,6 +1195,7 @@ export function createSession(params: {
   codexReasoningEffort?: CodexReasoningEffort | null;
   codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
+  deepseekAgentPreset?: DeepseekAgentPreset;
   hiddenFromThreads?: boolean;
   channelId?: string;
   teamMode?: SessionTeamMode;
@@ -1199,8 +1205,8 @@ export function createSession(params: {
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, conversation_scope, agent_id, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, claude_reasoning_effort, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, workspace_channel_id, team_mode, team_id, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, conversation_scope, agent_id, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, claude_reasoning_effort, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, deepseek_agent_preset, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, workspace_channel_id, team_mode, team_id, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -1222,6 +1228,7 @@ export function createSession(params: {
     params.provider === 'codex' ? normalizeCodexReasoningEffort(params.codexReasoningEffort) : null,
     params.provider === 'codex' && params.codexFastMode ? 1 : 0,
     params.provider === 'opencode' ? normalizeOpenCodePermissionMode(params.opencodePermissionMode) : null,
+    params.provider === 'deepseek' ? normalizeDeepseekAgentPreset(params.deepseekAgentPreset) : null,
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
@@ -3239,17 +3246,25 @@ function getClaudeProtocolUsageReport(
     }
 
     const result = parsed as StoredClaudeResultMessage;
-    const inputTokens = toNumber(result.usage?.input_tokens);
-    const outputTokens = toNumber(result.usage?.output_tokens);
-    const cacheReadTokens = toNumber(result.usage?.cache_read_input_tokens);
-    const cacheCreationTokens = toNumber(result.usage?.cache_creation_input_tokens);
+    // Before deepseek-step-last-wins-v1 the rc.6 usage chunk and its matching
+    // committed assistant message were both added, doubling every successful
+    // step. New result rows carry the fold marker; repair old persisted rows
+    // during reporting so historical Settings totals and costs are accurate.
+    const deepseekUsageScale =
+      provider === 'deepseek' && result.usageAccounting !== 'deepseek-step-last-wins-v1'
+        ? 0.5
+        : 1;
+    const scaleUsage = (value: unknown) => Math.round(toNumber(value) * deepseekUsageScale);
+    const inputTokens = scaleUsage(result.usage?.input_tokens);
+    const outputTokens = scaleUsage(result.usage?.output_tokens);
+    const cacheReadTokens = scaleUsage(result.usage?.cache_read_input_tokens);
+    const cacheCreationTokens = scaleUsage(result.usage?.cache_creation_input_tokens);
     const totalTokens = inputTokens + outputTokens;
     const dateKey = formatDateKey(row.created_at);
     const dayBucket = dailyMap.get(dateKey);
 
     totalInputTokens += inputTokens;
     totalOutputTokens += outputTokens;
-    totalCostUsd += toNumber(result.total_cost_usd);
     totalCacheReadTokens += cacheReadTokens;
     totalCacheCreationTokens += cacheCreationTokens;
     sessionIds.add(row.session_id);
@@ -3261,6 +3276,7 @@ function getClaudeProtocolUsageReport(
     // result row to the best non-alias model name available.
     const rawModelUsage = provider === 'claude' ? result.modelUsage : undefined;
     if (rawModelUsage && Object.keys(rawModelUsage).length > 0) {
+      totalCostUsd += toNumber(result.total_cost_usd);
       for (const [model, usage] of Object.entries(rawModelUsage)) {
         const summary = modelSummaries.get(model) || emptyModelSummary(model);
         const modelInputTokens = toNumber(usage.inputTokens);
@@ -3295,11 +3311,20 @@ function getClaudeProtocolUsageReport(
       row.session_model,
       (result as { model?: unknown }).model
     );
+    const resultCostUsd =
+      provider === 'deepseek'
+        ? estimateDeepseekUsageCost(
+            fallbackModel,
+            { inputTokens, outputTokens, cacheReadTokens },
+            row.created_at
+          )
+        : toNumber(result.total_cost_usd);
+    totalCostUsd += resultCostUsd;
     const summary = modelSummaries.get(fallbackModel) || emptyModelSummary(fallbackModel);
     summary.inputTokens += inputTokens;
     summary.outputTokens += outputTokens;
     summary.totalTokens += totalTokens;
-    summary.totalCostUsd += toNumber(result.total_cost_usd);
+    summary.totalCostUsd += resultCostUsd;
     summary.cacheReadTokens += cacheReadTokens;
     modelSummaries.set(fallbackModel, summary);
 
@@ -3312,7 +3337,7 @@ function getClaudeProtocolUsageReport(
       dayBucket.totalTokens += totalTokens;
       dayBucket.byModel[fallbackModel] = (dayBucket.byModel[fallbackModel] || 0) + totalTokens;
       dayBucket.byModelCostUsd[fallbackModel] =
-        (dayBucket.byModelCostUsd[fallbackModel] || 0) + toNumber(result.total_cost_usd);
+        (dayBucket.byModelCostUsd[fallbackModel] || 0) + resultCostUsd;
     }
   }
 
@@ -3334,6 +3359,12 @@ function getClaudeProtocolUsageReport(
     // Non-claude runners compute costs against provider-specific pricing the
     // SDK may not know exactly; surface those as estimates.
     ...(provider === 'claude' ? {} : { costMode: 'estimated' as const }),
+    ...(provider === 'deepseek'
+      ? {
+          note:
+            'Cost is estimated from official DeepSeek API list prices, including cache-hit pricing and the August 16, 2026 peak/off-peak schedule.',
+        }
+      : {}),
     totals: {
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,

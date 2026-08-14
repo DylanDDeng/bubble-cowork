@@ -32,6 +32,7 @@ export interface SessionRow {
   bubble_session_id: string | null;
   qoder_session_id: string | null;
   deepseek_session_id: string | null;
+  deepseek_agent_preset: import('../shared/types').DeepseekAgentPreset | null;
   provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
@@ -131,6 +132,8 @@ export interface RunnerOptions {
   grokPermissionMode?: import('../shared/types').GrokPermissionMode;
   grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
   deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
+  deepseekAgentPreset?: import('../shared/types').DeepseekAgentPreset;
+  deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;

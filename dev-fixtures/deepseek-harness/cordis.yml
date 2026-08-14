@@ -2,7 +2,9 @@
 # driven per-thread by the Electron main process through
 # @deepseek-ai/dsh-sdk-client. Composition merges the upstream
 # examples/jsonrpc-agent runtime with the sandboxed bash/fs stack from
-# examples/acp-agent. stdout is reserved for JSON-RPC; no console logger.
+# examples/acp-agent. AEGIS_DSH_AGENT_PRESET selects one of the four official
+# Web UI mode semantics at process spawn: standard, code (PTC), minimal, or
+# cordis (Creator). stdout is reserved for JSON-RPC; no console logger.
 
 - id: sdk-jsonrpc-server
   name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
@@ -17,7 +19,7 @@
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     thinking: enabled
-    reasoningEffort: max
+    reasoningEffort: !!js "process.env.DSH_REASONING_EFFORT ?? 'max'"
     models:
       - id: deepseek-v4-flash
       - id: deepseek-v4-pro
@@ -54,16 +56,24 @@
 - id: agent-spine
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
-    persona: |
-      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
-
-      Verify your work by running the code or tests. Keep answers brief and factual.
-    workspaceContext: false
+    includeHarnessIdentity: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
+    includeRuntimeContext: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
+    persona: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? 'You are a helpful software engineer assistant.' : (process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'cordis' ? 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. You can inspect and experiment with the live Cordis runtime to help create custom agent compositions. Verify your work and keep answers factual.' : 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug. Verify your work by running the code or tests. Keep answers brief and factual.'"
+    tools:
+      mode: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'code' ? 'code' : 'native'"
+    workspaceContext: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? false : { maxBytes: 65536 }"
     skills:
-      enabled: false
-    toolBash:
-      enableRunInBackground: false
-    toolJobs: false
+      enabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
+    toolBash: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? false : { enableRunInBackground: true }"
+    toolJobs: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? false : {}"
+    goals: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? false : {}"
+
+# PTC / Code mode exposes the spine's registered tools through the generated
+# TypeScript SDK and the single run_code transport. The runtime remains loaded
+# in other modes so the composition shape is stable; native presentation never
+# exposes it to the model.
+- id: code-runtime
+  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
 
 - id: sessions
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -83,13 +93,15 @@
 
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
   config:
     provider: spawn
     toolName: subagent
-    enableRunInBackground: false
+    enableRunInBackground: true
 
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
   config:
     allowParallelInProgress: true
 
@@ -106,12 +118,76 @@
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+  config:
+    sampleOverCapGlobResults: false
+
+# Minimal mode deliberately exposes exactly two model-facing tools. The PTY
+# service preserves shell state across turns; the editor still rides Aegis's
+# sandboxed fs provider so Default / Full Access keeps its product meaning.
+- id: minimal-terminal
+  name: '@deepseek-ai/dsh-terminal'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
+
+- id: minimal-terminal-bash
+  name: '@deepseek-ai/dsh-terminal-bash'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
+  config:
+    timeoutMs: 300000
+
+- id: minimal-persistent-bash
+  name: '@deepseek-ai/dsh-tool-bash-persistent'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
+  config:
+    timeoutMs: 300000
+
+- id: minimal-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
+  config:
+    maxOutputChars: 16000
+
+# Standard and PTC match the official Web UI's search surface. Fetch remains
+# disabled; search uses DeepSeek's server-side retrieval route and the same API
+# credential as the primary model adapter.
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+  config:
+    searchProvider: deepseek-official
+
+- id: web-search-deepseek
+  name: '@deepseek-ai/dsh-web-search-deepseek'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
+
+# Creator mode is Standard plus the live Cordis inspection / experiment tool.
+- id: cordis-host-runner
+  name: '@deepseek-ai/dsh-cordis-host-runner'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'cordis'"
+
+- id: tool-cordis
+  name: '@deepseek-ai/dsh-tool-cordis'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'cordis'"
 
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
 - id: compaction-basic
   name: '@deepseek-ai/dsh-compaction-basic'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
   config:
     thresholdRatio: 0.8
     retainRatio: 0.08

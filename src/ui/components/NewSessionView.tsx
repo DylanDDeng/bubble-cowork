@@ -28,6 +28,7 @@ import {
   QODER_PERMISSION_MODE_OPTIONS,
 } from './PermissionModePicker';
 import { ClaudePlanModePill } from './ClaudePlanModePill';
+import { DeepseekAgentPresetPicker } from './DeepseekAgentPresetPicker';
 import { FolderOpen } from './icons';
 import { NewThreadLanding } from './NewThreadLanding';
 import { ComposerContextPills } from './ComposerContextPills';
@@ -318,6 +319,14 @@ export function NewSessionView() {
         deepseekPermissionMode:
           agentSelection.provider === 'deepseek'
             ? agentSelection.deepseekPermissionMode
+            : undefined,
+        deepseekAgentPreset:
+          agentSelection.provider === 'deepseek'
+            ? agentSelection.deepseekAgentPreset
+            : undefined,
+        deepseekReasoningEffort:
+          agentSelection.provider === 'deepseek'
+            ? agentSelection.deepseekReasoningEffort
             : undefined,
         bubblePermissionMode:
           agentSelection.provider === 'bubble'
@@ -704,6 +713,14 @@ export function NewSessionView() {
                       />
                     )}
                     {agentSelection.provider === 'deepseek' && (
+                      <DeepseekAgentPresetPicker
+                        value={agentSelection.deepseekAgentPreset}
+                        onChange={agentSelection.setDeepseekAgentPreset}
+                        disabled={pendingStart}
+                        menuSide="bottom"
+                      />
+                    )}
+                    {agentSelection.provider === 'deepseek' && (
                       <PermissionModePicker
                         value={agentSelection.deepseekPermissionMode}
                         options={DEEPSEEK_PERMISSION_MODE_OPTIONS}
@@ -748,6 +765,8 @@ export function NewSessionView() {
                       onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                       grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
                       onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
+                      deepseekReasoningEffort={agentSelection.deepseekReasoningEffort}
+                      onDeepseekReasoningEffortChange={agentSelection.setDeepseekReasoningEffort}
                       codexFastMode={agentSelection.codexFastMode}
                       onCodexFastModeChange={agentSelection.setCodexFastMode}
                       kimiThinkingOptions={agentSelection.kimiThinkingOptions}
