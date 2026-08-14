@@ -13,6 +13,7 @@ import { useGrokModelConfig } from './useGrokModelConfig';
 import { usePiModelConfig } from './usePiModelConfig';
 import { useBubbleModelConfig } from './useBubbleModelConfig';
 import { useQoderModelConfig } from './useQoderModelConfig';
+import { useDeepseekModelConfig } from './useDeepseekModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import {
@@ -103,6 +104,7 @@ const GROK_MODEL_STORAGE_KEY = 'cowork.preferredGrokModel';
 const PI_MODEL_STORAGE_KEY = 'cowork.preferredPiModel';
 const BUBBLE_MODEL_STORAGE_KEY = 'cowork.preferredBubbleModel';
 const QODER_MODEL_STORAGE_KEY = 'cowork.preferredQoderModel';
+const DEEPSEEK_MODEL_STORAGE_KEY = 'cowork.preferredDeepseekModel';
 
 export interface ComposerModelOption {
   key: string;
@@ -131,6 +133,21 @@ function savePreferredKimiModel(model: string | null): void {
     return;
   }
   rendererStateStorage.setItem(KIMI_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredDeepseekModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = rendererStateStorage.getItem(DEEPSEEK_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredDeepseekModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    rendererStateStorage.removeItem(DEEPSEEK_MODEL_STORAGE_KEY);
+    return;
+  }
+  rendererStateStorage.setItem(DEEPSEEK_MODEL_STORAGE_KEY, model);
 }
 
 function loadPreferredGrokModel(): string | null {
@@ -358,6 +375,35 @@ function resolveConfiguredGrokModel(
   );
 }
 
+function buildDeepseekModelOptions(config: ReturnType<typeof useDeepseekModelConfig>): ComposerModelOption[] {
+  const defaultOption: ComposerModelOption = {
+    key: 'deepseek:default',
+    value: '',
+    label: 'Default',
+    description: config.defaultModel ? `Use ${config.defaultModel}` : 'Use DeepSeek default model',
+  };
+  const explicitOptions = config.options.map((name) => ({
+    key: `deepseek:${name}`,
+    value: name,
+    label: name,
+    description: config.defaultModel === name ? 'Configured default' : undefined,
+  }));
+  return [defaultOption, ...explicitOptions];
+}
+
+function resolveConfiguredDeepseekModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof useDeepseekModelConfig>
+): string | null {
+  const options = buildDeepseekModelOptions(config);
+  return resolveListedOrPendingModel(
+    requestedModel,
+    loadPreferredDeepseekModel(),
+    config.defaultModel,
+    options.map((option) => option.value)
+  );
+}
+
 function buildOpencodeComposerModelOptions(config: ReturnType<typeof useOpencodeModelConfig>): ComposerModelOption[] {
   const defaultOption: ComposerModelOption = {
     key: 'opencode:default',
@@ -530,6 +576,7 @@ export function useComposerAgentSelection(input?: {
   const piModelConfig = usePiModelConfig();
   const bubbleModelConfig = useBubbleModelConfig();
   const qoderModelConfig = useQoderModelConfig();
+  const deepseekModelConfig = useDeepseekModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
   const [model, setModelState] = useState<string | null>(() => {
@@ -545,6 +592,7 @@ export function useComposerAgentSelection(input?: {
     if (initialProvider === 'pi') return loadPreferredPiModel();
     if (initialProvider === 'bubble') return resolveConfiguredBubbleModel(null, bubbleModelConfig);
     if (initialProvider === 'qoder') return loadPreferredQoderModel();
+    if (initialProvider === 'deepseek') return loadPreferredDeepseekModel();
     if (initialProvider === 'claude') return loadPreferredClaudeModel();
     return null;
   });
@@ -597,8 +645,9 @@ export function useComposerAgentSelection(input?: {
       pi: buildPiModelOptions(piModelConfig),
       bubble: buildBubbleModelOptions(bubbleModelConfig),
       qoder: buildQoderModelOptions(qoderModelConfig),
+      deepseek: buildDeepseekModelOptions(deepseekModelConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -660,8 +709,12 @@ export function useComposerAgentSelection(input?: {
       return buildQoderModelOptions(qoderModelConfig);
     }
 
+    if (provider === 'deepseek') {
+      return buildDeepseekModelOptions(deepseekModelConfig);
+    }
+
     return [];
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, provider]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -736,12 +789,19 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
+      if (nextProvider === 'deepseek') {
+        return {
+          model: resolveConfiguredDeepseekModel(normalizedRequestedModel, deepseekModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
       return {
         model: null,
         compatibleProviderId: null,
       };
     },
-    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig]
+    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig]
   );
 
   // Apply session switches during render so the first painted frame already
@@ -892,6 +952,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredBubbleModel(nextModel);
       } else if (targetProvider === 'qoder') {
         savePreferredQoderModel(nextModel);
+      } else if (targetProvider === 'deepseek') {
+        savePreferredDeepseekModel(nextModel);
       }
 
       input?.onSelectionChange?.({
@@ -944,6 +1006,14 @@ export function useComposerAgentSelection(input?: {
       return {
         label: 'Setup Grok',
         title: 'Configure Grok Build',
+        settingsTab: 'providers',
+      };
+    }
+
+    if (provider === 'deepseek') {
+      return {
+        label: 'Setup DeepSeek',
+        title: 'Install the DeepSeek Harness ACP profile',
         settingsTab: 'providers',
       };
     }

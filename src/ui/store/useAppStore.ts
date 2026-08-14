@@ -285,6 +285,12 @@ function shouldPreserveStreamingStateForMessage(
   if (provider === 'grok') {
     return !isGrokStreamCommit(message);
   }
+  // DeepSeek (SDK session events) interleaves tool calls/results with live
+  // reasoning/text deltas exactly like Grok: only a committed text/thinking
+  // message may clear the buffer.
+  if (provider === 'deepseek') {
+    return !isGrokStreamCommit(message);
+  }
 
   return (
     (provider === 'codex' &&

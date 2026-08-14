@@ -26,6 +26,7 @@ import type {
   CodexRuntimeStatus,
   KimiModelConfig,
   GrokModelConfig,
+  DeepseekModelConfig,
   PiModelConfig,
   BubbleModelConfig,
   BubbleProvidersConfig,
@@ -225,6 +226,7 @@ declare global {
     getKimiRuntimeStatus: () => Promise<KimiRuntimeStatus>;
     getGrokRuntimeStatus: () => Promise<GrokRuntimeStatus>;
     getGrokModelConfig: () => Promise<GrokModelConfig>;
+    getDeepseekModelConfig: () => Promise<DeepseekModelConfig>;
     getPiModelConfig: () => Promise<PiModelConfig>;
     getBubbleModelConfig: () => Promise<BubbleModelConfig>;
     getBubbleProvidersConfig: () => Promise<BubbleProvidersConfig>;

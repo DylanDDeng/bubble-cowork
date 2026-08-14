@@ -26,6 +26,7 @@ export const DELEGATE_TARGET_PROVIDERS: AgentProvider[] = [
   'pi',
   'qoder',
   'bubble',
+  'deepseek',
 ];
 
 const DELEGATE_TIMEOUT_MS = Number(process.env.AEGIS_DELEGATE_TIMEOUT_MS || '') || 30 * 60 * 1000;
@@ -301,6 +302,9 @@ export function applyPermissionTier(
       break;
     case 'bubble':
       payload.bubblePermissionMode = tier === 'full' ? 'bypassPermissions' : 'default';
+      break;
+    case 'deepseek':
+      payload.deepseekPermissionMode = tier === 'full' ? 'danger-full-access' : 'workspace-write';
       break;
     default:
       break;

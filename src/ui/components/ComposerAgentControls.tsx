@@ -32,6 +32,7 @@ import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
 import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
+import { DeepseekLogo } from './DeepseekLogo';
 
 export function AgentIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
@@ -57,6 +58,9 @@ export function AgentIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'bubble') {
     return <BubbleLogo />;
+  }
+  if (provider === 'deepseek') {
+    return <DeepseekLogo />;
   }
   return null;
 }

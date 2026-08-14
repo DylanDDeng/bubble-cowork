@@ -10,6 +10,7 @@ import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
 import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
+import { DeepseekLogo } from './DeepseekLogo';
 
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
@@ -38,6 +39,9 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'bubble') {
     return <BubbleLogo />;
+  }
+  if (provider === 'deepseek') {
+    return <DeepseekLogo />;
   }
 
   return null;

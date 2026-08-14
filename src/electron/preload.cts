@@ -609,6 +609,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-grok-model-config');
   },
 
+  getDeepseekModelConfig: () => {
+    return ipcRenderer.invoke('get-deepseek-model-config');
+  },
+
   getPiModelConfig: () => {
     return ipcRenderer.invoke('get-pi-model-config');
   },

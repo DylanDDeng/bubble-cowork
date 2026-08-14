@@ -420,6 +420,7 @@ export function PromptInput({
   const isBubbleContextVisible = runtimeProvider === 'bubble' && activeSession?.provider === 'bubble';
   const isQoderContextVisible = runtimeProvider === 'qoder' && activeSession?.provider === 'qoder';
   const isGrokContextVisible = runtimeProvider === 'grok' && activeSession?.provider === 'grok';
+  const isDeepseekContextVisible = runtimeProvider === 'deepseek' && activeSession?.provider === 'deepseek';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
   const openCodeContextModel = isOpenCodeContextVisible ? selectedModel || activeSession?.model || null : null;
   const piContextModel = isPiContextVisible ? selectedModel || activeSession?.model || null : null;
@@ -428,10 +429,10 @@ export function PromptInput({
 
   const codexContextSnapshot = useMemo(
     () =>
-      isCodexContextVisible || isKimiContextVisible || isGrokContextVisible
+      isCodexContextVisible || isKimiContextVisible || isGrokContextVisible || isDeepseekContextVisible
         ? getLatestCodexContextSnapshot(activeSession.messages)
         : null,
-    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible, isGrokContextVisible]
+    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible, isGrokContextVisible, isDeepseekContextVisible]
   );
   const claudeContextSnapshot = useMemo(() => {
     if (!isClaudeContextVisible) {
@@ -516,7 +517,10 @@ export function PromptInput({
   );
   const canSteerWhileRunning =
     (runtimeProvider === 'codex' ||
-      (runtimeProvider === 'kimi' && activeSession?.kimiRuntime !== 'legacy')) &&
+      (runtimeProvider === 'kimi' && activeSession?.kimiRuntime !== 'legacy') ||
+      // DeepSeek: mid-turn sends splice into the runtime's inbox and are
+      // consumed before the activity settles (adapter steer path).
+      runtimeProvider === 'deepseek') &&
     isRunning &&
     !approvalPending &&
     !delegationPending &&

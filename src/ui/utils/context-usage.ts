@@ -70,12 +70,16 @@ function isResultMessage(message: StreamMessage): message is Extract<StreamMessa
 function isCodexTokenUsageMessage(
   message: StreamMessage
 ): message is Extract<StreamMessage, { type: 'system'; subtype: 'token_usage' }> {
-  // Kimi (server runtime) and Grok (ACP + signals.json) report usage through
-  // the same message shape and share the codex-style context ring.
+  // Kimi (server runtime), Grok (ACP + signals.json) and DeepSeek (SDK
+  // session events) report usage through the same message shape and share
+  // the codex-style context ring.
   return (
     message.type === 'system' &&
     message.subtype === 'token_usage' &&
-    (message.provider === 'codex' || message.provider === 'kimi' || message.provider === 'grok')
+    (message.provider === 'codex' ||
+      message.provider === 'kimi' ||
+      message.provider === 'grok' ||
+      message.provider === 'deepseek')
   );
 }
 

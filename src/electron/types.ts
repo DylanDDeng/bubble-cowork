@@ -31,7 +31,8 @@ export interface SessionRow {
   pi_session_id: string | null;
   bubble_session_id: string | null;
   qoder_session_id: string | null;
-  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
+  deepseek_session_id: string | null;
+  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;
@@ -129,6 +130,7 @@ export interface RunnerOptions {
   kimiThinking?: import('../shared/types').KimiThinking;
   grokPermissionMode?: import('../shared/types').GrokPermissionMode;
   grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
+  deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;

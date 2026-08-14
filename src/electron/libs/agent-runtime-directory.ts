@@ -15,6 +15,11 @@ import { getGrokRuntimeStatus } from './grok-runtime-status';
 import { resolvePiAgentDir } from './provider/pi-sdk-loader';
 import { resolveBubbleHome } from './provider/bubble-sdk-loader';
 import { findMachineQoderCli } from './provider/qoder-sdk-loader';
+import {
+  buildDeepseekSetupCommand,
+  hasDeepseekCredentials,
+  resolveDeepseekProfileDir,
+} from './deepseek-cli';
 
 // Static per-provider metadata for the onboarding/install guidance. Install
 // commands and docs are only listed where we are confident they stay correct;
@@ -62,6 +67,11 @@ const PROVIDER_META: Record<
     title: 'Bubble',
     installCommand: null,
     docsUrl: null,
+  },
+  deepseek: {
+    title: 'DeepSeek',
+    installCommand: null,
+    docsUrl: 'https://github.com/deepseek-ai/deepseek-harness',
   },
 };
 
@@ -282,6 +292,33 @@ async function probeQoder(): Promise<AgentRuntimeEntry> {
   }
 }
 
+// DeepSeek Harness readiness = an installed ACP launch profile + an API key.
+// File-existence checks only (probePi pattern): never boot the server here.
+async function probeDeepseek(): Promise<AgentRuntimeEntry> {
+  try {
+    if (!resolveDeepseekProfileDir()) {
+      return entry('deepseek', 'not_installed', {
+        summary: 'DeepSeek Harness ACP profile is not installed.',
+        detail: `Run \`${buildDeepseekSetupCommand()}\` (or set AEGIS_DSH_ACP_DIR to an installed profile).`,
+      });
+    }
+    if (!hasDeepseekCredentials()) {
+      return entry('deepseek', 'login_required', {
+        summary: 'DeepSeek Harness has no API key yet.',
+        detail: 'Set DEEPSEEK_API_KEY or put api_key in ~/.deepseek/config.toml.',
+      });
+    }
+    return entry('deepseek', 'ready', {
+      summary: 'DeepSeek Harness is ready (ACP profile + API key found).',
+    });
+  } catch (error) {
+    return entry('deepseek', 'error', {
+      summary: 'Could not check DeepSeek Harness status.',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export async function getAgentRuntimeDirectory(force = false): Promise<AgentRuntimeDirectoryReport> {
   const probes: Array<[AgentProvider, Promise<AgentRuntimeEntry>]> = [
     ['claude', probeClaude(force)],
@@ -292,6 +329,7 @@ export async function getAgentRuntimeDirectory(force = false): Promise<AgentRunt
     ['pi', probePi()],
     ['qoder', probeQoder()],
     ['bubble', probeBubble()],
+    ['deepseek', probeDeepseek()],
   ];
 
   const entries = await Promise.all(

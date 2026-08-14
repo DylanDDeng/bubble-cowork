@@ -8,6 +8,7 @@ import { OpenCodeSdkAdapter } from './provider/opencode-sdk-adapter';
 import { PiSdkAdapter } from './provider/pi-sdk-adapter';
 import { BubbleSdkAdapter } from './provider/bubble-sdk-adapter';
 import { QoderSdkAdapter } from './provider/qoder-sdk-adapter';
+import { DeepseekSdkAdapter } from './provider/deepseek-sdk-adapter';
 import { isDev } from '../util';
 
 let providerServiceInitialized = false;
@@ -30,6 +31,7 @@ export function ensureProviderService(): void {
   service.registerAdapter(new PiSdkAdapter());
   service.registerAdapter(new BubbleSdkAdapter());
   service.registerAdapter(new QoderSdkAdapter());
+  service.registerAdapter(new DeepseekSdkAdapter());
 
   if (isDev()) {
     console.log('[ProviderService] initialized with adapters:', service.listAdapters().map((a) => a.provider));
@@ -164,6 +166,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       kimiThinking: options.kimiThinking,
       grokPermissionMode: options.grokPermissionMode,
       grokReasoningEffort: options.grokReasoningEffort,
+      deepseekPermissionMode: options.deepseekPermissionMode,
       opencodePermissionMode: options.opencodePermissionMode,
       qoderPermissionMode: options.qoderPermissionMode,
       bubblePermissionMode: options.bubblePermissionMode,
@@ -287,6 +290,8 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
             kimiThinking: sendOptions?.kimiThinking ?? options.kimiThinking,
             grokPermissionMode: sendOptions?.grokPermissionMode ?? options.grokPermissionMode,
             grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
+            deepseekPermissionMode:
+              sendOptions?.deepseekPermissionMode ?? options.deepseekPermissionMode,
             opencodePermissionMode:
               sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
             qoderPermissionMode: sendOptions?.qoderPermissionMode ?? options.qoderPermissionMode,

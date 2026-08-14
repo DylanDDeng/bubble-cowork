@@ -61,7 +61,7 @@ export interface McpServerStatus {
   /** Codex: the server needs a fresh OAuth login (mcpServer/oauth/login). */
   failureReason?: 'reauthenticationRequired';
   /** Which agent reported this status. Used to avoid cross-agent name collisions. */
-  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
+  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
 }
 
 // Claude Skills 摘要
@@ -101,6 +101,12 @@ export type KimiPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type KimiThinking = string;
 export type GrokPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+/**
+ * DeepSeek Harness sandbox mode, forwarded as DSH_PERMISSION_MODE to the ACP
+ * server. workspace-write confines bash/fs to the session cwd and asks before
+ * a wider retry; danger-full-access never asks.
+ */
+export type DeepseekPermissionMode = 'workspace-write' | 'danger-full-access';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
 // Mirrors Bubble SDK's PermissionMode union (runTurn({ mode })).
 export type BubblePermissionMode = 'default' | 'plan' | 'bypassPermissions';
@@ -199,6 +205,16 @@ export interface GrokModelConfig {
     /** Reasoning effort tiers this model supports (models_cache.json), e.g. ['low','medium','high','xhigh']. */
     reasoningEfforts?: GrokReasoningEffort[];
   }>;
+}
+
+/**
+ * Model catalog for the DeepSeek Harness ACP profile. Sourced from the
+ * profile's cordis.yml (the llm-deepseek plugin's `models` list) — never a
+ * hardcoded list in app code; edit the profile to add models.
+ */
+export interface DeepseekModelConfig {
+  defaultModel: string | null;
+  options: string[];
 }
 
 export interface PiModelConfig {
@@ -505,7 +521,7 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
+export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
@@ -515,7 +531,8 @@ export type SessionSource =
   | 'grok_local'
   | 'pi_local'
   | 'qoder_local'
-  | 'bubble_local';
+  | 'bubble_local'
+  | 'deepseek_local';
 
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;
@@ -929,6 +946,7 @@ export interface SessionStartPayload {
   kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
+  deepseekPermissionMode?: DeepseekPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -1006,6 +1024,7 @@ export interface SessionContinuePayload {
   kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
+  deepseekPermissionMode?: DeepseekPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -1265,6 +1284,7 @@ export interface SessionInfo {
   kimiRuntime?: 'server' | 'legacy';
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
+  deepseekPermissionMode?: DeepseekPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
@@ -1320,6 +1340,7 @@ export interface SessionStatusPayload {
   kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
+  deepseekPermissionMode?: DeepseekPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
@@ -1406,7 +1427,7 @@ export interface AcpPermissionOption {
 
 export interface AcpPermissionInput {
   kind: 'acp-permission';
-  provider: 'kimi' | 'grok' | 'opencode' | 'bubble';
+  provider: 'kimi' | 'grok' | 'opencode' | 'bubble' | 'deepseek';
   question: string;
   title: string;
   toolName: string;
@@ -1539,7 +1560,7 @@ export type StreamMessage =
       subtype: 'token_usage';
       uuid: string;
       session_id: string;
-      provider: 'codex' | 'kimi' | 'grok';
+      provider: 'codex' | 'kimi' | 'grok' | 'deepseek';
       usage: CodexContextUsage;
     })
   | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean })

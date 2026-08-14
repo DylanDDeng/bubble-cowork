@@ -23,6 +23,7 @@ import type {
   KimiThinking,
   GrokPermissionMode,
   GrokReasoningEffort,
+  DeepseekPermissionMode,
   OpenCodePermissionMode,
   QoderPermissionMode,
   BubblePermissionMode,
@@ -47,7 +48,7 @@ import type { SessionRow } from '../../types';
 
 // ── Provider Identity ──────────────────────────────────────────────────────
 
-export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
+export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
 
 export interface ProviderAdapterCapabilities {
   /** Supports switching model mid-session */
@@ -88,6 +89,7 @@ export interface ProviderSessionStartInput {
   kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
+  deepseekPermissionMode?: DeepseekPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -113,6 +115,7 @@ export interface ProviderSendTurnInput {
   kimiThinking?: KimiThinking;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
+  deepseekPermissionMode?: DeepseekPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;

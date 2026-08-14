@@ -113,6 +113,11 @@ import {
 } from './libs/bubble-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
+import {
+  formatDeepseekRuntimeBlockingMessage,
+  getDeepseekModelConfig,
+  getDeepseekRuntimeStatus,
+} from './libs/deepseek-cli';
 import { AutomationScheduler } from './libs/automation-scheduler';
 import { recycleSessionWorktree } from './libs/worktree-hygiene';
 import {
@@ -594,6 +599,12 @@ function normalizeGrokPermissionMode(
   return value === 'plan' || value === 'auto' || value === 'yolo' || value === 'default'
     ? value
     : undefined;
+}
+
+function normalizeDeepseekPermissionMode(
+  value?: string | null
+): import('../shared/types').DeepseekPermissionMode | undefined {
+  return value === 'workspace-write' || value === 'danger-full-access' ? value : undefined;
 }
 
 function normalizeGrokReasoningEffort(
@@ -1680,6 +1691,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'pi') return 'Pi';
   if (provider === 'qoder') return 'Qoder';
   if (provider === 'bubble') return 'Bubble';
+  if (provider === 'deepseek') return 'DeepSeek';
   return 'Claude Code';
 }
 
@@ -2190,6 +2202,50 @@ function buildHandoffContextText(params: {
 
   const joined = sections.join('\n\n').trim();
   return truncateHandoffText(joined, Math.max(0, params.maxChars ?? HANDOFF_CONTEXT_MAX_CHARS));
+}
+
+// DeepSeek cannot resume a runtime session: dsh's JSONL persistence is
+// write-only (rc.6), so every respawn — app restart, model or permission-mode
+// switch — boots a blank session even though Aegis still holds the thread's
+// history. Other providers rebuild context by resuming a bootstrap session
+// (bootstrapClaudeSessionFromHistory et al.); with no resume channel, the
+// only carrier is the first prompt itself, so this reuses the handoff
+// transcript shape (recent turns nearly verbatim, earlier turns as one-line
+// bullets, char-budgeted) with restart framing instead of handoff framing.
+function buildDeepseekRestoredContextText(history: StreamMessage[]): string | null {
+  const entries = collectHandoffTranscriptEntries(history);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const earlier = entries.slice(0, -HANDOFF_RECENT_MESSAGE_COUNT);
+  const recent = entries.slice(-HANDOFF_RECENT_MESSAGE_COUNT);
+  const sections: string[] = [
+    'This is an ongoing conversation whose runtime was restarted. The transcript below is restored context from before the restart, not new input. Absorb it silently and respond only to the latest user message.',
+  ];
+
+  if (earlier.length > 0) {
+    sections.push(
+      'Earlier conversation summary:\n' +
+        earlier
+          .map(
+            (entry) =>
+              `- ${entry.role}: ${truncateHandoffText(entry.text.replace(/\s+/g, ' ').trim(), HANDOFF_EARLIER_MESSAGE_CHAR_LIMIT)}`
+          )
+          .join('\n')
+    );
+  }
+
+  sections.push(
+    'Most recent messages:\n' +
+      recent
+        .map(
+          (entry) => `${entry.role}:\n${truncateHandoffText(entry.text.trim(), HANDOFF_RECENT_MESSAGE_CHAR_LIMIT)}`
+        )
+        .join('\n\n')
+  );
+
+  return truncateHandoffText(sections.join('\n\n').trim(), HANDOFF_CONTEXT_MAX_CHARS);
 }
 
 function buildLatestEditSummaryPrompt(history: StreamMessage[]): string {
@@ -3485,7 +3541,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble';
+    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -3498,6 +3554,7 @@ const runnerHandles = new Map<
 	    kimiThinking?: import('../shared/types').KimiThinking;
 	    grokPermissionMode?: import('../shared/types').GrokPermissionMode;
 	    grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
+	    deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
 	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
 	    qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
 	    bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
@@ -6214,6 +6271,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getGrokModelConfig();
   });
 
+  ipcMainHandle('get-deepseek-model-config', async () => {
+    return getDeepseekModelConfig();
+  });
+
   ipcMainHandle('get-pi-model-config', async () => {
     return getPiModelConfig();
   });
@@ -8596,7 +8657,9 @@ function buildSessionInfoFromRow(
                     ? 'qoder_local'
                     : row.provider === 'bubble'
                       ? 'bubble_local'
-                      : 'aegis',
+                      : row.provider === 'deepseek'
+                        ? 'deepseek_local'
+                        : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
@@ -8703,6 +8766,7 @@ async function handleSessionStart(
     kimiThinking,
     grokPermissionMode,
     grokReasoningEffort,
+    deepseekPermissionMode,
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
@@ -8797,6 +8861,8 @@ async function handleSessionStart(
     chosenProvider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined;
   const selectedBubblePermissionMode =
     chosenProvider === 'bubble' ? normalizeBubblePermissionMode(bubblePermissionMode) : undefined;
+  const selectedDeepseekPermissionMode =
+    chosenProvider === 'deepseek' ? normalizeDeepseekPermissionMode(deepseekPermissionMode) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -8896,6 +8962,7 @@ async function handleSessionStart(
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
       qoderPermissionMode: selectedQoderPermissionMode,
       bubblePermissionMode: selectedBubblePermissionMode,
+      deepseekPermissionMode: selectedDeepseekPermissionMode,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
@@ -8983,6 +9050,22 @@ async function handleSessionStart(
       });
       return null;
     }
+  } else if (chosenProvider === 'deepseek') {
+    const runtimeStatus = getDeepseekRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', formatDeepseekRuntimeBlockingMessage(runtimeStatus));
+        broadcastAutomationChanged(mainWindow);
+      }
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatDeepseekRuntimeBlockingMessage(runtimeStatus),
+        },
+      });
+      return null;
+    }
   }
 
   // 异步生成更好的标题（不阻塞）
@@ -9059,7 +9142,8 @@ async function handleSessionStart(
     false,
     selectedKimiThinking,
     selectedQoderPermissionMode,
-    selectedBubblePermissionMode
+    selectedBubblePermissionMode,
+    selectedDeepseekPermissionMode
   );
   return session.id;
 }
@@ -9091,6 +9175,7 @@ async function handleSessionContinue(
     kimiThinking,
     grokPermissionMode,
     grokReasoningEffort,
+    deepseekPermissionMode,
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
@@ -9267,6 +9352,9 @@ async function handleSessionContinue(
   const nextGrokReasoningEffort = nextProvider === 'grok'
     ? normalizeGrokReasoningEffort(grokReasoningEffort)
     : undefined;
+  const nextDeepseekPermissionMode = nextProvider === 'deepseek'
+    ? normalizeDeepseekPermissionMode(deepseekPermissionMode)
+    : undefined;
   const nextTeamMode = teamMode !== undefined
     ? normalizeSessionTeamMode(teamMode)
     : normalizeSessionTeamMode(session.team_mode);
@@ -9308,6 +9396,12 @@ async function handleSessionContinue(
     nextProvider === 'grok' &&
     normalizeGrokReasoningEffort(runnerHandles.get(sessionId)?.grokReasoningEffort) !==
       nextGrokReasoningEffort;
+  // DeepSeek pins sandbox mode via env at server spawn; a mode change (when
+  // explicitly sent) needs a respawn, not a warm send.
+  const deepseekPermissionModeChanged =
+    nextProvider === 'deepseek' &&
+    nextDeepseekPermissionMode !== undefined &&
+    runnerHandles.get(sessionId)?.deepseekPermissionMode !== nextDeepseekPermissionMode;
   const opencodePermissionModeChanged =
     nextProvider === 'opencode' &&
     normalizeOpenCodePermissionMode(
@@ -9488,6 +9582,19 @@ async function handleSessionContinue(
       });
       return false;
     }
+  } else if (nextProvider === 'deepseek') {
+    const runtimeStatus = getDeepseekRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatDeepseekRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
   }
 
   // While a codex turn is still streaming, a follow-up send becomes a
@@ -9508,6 +9615,9 @@ async function handleSessionContinue(
     (session.kimi_session_id
       ? session.kimi_session_id.startsWith('server:')
       : isKimiServerRuntimeConfirmed());
+  // DeepSeek steers mid-turn through the runtime's inbox (client.prompt);
+  // config drift while streaming must not abort the live runtime either.
+  const deepseekMidTurn = nextProvider === 'deepseek' && session.status === 'running';
   // A kimi runner whose adapter session was released while idle (daemon
   // exit, session_gone) is a zombie: reusing its handle throws "No Kimi
   // session found" at send time with a toast and a dropped message. Respawn
@@ -9526,11 +9636,12 @@ async function handleSessionContinue(
     if (
       runnerCwdChanged ||
       kimiSessionReleased ||
-      (((nextProvider === 'codex' && !codexMidTurn) || nextProvider === 'opencode' || (nextProvider === 'kimi' && !kimiMidTurn) || nextProvider === 'grok' || nextProvider === 'pi' || nextProvider === 'bubble') && modelChanged) ||
+      (((nextProvider === 'codex' && !codexMidTurn) || nextProvider === 'opencode' || (nextProvider === 'kimi' && !kimiMidTurn) || nextProvider === 'grok' || nextProvider === 'pi' || nextProvider === 'bubble' || (nextProvider === 'deepseek' && !deepseekMidTurn)) && modelChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && !codexMidTurn && codexFastModeChanged) ||
       (nextProvider === 'grok' && grokReasoningEffortChanged) ||
+      (!deepseekMidTurn && deepseekPermissionModeChanged) ||
       (nextProvider === 'opencode' && opencodePermissionModeChanged) ||
       (nextProvider === 'claude' &&
         (
@@ -9591,6 +9702,7 @@ async function handleSessionContinue(
         kimiThinking: nextKimiThinking,
         grokPermissionMode: nextGrokPermissionMode,
         grokReasoningEffort: nextGrokReasoningEffort,
+        deepseekPermissionMode: nextDeepseekPermissionMode,
         opencodePermissionMode: nextOpenCodePermissionMode,
         qoderPermissionMode: nextQoderPermissionMode,
         bubblePermissionMode: nextBubblePermissionMode,
@@ -9616,6 +9728,9 @@ async function handleSessionContinue(
 	      if (nextProvider === 'grok') {
 	        existingEntry.grokPermissionMode = nextGrokPermissionMode;
 	        existingEntry.grokReasoningEffort = nextGrokReasoningEffort;
+	      }
+	      if (nextProvider === 'deepseek' && nextDeepseekPermissionMode !== undefined) {
+	        existingEntry.deepseekPermissionMode = nextDeepseekPermissionMode;
 	      }
       return true;
     }
@@ -9649,7 +9764,9 @@ async function handleSessionContinue(
                     ? session.qoder_session_id ?? undefined
                     : nextProvider === 'bubble'
                       ? session.bubble_session_id ?? undefined
-                      : undefined;
+                      : nextProvider === 'deepseek'
+                        ? session.deepseek_session_id ?? undefined
+                        : undefined;
   let nextResumeSessionId = resumeSessionId;
 
   if (
@@ -9695,10 +9812,23 @@ async function handleSessionContinue(
     }
   }
 
+  // This point is always a cold spawn (the warm-reuse branch returned above),
+  // and a fresh DeepSeek runtime holds no context. Inline the prior
+  // transcript into the first prompt — invisible to the UI and stored
+  // history, which keep outgoingPrompt. A handoff prompt already carries its
+  // own transcript; a provider switch keeps the other providers' behavior.
+  const deepseekRestoredContext =
+    nextProvider === 'deepseek' && !providerChanged && !handoffContextText
+      ? buildDeepseekRestoredContextText(historyBeforeContinue)
+      : null;
+  const coldStartRunnerPrompt = deepseekRestoredContext
+    ? `<restored_context>\n${deepseekRestoredContext}\n</restored_context>\n\n<latest_user_message>\n${runnerPrompt}\n</latest_user_message>`
+    : runnerPrompt;
+
   startRunner(
     mainWindow,
     sessions.getSession(sessionId),
-    runnerPrompt,
+    coldStartRunnerPrompt,
     nextResumeSessionId,
     outgoingAttachments,
     nextProvider,
@@ -9725,7 +9855,8 @@ async function handleSessionContinue(
     false,
     nextKimiThinking,
     nextQoderPermissionMode,
-    nextBubblePermissionMode
+    nextBubblePermissionMode,
+    nextDeepseekPermissionMode
   );
   return true;
 }
@@ -9737,7 +9868,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble',
+  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -9770,7 +9901,8 @@ function startRunner(
   prewarmRunner = false,
   kimiThinking?: import('../shared/types').KimiThinking,
   qoderPermissionMode?: import('../shared/types').QoderPermissionMode,
-  bubblePermissionMode?: import('../shared/types').BubblePermissionMode
+  bubblePermissionMode?: import('../shared/types').BubblePermissionMode,
+  deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode
 ): void {
   if (!session) return;
 
@@ -9865,6 +9997,7 @@ function startRunner(
     kimiThinking,
     grokPermissionMode,
     grokReasoningEffort,
+    deepseekPermissionMode,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
@@ -9915,6 +10048,11 @@ function startRunner(
           }
         } else if (provider === 'bubble') {
           sessions.updateBubbleSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'deepseek') {
+          sessions.updateDeepseekSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }
@@ -10661,6 +10799,8 @@ function startRunner(
       provider === 'grok' ? normalizeGrokPermissionMode(grokPermissionMode) : undefined,
     grokReasoningEffort:
       provider === 'grok' ? normalizeGrokReasoningEffort(grokReasoningEffort) : undefined,
+    deepseekPermissionMode:
+      provider === 'deepseek' ? normalizeDeepseekPermissionMode(deepseekPermissionMode) : undefined,
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,

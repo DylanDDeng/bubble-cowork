@@ -23,6 +23,7 @@ import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
 import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
+import { DeepseekLogo } from './DeepseekLogo';
 import { Input } from './ui/input';
 
 type PickerMode = 'provider' | 'model';
@@ -102,6 +103,9 @@ export function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'qoder') {
     return <QoderLogo />;
+  }
+  if (provider === 'deepseek') {
+    return <DeepseekLogo />;
   }
 
   return null;

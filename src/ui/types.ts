@@ -94,6 +94,8 @@ export type {
   OpenCodeRuntimeStatus,
   KimiModelConfig,
   GrokModelConfig,
+  DeepseekModelConfig,
+  DeepseekPermissionMode,
   PiModelConfig,
   BubbleModelConfig,
   BubbleProvidersConfig,
@@ -268,6 +270,7 @@ export interface SessionView {
   kimiRuntime?: import('../shared/types').SessionInfo['kimiRuntime'];
   grokPermissionMode?: import('../shared/types').GrokPermissionMode;
   grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
+  deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   pinned?: boolean;
   folderPath?: string | null;
