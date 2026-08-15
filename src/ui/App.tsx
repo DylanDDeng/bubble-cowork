@@ -12,7 +12,6 @@ import {
   FileDiff,
   FolderClosed,
   FolderOpen,
-  Loader2,
   ExternalLink,
   GitBranch,
   GitCommit,
@@ -38,6 +37,7 @@ import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
 import { AutomationsView } from './components/AutomationsView';
 import { PullRequestsView } from './components/PullRequestsView';
 import { NewSessionView } from './components/NewSessionView';
+import { LogoShimmer } from './components/LogoShimmer';
 import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
@@ -1139,12 +1139,12 @@ export function App() {
                   key={tabId}
                   className={
                     visible
-                      ? 'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col items-center justify-center gap-2 text-[var(--text-muted)]'
+                      ? 'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col items-center justify-center gap-3'
                       : 'hidden'
                   }
                 >
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  <span className="text-[12px]">Forking conversation…</span>
+                  <LogoShimmer size={48} />
+                  <span className="text-[12px] text-[var(--text-muted)]">Forking conversation…</span>
                 </div>
               );
             }

@@ -3624,3 +3624,77 @@ button.aegis-mdx-metadata-key:hover {
     transform: scale(0.9);
   }
 }
+
+/* ============================================================
+   Logo shimmer loading mark (Codex-parity side-chat fork state)
+   Dim base logo + bright diagonal light band sweeping across it,
+   masked to the logo shape. Geometry/mask URL come from
+   LogoShimmer.tsx; the mask itself reads alpha only.
+   ============================================================ */
+:root {
+  --logo-shimmer-highlight: var(--bg-primary);
+  --logo-shimmer-base: color-mix(in srgb, var(--text-primary) 24%, transparent);
+}
+
+.dark {
+  --logo-shimmer-highlight: var(--text-primary);
+  --logo-shimmer-base: color-mix(in srgb, var(--text-primary) 68%, transparent);
+}
+
+.logo-shimmer-root {
+  --logo-shimmer-soft: color-mix(in srgb, var(--logo-shimmer-highlight) 4%, transparent);
+  --logo-shimmer-peak: color-mix(in srgb, var(--logo-shimmer-highlight) 48%, transparent);
+  --logo-shimmer-tail: color-mix(in srgb, var(--logo-shimmer-highlight) 8%, transparent);
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-shimmer-base {
+  width: 100%;
+  height: 100%;
+  color: var(--logo-shimmer-base);
+}
+
+.logo-shimmer-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    112deg,
+    transparent 22%,
+    var(--logo-shimmer-soft) 38%,
+    var(--logo-shimmer-peak) 49%,
+    var(--logo-shimmer-tail) 56%,
+    transparent 74%
+  );
+  background-position: 140% 0;
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  -webkit-mask-image: var(--logo-shimmer-mask);
+  mask-image: var(--logo-shimmer-mask);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  animation: logo-shimmer-sweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes logo-shimmer-sweep {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -105% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-shimmer-overlay {
+    animation: none;
+  }
+}
