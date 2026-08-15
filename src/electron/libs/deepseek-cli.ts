@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, chmodSync } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
+import { safeStorage } from 'electron';
 import type {
   DeepseekAgentPreset,
   DeepseekModelConfig,
@@ -20,7 +21,72 @@ import type {
 const PROFILE_RUNTIME_BIN = 'runtime-bin.mjs';
 const PROFILE_BOOT_MARKER = path.join('node_modules', '@deepseek-ai', 'dsh-app-boot');
 
-export const DEEPSEEK_HOME_DIR = path.join(homedir(), '.deepseek');
+// Aegis-owned key store. Written from the settings page; encrypted with the
+// OS keychain when available, otherwise a 0600 plaintext fallback (matching
+// how dsh itself stores ~/.dsh/.credentials.yaml).
+const AEGIS_DEEPSEEK_KEY_FILE = path.join(homedir(), '.aegis', 'deepseek-api-key');
+
+/** Where the effective key came from, for the settings page badge. */
+export type DeepseekKeySource = 'aegis' | 'env' | 'dsh';
+
+/**
+ * The official dsh CLI stores its key in ~/.dsh/.credentials.yaml as a flat
+ * `DEEPSEEK_API_KEY: sk-...` mapping (managed by @deepseek-ai/dsh-credentials-local).
+ * Read-only: Aegis never writes to dsh's files.
+ */
+function readDshCredentialsKey(): string | null {
+  try {
+    const raw = readFileSync(path.join(homedir(), '.dsh', '.credentials.yaml'), 'utf8');
+    const match = raw.match(/^\s*DEEPSEEK_API_KEY\s*:\s*["']?([^"'\s#]+)/m);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function readStoredKey(): { key: string; encrypted: boolean } | null {
+  try {
+    const raw = readFileSync(AEGIS_DEEPSEEK_KEY_FILE, 'utf8');
+    const record = JSON.parse(raw) as { v?: string; p?: string; e?: boolean };
+    if (record.e && record.v) {
+      const decrypted = safeStorage.decryptString(Buffer.from(record.v, 'base64'));
+      return decrypted ? { key: decrypted, encrypted: true } : null;
+    }
+    return record.p ? { key: record.p, encrypted: false } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save the key from the settings page into the Aegis-owned store. */
+export function setStoredDeepseekApiKey(apiKey: string): void {
+  const key = apiKey.trim();
+  if (!key) throw new Error('API key must not be empty.');
+  mkdirSync(path.dirname(AEGIS_DEEPSEEK_KEY_FILE), { recursive: true });
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(key).toString('base64');
+    writeFileSync(AEGIS_DEEPSEEK_KEY_FILE, JSON.stringify({ v: encrypted, e: true }));
+  } else {
+    writeFileSync(AEGIS_DEEPSEEK_KEY_FILE, JSON.stringify({ p: key, e: false }));
+  }
+  chmodSync(AEGIS_DEEPSEEK_KEY_FILE, 0o600);
+}
+
+export function clearStoredDeepseekApiKey(): void {
+  try {
+    rmSync(AEGIS_DEEPSEEK_KEY_FILE);
+  } catch {
+    // absent store is already clear
+  }
+}
+
+export function hasStoredDeepseekApiKey(): boolean {
+  return readStoredKey() !== null;
+}
+
+export function hasDshCredentialsKey(): boolean {
+  return readDshCredentialsKey() !== null;
+}
 
 export function resolveDeepseekProfileDir(): string | null {
   const candidates = [
@@ -51,20 +117,22 @@ export function resolveDeepseekRuntimeEntry(profileDir: string): {
 }
 
 /**
- * The runtime takes its key from DEEPSEEK_API_KEY. Fall back to the DeepSeek
- * TUI's ~/.deepseek/config.toml so a machine that already runs the TUI needs
- * no extra setup. Never persisted by Aegis.
+ * The effective key, by precedence: the Aegis settings-page store, then the
+ * DEEPSEEK_API_KEY env var, then the installed dsh CLI's credential file
+ * (read-only import). Never persisted by Aegis beyond the settings-page store.
  */
 export function resolveDeepseekApiKey(): string | null {
+  return resolveDeepseekApiKeyWithSource()?.key ?? null;
+}
+
+export function resolveDeepseekApiKeyWithSource(): { key: string; source: DeepseekKeySource } | null {
+  const stored = readStoredKey();
+  if (stored?.key) return { key: stored.key, source: 'aegis' };
   const envKey = process.env.DEEPSEEK_API_KEY?.trim();
-  if (envKey) return envKey;
-  try {
-    const toml = readFileSync(path.join(DEEPSEEK_HOME_DIR, 'config.toml'), 'utf8');
-    const match = toml.match(/^\s*api_key\s*=\s*"([^"]+)"/m);
-    return match?.[1]?.trim() || null;
-  } catch {
-    return null;
-  }
+  if (envKey) return { key: envKey, source: 'env' };
+  const dshKey = readDshCredentialsKey();
+  if (dshKey) return { key: dshKey, source: 'dsh' };
+  return null;
 }
 
 export function hasDeepseekCredentials(): boolean {
@@ -168,7 +236,24 @@ export function formatDeepseekRuntimeBlockingMessage(status: DeepseekRuntimeStat
     return `DeepSeek Harness launch profile is not installed. Run \`${buildDeepseekSetupCommand()}\` or set AEGIS_DSH_PROFILE_DIR, then retry.`;
   }
   if (!status.hasApiKey) {
-    return 'DeepSeek Harness has no API key. Set DEEPSEEK_API_KEY or add api_key to ~/.deepseek/config.toml, then retry.';
+    return 'DeepSeek Harness has no API key. Add one in Settings → Providers → DeepSeek, then retry.';
   }
   return 'DeepSeek Harness is not ready.';
+}
+
+/** Settings-page view: effective key (masked) + where it came from. */
+export interface DeepseekKeyStatus {
+  hasApiKey: boolean;
+  keySource: DeepseekKeySource | null;
+  /** True when the installed dsh CLI has a key Aegis could fall back to. */
+  dshKeyAvailable: boolean;
+}
+
+export function getDeepseekKeyStatus(): DeepseekKeyStatus {
+  const effective = resolveDeepseekApiKeyWithSource();
+  return {
+    hasApiKey: effective !== null,
+    keySource: effective?.source ?? null,
+    dshKeyAvailable: hasDshCredentialsKey(),
+  };
 }

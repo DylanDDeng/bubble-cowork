@@ -27,6 +27,7 @@ import type {
   KimiModelConfig,
   GrokModelConfig,
   DeepseekModelConfig,
+  DeepseekKeyStatus,
   PiModelConfig,
   BubbleModelConfig,
   BubbleProvidersConfig,
@@ -229,6 +230,10 @@ declare global {
     getGrokRuntimeStatus: () => Promise<GrokRuntimeStatus>;
     getGrokModelConfig: () => Promise<GrokModelConfig>;
     getDeepseekModelConfig: () => Promise<DeepseekModelConfig>;
+    getDeepseekKeyStatus: () => Promise<DeepseekKeyStatus>;
+    getDeepseekApiKey: () => Promise<string>;
+    setDeepseekApiKey: (apiKey: string) => Promise<DeepseekKeyStatus>;
+    clearDeepseekApiKey: () => Promise<DeepseekKeyStatus>;
     getPiModelConfig: () => Promise<PiModelConfig>;
     getBubbleModelConfig: () => Promise<BubbleModelConfig>;
     getBubbleProvidersConfig: () => Promise<BubbleProvidersConfig>;

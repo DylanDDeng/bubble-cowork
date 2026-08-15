@@ -78,13 +78,15 @@ assert.ok(
 );
 assert.ok(
   cli.includes('DEEPSEEK_API_KEY') &&
-    cli.includes("'.deepseek'") &&
-    cli.includes("'config.toml'") &&
+    cli.includes("'.dsh'") &&
+    cli.includes("'.credentials.yaml'") &&
+    !cli.includes("'.deepseek'") &&
+    !cli.includes("'config.toml'") &&
     cli.includes('DSH_PERMISSION_MODE') &&
     cli.includes('AEGIS_DSH_AGENT_PRESET') &&
     cli.includes('DSH_REASONING_EFFORT') &&
     cli.includes('DSH_CWD'),
-  'deepseek-cli must resolve the API key (env + TUI config) and build the runtime env'
+  'deepseek-cli must resolve the API key (Aegis store + env + dsh credentials; the unrelated ~/.deepseek/config.toml must stay ignored) and build the runtime env'
 );
 assert.ok(
   cli.includes('getDeepseekModelConfig') && cli.includes('dsh-llm-deepseek'),

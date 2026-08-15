@@ -96,6 +96,7 @@ export type {
   KimiModelConfig,
   GrokModelConfig,
   DeepseekModelConfig,
+  DeepseekKeyStatus,
   DeepseekPermissionMode,
   DeepseekAgentPreset,
   DeepseekReasoningEffort,

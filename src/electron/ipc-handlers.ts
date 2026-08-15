@@ -115,9 +115,13 @@ import {
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
 import {
+  clearStoredDeepseekApiKey,
   formatDeepseekRuntimeBlockingMessage,
+  getDeepseekKeyStatus,
   getDeepseekModelConfig,
   getDeepseekRuntimeStatus,
+  resolveDeepseekApiKey,
+  setStoredDeepseekApiKey,
 } from './libs/deepseek-cli';
 import { AutomationScheduler } from './libs/automation-scheduler';
 import { recycleSessionWorktree } from './libs/worktree-hygiene';
@@ -6323,6 +6327,27 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('set-bubble-provider-enabled', async (_event, providerId: string, enabled: boolean) => {
     return setBubbleProviderEnabled(providerId, enabled);
+  });
+
+  ipcMainHandle('get-deepseek-key-status', async () => {
+    return getDeepseekKeyStatus();
+  });
+
+  // Full effective key, fetched on demand when the settings-page editor opens
+  // so the input can be prefilled behind the password mask (the Bubble
+  // getBubbleProviderKey pattern). The bulk status never carries keys.
+  ipcMainHandle('get-deepseek-api-key', async () => {
+    return resolveDeepseekApiKey() ?? '';
+  });
+
+  ipcMainHandle('set-deepseek-api-key', async (_event, apiKey: string) => {
+    setStoredDeepseekApiKey(apiKey);
+    return getDeepseekKeyStatus();
+  });
+
+  ipcMainHandle('clear-deepseek-api-key', async () => {
+    clearStoredDeepseekApiKey();
+    return getDeepseekKeyStatus();
   });
 
   ipcMainHandle('get-qoder-model-config', async () => {

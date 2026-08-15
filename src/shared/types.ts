@@ -221,6 +221,16 @@ export interface DeepseekModelConfig {
   options: string[];
 }
 
+/** Settings-page view of the effective DeepSeek Harness API key. */
+export type DeepseekKeySource = 'aegis' | 'env' | 'dsh';
+
+export interface DeepseekKeyStatus {
+  hasApiKey: boolean;
+  keySource: DeepseekKeySource | null;
+  /** True when the installed dsh CLI has a key Aegis falls back to. */
+  dshKeyAvailable: boolean;
+}
+
 export interface PiModelConfig {
   defaultModel: string | null;
   options: string[];

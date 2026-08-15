@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { BubbleProviderSettings } from './BubbleProviderSettings';
+import { DeepseekProviderSettings } from './DeepseekProviderSettings';
 import { McpSettingsContent } from './McpSettings';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
@@ -165,6 +166,7 @@ export function Settings() {
             <div className="flex flex-col gap-6">
               <CompatibleProviderSettingsContent />
               <BubbleProviderSettings />
+              <DeepseekProviderSettings />
             </div>
           )}
           {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}

@@ -653,6 +653,22 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('set-bubble-provider-enabled', providerId, enabled);
   },
 
+  getDeepseekKeyStatus: () => {
+    return ipcRenderer.invoke('get-deepseek-key-status');
+  },
+
+  getDeepseekApiKey: () => {
+    return ipcRenderer.invoke('get-deepseek-api-key');
+  },
+
+  setDeepseekApiKey: (apiKey: string) => {
+    return ipcRenderer.invoke('set-deepseek-api-key', apiKey);
+  },
+
+  clearDeepseekApiKey: () => {
+    return ipcRenderer.invoke('clear-deepseek-api-key');
+  },
+
   getQoderModelConfig: () => {
     return ipcRenderer.invoke('get-qoder-model-config');
   },
