@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   chooseProjectFileMatches,
+  createProjectFileRevealTarget,
   resolveExistingProjectFile,
   resolveProjectFileReference,
+  selectProjectFileRevealTarget,
 } from '../../src/ui/utils/project-file-navigation';
 import type { ProjectTreeNode } from '../../src/ui/types';
 
@@ -42,6 +44,47 @@ const trees = new Map<string, ProjectTreeNode>([
 const loadTree = async (cwd: string) => trees.get(cwd) || null;
 
 async function main() {
+const firstReveal = createProjectFileRevealTarget({
+  cwd: coworker,
+  path: `${coworker}/src/ui/First.tsx`,
+  line: 900,
+  token: 1,
+});
+assert.ok(firstReveal, 'a valid file line reference must create a reveal target');
+assert.equal(
+  selectProjectFileRevealTarget(firstReveal, coworker, `${coworker}/src/ui/First.tsx`),
+  firstReveal,
+  'the file that created the target must receive it unchanged'
+);
+assert.equal(
+  selectProjectFileRevealTarget(firstReveal, coworker, `${coworker}/notes/Second.md`),
+  null,
+  'switching to another open file must not inherit the previous file line'
+);
+assert.equal(
+  selectProjectFileRevealTarget(firstReveal, `${coworker}/`, `${coworker}/src/ui/First.tsx/`),
+  firstReveal,
+  'equivalent normalized paths must still match the originating file'
+);
+
+const repeatedReveal = createProjectFileRevealTarget({
+  cwd: coworker,
+  path: `${coworker}/src/ui/First.tsx`,
+  line: 900,
+  token: 2,
+});
+assert.ok(repeatedReveal);
+assert.notEqual(
+  repeatedReveal.token,
+  firstReveal.token,
+  'repeating the same file-line click must carry a new token so scrolling runs again'
+);
+assert.equal(
+  createProjectFileRevealTarget({ cwd: coworker, path: `${coworker}/App.tsx`, line: 0, token: 3 }),
+  null,
+  'invalid line references must clear rather than create a reusable target'
+);
+
 assert.deepEqual(
   await resolveProjectFileReference({
     requestedPath: '公众号选题.md',
@@ -225,12 +268,22 @@ assert.deepEqual(
   'disk fallback must recover a new file the cached tree does not contain'
 );
 
-const [markdownSource, messageCardSource, treePanelSource, storeSource, appSource] = await Promise.all([
+const [
+  markdownSource,
+  messageCardSource,
+  treePanelSource,
+  storeSource,
+  appSource,
+  textEditorSource,
+  highlightedCodeSource,
+] = await Promise.all([
   readFile(new URL('../../src/ui/render/markdown.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../../src/ui/components/MessageCard.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../../src/ui/components/ProjectTreePanel.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../../src/ui/store/useAppStore.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../src/ui/App.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../../src/ui/components/ProjectTextEditor.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../../src/ui/components/HighlightedCode.tsx', import.meta.url), 'utf8'),
 ]);
 assert.ok(!`${markdownSource}${messageCardSource}${treePanelSource}`.includes('aegis:open-project-file'));
 assert.ok(!markdownSource.includes('Use a more specific path'));
@@ -242,6 +295,14 @@ assert.ok(treePanelSource.includes('shouldPublishProjectTreeToStore'));
 assert.ok(appSource.includes('ProjectFileMatchDialogHost'));
 assert.match(storeSource, /pendingProjectFileOpen:\s*\{/);
 assert.match(storeSource, /rightUtilityTabs:\s*opened\.tabs/);
+assert.ok(!treePanelSource.includes('sliceTextLineRange'));
+assert.ok(treePanelSource.includes('setFileRevealTarget(null)'));
+assert.ok(treePanelSource.includes('scrollTarget={activeFileRevealTarget}'));
+assert.ok(treePanelSource.includes('revealTarget={activeFileRevealTarget}'));
+assert.ok(textEditorSource.includes("effects: EditorView.scrollIntoView(line.from, { y: 'center' })"));
+assert.ok(highlightedCodeSource.includes("scrollIntoView({ block: 'center', inline: 'nearest' })"));
+
+await import('./project-file-reveal-electron.test.mjs');
 
 console.log('project-file-navigation tests passed');
 }

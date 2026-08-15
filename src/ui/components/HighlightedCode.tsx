@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import hljs from 'highlight.js/lib/core';
 import xml from 'highlight.js/lib/languages/xml';
 import json from 'highlight.js/lib/languages/json';
@@ -77,6 +77,8 @@ interface HighlightedCodeProps {
   className?: string;
   showLineNumbers?: boolean;
   wrapLongLines?: boolean;
+  /** Scroll the full source preview to this line without adding a highlight. */
+  revealTarget?: { line: number; token: number } | null;
 }
 
 export function HighlightedCode({
@@ -86,6 +88,7 @@ export function HighlightedCode({
   className,
   showLineNumbers = true,
   wrapLongLines = false,
+  revealTarget,
 }: HighlightedCodeProps) {
   const { lines } = useMemo(() => {
     const lang = language || inferLanguage(fileName);
@@ -109,6 +112,19 @@ export function HighlightedCode({
   }, [code, language, fileName]);
 
   const lineCount = lines.length;
+  const revealLine = revealTarget
+    ? Math.max(1, Math.min(Math.floor(revealTarget.line), lineCount))
+    : null;
+  const revealLineRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!revealTarget || !revealLineRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      revealLineRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [revealLine, revealTarget?.token]);
+
   // 行号位数，至少 2 位
   const gutterWidth = Math.max(2, String(lineCount).length);
 
@@ -124,7 +140,11 @@ export function HighlightedCode({
       <div className="highlighted-code-scroll">
         <div className="highlighted-code-lines">
           {lines.map((lineHtml, i) => (
-            <div key={i} className="highlighted-code-line">
+            <div
+              key={i}
+              ref={i + 1 === revealLine ? revealLineRef : undefined}
+              className="highlighted-code-line"
+            >
               {showLineNumbers ? (
                 <span
                   className="highlighted-code-gutter"

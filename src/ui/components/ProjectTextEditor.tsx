@@ -30,6 +30,8 @@ interface ProjectTextEditorProps {
   onSave?: () => void;
   className?: string;
   revealTarget?: { line: number; token: number } | null;
+  /** Scroll to a source line without moving the caret, focusing, or highlighting it. */
+  scrollTarget?: { line: number; token: number } | null;
   /**
    * File name used to pick the syntax language by extension. Without it the
    * editor falls back to Markdown (the historical default, correct for the
@@ -98,6 +100,7 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
   onSave,
   className,
   revealTarget,
+  scrollTarget,
   fileName,
   markdownSourceStyle = false,
 }, ref) {
@@ -351,6 +354,21 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
     });
     view.focus();
   }, [revealTarget]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !scrollTarget) return;
+
+    const lineNumber = Math.max(1, Math.min(scrollTarget.line, view.state.doc.lines));
+    const line = view.state.doc.line(lineNumber);
+    const frame = window.requestAnimationFrame(() => {
+      if (viewRef.current !== view) return;
+      view.dispatch({
+        effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [scrollTarget]);
 
   return (
     <div

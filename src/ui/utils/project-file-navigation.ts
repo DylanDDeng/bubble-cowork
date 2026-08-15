@@ -16,9 +16,59 @@ export type ResolvedProjectFileReference =
   | { status: 'not-found' }
   | { status: 'ambiguous'; matches: Array<Pick<ProjectFileReferenceMatch, 'cwd' | 'path' | 'relativePath'>> };
 
+export interface ProjectFileRevealTarget {
+  cwd: string;
+  path: string;
+  line: number;
+  token: number;
+}
+
 function normalizeRoot(root: string | null | undefined): string | null {
   const normalized = root?.trim().replace(/\\/g, '/').replace(/\/+$/, '');
   return normalized || null;
+}
+
+/**
+ * Build a file-scoped reveal target from an external line reference.
+ * Invalid line numbers deliberately produce no target, so normal file opens
+ * cannot inherit a previous reference.
+ */
+export function createProjectFileRevealTarget(options: {
+  cwd: string;
+  path: string;
+  line: number | null | undefined;
+  token: number;
+}): ProjectFileRevealTarget | null {
+  if (typeof options.line !== 'number' || !Number.isFinite(options.line) || options.line < 1) {
+    return null;
+  }
+  const cwd = normalizeRoot(options.cwd);
+  const path = normalizeRoot(options.path);
+  if (!cwd || !path) return null;
+  return {
+    cwd,
+    path,
+    line: Math.floor(options.line),
+    token: options.token,
+  };
+}
+
+/**
+ * A stored target may only affect the exact file that created it. Returning
+ * the original object keeps the prop identity stable across unrelated renders,
+ * while a tab/file switch receives null and cannot replay a stale scroll.
+ */
+export function selectProjectFileRevealTarget(
+  target: ProjectFileRevealTarget | null,
+  cwd: string | null | undefined,
+  path: string | null | undefined
+): ProjectFileRevealTarget | null {
+  if (!target) return null;
+  const normalizedCwd = normalizeRoot(cwd);
+  const normalizedPath = normalizeRoot(path);
+  return normalizedCwd === target.cwd && normalizedPath === target.path
+    ? target
+    : null;
 }
 
 function uniqueRoots(roots: Array<string | null | undefined>): string[] {

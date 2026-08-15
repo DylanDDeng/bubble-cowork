@@ -29,6 +29,11 @@ import {
   selectVisibleProjectTree,
   shouldPublishProjectTreeToStore,
 } from '../utils/project-tree-visibility';
+import {
+  createProjectFileRevealTarget,
+  selectProjectFileRevealTarget,
+  type ProjectFileRevealTarget,
+} from '../utils/project-file-navigation';
 
 type ProjectPanelTab = 'files';
 type ViewMode = 'view' | 'code' | 'split';
@@ -378,21 +383,6 @@ function getNodeDropHoverId(path: string): string {
   return `node:${normalizeProjectPath(path)}`;
 }
 
-function sliceTextLineRange(text: string, lineStart?: number, lineEnd?: number): string {
-  if (typeof lineStart !== 'number' || !Number.isFinite(lineStart) || lineStart < 1) {
-    return text;
-  }
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const start = Math.max(1, Math.floor(lineStart));
-  const end = typeof lineEnd === 'number' && Number.isFinite(lineEnd)
-    ? Math.max(start, Math.floor(lineEnd))
-    : start;
-  return lines
-    .slice(start - 1, Math.min(lines.length, end))
-    .map((line, index) => `${String(start + index).padStart(4, ' ')} | ${line}`)
-    .join('\n');
-}
-
 function TreeNode({
   node,
   depth,
@@ -737,6 +727,8 @@ export function ProjectTreePanel({
   const [viewMode, setViewMode] = useState<ViewMode>('view');
   const [mdxRevealTarget, setMdxRevealTarget] = useState<{ line: number; token: number } | null>(null);
   const mdxRevealTokenRef = useRef(0);
+  const [fileRevealTarget, setFileRevealTarget] = useState<ProjectFileRevealTarget | null>(null);
+  const fileRevealTokenRef = useRef(0);
   const [previewLoading, setPreviewLoading] = useState(Boolean(openRequest));
   const [showPreviewLoading, setShowPreviewLoading] = useState(false);
   const previewRequestIdRef = useRef(0);
@@ -883,6 +875,11 @@ export function ProjectTreePanel({
   const activeFileTabId = selectedFileCwd && selectedFilePath
     ? getProjectFileTabId(selectedFileCwd, selectedFilePath)
     : null;
+  const activeFileRevealTarget = selectProjectFileRevealTarget(
+    fileRevealTarget,
+    selectedFileCwd,
+    selectedFilePath
+  );
   const activeFileTabIdRef = useRef<string | null>(null);
   const tabRefreshSequenceRef = useRef(0);
   const tabRefreshTokensRef = useRef<Map<string, number>>(new Map());
@@ -1061,6 +1058,7 @@ export function ProjectTreePanel({
     expandParentsForPath(tab.filePath);
     setViewMode(tab.viewMode);
     setMdxRevealTarget(null);
+    setFileRevealTarget(null);
     setPreviewLoading(false);
     setSelectedPreview(tab.preview);
     setDraftTextSynced(tab.draftText);
@@ -1288,6 +1286,7 @@ export function ProjectTreePanel({
     updateOpenFileTabs(() => []);
     setViewMode('view');
     setMdxRevealTarget(null);
+    setFileRevealTarget(null);
     setPreviewLoading(false);
     setDraftTextSynced('');
     setSaveStateSynced('idle');
@@ -1420,6 +1419,7 @@ export function ProjectTreePanel({
     expandParentsForPath(filePath);
     setViewMode('view');
     setMdxRevealTarget(null);
+    setFileRevealTarget(null);
     setPreviewLoading(!cachedHtmlPreview);
     setSelectedPreview(cachedHtmlPreview);
     setDraftTextSynced('');
@@ -1808,6 +1808,8 @@ export function ProjectTreePanel({
     setSelectedFileCwd(fileCwd);
     setViewMode('view');
     setMdxRevealTarget(null);
+    setFileRevealTarget(null);
+    pendingEditorViewStateRestoreRef.current = null;
     setPreviewLoading(true);
     setSelectedPreview(null);
     setDraftTextSynced('');
@@ -1819,6 +1821,18 @@ export function ProjectTreePanel({
     try {
       const preview = (await reader(fileCwd, filePath)) as ProjectFilePreview;
       if (previewRequestIdRef.current !== requestId) return;
+      const nextRevealToken = fileRevealTokenRef.current + 1;
+      const revealTarget = createProjectFileRevealTarget({
+        cwd: fileCwd,
+        path: filePath,
+        line: options.lineStart,
+        token: nextRevealToken,
+      });
+      const revealLine = revealTarget?.line ?? null;
+      if (revealTarget) {
+        fileRevealTokenRef.current += 1;
+        setFileRevealTarget(revealTarget);
+      }
       // MDX files: use CodeMirror plain-text editor (default), with toggle to rendered preview.
       if (preview.kind === 'text' && preview.ext === '.mdx') {
         setSelectedPreview(preview);
@@ -1827,39 +1841,16 @@ export function ProjectTreePanel({
         if (preview.editable) {
           ensureOpenFileTab(preview as EditableProjectFilePreview, fileCwd, filePath, 'code');
         }
-        if (typeof options.lineStart === 'number') {
-          mdxRevealTokenRef.current += 1;
-          setMdxRevealTarget({
-            line: options.lineStart,
-            token: mdxRevealTokenRef.current,
-          });
-        }
         return;
       }
       if (preview.kind === 'markdown') {
         setSelectedPreview(preview);
         if (preview.editable) {
           setDraftTextSynced(preview.text);
-          ensureOpenFileTab(preview as EditableProjectFilePreview, fileCwd, filePath, 'view');
+          const nextViewMode: ViewMode = revealLine === null ? 'view' : 'code';
+          setViewMode(nextViewMode);
+          ensureOpenFileTab(preview as EditableProjectFilePreview, fileCwd, filePath, nextViewMode);
         }
-        return;
-      }
-      if (
-        (preview.kind === 'text' || preview.kind === 'html') &&
-        typeof options.lineStart === 'number'
-      ) {
-        setSelectedPreview({
-          kind: 'text',
-          path: preview.path,
-          name: `${preview.name} lines ${options.lineStart}${
-            options.lineEnd && options.lineEnd !== options.lineStart ? `-${options.lineEnd}` : ''
-          }`,
-          ext: preview.ext,
-          size: preview.size,
-          mtimeMs: preview.mtimeMs,
-          text: sliceTextLineRange(preview.text, options.lineStart, options.lineEnd),
-          editable: false,
-        });
         return;
       }
       if (preview.kind === 'text' || preview.kind === 'html') {
@@ -1919,6 +1910,7 @@ export function ProjectTreePanel({
     setSelectedPreview(null);
     setViewMode('view');
     setMdxRevealTarget(null);
+    setFileRevealTarget(null);
     setDraftTextSynced('');
     setSaveStateSynced('idle');
     setSaveErrorSynced(null);
@@ -3447,6 +3439,7 @@ export function ProjectTreePanel({
                           onSave={() => handleSaveText()}
                           fileName={selectedPreview.name}
                           markdownSourceStyle
+                          scrollTarget={activeFileRevealTarget}
                           className="aegis-markdown-source-editor"
                         />
                         {saveState === 'error' && saveError && (
@@ -3473,6 +3466,7 @@ export function ProjectTreePanel({
                   <HighlightedCode
                     code={selectedPreview.text}
                     language="html"
+                    revealTarget={activeFileRevealTarget}
                     className="file-preview-code min-h-full rounded-none"
                   />
                 )}
@@ -3494,6 +3488,7 @@ export function ProjectTreePanel({
                             onChange={handleDraftTextChange}
                             onSave={() => handleSaveText()}
                             revealTarget={mdxRevealTarget}
+                            scrollTarget={activeFileRevealTarget}
                           />
                         </div>
 	                        <MdxStatusBar
@@ -3524,6 +3519,7 @@ export function ProjectTreePanel({
                               onChange={handleDraftTextChange}
                               onSave={() => handleSaveText()}
                               revealTarget={mdxRevealTarget}
+                              scrollTarget={activeFileRevealTarget}
                             />
                           </div>
 	                          <MdxStatusBar
@@ -3548,6 +3544,7 @@ export function ProjectTreePanel({
                         onChange={handleDraftTextChange}
                         onSave={() => handleSaveText()}
                         fileName={selectedPreview.name}
+                        scrollTarget={activeFileRevealTarget}
                       />
                     ) : selectedPreview.name?.toLowerCase().endsWith('.txt') ? (
                       <TextFileReader
@@ -3558,6 +3555,7 @@ export function ProjectTreePanel({
                       <HighlightedCode
                         code={selectedPreview.text}
                         fileName={selectedPreview.name}
+                        revealTarget={activeFileRevealTarget}
                         className="file-preview-code min-h-full rounded-none"
                       />
                     )}
