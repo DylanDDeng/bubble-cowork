@@ -24,12 +24,37 @@ export function isRightUtilitySubagentTab(
   return target === 'subagent' || Boolean(target?.startsWith('subagent:'));
 }
 
+export function isRightUtilitySideChatTab(
+  target: ProjectUtilityPanelTarget | null | undefined
+): target is `side-chat:${string}` {
+  return Boolean(target?.startsWith('side-chat:'));
+}
+
+/**
+ * Codex-parity loading tab: docked synchronously when a side chat is
+ * requested so the panel never collapses while the fork runs; swapped for
+ * the real `side-chat:<id>` tab when the fork resolves (or dropped on
+ * failure). Not closable.
+ */
+export const SIDE_CHAT_PENDING_TAB: ProjectUtilityPanelTarget = 'side-chat:pending';
+
+export function isSideChatPendingTab(
+  target: ProjectUtilityPanelTarget | null | undefined
+): boolean {
+  return target === SIDE_CHAT_PENDING_TAB;
+}
+
+export function getSideChatSessionId(target: ProjectUtilityPanelTarget): string {
+  return target.slice('side-chat:'.length);
+}
+
 export function getRightUtilityTabKind(
   target: ProjectUtilityPanelTarget
 ): ProjectUtilityPanelKind {
   if (isRightUtilityFileTab(target)) return 'files';
   if (isRightUtilityBrowserTab(target)) return 'browser';
   if (isRightUtilitySubagentTab(target)) return 'subagent';
+  if (isRightUtilitySideChatTab(target)) return 'side-chat';
   return target as ProjectUtilityPanelKind;
 }
 

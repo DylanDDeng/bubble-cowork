@@ -67,6 +67,7 @@ import {
 import { StreamDeltaCoalescer } from '../utils/stream-delta-coalescer';
 import { applySessionAgentSelection } from '../utils/session-model';
 import {
+  SIDE_CHAT_PENDING_TAB,
   addRightUtilityTab,
   getRightUtilityTabKind,
   isRightUtilityBrowserTab,
@@ -367,9 +368,6 @@ function getInitialRightUtilityTab(
     return normalizeProjectPanelView(resumeState.projectPanelView) === 'changes'
       ? 'review'
       : 'files';
-  }
-  if (normalizeChatLayoutMode(resumeState?.chatLayoutMode) === 'split') {
-    return 'side-chat';
   }
   return null;
 }
@@ -866,6 +864,9 @@ export const useAppStore = create<Store>()(
       rightUtilityTabs: initialRightUtilityTab ? [initialRightUtilityTab] : [],
       activeRightUtilityTab: initialRightUtilityTab,
       rightUtilityPanelHidden: false,
+      // Ephemeral by design: side chats never survive a reload — the forked
+      // sessions are hidden from the sidebar and die with their tabs.
+      sideChats: {},
       rightUtilityInstantRevealPending: false,
       pendingProjectFileOpen: null,
       reviewDiffSelection: null,
@@ -1535,33 +1536,6 @@ export const useAppStore = create<Store>()(
   },
 
 
-  openSplitChat: (paneId, sessionId) => {
-    set((state) => {
-      const layout = state.workspaceLayout;
-      const targetSession = sessionId ? state.sessions[sessionId] : null;
-      if (sessionId) {
-        const holder = tree.allLeaves(layout.root).find((leaf) => leaf.sessionId === sessionId);
-        if (holder) {
-          return {
-            ...layoutPatch(tree.setActivePane(layout, holder.id)),
-            activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
-            activeWorkspace: 'chat',
-            showNewSession: false,
-          };
-        }
-      }
-      const active = tree.getActiveLeaf(layout);
-      const edge: SplitEdge = paneId === 'primary' ? 'left' : 'right';
-      return {
-        ...layoutPatch(tree.splitPane(layout, active.id, edge, sessionId)),
-        activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
-        activeWorkspace: 'chat',
-        showNewSession: sessionId === null,
-      };
-    });
-    persistUiResumeStateSnapshot(get());
-  },
-
   closeSplitChat: () => {
     // Collapse the whole tree down to a single pane showing the focused session.
     set((state) => {
@@ -1854,6 +1828,117 @@ export const useAppStore = create<Store>()(
       }
 
       return patch;
+    });
+  },
+
+  // Codex-style side chat: fork the source conversation (hidden from the
+  // sidebar — it lives and dies with its tab) and dock it as a right-panel
+  // tab. Every open forks a NEW side conversation, like Codex's numbered
+  // "Side chat / Side chat 2" tabs.
+  openSideChat: async (sourceSessionId) => {
+    if (!sourceSessionId) {
+      toast.error('Select or start a conversation first — side chat forks the active thread.');
+      return;
+    }
+    const source = get().sessions[sourceSessionId];
+    if (source?.isDraft) {
+      toast.error('Send a message first — there is no conversation to fork yet.');
+      return;
+    }
+    // Dock a non-closable loading tab SYNCHRONOUSLY (Codex parity): the fork
+    // takes hundreds of ms, and without an intermediate tab the panel would
+    // have no active tab the moment the launcher closes — collapse animation,
+    // then re-expand when the fork lands. The pending tab keeps the panel
+    // open throughout.
+    if (get().rightUtilityTabs.includes(SIDE_CHAT_PENDING_TAB)) return;
+    const previousActiveTab = get().activeRightUtilityTab;
+    set((state) => ({
+      rightUtilityTabs: [...state.rightUtilityTabs, SIDE_CHAT_PENDING_TAB],
+      activeRightUtilityTab: SIDE_CHAT_PENDING_TAB,
+      rightUtilityPanelHidden: false,
+    }));
+
+    // copyHistory:false — the provider-side fork already carries the model
+    // context; the transcript copy is display-only, and side chats start
+    // visually clean like Codex's.
+    const result = await window.electron.forkSession(sourceSessionId, {
+      hiddenFromThreads: true,
+      copyHistory: false,
+    });
+    if (!result?.ok || !result.session) {
+      set((state) => ({
+        rightUtilityTabs: state.rightUtilityTabs.filter((tab) => tab !== SIDE_CHAT_PENDING_TAB),
+        activeRightUtilityTab:
+          state.activeRightUtilityTab === SIDE_CHAT_PENDING_TAB
+            ? previousActiveTab
+            : state.activeRightUtilityTab,
+      }));
+      toast.error(result?.message || 'Failed to open side chat');
+      return;
+    }
+    const view = freshSessionViewFromInfo(result.session);
+    const tabId = `side-chat:${view.id}` as const;
+    set((state) => ({
+      sessions: { ...state.sessions, [view.id]: view },
+      sideChats: {
+        ...state.sideChats,
+        [view.id]: {
+          sessionId: view.id,
+          sourceSessionId,
+          constraintPending: true,
+          userTurns: 0,
+          createdAt: Date.now(),
+        },
+      },
+      rightUtilityTabs: [
+        ...state.rightUtilityTabs.filter((tab) => tab !== SIDE_CHAT_PENDING_TAB),
+        tabId,
+      ],
+      activeRightUtilityTab: tabId,
+      rightUtilityPanelHidden: false,
+    }));
+  },
+
+  // Destructive: kills the forked session for good. The confirmation gate
+  // (userTurns > 0 → dialog) lives in the UI layer; this is the executor.
+  destroySideChat: (sessionId) => {
+    const tabId = `side-chat:${sessionId}` as const;
+    set((state) => {
+      const targetIndex = state.rightUtilityTabs.indexOf(tabId);
+      const nextTabs = state.rightUtilityTabs.filter((tab) => tab !== tabId);
+      const nextActiveTab =
+        state.activeRightUtilityTab === tabId
+          ? nextTabs[Math.max(0, targetIndex - 1)] ?? nextTabs[0] ?? null
+          : state.activeRightUtilityTab;
+      const sideChats = { ...state.sideChats };
+      delete sideChats[sessionId];
+      return {
+        rightUtilityTabs: nextTabs,
+        activeRightUtilityTab: nextActiveTab,
+        sideChats,
+      };
+    });
+    // Direct call (not useIPC's sendEvent) — useIPC imports this store.
+    window.electron.sendClientEvent({
+      type: 'session.delete',
+      payload: { sessionId },
+    });
+  },
+
+  noteSideChatUserTurn: (sessionId) => {
+    set((state) => {
+      const entry = state.sideChats[sessionId];
+      if (!entry) return {};
+      return {
+        sideChats: {
+          ...state.sideChats,
+          [sessionId]: {
+            ...entry,
+            constraintPending: false,
+            userTurns: entry.userTurns + 1,
+          },
+        },
+      };
     });
   },
 

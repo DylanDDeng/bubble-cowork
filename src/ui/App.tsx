@@ -8,12 +8,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Check,
   CloudUpload,
-  ArrowLeftRight,
-  Columns2,
   Copy,
   FileDiff,
   FolderClosed,
   FolderOpen,
+  Loader2,
   ExternalLink,
   GitBranch,
   GitCommit,
@@ -78,6 +77,8 @@ import {
 } from './utils/message-content';
 import { resolveCodexModel } from './utils/codex-model';
 import { startQueueAutoFlush } from './lib/queue-auto-flush';
+import * as DialogPrimitive from '@/ui/components/ui/dialog';
+import { isSideChatPendingTab } from './utils/right-utility-tabs';
 import {
   deriveTurnPhase,
   hasRunningToolInMessages,
@@ -99,6 +100,8 @@ const RIGHT_UTILITY_PANEL_WIDTH_STORAGE_KEY = 'cowork.rightUtilityPanelWidth';
 const RIGHT_UTILITY_PANEL_DEFAULT_WIDTH = 820;
 const RIGHT_UTILITY_PANEL_MIN_WIDTH = 580;
 const RIGHT_UTILITY_PANEL_MAX_WIDTH = 1200;
+// Codex-parity “Don’t ask again” flag for destroying a side chat on close.
+const SIDE_CHAT_CLOSE_CONFIRM_STORAGE_KEY = 'cowork.skipSideChatCloseConfirm';
 
 function clampRightUtilityPanelWidth(width: number): number {
   return Math.min(
@@ -117,6 +120,14 @@ function isProjectUtilityBrowserTab(target: ProjectUtilityPanelTarget | null | u
 
 function isProjectUtilitySubagentTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
   return target === 'subagent' || Boolean(target?.startsWith('subagent:'));
+}
+
+function isProjectUtilitySideChatTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return Boolean(target?.startsWith('side-chat:'));
+}
+
+function getProjectUtilitySideChatSessionId(target: ProjectUtilityPanelTarget): string {
+  return target.slice('side-chat:'.length);
 }
 
 function getProjectUtilitySubagentId(target: ProjectUtilityPanelTarget): string | null {
@@ -188,6 +199,8 @@ export function App() {
   const [windowShellRounded, setWindowShellRounded] = useState(getDefaultWindowShellRounded);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [rightPanelLauncherOpen, setRightPanelLauncherOpen] = useState(false);
+  // Session id of a side chat pending destructive-close confirmation.
+  const [sideChatCloseRequest, setSideChatCloseRequest] = useState<string | null>(null);
   const [rightUtilityPanelWidth, setRightUtilityPanelWidthState] = useState(getDefaultRightUtilityPanelWidth);
   const [activeProjectFileTabs, setActiveProjectFileTabs] = useState<
     Record<string, { filePath: string; name: string } | null>
@@ -222,6 +235,7 @@ export function App() {
     activeRightUtilityTab,
     rightUtilityPanelHidden,
     rightUtilityInstantRevealPending,
+    sideChats,
     pendingProjectFileOpen,
     rightPanelFullscreen,
     sessionsLoaded,
@@ -232,12 +246,13 @@ export function App() {
     setBrowserPanelOpen,
     setActiveRightUtilityTab,
     openRightUtilityTab,
+    openSideChat,
+    destroySideChat,
     clearPendingProjectFileOpen,
     closeRightUtilityTab: closeRightUtilityTabInStore,
     closeRightUtilityPanels: closeRightUtilityPanelsInStore,
     showRightUtilityPanels,
     setRightPanelFullscreen,
-    closeSplitChat,
     globalError,
     clearGlobalError,
     theme,
@@ -269,6 +284,7 @@ export function App() {
       activeRightUtilityTab: s.activeRightUtilityTab,
       rightUtilityPanelHidden: s.rightUtilityPanelHidden,
       rightUtilityInstantRevealPending: s.rightUtilityInstantRevealPending,
+      sideChats: s.sideChats,
       pendingProjectFileOpen: s.pendingProjectFileOpen,
       rightPanelFullscreen: s.rightPanelFullscreen,
       sessionsLoaded: s.sessionsLoaded,
@@ -279,12 +295,13 @@ export function App() {
       setBrowserPanelOpen: s.setBrowserPanelOpen,
       setActiveRightUtilityTab: s.setActiveRightUtilityTab,
       openRightUtilityTab: s.openRightUtilityTab,
+      openSideChat: s.openSideChat,
+      destroySideChat: s.destroySideChat,
       clearPendingProjectFileOpen: s.clearPendingProjectFileOpen,
       closeRightUtilityTab: s.closeRightUtilityTab,
       closeRightUtilityPanels: s.closeRightUtilityPanels,
       showRightUtilityPanels: s.showRightUtilityPanels,
       setRightPanelFullscreen: s.setRightPanelFullscreen,
-      closeSplitChat: s.closeSplitChat,
       globalError: s.globalError,
       clearGlobalError: s.clearGlobalError,
       theme: s.theme,
@@ -498,41 +515,23 @@ export function App() {
   const activateRightUtilityContent = useCallback((target: ProjectUtilityPanelTarget) => {
     const targetKind = getProjectUtilityTabKind(target);
     setRightPanelLauncherOpen(false);
-    const keepSideChatDocked = targetKind === 'side-chat' || rightUtilityTabs.includes('side-chat');
-    const closeUndockedSideChat = () => {
-      if (chatLayoutMode === 'split' && !keepSideChatDocked) {
-        closeSplitChat();
-      }
-    };
 
     if (targetKind === 'files' || targetKind === 'review') {
       setBrowserPanelOpen(false);
       setProjectPanelView(targetKind === 'review' ? 'changes' : 'files');
       setProjectTreeCollapsed(false);
-      closeUndockedSideChat();
       return;
     }
 
     if (targetKind === 'browser') {
       setBrowserPanelOpen(true);
       setProjectTreeCollapsed(true);
-      closeUndockedSideChat();
-      return;
-    }
-
-    if (targetKind === 'side-chat') {
-      setBrowserPanelOpen(false);
-      setProjectTreeCollapsed(true);
       return;
     }
 
     setBrowserPanelOpen(false);
     setProjectTreeCollapsed(true);
-    closeUndockedSideChat();
   }, [
-    chatLayoutMode,
-    closeSplitChat,
-    rightUtilityTabs,
     setBrowserPanelOpen,
     setProjectPanelView,
     setProjectTreeCollapsed,
@@ -558,8 +557,7 @@ export function App() {
   const closeRightUtilityPanels = useCallback(() => {
     setRightPanelLauncherOpen(false);
     closeRightUtilityPanelsInStore();
-    if (chatLayoutMode === 'split') closeSplitChat();
-  }, [chatLayoutMode, closeRightUtilityPanelsInStore, closeSplitChat]);
+  }, [closeRightUtilityPanelsInStore]);
 
   const selectRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
     setActiveRightUtilityTab(target);
@@ -568,8 +566,30 @@ export function App() {
 
   const closeRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
     const kind = getProjectUtilityTabKind(target);
-    if (kind === 'side-chat') {
-      closeSplitChat();
+    if (isSideChatPendingTab(target)) {
+      // The loading tab is not closable (Codex parity) — it resolves into
+      // the real tab or drops itself when the fork fails.
+      return;
+    }
+    if (kind === 'side-chat' && isProjectUtilitySideChatTab(target)) {
+      // Ephemeral by design (Codex parity): closing destroys the forked
+      // conversation. Confirm first when the user actually said something in
+      // it, unless they opted out; virgin forks go without a dialog.
+      const sessionId = getProjectUtilitySideChatSessionId(target);
+      const entry = sideChats[sessionId];
+      if (!entry) {
+        closeRightUtilityTabInStore(target);
+        return;
+      }
+      const skipConfirm =
+        entry.userTurns === 0 ||
+        window.localStorage.getItem(SIDE_CHAT_CLOSE_CONFIRM_STORAGE_KEY) === 'skip';
+      if (skipConfirm) {
+        destroySideChat(sessionId);
+      } else {
+        setSideChatCloseRequest(sessionId);
+      }
+      return;
     }
     if (kind === 'browser' && activeSessionId) {
       // Removing a browser tab must also tear down its native WebContentsView.
@@ -582,7 +602,7 @@ export function App() {
       removeBrowserSessionState(browserSessionId);
     }
     closeRightUtilityTabInStore(target);
-  }, [activeSessionId, closeRightUtilityTabInStore, closeSplitChat, removeBrowserSessionState]);
+  }, [activeSessionId, closeRightUtilityTabInStore, destroySideChat, removeBrowserSessionState, sideChats]);
 
   const rightUtilityTabDescriptors = useMemo<ProjectUtilityTabDescriptor[]>(() => {
     const workspaceLeaf = getPathLeaf(activeSession?.cwd || projectCwd || '');
@@ -607,7 +627,17 @@ export function App() {
         };
       }
       if (kind === 'side-chat') {
-        return { id: tab, kind, label: 'Side Chat' };
+        if (isSideChatPendingTab(tab)) {
+          return { id: tab, kind, label: 'Side Chat', pending: true };
+        }
+        const sessionId = getProjectUtilitySideChatSessionId(tab);
+        const sideChatIndex = sideChatUtilityTabs.indexOf(tab);
+        return {
+          id: tab,
+          kind,
+          label: sideChatIndex <= 0 ? 'Side Chat' : `Side Chat ${sideChatIndex + 1}`,
+          running: sideChatRunningIds.includes(sessionId),
+        };
       }
       if (kind === 'subagent') {
         // The tab IS the subagent: pixel avatar + persona short name.
@@ -666,12 +696,22 @@ export function App() {
     () => rightUtilityTabs.filter(isProjectUtilitySubagentTab),
     [rightUtilityTabs]
   );
+  const sideChatUtilityTabs = useMemo(
+    () => rightUtilityTabs.filter(isProjectUtilitySideChatTab),
+    [rightUtilityTabs]
+  );
+  // Narrow subscription: re-renders App only when a side chat STARTS or STOPS
+  // streaming, not on every transcript delta.
+  const sideChatRunningIds = useAppStore(
+    useShallow((s) =>
+      Object.keys(s.sideChats).filter((id) => s.sessions[id]?.status === 'running')
+    )
+  );
 
   const openRightUtilityLauncher = useCallback(() => {
     setRightPanelLauncherOpen(true);
     closeRightUtilityPanelsInStore();
-    if (chatLayoutMode === 'split') closeSplitChat();
-  }, [chatLayoutMode, closeRightUtilityPanelsInStore, closeSplitChat]);
+  }, [closeRightUtilityPanelsInStore]);
 
   const toggleRightUtilityPanel = useCallback(() => {
     if (activeUtilityPanel) {
@@ -1023,8 +1063,7 @@ export function App() {
             browserAvailable={true}
             onOpenFiles={() => openRightUtilityTab('files')}
             onOpenSideChat={() => {
-              const store = useAppStore.getState();
-              store.splitPaneAt(store.workspaceLayout.activePaneId, 'right', null);
+              void openSideChat(activeSessionId);
               setRightPanelLauncherOpen(false);
             }}
             onOpenBrowser={() => openRightUtilityTab('browser')}
@@ -1090,6 +1129,47 @@ export function App() {
               subagentId={getProjectUtilitySubagentId(tabId) ?? ''}
             />
           ))}
+          {sideChatUtilityTabs.map((tabId) => {
+            const visible = activeRightUtilityTab === tabId;
+            if (isSideChatPendingTab(tabId)) {
+              // Fork in flight: Codex-style loading tab body. Not closable —
+              // it swaps for the real tab or drops itself on failure.
+              return (
+                <div
+                  key={tabId}
+                  className={
+                    visible
+                      ? 'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col items-center justify-center gap-2 text-[var(--text-muted)]'
+                      : 'hidden'
+                  }
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <span className="text-[12px]">Forking conversation…</span>
+                </div>
+              );
+            }
+            const sideChatSessionId = getProjectUtilitySideChatSessionId(tabId);
+            return (
+              <div
+                key={tabId}
+                className={
+                  visible
+                    ? 'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col'
+                    : 'hidden'
+                }
+              >
+                <ChatPane
+                  paneId={`sidechat:${sideChatSessionId}`}
+                  sessionId={sideChatSessionId}
+                  isActive={visible}
+                  onActivate={() => setActiveRightUtilityTab(tabId)}
+                  codexModelConfig={codexModelConfig}
+                  showHeader={false}
+                  onWorkspaceGitChanged={refreshEnvironmentGit}
+                />
+              </div>
+            );
+          })}
         </RightUtilityWorkspace>
       ) : null}
       </AnimatePresence>
@@ -1107,6 +1187,20 @@ export function App() {
       {/* Design-mode annotate delivery: app-level so a note submitted right
           before the browser panel closes still reaches the composer. */}
       <DesignAnnotateBridge />
+
+      {/* Side chat destructive-close confirmation (Codex parity). */}
+      {sideChatCloseRequest ? (
+        <SideChatCloseConfirmDialog
+          onClose={() => setSideChatCloseRequest(null)}
+          onConfirm={(dontAskAgain) => {
+            if (dontAskAgain) {
+              window.localStorage.setItem(SIDE_CHAT_CLOSE_CONFIRM_STORAGE_KEY, 'skip');
+            }
+            destroySideChat(sideChatCloseRequest);
+            setSideChatCloseRequest(null);
+          }}
+        />
+      ) : null}
 
       {/* Themed replacement for window.confirm() — see confirmDialog() */}
       <ConfirmDialogHost />
@@ -1289,103 +1383,60 @@ function RightUtilityWorkspace({
   );
 }
 
-function RightSideChatPanel({
-  collapsed,
-  codexModelConfig,
+/**
+ * Codex-parity confirmation before destroying a side chat with messages in
+ * it: the conversation is deleted for good, so offer a "Don't ask again"
+ * opt-out alongside the destructive confirm.
+ */
+function SideChatCloseConfirmDialog({
   onClose,
-  onWorkspaceGitChanged,
+  onConfirm,
 }: {
-  collapsed: boolean;
-  codexModelConfig: import('./types').CodexModelConfig;
   onClose: () => void;
-  onWorkspaceGitChanged?: () => Promise<void>;
+  onConfirm: (dontAskAgain: boolean) => void;
 }) {
-  const {
-    activePaneId,
-    chatPanes,
-    openSplitChat,
-    setActivePane,
-    swapChatPanes,
-  } = useAppStore(
-    useShallow((s) => ({
-      activePaneId: s.activePaneId,
-      chatPanes: s.chatPanes,
-      openSplitChat: s.openSplitChat,
-      setActivePane: s.setActivePane,
-      swapChatPanes: s.swapChatPanes,
-    }))
-  );
-  const [sideChatDropActive, setSideChatDropActive] = useState(false);
-
-  const secondaryControls = (
-    <>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          swapChatPanes();
-        }}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-        aria-label="Swap panes"
-        title="Swap panes"
-      >
-        <ArrowLeftRight className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onClose();
-        }}
-        className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-        aria-label="Close split view"
-        title="Close split view"
-      >
-        <Columns2 className="h-3.5 w-3.5" />
-        <span>Single</span>
-      </button>
-    </>
-  );
-
-  if (collapsed) {
-    return <div className="absolute inset-0 hidden" aria-hidden="true" />;
-  }
-
+  const [dontAskAgain, setDontAskAgain] = useState(false);
   return (
-    <div
-      className="absolute inset-0 flex min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]"
-      onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes('application/x-aegis-session-id')) {
-          return;
-        }
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        setSideChatDropActive(true);
-      }}
-      onDragLeave={(event) => {
-        const nextTarget = event.relatedTarget as Node | null;
-        if (nextTarget && event.currentTarget.contains(nextTarget)) {
-          return;
-        }
-        setSideChatDropActive(false);
-      }}
-    >
-      <ChatPane
-        paneId="secondary"
-        sessionId={chatPanes.secondary.sessionId}
-        isActive={activePaneId === 'secondary'}
-        onActivate={() => setActivePane('secondary')}
-        codexModelConfig={codexModelConfig}
-        dropHint={sideChatDropActive ? 'Open in Side Chat' : null}
-        onDropSession={(sessionId) => {
-          setSideChatDropActive(false);
-          openSplitChat('secondary', sessionId);
-        }}
-        onClose={onClose}
-        headerActions={secondaryControls}
-        onWorkspaceGitChanged={onWorkspaceGitChanged}
-      />
-    </div>
+    <DialogPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-black/18 backdrop-blur-[1px]" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+          <div className="px-5 pt-5 pb-4">
+                  <DialogPrimitive.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
+                    Close side chat?
+                  </DialogPrimitive.Title>
+            <p className="mt-1.5 text-[13px] leading-5 text-[var(--text-secondary)]">
+              This side chat will be gone and can&rsquo;t be recovered. Are you sure?
+            </p>
+            <label className="mt-3 flex cursor-pointer items-center gap-2 text-[13px] text-[var(--text-primary)]">
+              <input
+                type="checkbox"
+                checked={dontAskAgain}
+                onChange={(event) => setDontAskAgain(event.target.checked)}
+                className="h-3.5 w-3.5 accent-[var(--accent)]"
+              />
+              Don&rsquo;t ask again
+            </label>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-3.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-8 rounded-lg border border-[var(--border)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirm(dontAskAgain)}
+              className="h-8 rounded-lg bg-[var(--error)] px-3 text-[12px] font-medium text-white transition-opacity hover:opacity-90"
+            >
+              Close side chat
+            </button>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 
@@ -1493,6 +1544,12 @@ function RightUtilityTabStrip({
                     <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
                   )}
                   <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+                  {tab.running ? (
+                    <span
+                      className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-[var(--accent)]"
+                      aria-label="Generating"
+                    />
+                  ) : null}
                 </button>
                 <button
                   type="button"

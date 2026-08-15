@@ -80,7 +80,7 @@ assert.ok(
 // Adapter rejections must resolve to the {ok:false} toast path, not an
 // unhandled renderer rejection (return await, not bare return).
 assert.ok(
-  ipc.includes('return await forkProviderThreadSession(source, sourceProvider)'),
+  ipc.includes('return await forkProviderThreadSession(source, sourceProvider, options)'),
   'forkSessionInternal must await forkProviderThreadSession so adapter failures hit its catch'
 );
 

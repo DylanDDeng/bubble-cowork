@@ -105,7 +105,8 @@ declare global {
     ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     forkSession: (
-      sessionId: string
+      sessionId: string,
+      options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }
     ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string }>;
     sessionHandoff: (payload: {
       sessionId: string;

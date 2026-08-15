@@ -190,7 +190,10 @@ export type ProjectUtilityPanelTarget =
   | `browser:${string}`
   // One top-level tab PER subagent (the tool_use id after the colon) — there
   // is no wrapper "subagent" tab; each subagent is its own strip tab.
-  | `subagent:${string}`;
+  | `subagent:${string}`
+  // Codex-style side chats: one tab per forked side conversation (the
+  // forked session id after the colon). Ephemeral — never persisted.
+  | `side-chat:${string}`;
 export interface ProjectFileOpenInput {
   cwd: string;
   path: string;
@@ -208,6 +211,26 @@ export type ProjectUtilityTabDescriptor = {
   label: string;
   /** For subagent tabs: the subagent tool_use id (drives the pixel avatar). */
   subagentId?: string;
+  /** For side-chat tabs: a turn is streaming (pulsing dot on the tab). */
+  running?: boolean;
+  /** True while the side-chat fork is in flight (non-closable loading tab). */
+  pending?: boolean;
+};
+
+/**
+ * Codex-style side chat: an ephemeral fork of a conversation living in a
+ * right-panel tab. `constraintPending` gates the one-time side-conversation
+ * preamble (inherited history is reference-only, mutations off by default)
+ * injected into the first send's effectivePrompt; `userTurns` counts sends
+ * made in THIS side chat (inherited fork history doesn't count) and drives
+ * the destructive-close confirmation.
+ */
+export type SideChatEntry = {
+  sessionId: string;
+  sourceSessionId: string;
+  constraintPending: boolean;
+  userTurns: number;
+  createdAt: number;
 };
 
 export type ReviewDiffSource =
@@ -354,6 +377,8 @@ export interface AppState {
   rightUtilityTabs: ProjectUtilityPanelTarget[];
   activeRightUtilityTab: ProjectUtilityPanelTarget | null;
   rightUtilityPanelHidden: boolean;
+  /** Codex-style side chats: ephemeral forked conversations keyed by session id. Never persisted. */
+  sideChats: Record<string, SideChatEntry>;
   /**
    * True while a content-driven reveal (file-link click) should skip the
    * panel width tween; cleared by App after the reveal commits.
@@ -446,7 +471,6 @@ export interface AppActions {
   setChatPaneSession: (paneId: ChatPaneId, sessionId: string | null) => void;
   setChatPaneSurface: (paneId: ChatPaneId, surface: WorkspaceSurface) => void;
   setChatSplitRatio: (ratio: number) => void;
-  openSplitChat: (paneId: ChatPaneId, sessionId: string | null) => void;
   closeSplitChat: () => void;
   swapChatPanes: () => void;
   // Recursive tiling actions (operate on workspaceLayout by leaf id).
@@ -514,6 +538,12 @@ export interface AppActions {
   /** Open (or focus) the dedicated top-level tab for a subagent (parentToolUseId). */
   openSubagentPanel: (subagentId: string) => void;
   closeRightUtilityTab: (target: ProjectUtilityPanelTarget) => void;
+  /** Fork the source conversation into a new ephemeral right-panel side chat tab. */
+  openSideChat: (sourceSessionId: string | null) => Promise<void>;
+  /** Destroy a side chat: delete the forked session and drop its tab. Destructive. */
+  destroySideChat: (sessionId: string) => void;
+  /** Record a user send from a side chat: clears the pending constraint, counts the turn. */
+  noteSideChatUserTurn: (sessionId: string) => void;
   closeRightUtilityPanels: () => void;
   showRightUtilityPanels: () => void;
   setTerminalDrawerOpen: (open: boolean) => void;

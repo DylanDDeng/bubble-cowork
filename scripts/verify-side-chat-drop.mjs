@@ -82,7 +82,7 @@ assert.ok(
   'the store must expose the tiling actions and drive panes via layoutPatch (no direct chatPanes[activePaneId] writes)'
 );
 
-// --- Side Chat folded into the tree (no docked panel) ----------------------
+// --- Side Chat: ephemeral right-panel tab (Codex-style), tree untouched --
 const app = read('src/ui/App.tsx');
 assert.ok(
   !app.includes('<RightSideChatPanel'),
@@ -93,8 +93,21 @@ assert.ok(
   'WorkspaceHost must no longer receive dockSecondaryPane'
 );
 assert.ok(
-  app.includes("splitPaneAt(store.workspaceLayout.activePaneId, 'right', null)"),
-  'the Side Chat launcher must split the active pane to the right'
+  !app.includes("splitPaneAt(store.workspaceLayout.activePaneId, 'right', null)"),
+  'the Side Chat launcher must NOT touch the layout tree — the tree is the\n' +
+    'drag-split workspace now, and side chats live in the right-panel tabs'
+);
+assert.ok(
+  app.includes('void openSideChat(activeSessionId)') &&
+    app.includes('sideChatUtilityTabs.map((tabId)'),
+  'the Side Chat launcher must fork into a right-panel tab (openSideChat),\n' +
+    'and side-chat tabs must render their own ChatPane in the panel body'
+);
+const sideChatUtils = read('src/ui/utils/side-chat.ts');
+assert.ok(
+  sideChatUtils.includes('SIDE_CHAT_PREAMBLE') &&
+    read('src/ui/components/PromptInput.tsx').includes('buildSideChatEffectivePrompt'),
+  'the first side-chat send must carry the side-conversation preamble'
 );
 
 console.log('side-chat-drop: tiling wiring checks passed');

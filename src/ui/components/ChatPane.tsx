@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import * as Dialog from '@/ui/components/ui/dialog';
-import { Check, ChevronDown, GitBranch, GitFork, Loader2, Monitor, X } from './icons';
+import { Check, ChevronDown, GitBranch, GitFork, Loader2, MessageCircle, Monitor, X } from './icons';
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
 import { useAppStore } from '../store/useAppStore';
@@ -1737,10 +1737,14 @@ export function ChatPane({
   const permissionQueue = session?.permissionRequests || [];
   const activePermissionRequest = permissionQueue[0] || null;
 
+  // Side chat panes (right-panel forks) are direct-conversation surfaces, not
+  // new-task surfaces — they never use the New Thread landing.
+  const isSideChatPane = paneId.startsWith('sidechat:');
   // A freshly created draft thread with no messages shows the centered landing
   // (title + composer + starter suggestions), matching the first-entry screen.
   const showThreadStarter = Boolean(
     session &&
+      !isSideChatPane &&
       session.scope !== 'dm' &&
       session.messages.length === 0 &&
       // Only treat an empty session as a fresh thread once we know it's actually
@@ -1751,6 +1755,16 @@ export function ChatPane({
       session.hydrated &&
       session.status !== 'running' &&
       !session.readOnly &&
+      !activePermissionRequest
+  );
+  // Codex parity: an empty side chat shows a small centered ephemeral-chat
+  // notice (icon + title + one-liner) above the always-pinned bottom composer
+  // — the direct-chat empty state, not the New Task landing.
+  const showSideChatEmptyState = Boolean(
+    session &&
+      isSideChatPane &&
+      session.messages.length === 0 &&
+      session.hydrated &&
       !activePermissionRequest
   );
   const threadStarterCwd = session?.projectCwd || session?.cwd || '';
@@ -1906,6 +1920,18 @@ export function ChatPane({
           ) : null}
           <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
             {isActive ? <InSessionSearch /> : null}
+
+            {showSideChatEmptyState ? (
+              <div className="pointer-events-none absolute inset-0 flex select-none flex-col items-center justify-center gap-2 px-6 text-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-muted)]">
+                  <MessageCircle className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div className="text-[13px] font-medium text-[var(--text-secondary)]">Side chat</div>
+                <div className="max-w-[280px] text-[12px] leading-relaxed text-[var(--text-muted)]">
+                  Side chats are temporary and disappear when you close the app.
+                </div>
+              </div>
+            ) : null}
 
             {session.readOnly && (
               <div className="mb-4 flex justify-center">

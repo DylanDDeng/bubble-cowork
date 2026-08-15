@@ -66,6 +66,7 @@ import {
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { isSessionEffectivelyBusy, latestTurnHasPendingDelegation } from '../utils/workstream';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
+import { buildSideChatEffectivePrompt } from '../utils/side-chat';
 import { removeSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import {
   getLongPromptAttachmentFallbackMessage,
@@ -750,9 +751,23 @@ export function PromptInput({
       attachments,
     });
     const outgoingPrompt = promptWithAttachment.converted ? promptWithAttachment.prompt : displayPrompt;
-    const outgoingEffectivePrompt = promptWithAttachment.converted
-      ? promptWithAttachment.prompt
-      : normalizedPrompt;
+    // Side chats (Codex parity): the FIRST send carries the side-conversation
+    // preamble on the effective prompt so the fork doesn't continue the
+    // parent thread's task; the displayed prompt stays exactly what the user
+    // typed. Subsequent sends are plain.
+    const sideChatEntry = activeSession
+      ? useAppStore.getState().sideChats[activeSession.id]
+      : undefined;
+    if (sideChatEntry?.constraintPending) {
+      useAppStore.getState().noteSideChatUserTurn(activeSession.id);
+    }
+    const outgoingEffectivePrompt = sideChatEntry?.constraintPending
+      ? buildSideChatEffectivePrompt(
+          promptWithAttachment.converted ? promptWithAttachment.prompt : normalizedPrompt
+        )
+      : promptWithAttachment.converted
+        ? promptWithAttachment.prompt
+        : normalizedPrompt;
     const outgoingAttachments = promptWithAttachment.attachments;
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');

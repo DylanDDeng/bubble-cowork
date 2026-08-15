@@ -211,8 +211,11 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('session-handoff', payload);
   },
 
-  forkSession: (sessionId: string) => {
-    return ipcRenderer.invoke('fork-session', sessionId);
+  forkSession: (
+    sessionId: string,
+    options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }
+  ) => {
+    return ipcRenderer.invoke('fork-session', sessionId, options);
   },
 
   claudeRewind: (input: unknown) => {

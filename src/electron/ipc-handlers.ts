@@ -5113,7 +5113,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // display-only — nothing is ever re-submitted into the fork.
   async function forkProviderThreadSession(
     source: import('./types').SessionRow,
-    provider: 'codex' | 'opencode' | 'kimi'
+    provider: 'codex' | 'opencode' | 'kimi',
+    options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }
   ): Promise<{ ok: true; session: SessionInfo } | { ok: false; message: string }> {
     const providerThreadId =
       provider === 'codex'
@@ -5173,6 +5174,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       channelId: normalizeWorkspaceChannelId(source.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(source.team_mode),
       teamId: source.team_id || null,
+      hiddenFromThreads: options?.hiddenFromThreads === true,
     });
 
     if (provider === 'codex') {
@@ -5186,7 +5188,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
 
     // Copy the transcript (re-keyed) so the forked pane shows the conversation.
-    sessions.copySessionHistory(source.id, fork.id);
+    // The provider-side fork already carries the model context — this copy is
+    // display-only, so callers that want a visually clean fork (side chats)
+    // can skip it without losing context.
+    if (options?.copyHistory !== false) {
+      sessions.copySessionHistory(source.id, fork.id);
+    }
 
     const row = sessions.getSession(fork.id);
     if (!row) {
@@ -5197,7 +5204,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   // Fork a Claude conversation into a new session (branch the transcript).
   async function forkSessionInternal(
-    sourceSessionId: string
+    sourceSessionId: string,
+    options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }
   ): Promise<{ ok: true; session: SessionInfo } | { ok: false; message: string }> {
     try {
       const source = sessions.getSession(sourceSessionId);
@@ -5209,7 +5217,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         // `await` matters: a bare `return` would let adapter rejections skip
         // this function's catch and surface as an unhandled renderer
         // rejection instead of the {ok:false} toast.
-        return await forkProviderThreadSession(source, sourceProvider);
+        return await forkProviderThreadSession(source, sourceProvider, options);
       }
       if (sourceProvider !== 'claude') {
         return {
@@ -5268,12 +5276,17 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         channelId: normalizeWorkspaceChannelId(source.workspace_channel_id),
         teamMode: normalizeSessionTeamMode(source.team_mode),
         teamId: source.team_id || null,
+        hiddenFromThreads: options?.hiddenFromThreads === true,
       });
 
       sessions.setClaudeSessionId(fork.id, forkedClaudeId);
 
       // Copy the transcript (re-keyed) so the forked pane shows the conversation.
-      sessions.copySessionHistory(sourceSessionId, fork.id);
+      // Display-only (the forked agent session carries the model context);
+      // side chats skip it to start visually clean, Codex-style.
+      if (options?.copyHistory !== false) {
+        sessions.copySessionHistory(sourceSessionId, fork.id);
+      }
 
       const row = sessions.getSession(fork.id);
       if (!row) {
@@ -5286,8 +5299,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   }
 
-  ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
-    return forkSessionInternal(sourceSessionId);
+  ipcMainHandle('fork-session', async (_event, sourceSessionId: string, options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }) => {
+    return forkSessionInternal(sourceSessionId, options);
   });
 
   // Provider handoff: sessions are locked to one agent; switching creates a
