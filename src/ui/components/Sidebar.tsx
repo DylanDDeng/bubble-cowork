@@ -35,6 +35,14 @@ const SIDEBAR_TRIGGER_CLASS =
 const SIDEBAR_SCROLLBAR_INSET = 14;
 const SIDEBAR_SCROLLBAR_MIN_THUMB_HEIGHT = 52;
 const SIDEBAR_SCROLLBAR_MAX_THUMB_HEIGHT = 220;
+// Grace period before the hover-peek overlay collapses again, so the pointer
+// can travel between the collapsed-state trigger icon and the panel without
+// the peek flickering shut.
+const SIDEBAR_PEEK_CLOSE_DELAY_MS = 240;
+// Exit animation length for the hover-peek overlay. Must match the panel's
+// `duration-200` transition so the overlay only returns to the collapsed
+// (clipped) slot after it has fully faded out.
+const SIDEBAR_PEEK_ANIM_MS = 200;
 
 type SidebarScrollbarMetrics = {
   visible: boolean;
@@ -64,15 +72,18 @@ function SidebarToggleButton({
   collapsed,
   className = '',
   onClick,
+  onMouseEnter,
 }: {
   collapsed: boolean;
   className?: string;
   onClick: () => void;
+  onMouseEnter?: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
       className={`${SIDEBAR_TRIGGER_CLASS} ${className}`}
       aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -84,13 +95,14 @@ function SidebarToggleButton({
 }
 
 export function SidebarHeaderTrigger({ className = '' }: { className?: string }) {
-  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore();
+  const { sidebarCollapsed, setSidebarCollapsed, setSidebarPeek } = useAppStore();
 
   return (
     <SidebarToggleButton
       collapsed={sidebarCollapsed}
       className={className}
       onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+      onMouseEnter={sidebarCollapsed ? () => setSidebarPeek(true) : undefined}
     />
   );
 }
@@ -99,6 +111,7 @@ export function Sidebar() {
   const {
     activeSessionId,
     sidebarCollapsed,
+    sidebarPeek,
     sidebarWidth,
     projectCwd,
     activeChannelByProject,
@@ -115,6 +128,7 @@ export function Sidebar() {
     setActiveWorkspace,
     setShowNewSession,
     setShowSettings,
+    setSidebarPeek,
     createDraftSession,
     searchPaletteOpen,
     setSearchPaletteOpen,
@@ -286,6 +300,89 @@ export function Sidebar() {
       resizeObserver.disconnect();
     };
   }, [updateSidebarScrollbar]);
+
+  // Hover-peek: while collapsed, hovering the header trigger floats the panel
+  // open as an overlay (layout stays collapsed); leaving the panel closes it
+  // after a short grace period.
+  //
+  // The phase machine exists so the CLOSE also animates: flipping straight
+  // back from `fixed` to the collapsed slot would clip the panel instantly
+  // (parent width 0 + overflow hidden) and the fade-out would never be seen.
+  // Instead the overlay stays mounted while it animates out ('closing'), and
+  // only returns to the clipped slot ('closed') once it is fully transparent.
+  type PeekPhase = 'closed' | 'open' | 'closing';
+  const [peekPhase, setPeekPhase] = useState<PeekPhase>('closed');
+  const peekOverlayActive = sidebarCollapsed && peekPhase !== 'closed';
+  const peekVisible = sidebarCollapsed && peekPhase === 'open';
+  const sidebarHidden = sidebarCollapsed && !peekOverlayActive;
+  const peekCloseTimerRef = useRef<number | null>(null);
+
+  const cancelScheduledPeekClose = useCallback(() => {
+    if (peekCloseTimerRef.current === null) return;
+    window.clearTimeout(peekCloseTimerRef.current);
+    peekCloseTimerRef.current = null;
+  }, []);
+
+  const schedulePeekClose = useCallback(() => {
+    cancelScheduledPeekClose();
+    peekCloseTimerRef.current = window.setTimeout(() => {
+      peekCloseTimerRef.current = null;
+      setSidebarPeek(false);
+    }, SIDEBAR_PEEK_CLOSE_DELAY_MS);
+  }, [cancelScheduledPeekClose, setSidebarPeek]);
+
+  // Re-entering the overlay cancels a pending (or in-flight) close: cancel
+  // the grace timer and restore the hover-intent flag, which flips a
+  // 'closing' phase straight back to 'open'.
+  const handlePeekOverlayMouseEnter = useCallback(() => {
+    cancelScheduledPeekClose();
+    if (!useAppStore.getState().sidebarPeek) setSidebarPeek(true);
+  }, [cancelScheduledPeekClose, setSidebarPeek]);
+
+  // Hover intent (store flag) drives the phase machine: open immediately,
+  // run the exit animation when the intent drops.
+  useEffect(() => {
+    if (sidebarPeek) {
+      setPeekPhase('open');
+    } else {
+      setPeekPhase((phase) => (phase === 'open' ? 'closing' : phase));
+    }
+  }, [sidebarPeek]);
+
+  // Finish the exit animation before returning the panel to the collapsed
+  // slot — it is already opacity-0 by then, so there is no visual pop.
+  useEffect(() => {
+    if (peekPhase !== 'closing') return;
+    const timer = window.setTimeout(() => setPeekPhase('closed'), SIDEBAR_PEEK_ANIM_MS);
+    return () => window.clearTimeout(timer);
+  }, [peekPhase]);
+
+  // Expanding for real (leaving the collapsed state) ends any peek phase.
+  useEffect(() => {
+    if (!sidebarCollapsed) setPeekPhase('closed');
+  }, [sidebarCollapsed]);
+
+  // Mouse-leave can't cover alt-tab: also fold the peek when the window
+  // itself loses focus while the pointer rests inside the overlay.
+  useEffect(() => {
+    if (!(sidebarCollapsed && sidebarPeek)) return;
+    const handleWindowBlur = () => setSidebarPeek(false);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => window.removeEventListener('blur', handleWindowBlur);
+  }, [sidebarCollapsed, sidebarPeek, setSidebarPeek]);
+
+  // Never leave the transient peek latched: drop the pending close timer and
+  // reset the flag when the sidebar unmounts (e.g. entering Settings).
+  useEffect(() => {
+    return () => {
+      if (peekCloseTimerRef.current !== null) {
+        window.clearTimeout(peekCloseTimerRef.current);
+        peekCloseTimerRef.current = null;
+      }
+      const state = useAppStore.getState();
+      if (state.sidebarPeek) state.setSidebarPeek(false);
+    };
+  }, []);
 
   const handleProjectFolderSelect = async () => {
     const selected = await window.electron.selectDirectory();
@@ -500,13 +597,24 @@ export function Sidebar() {
           style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
         >
           <div
-            className={`relative flex h-full min-h-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--app-sidebar-surface)] transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                sidebarCollapsed
-                  ? 'pointer-events-none -translate-x-2 opacity-0'
-                  : 'translate-x-0 opacity-100'
-              }`}
+            className={`${
+                peekOverlayActive
+                  ? // Hover-peek overlay: the sidebar stays collapsed in layout
+                    // while the panel floats above the chat surface. z-[80]
+                    // sits above panel surfaces/resize shields (z-20/z-[70])
+                    // but below the modal layer band (z-[90]+). Kept `fixed`
+                    // during 'closing' so the fade-out transition is visible.
+                    'fixed bottom-0 left-0 top-0 z-[80] rounded-r-[12px] shadow-[24px_0_60px_rgba(15,23,42,0.18)]'
+                  : 'relative h-full'
+              } flex min-h-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--app-sidebar-surface)] transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                peekVisible || !sidebarCollapsed
+                  ? 'translate-x-0 opacity-100'
+                  : '-translate-x-2 opacity-0'
+              }${sidebarHidden ? ' pointer-events-none' : ''}`}
             style={{ width: sidebarWidth, minWidth: sidebarWidth, backdropFilter: 'var(--app-sidebar-backdrop-filter)', WebkitBackdropFilter: 'var(--app-sidebar-backdrop-filter)' }}
-            aria-hidden={sidebarCollapsed}
+            aria-hidden={sidebarHidden}
+            onMouseEnter={peekOverlayActive ? handlePeekOverlayMouseEnter : undefined}
+            onMouseLeave={peekOverlayActive ? schedulePeekClose : undefined}
           >
             <div className="drag-region flex h-12 flex-shrink-0 items-center gap-0.5 pl-[84px] pr-2">
               <SidebarToggleButton
