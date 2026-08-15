@@ -226,11 +226,14 @@ assert.ok(
 );
 
 // First catalog load hits live provider endpoints and can take seconds; without
-// the loading flag an empty list reads as "No models configured".
+// the loading flag an empty list reads as "No models configured". The flag
+// flows ComposerAgentModelPicker (modelsLoading) → BubbleAgentSubContent
+// (loadingText) since the Bubble submenu grew a per-model Reasoning section.
 const composerControls = read('src/ui/components/ComposerAgentControls.tsx');
 assert.ok(
   composerSelection.includes('bubbleModelsLoading: !bubbleModelConfig.loaded') &&
-    composerControls.includes("loadingText={bubbleModelsLoading ? 'Loading models…' : null}"),
+    composerControls.includes('modelsLoading={bubbleModelsLoading}') &&
+    composerControls.includes("loadingText={modelsLoading ? 'Loading models…' : null}"),
   'Bubble picker must surface a loading state while the model catalog is in flight'
 );
 

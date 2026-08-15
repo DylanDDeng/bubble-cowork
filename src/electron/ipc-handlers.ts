@@ -554,6 +554,27 @@ function normalizeBubblePermissionMode(
     : undefined;
 }
 
+// Bubble thinking levels are the SDK's fixed THINKING_LEVELS union
+// (off/minimal/low/medium/high/xhigh/max/ultra); per-model validity against
+// the catalog's reasoningLevels is the composer's job.
+const BUBBLE_THINKING_LEVELS = [
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+] as const;
+
+function normalizeBubbleThinkingLevel(value?: string | null): string | undefined {
+  const trimmed = value?.trim().toLowerCase();
+  return trimmed && (BUBBLE_THINKING_LEVELS as readonly string[]).includes(trimmed)
+    ? trimmed
+    : undefined;
+}
+
 // Qoder model catalog disk cache: the live catalog only exists after a
 // session boots (lazy CLI init), so the last refresh is persisted and served
 // until the first session of a launch lands a fresh one.
@@ -8751,6 +8772,7 @@ async function handleSessionStart(
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
+    bubbleThinkingLevel,
     teamMode,
     teamId,
     hiddenFromThreads,
@@ -8842,6 +8864,8 @@ async function handleSessionStart(
     chosenProvider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined;
   const selectedBubblePermissionMode =
     chosenProvider === 'bubble' ? normalizeBubblePermissionMode(bubblePermissionMode) : undefined;
+  const selectedBubbleThinkingLevel =
+    chosenProvider === 'bubble' ? normalizeBubbleThinkingLevel(bubbleThinkingLevel) : undefined;
   const selectedDeepseekPermissionMode =
     chosenProvider === 'deepseek' ? normalizeDeepseekPermissionMode(deepseekPermissionMode) : undefined;
   const selectedDeepseekAgentPreset =
@@ -9131,7 +9155,8 @@ async function handleSessionStart(
     selectedQoderPermissionMode,
     selectedBubblePermissionMode,
     selectedDeepseekPermissionMode,
-    selectedDeepseekReasoningEffort
+    selectedDeepseekReasoningEffort,
+    selectedBubbleThinkingLevel
   );
   return session.id;
 }
@@ -9168,6 +9193,7 @@ async function handleSessionContinue(
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
+    bubbleThinkingLevel,
     teamMode,
     teamId,
   } = payload;
@@ -9331,6 +9357,9 @@ async function handleSessionContinue(
     : undefined;
   const nextBubblePermissionMode = nextProvider === 'bubble'
     ? normalizeBubblePermissionMode(bubblePermissionMode)
+    : undefined;
+  const nextBubbleThinkingLevel = nextProvider === 'bubble'
+    ? normalizeBubbleThinkingLevel(bubbleThinkingLevel)
     : undefined;
   const nextKimiThinking = nextProvider === 'kimi'
     ? normalizeKimiThinking(kimiThinking)
@@ -9704,6 +9733,7 @@ async function handleSessionContinue(
         opencodePermissionMode: nextOpenCodePermissionMode,
         qoderPermissionMode: nextQoderPermissionMode,
         bubblePermissionMode: nextBubblePermissionMode,
+        bubbleThinkingLevel: nextBubbleThinkingLevel,
       });
       existingEntry.handle.send(
         runnerPrompt,
@@ -9847,7 +9877,8 @@ async function handleSessionContinue(
     nextQoderPermissionMode,
     nextBubblePermissionMode,
     nextDeepseekPermissionMode,
-    nextDeepseekReasoningEffort
+    nextDeepseekReasoningEffort,
+    nextBubbleThinkingLevel
   );
   return true;
 }
@@ -9894,7 +9925,8 @@ function startRunner(
   qoderPermissionMode?: import('../shared/types').QoderPermissionMode,
   bubblePermissionMode?: import('../shared/types').BubblePermissionMode,
   deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode,
-  deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort
+  deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort,
+  bubbleThinkingLevel?: string
 ): void {
   if (!session) return;
 
@@ -10001,6 +10033,7 @@ function startRunner(
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
+    bubbleThinkingLevel,
     onMessage: (message) => {
       // A runner the user stopped that has since been retired or replaced is
       // dead to this session: NOTHING it emits may touch session state again

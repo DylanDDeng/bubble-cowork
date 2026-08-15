@@ -139,6 +139,7 @@ export interface RunnerOptions {
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
   bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
+  bubbleThinkingLevel?: string;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (

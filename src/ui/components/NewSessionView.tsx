@@ -334,6 +334,10 @@ export function NewSessionView() {
               ? 'plan'
               : agentSelection.bubblePermissionMode
             : undefined,
+        bubbleThinkingLevel:
+          agentSelection.provider === 'bubble'
+            ? agentSelection.bubbleThinkingLevel || undefined
+            : undefined,
         teamMode: 'solo',
         teamId: null,
       },
@@ -759,12 +763,15 @@ export function NewSessionView() {
                       onModelChange={agentSelection.selectModel}
                       codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
                       grokModels={agentSelection.grokModels.length > 0 ? agentSelection.grokModels : undefined}
+                      bubbleModels={agentSelection.bubbleModels.length > 0 ? agentSelection.bubbleModels : undefined}
                       claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
                       onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
                       codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
                       onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                       grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
                       onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
+                      bubbleThinkingLevel={agentSelection.bubbleThinkingLevel ?? undefined}
+                      onBubbleThinkingLevelChange={agentSelection.setBubbleThinkingLevel}
                       deepseekReasoningEffort={agentSelection.deepseekReasoningEffort}
                       onDeepseekReasoningEffortChange={agentSelection.setDeepseekReasoningEffort}
                       codexFastMode={agentSelection.codexFastMode}

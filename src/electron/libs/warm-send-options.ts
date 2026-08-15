@@ -31,6 +31,7 @@ export type WarmSendOptions = Pick<
   | 'opencodePermissionMode'
   | 'qoderPermissionMode'
   | 'bubblePermissionMode'
+  | 'bubbleThinkingLevel'
 >;
 
 export function buildWarmSendOptions(next: WarmSendOptions): WarmSendOptions {
@@ -48,6 +49,7 @@ export function buildWarmSendOptions(next: WarmSendOptions): WarmSendOptions {
     opencodePermissionMode: next.opencodePermissionMode,
     qoderPermissionMode: next.qoderPermissionMode,
     bubblePermissionMode: next.bubblePermissionMode,
+    bubbleThinkingLevel: next.bubbleThinkingLevel,
   };
   return envelope;
 }

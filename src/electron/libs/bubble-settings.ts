@@ -70,6 +70,12 @@ function addModel(
     isDefault: false,
     maxContextSize: typeof model.contextWindow === 'number' ? model.contextWindow : null,
     capabilities: [],
+    // Thinking-level metadata straight from the SDK catalog: the composer's
+    // Reasoning picker lists these per model, defaultReasoningLevel seeds it.
+    reasoningLevels: (model.reasoningLevels || []).filter(
+      (level) => typeof level === 'string' && level.trim().length > 0
+    ),
+    defaultReasoningLevel: model.defaultReasoningLevel?.trim() || null,
   });
 }
 

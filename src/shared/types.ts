@@ -265,6 +265,10 @@ export interface BubbleModelConfig {
     isDefault: boolean;
     maxContextSize?: number | null;
     capabilities?: string[];
+    /** Thinking levels this model supports (SDK model catalog), e.g. ['low','medium','high','max']. */
+    reasoningLevels?: string[];
+    /** The catalog's default thinking level for this model, if any. */
+    defaultReasoningLevel?: string | null;
   }>;
 }
 
@@ -958,6 +962,8 @@ export interface SessionStartPayload {
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
+  /** Bubble thinking level (per-model open set, e.g. low/medium/high/max). */
+  bubbleThinkingLevel?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
   hiddenFromThreads?: boolean;
@@ -1037,6 +1043,8 @@ export interface SessionContinuePayload {
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
+  /** Bubble thinking level (per-model open set). Absent = SDK/model default. */
+  bubbleThinkingLevel?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
 }

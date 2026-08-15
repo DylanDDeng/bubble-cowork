@@ -9,6 +9,7 @@ import type {
   ClaudeReasoningEffort,
   CodexReasoningEffort,
   CodexModelConfig,
+  BubbleModelConfig,
   DeepseekReasoningEffort,
   GrokModelConfig,
   GrokReasoningEffort,
@@ -18,6 +19,10 @@ import {
   GROK_REASONING_EFFORT_LABELS,
   GROK_REASONING_EFFORT_OPTIONS,
 } from '../utils/grok-reasoning';
+import {
+  bubbleThinkingLevelsForModel,
+  formatBubbleThinkingLevelLabel,
+} from '../utils/bubble-reasoning';
 import {
   DEEPSEEK_REASONING_EFFORT_LABELS,
   DEEPSEEK_REASONING_EFFORT_OPTIONS,
@@ -964,6 +969,86 @@ const DeepseekAgentSubContent: FC<{
   </>
 );
 
+// Bubble: same Reasoning + nested Model submenu layout as Claude/Grok.
+// Thinking levels come ONLY from the SDK catalog's per-model metadata —
+// deliberately no fallback list: a model without metadata (e.g. a
+// "Configured default" entry the catalog doesn't know) shows no Reasoning
+// section and runs on the SDK's own default, rather than offering tiers we
+// made up.
+const BubbleAgentSubContent: FC<{
+  modelOptions: ComposerModelOption[];
+  selectedModel: string | null;
+  bubbleModels?: BubbleModelConfig['availableModels'];
+  thinkingLevel: string | null;
+  modelsLoading: boolean;
+  onSelectModel: (option: ComposerModelOption) => void;
+  onThinkingLevelChange: (level: string) => void;
+}> = ({
+  modelOptions,
+  selectedModel,
+  bubbleModels,
+  thinkingLevel,
+  modelsLoading,
+  onSelectModel,
+  onThinkingLevelChange,
+}) => {
+  const levels = bubbleThinkingLevelsForModel(bubbleModels, selectedModel);
+  return (
+    <>
+      {levels.length > 0 ? (
+        <>
+          <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+            Reasoning
+          </div>
+          {levels.map((level) => {
+            const isSelected = thinkingLevel === level;
+            return (
+              <DropdownMenu.Item
+                key={level}
+                onSelect={() => onThinkingLevelChange(level)}
+                className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+              >
+                <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+                  {formatBubbleThinkingLevelLabel(level)}
+                </span>
+                {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+              </DropdownMenu.Item>
+            );
+          })}
+          <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+        </>
+      ) : null}
+
+      <DropdownMenu.Sub>
+        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+            Model
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+        </DropdownMenu.SubTrigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.SubContent
+            sideOffset={6}
+            alignOffset={-4}
+            className="z-50 w-[240px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+          >
+            <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+              Models
+            </div>
+            <ModelSubContent
+              modelOptions={modelOptions}
+              selectedValue={selectedModel}
+              onSelectModel={onSelectModel}
+              loadingText={modelsLoading ? 'Loading models…' : null}
+              searchable
+            />
+          </DropdownMenu.SubContent>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Sub>
+    </>
+  );
+};
+
 const CodexAgentSubContent: FC<{
   codexModels: CodexModelConfig['availableModels'] | undefined;
   selectedModel: string | null;
@@ -1119,12 +1204,15 @@ export function ComposerAgentModelPicker({
   // Agent-specific props
   codexModels,
   grokModels,
+  bubbleModels,
   claudeReasoningEffort,
   onClaudeReasoningEffortChange,
   codexReasoningEffort,
   onCodexReasoningEffortChange,
   grokReasoningEffort,
   onGrokReasoningEffortChange,
+  bubbleThinkingLevel,
+  onBubbleThinkingLevelChange,
   deepseekReasoningEffort,
   onDeepseekReasoningEffortChange,
   codexFastMode,
@@ -1144,12 +1232,15 @@ export function ComposerAgentModelPicker({
   onModelChange: (option: ComposerModelOption, provider?: AgentProvider) => void;
   codexModels?: CodexModelConfig['availableModels'];
   grokModels?: GrokModelConfig['availableModels'];
+  bubbleModels?: BubbleModelConfig['availableModels'];
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
   onClaudeReasoningEffortChange?: (effort: ClaudeReasoningEffort) => void;
   codexReasoningEffort?: CodexReasoningEffort | null;
   onCodexReasoningEffortChange?: (effort: CodexReasoningEffort) => void;
   grokReasoningEffort?: GrokReasoningEffort | null;
   onGrokReasoningEffortChange?: (effort: GrokReasoningEffort) => void;
+  bubbleThinkingLevel?: string | null;
+  onBubbleThinkingLevelChange?: (level: string) => void;
   deepseekReasoningEffort?: DeepseekReasoningEffort;
   onDeepseekReasoningEffortChange?: (effort: DeepseekReasoningEffort) => void;
   codexFastMode?: boolean;
@@ -1194,6 +1285,9 @@ export function ComposerAgentModelPicker({
   const grokEffortSuffix = agentProvider === 'grok' && grokReasoningEffort
     ? ` ${grokEffortLabels[grokReasoningEffort]}`
     : '';
+  const bubbleEffortSuffix = agentProvider === 'bubble' && bubbleThinkingLevel
+    ? ` ${formatBubbleThinkingLevelLabel(bubbleThinkingLevel)}`
+    : '';
   const deepseekEffortSuffix = agentProvider === 'deepseek' && deepseekReasoningEffort
     ? ` ${DEEPSEEK_REASONING_EFFORT_LABELS[deepseekReasoningEffort]}`
     : '';
@@ -1210,6 +1304,7 @@ export function ComposerAgentModelPicker({
     claudeEffortSuffix ||
     codexEffortSuffix ||
     grokEffortSuffix ||
+    bubbleEffortSuffix ||
     deepseekEffortSuffix ||
     kimiThinkingSuffix;
 
@@ -1468,6 +1563,49 @@ export function ComposerAgentModelPicker({
               );
             }
 
+            // Bubble: per-model thinking levels + searchable model list
+            if (provider === 'bubble') {
+              return (
+                <DropdownMenu.Sub key={provider}>
+                  <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">
+                    <AgentIcon provider={provider} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                        {agentLabel(provider)}
+                      </span>
+                      {hint ? (
+                        <span className="block truncate text-[11px] text-[var(--text-muted)]">{hint}</span>
+                      ) : null}
+                    </span>
+                    {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
+                      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(readiness.state)}`} aria-hidden="true" />
+                    ) : null}
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.SubContent
+                      sideOffset={6}
+                      alignOffset={-4}
+                      className="z-50 w-[240px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+                    >
+                      <BubbleAgentSubContent
+                        modelOptions={modelOptions}
+                        selectedModel={modelValue}
+                        bubbleModels={bubbleModels}
+                        thinkingLevel={bubbleThinkingLevel ?? null}
+                        modelsLoading={bubbleModelsLoading}
+                        onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        onThinkingLevelChange={(level) => {
+                          onAgentChange(provider);
+                          onBubbleThinkingLevelChange?.(level);
+                        }}
+                      />
+                    </DropdownMenu.SubContent>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Sub>
+              );
+            }
+
             // Other agents: simple submenu with model list
             return (
               <DropdownMenu.Sub key={provider}>
@@ -1495,23 +1633,13 @@ export function ComposerAgentModelPicker({
                     <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
                       Models
                     </div>
-                    {provider === 'bubble' ? (
+                    <div className="max-h-[280px] overflow-y-auto">
                       <ModelSubContent
                         modelOptions={modelOptions}
                         selectedValue={modelValue}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                        loadingText={bubbleModelsLoading ? 'Loading models…' : null}
-                        searchable
                       />
-                    ) : (
-                      <div className="max-h-[280px] overflow-y-auto">
-                        <ModelSubContent
-                          modelOptions={modelOptions}
-                          selectedValue={modelValue}
-                          onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                        />
-                      </div>
-                    )}
+                    </div>
                   </DropdownMenu.SubContent>
                 </DropdownMenu.Portal>
               </DropdownMenu.Sub>

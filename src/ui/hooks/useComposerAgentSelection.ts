@@ -65,6 +65,11 @@ import {
   savePreferredGrokReasoningEffort,
 } from '../utils/grok-reasoning';
 import {
+  bubbleThinkingLevelsForModel,
+  getDefaultBubbleThinkingLevel,
+  savePreferredBubbleThinkingLevel,
+} from '../utils/bubble-reasoning';
+import {
   loadPreferredCodexFastMode,
   savePreferredCodexFastMode,
   supportsCodexFastMode,
@@ -581,6 +586,8 @@ export function useComposerAgentSelection(input?: {
   opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
   grokReasoningEffort?: GrokReasoningEffort | null;
+  /** Bubble thinking level seed (open set, per model). */
+  bubbleThinkingLevel?: string | null;
   deepseekAgentPreset?: DeepseekAgentPreset | null;
   onSelectionChange?: (selection: AgentModelSelection) => void;
 }) {
@@ -1153,6 +1160,44 @@ export function useComposerAgentSelection(input?: {
     [model]
   );
 
+  const [bubbleThinkingLevel, setBubbleThinkingLevelState] = useState<string | null>(() => {
+    if (provider !== 'bubble') return null;
+    return (
+      input?.bubbleThinkingLevel ||
+      getDefaultBubbleThinkingLevel(bubbleModelConfig.availableModels, model)
+    );
+  });
+
+  // Sync Bubble thinking level when model/provider or the catalog settles.
+  // The first catalog frame arrives synchronously from the SDK's static
+  // catalog, but live discovery can add reasoningLevels later — re-resolve
+  // so the default tier appears once metadata lands.
+  useEffect(() => {
+    if (provider === 'bubble') {
+      setBubbleThinkingLevelState(
+        (current) =>
+          input?.bubbleThinkingLevel ||
+          (current && bubbleThinkingLevelsForModel(bubbleModelConfig.availableModels, model).includes(current)
+            ? current
+            : null) ||
+          getDefaultBubbleThinkingLevel(bubbleModelConfig.availableModels, model)
+      );
+    } else {
+      setBubbleThinkingLevelState(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, model, input?.bubbleThinkingLevel, bubbleModelConfig]);
+
+  const setBubbleThinkingLevel = useCallback(
+    (level: string) => {
+      setBubbleThinkingLevelState(level);
+      if (model) {
+        savePreferredBubbleThinkingLevel(model, level);
+      }
+    },
+    [model]
+  );
+
   const codexModels = useMemo(() => {
     if (!codexModelConfig) return [];
     // Keep enabled models in Codex cache order (already priority-sorted server-side).
@@ -1165,6 +1210,13 @@ export function useComposerAgentSelection(input?: {
     const enabled = grokModelConfig.availableModels.filter((model) => model.enabled !== false);
     return enabled.length > 0 ? enabled : grokModelConfig.availableModels;
   }, [grokModelConfig]);
+
+  const bubbleModels = useMemo(() => {
+    // Keep enabled models in discovery order (local static catalog first,
+    // then whatever the background refresh merged in).
+    const enabled = bubbleModelConfig.availableModels.filter((model) => model.enabled !== false);
+    return enabled.length > 0 ? enabled : bubbleModelConfig.availableModels;
+  }, [bubbleModelConfig]);
 
   // Fast mode state
   const supportsCodexFastModeCheck = useMemo(
@@ -1386,12 +1438,15 @@ export function useComposerAgentSelection(input?: {
     codexModelConfig,
     codexModels,
     grokModels,
+    bubbleModels,
     claudeReasoningEffort,
     setClaudeReasoningEffort,
     codexReasoningEffort,
     setCodexReasoningEffort,
     grokReasoningEffort,
     setGrokReasoningEffort,
+    bubbleThinkingLevel,
+    setBubbleThinkingLevel,
     codexFastMode,
     setCodexFastMode,
     claudePermissionMode,

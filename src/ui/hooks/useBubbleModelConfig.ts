@@ -35,6 +35,13 @@ function normalizeBubbleModelConfig(
               capabilities: (model.capabilities || []).filter(
                 (value): value is string => typeof value === 'string' && value.trim().length > 0
               ),
+              reasoningLevels: (model.reasoningLevels || []).filter(
+                (value): value is string => typeof value === 'string' && value.trim().length > 0
+              ),
+              defaultReasoningLevel:
+                typeof model.defaultReasoningLevel === 'string' && model.defaultReasoningLevel.trim()
+                  ? model.defaultReasoningLevel.trim()
+                  : null,
             };
           })
           .filter((model): model is NonNullable<typeof model> => Boolean(model))
@@ -47,6 +54,8 @@ function normalizeBubbleModelConfig(
             isDefault: defaultModel === name,
             maxContextSize: null,
             capabilities: [],
+            reasoningLevels: [],
+            defaultReasoningLevel: null,
           })
         );
 

@@ -73,6 +73,8 @@ type ActiveBubbleSession = {
   cwd: string;
   model?: string;
   permissionMode?: BubblePermissionMode;
+  /** Composer-selected thinking level (open set); undefined = SDK/model default. */
+  thinkingLevel?: string;
   /** Model context window from the provider registry (Bubble's turn usage carries none). */
   contextWindow?: number | null;
   turnActive: boolean;
@@ -330,6 +332,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       cwd,
       model: input.model?.trim() || undefined,
       permissionMode: input.bubblePermissionMode,
+      thinkingLevel: input.bubbleThinkingLevel?.trim() || undefined,
       turnActive: false,
       abortController: null,
       pendingRequests: new Map(),
@@ -359,6 +362,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         attachments: input.attachments,
         model: input.model,
         bubblePermissionMode: input.bubblePermissionMode,
+        bubbleThinkingLevel: input.bubbleThinkingLevel,
       });
     }
 
@@ -400,6 +404,12 @@ export class BubbleSdkAdapter implements ProviderAdapter {
     }
     if (input.bubblePermissionMode) {
       session.permissionMode = input.bubblePermissionMode;
+    }
+    // Per-turn thinking level: a string switches it; undefined keeps the
+    // session's current level (the warm envelope omits it for non-bubble
+    // turns and when the composer has no selection — both mean "default").
+    if (typeof input.bubbleThinkingLevel === 'string') {
+      session.thinkingLevel = input.bubbleThinkingLevel.trim() || undefined;
     }
     session.status = 'running';
     session.turnActive = true;
@@ -741,6 +751,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         prompt,
         ...(model ? { model } : {}),
         ...(session.permissionMode ? { mode: session.permissionMode } : {}),
+        ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
         signal: abortController.signal,
         onStart: (info) => {
           session.model = info.model || session.model;
