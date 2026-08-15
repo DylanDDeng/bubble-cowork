@@ -18,7 +18,22 @@
     "!node_modules/**/@anthropic-ai/claude-agent-sdk-*/**/*",
     "!node_modules/@qoder-ai/qoder-agent-sdk/dist/_bundled",
     "!node_modules/@qoder-ai/qoder-agent-sdk/dist/_bundled/**/*",
-    "!node_modules/**/@qoder-ai/qoder-agent-sdk/dist/_bundled/**/*"
+    "!node_modules/**/@qoder-ai/qoder-agent-sdk/dist/_bundled/**/*",
+    // Render-only icon set (133M): Vite already bundles the used icons into
+    // dist-react — the main process never requires @tabler.
+    "!node_modules/@tabler",
+    "!node_modules/@tabler/**/*",
+    "!node_modules/**/@tabler",
+    "!node_modules/**/@tabler/**/*",
+    // Compiler (61M): no runtime code path requires it — the Pi agent loads TS
+    // via jiti and every package declaring it lists it as a devDependency.
+    // Boundary: if Bubble's TS/Vue LSP tooling is ever wired up
+    // (typescript-language-server resolves tsserver from this package),
+    // remove these lines.
+    "!node_modules/typescript",
+    "!node_modules/typescript/**/*",
+    "!node_modules/**/node_modules/typescript",
+    "!node_modules/**/node_modules/typescript/**/*"
   ],
   "asarUnpack": [
     "node_modules/better-sqlite3/**/*"
