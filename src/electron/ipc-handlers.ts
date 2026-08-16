@@ -4732,14 +4732,16 @@ async function runSessionSummaryOneShot(
   }
 
   if (session.provider === 'codex') {
-    const result = await runCodexOneShot({
+    // Session summaries are background bookkeeping — they must NOT spawn a
+    // real codex thread (it lands in ~/.codex/sessions and shows up in the
+    // Codex app's conversation list as phantom entries). Route them through
+    // the direct Claude/compatible-provider path instead: a summary is just
+    // text-in/text-out and needs no conversation at all.
+    const result = await runClaudeOneShot({
       prompt,
       cwd,
       model,
-      codexExecutionMode: 'plan',
-      codexPermissionMode: 'defaultPermissions',
-      codexReasoningEffort: 'low',
-      codexFastMode: false,
+      claudeReasoningEffort: 'low',
     });
     return { text: result.text, model: result.model || model || 'codex' };
   }
