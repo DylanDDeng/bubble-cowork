@@ -39,6 +39,17 @@ export function BrowserUseSettings() {
     };
   }, []);
 
+  const setEnabled = useCallback(async (enabled: boolean) => {
+    setBusy(true);
+    try {
+      setSettings(await window.electron.setBrowserUseEnabled(enabled));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to toggle browser use.');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const setDefaultPolicy = useCallback(async (policy: Policy) => {
     setBusy(true);
     try {
@@ -91,6 +102,32 @@ export function BrowserUseSettings() {
         <div className="px-4 py-3 text-[13px] text-[var(--text-muted)]">Loading…</div>
       ) : (
         <>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
+            <div className="flex min-w-0 flex-col">
+              <div className="text-[13px] font-medium text-[var(--text-primary)]">Enable Browser Use</div>
+              <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
+                Built in — every agent gets the browser_use tool with nothing to install. Turning it off removes the tool from all agents.
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.enabled}
+              disabled={busy}
+              onClick={() => void setEnabled(!settings.enabled)}
+              className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
+                settings.enabled ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]'
+              }`}
+              title={settings.enabled ? 'Browser Use is on' : 'Browser Use is off'}
+            >
+              <span
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                  settings.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
             <div className="flex min-w-0 flex-col">
               <div className="text-[13px] font-medium text-[var(--text-primary)]">Default for all sites</div>

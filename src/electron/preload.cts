@@ -673,6 +673,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-browser-use-permissions');
   },
 
+  setBrowserUseEnabled: (enabled: boolean) => {
+    return ipcRenderer.invoke('set-browser-use-enabled', enabled);
+  },
+
   setBrowserUseOriginPolicy: (origin: string, policy: 'allow' | 'block' | 'ask' | null) => {
     return ipcRenderer.invoke('set-browser-use-origin-policy', origin, policy);
   },

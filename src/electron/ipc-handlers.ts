@@ -53,6 +53,8 @@ import {
   getBrowserUsePermissionSettings,
   setBrowserUseOriginPolicy,
   setBrowserUseDefaultPolicy,
+  setBrowserUseEnabled,
+  isBrowserUseEnabled,
 } from './libs/browser-use-permissions';
 import { saveQoderMcpServers, getQoderMcpServers } from './libs/qoder-mcp-settings';
 import {
@@ -5137,38 +5139,26 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         });
       }),
   });
-  void ensureBrowserUseHttpServer()
-    .then((info) => {
-      // Qoder/OpenCode take plain JSON configs (no env-var indirection):
-      // write the per-run token literally, same as the kimi delegate entry.
-      try {
-        const qoder = getQoderMcpServers();
-        qoder['aegis-browser'] = {
-          url: info.url,
-          headers: { Authorization: `Bearer ${info.token}` },
-        };
-        saveQoderMcpServers(qoder);
-      } catch (error) {
-        console.warn('Failed to write the qoder browser-use MCP entry:', error);
-      }
-      try {
-        const opencode = getOpencodeMcpServers();
-        (opencode as Record<string, unknown>)['aegis-browser'] = {
-          type: 'remote',
-          url: info.url,
-          enabled: true,
-          headers: { Authorization: `Bearer ${info.token}` },
-        };
-        saveOpencodeMcpServers(opencode);
-      } catch (error) {
-        console.warn('Failed to write the opencode browser-use MCP entry:', error);
-      }
-    })
-    .catch((error) => {
+  // All five HTTP-config providers (codex/kimi/bubble/qoder/opencode) get
+  // their entry written inside ensureBrowserUseHttpServer; disabled boots
+  // clean their entries instead.
+  void ensureBrowserUseHttpServer().catch((error) => {
+    if (isBrowserUseEnabled()) {
       console.warn('Failed to start the browser-use MCP HTTP server:', error);
-    });
+    }
+  });
 
   ipcMainHandle('get-browser-use-permissions', async () => {
+    return getBrowserUsePermissionSettings();
+  });
+
+  ipcMainHandle('set-browser-use-enabled', async (_event, enabled: boolean) => {
+    setBrowserUseEnabled(enabled === true);
+    if (enabled) {
+      await ensureBrowserUseHttpServer();
+    } else {
+      disposeBrowserUseHttpServer();
+    }
     return getBrowserUsePermissionSettings();
   });
 

@@ -236,6 +236,7 @@ declare global {
     setDeepseekApiKey: (apiKey: string) => Promise<DeepseekKeyStatus>;
     clearDeepseekApiKey: () => Promise<DeepseekKeyStatus>;
     getBrowserUsePermissions: () => Promise<BrowserUsePermissionSettings>;
+    setBrowserUseEnabled: (enabled: boolean) => Promise<BrowserUsePermissionSettings>;
     setBrowserUseOriginPolicy: (
       origin: string,
       policy: 'allow' | 'block' | 'ask' | null

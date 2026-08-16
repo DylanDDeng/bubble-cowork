@@ -13,6 +13,9 @@ import path from 'path';
 export type BrowserUseOriginPolicy = 'allow' | 'block' | 'ask';
 
 export interface BrowserUsePermissionSettings {
+  /** Master switch for the built-in browser-use feature (default true).
+   * Off = no MCP entries anywhere, no HTTP server, no Claude injection. */
+  enabled: boolean;
   /** Policy for origins not in `origins`. Default 'ask'. */
   defaultPolicy: BrowserUseOriginPolicy;
   /** origin (https://example.com) -> policy. */
@@ -22,6 +25,7 @@ export interface BrowserUsePermissionSettings {
 const SETTINGS_PATH = path.join(homedir(), '.aegis', 'browser-use-permissions.json');
 
 const DEFAULT_SETTINGS: BrowserUsePermissionSettings = {
+  enabled: true,
   defaultPolicy: 'ask',
   origins: {},
 };
@@ -34,6 +38,7 @@ export function getBrowserUsePermissionSettings(): BrowserUsePermissionSettings 
   try {
     const raw = readFileSync(SETTINGS_PATH, 'utf8');
     const parsed = JSON.parse(raw) as Partial<BrowserUsePermissionSettings>;
+    const enabled = typeof parsed.enabled === 'boolean' ? parsed.enabled : true;
     const defaultPolicy =
       parsed.defaultPolicy === 'allow' || parsed.defaultPolicy === 'block' || parsed.defaultPolicy === 'ask'
         ? parsed.defaultPolicy
@@ -46,7 +51,7 @@ export function getBrowserUsePermissionSettings(): BrowserUsePermissionSettings 
         }
       }
     }
-    return { defaultPolicy, origins };
+    return { enabled, defaultPolicy, origins };
   } catch {
     return { ...DEFAULT_SETTINGS, origins: {} };
   }
@@ -73,6 +78,17 @@ export function setBrowserUseOriginPolicy(origin: string, policy: BrowserUseOrig
 export function setBrowserUseDefaultPolicy(policy: BrowserUseOriginPolicy): void {
   const settings = getBrowserUsePermissionSettings();
   settings.defaultPolicy = policy;
+  saveBrowserUsePermissionSettings(settings);
+}
+
+/** Master switch: built-in browser use is on unless explicitly disabled. */
+export function isBrowserUseEnabled(): boolean {
+  return getBrowserUsePermissionSettings().enabled;
+}
+
+export function setBrowserUseEnabled(enabled: boolean): void {
+  const settings = getBrowserUsePermissionSettings();
+  settings.enabled = enabled;
   saveBrowserUsePermissionSettings(settings);
 }
 

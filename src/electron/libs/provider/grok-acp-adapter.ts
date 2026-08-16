@@ -35,6 +35,7 @@ import {
   mediaKindFromToolName,
   withGeneratedMediaInput,
 } from '../../../shared/generated-media';
+import { getBrowserUseMcpDescriptor } from '../browser-use-http-server';
 
 type PromptBlock =
   | { type: 'text'; text: string }
@@ -387,10 +388,22 @@ export class GrokAcpAdapter implements ProviderAdapter {
     });
 
     const permissionMode = normalizeGrokPermissionMode(input.grokPermissionMode);
+    // Built-in browser use: hand grok the loopback HTTP MCP server when the
+    // feature is on (ACP session/new mcpServers, http variant).
+    const browserUseDescriptor = getBrowserUseMcpDescriptor();
+    const mcpServers = browserUseDescriptor
+      ? [
+          {
+            name: 'aegis-browser',
+            url: browserUseDescriptor.url,
+            headers: browserUseDescriptor.headers,
+          },
+        ]
+      : [];
     const sessionResult = await rpc.request(input.resumeSessionId ? 'session/resume' : 'session/new', {
       ...(input.resumeSessionId ? { sessionId: input.resumeSessionId } : {}),
       cwd: input.cwd,
-      mcpServers: [],
+      mcpServers,
       ...(permissionMode ? { permissionMode } : {}),
     });
     let sessionRecord = getRecord(sessionResult);

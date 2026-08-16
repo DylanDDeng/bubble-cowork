@@ -88,7 +88,8 @@ function isBrowserUseToolName(name: unknown): boolean {
   return (
     normalized === BROWSER_USE_TOOL_NAME ||
     normalized.endsWith(`__${BROWSER_USE_TOOL_NAME}`) ||
-    // Codex composes mcp__<server>__<tool>; the server is aegis-browser.
+    // OpenCode composes server.tool with a dot; Codex with double underscore.
+    normalized.endsWith(`.${BROWSER_USE_TOOL_NAME}`) ||
     normalized === `mcp__aegis-browser__${BROWSER_USE_TOOL_NAME}`
   );
 }

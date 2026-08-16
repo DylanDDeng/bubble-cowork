@@ -19,9 +19,20 @@ import {
   type BrowserUseActionInput,
   type BrowserUseActionResult,
 } from './browser-use';
+import { isBrowserUseEnabled } from './browser-use-permissions';
 import { browserManager } from '../browserManager';
-import { upsertCodexMcpServer } from './codex-mcp-settings';
-import { upsertKimiMcpServerRaw } from './kimi-mcp-settings';
+import { upsertCodexMcpServer, getCodexMcpServers, saveCodexMcpServers } from './codex-mcp-settings';
+import {
+  upsertKimiMcpServerRaw,
+  getKimiMcpServers,
+  saveKimiMcpServers,
+} from './kimi-mcp-settings';
+import { getBubbleMcpServers, saveBubbleMcpServers } from './bubble-mcp-settings';
+import { getQoderMcpServers, saveQoderMcpServers } from './qoder-mcp-settings';
+import {
+  getOpencodeMcpServers,
+  saveOpencodeMcpServers,
+} from './opencode-mcp-settings';
 import {
   findBrowserUseCallerSessionId,
   requestBrowserUseNavigationConsent,
@@ -39,6 +50,17 @@ export interface BrowserUseHttpServerInfo {
 
 let serverPromise: Promise<BrowserUseHttpServerInfo> | null = null;
 let httpServer: HttpServer | null = null;
+
+/** Current server descriptor for adapters that pass MCP entries per session
+ * (grok ACP session/new). Null when not started / disabled. */
+export function getBrowserUseMcpDescriptor(): { url: string; headers: Record<string, string> } | null {
+  if (!isBrowserUseEnabled()) return null;
+  const cached = serverInfoCache;
+  if (!cached) return null;
+  return { url: cached.url, headers: { Authorization: `Bearer ${cached.token}` } };
+}
+
+let serverInfoCache: BrowserUseHttpServerInfo | null = null;
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 function loadMcpSdk(): {
@@ -242,6 +264,11 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, token
 }
 
 export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> {
+  if (!isBrowserUseEnabled()) {
+    // Disabled: make sure nothing lingers in provider configs.
+    removeBrowserUseMcpEntries();
+    return Promise.reject(new Error('Browser Use is disabled in settings.'));
+  }
   if (serverPromise) return serverPromise;
   serverPromise = (async () => {
     const token = process.env[BROWSER_USE_TOKEN_ENV_VAR] || randomUUID();
@@ -298,6 +325,39 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
     } catch (error) {
       console.warn('Failed to write the kimi browser-use MCP entry:', error);
     }
+    try {
+      const bubble = getBubbleMcpServers();
+      bubble[BROWSER_USE_SERVER_NAME] = {
+        url: info.url,
+        headers: { Authorization: `Bearer ${info.token}` },
+      } as never;
+      saveBubbleMcpServers(bubble);
+    } catch (error) {
+      console.warn('Failed to write the bubble browser-use MCP entry:', error);
+    }
+    try {
+      const qoder = getQoderMcpServers();
+      qoder[BROWSER_USE_SERVER_NAME] = {
+        url: info.url,
+        headers: { Authorization: `Bearer ${info.token}` },
+      } as never;
+      saveQoderMcpServers(qoder);
+    } catch (error) {
+      console.warn('Failed to write the qoder browser-use MCP entry:', error);
+    }
+    try {
+      const opencode = getOpencodeMcpServers();
+      (opencode as Record<string, unknown>)[BROWSER_USE_SERVER_NAME] = {
+        type: 'remote',
+        url: info.url,
+        enabled: true,
+        headers: { Authorization: `Bearer ${info.token}` },
+      };
+      saveOpencodeMcpServers(opencode);
+    } catch (error) {
+      console.warn('Failed to write the opencode browser-use MCP entry:', error);
+    }
+    serverInfoCache = info;
     return info;
   })();
   serverPromise.catch(() => {
@@ -306,7 +366,59 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
   return serverPromise;
 }
 
+/** Remove the browser-use entry from every provider config (toggle-off,
+ * and disabled boot). Idempotent. */
+export function removeBrowserUseMcpEntries(): void {
+  try {
+    const codex = getCodexMcpServers();
+    if (BROWSER_USE_SERVER_NAME in codex) {
+      delete codex[BROWSER_USE_SERVER_NAME];
+      saveCodexMcpServers(codex);
+    }
+  } catch (error) {
+    console.warn('Failed to remove the codex browser-use MCP entry:', error);
+  }
+  try {
+    const kimi = getKimiMcpServers();
+    if (BROWSER_USE_SERVER_NAME in kimi) {
+      delete kimi[BROWSER_USE_SERVER_NAME];
+      saveKimiMcpServers(kimi);
+    }
+  } catch (error) {
+    console.warn('Failed to remove the kimi browser-use MCP entry:', error);
+  }
+  try {
+    const bubble = getBubbleMcpServers();
+    if (BROWSER_USE_SERVER_NAME in bubble) {
+      delete bubble[BROWSER_USE_SERVER_NAME];
+      saveBubbleMcpServers(bubble);
+    }
+  } catch (error) {
+    console.warn('Failed to remove the bubble browser-use MCP entry:', error);
+  }
+  try {
+    const qoder = getQoderMcpServers();
+    if (BROWSER_USE_SERVER_NAME in qoder) {
+      delete qoder[BROWSER_USE_SERVER_NAME];
+      saveQoderMcpServers(qoder);
+    }
+  } catch (error) {
+    console.warn('Failed to remove the qoder browser-use MCP entry:', error);
+  }
+  try {
+    const opencode = getOpencodeMcpServers();
+    if (BROWSER_USE_SERVER_NAME in opencode) {
+      delete opencode[BROWSER_USE_SERVER_NAME];
+      saveOpencodeMcpServers(opencode);
+    }
+  } catch (error) {
+    console.warn('Failed to remove the opencode browser-use MCP entry:', error);
+  }
+}
+
 export function disposeBrowserUseHttpServer(): void {
+  serverInfoCache = null;
+  removeBrowserUseMcpEntries();
   if (httpServer) {
     try {
       httpServer.close();

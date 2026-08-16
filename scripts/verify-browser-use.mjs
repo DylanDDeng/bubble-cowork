@@ -144,8 +144,8 @@ assert.ok(
   'consent host is wired to session transcripts + runner list'
 );
 assert.ok(
-  ipc.includes("'aegis-browser'"),
-  'qoder/opencode configs receive the browser-use entry'
+  httpServer.includes('saveQoderMcpServers') && httpServer.includes('saveOpencodeMcpServers'),
+  'qoder/opencode configs receive the browser-use entry (inside the HTTP server bootstrap)'
 );
 
 // ── Phase 3: persisted origin policies ────────────────────────────────
@@ -187,4 +187,41 @@ assert.ok(
   'agentActive travels on the browser state wire'
 );
 
-console.log('browser-use phase 2-4 wiring checks passed');
+// ── Phase 5: built-in toggle + full agent coverage ─────────────────
+const permsSrc = read('src/electron/libs/browser-use-permissions.ts');
+assert.ok(
+  permsSrc.includes('enabled: true'),
+  'browser use defaults ON (built-in, zero-setup)'
+);
+assert.ok(
+  httpServer.includes('removeBrowserUseMcpEntries') &&
+    httpServer.includes('getBubbleMcpServers'),
+  'bubble gets the entry; toggling off removes entries from every provider config'
+);
+assert.ok(
+  httpServer.includes('getBrowserUseMcpDescriptor'),
+  'session-scoped adapters (grok ACP) can read the live descriptor'
+);
+const grok = read('src/electron/libs/provider/grok-acp-adapter.ts');
+assert.ok(
+  grok.includes('getBrowserUseMcpDescriptor()'),
+  'grok ACP passes the browser-use server into session/new'
+);
+assert.ok(
+  runner.includes('if (isBrowserUseEnabled())'),
+  'the Claude in-process injection is gated by the master toggle'
+);
+assert.ok(
+  ipc.includes("'set-browser-use-enabled'"),
+  'toggle IPC starts/disposes the server accordingly'
+);
+assert.ok(
+  read('src/ui/components/settings/BrowserUseSettings.tsx').includes('Enable Browser Use'),
+  'settings page exposes the master switch'
+);
+assert.ok(
+  consent.includes('.browser_use') || consent.includes("`.${BROWSER_USE_TOOL_NAME}`"),
+  'attribution matches OpenCode dot-notation tool names'
+);
+
+console.log('browser-use phase 5 wiring checks passed');

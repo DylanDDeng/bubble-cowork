@@ -235,6 +235,7 @@ export interface DeepseekKeyStatus {
 export type BrowserUseOriginPolicy = 'allow' | 'block' | 'ask';
 
 export interface BrowserUsePermissionSettings {
+  enabled: boolean;
   defaultPolicy: BrowserUseOriginPolicy;
   origins: Record<string, BrowserUseOriginPolicy>;
 }

@@ -29,6 +29,7 @@ import { createDelegateMcpServer } from './delegate-mcp';
 import { DELEGATE_MCP_SERVER_NAME, isDelegateExecutionSession } from './delegate-service';
 import { BROWSER_USE_SERVER_NAME, createBrowserUseMcpServer } from './browser-use-mcp';
 import { setBrowserUseSessionFullAccess } from './browser-use-consent';
+import { isBrowserUseEnabled } from './browser-use-permissions';
 import { browserManager } from '../browserManager';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 import {
@@ -808,16 +809,17 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         if (!env.MCP_TOOL_TIMEOUT) env.MCP_TOOL_TIMEOUT = String(35 * 60 * 1000);
         if (!env.MCP_TIMEOUT) env.MCP_TIMEOUT = String(35 * 60 * 1000);
         // Browser Use (Codex parity): drives the session's built-in browser
-        // panel. Navigation consent rides the SAME permission card pipeline
-        // (onPermissionRequest) every other tool uses, so the approval UI and
-        // stop-path auto-deny behave identically.
-        (mcpServers as Record<string, unknown>)[BROWSER_USE_SERVER_NAME] =
-          await createBrowserUseMcpServer(session.id, browserManager, async (toolUseId, toolName, input) => {
-            const result = await onPermissionRequest(toolUseId, toolName, input);
-            return { behavior: result.behavior, message: result.message };
-          });
-        // Seed the navigation-consent shortcut from the session's starting mode.
-        setBrowserUseSessionFullAccess(session.id, currentPermissionMode === 'bypassPermissions');
+        // panel. Built-in feature gated by the settings toggle; consent rides
+        // the SAME permission card pipeline every other tool uses.
+        if (isBrowserUseEnabled()) {
+          (mcpServers as Record<string, unknown>)[BROWSER_USE_SERVER_NAME] =
+            await createBrowserUseMcpServer(session.id, browserManager, async (toolUseId, toolName, input) => {
+              const result = await onPermissionRequest(toolUseId, toolName, input);
+              return { behavior: result.behavior, message: result.message };
+            });
+          // Seed the navigation-consent shortcut from the session's starting mode.
+          setBrowserUseSessionFullAccess(session.id, currentPermissionMode === 'bypassPermissions');
+        }
       }
 
       const result = sdk.query({
