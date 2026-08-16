@@ -164,8 +164,8 @@ export function Settings() {
           )}
           {resolvedActiveSettingsTab === 'mcp' && (
             <div className="space-y-5">
-              <BrowserUseSettings />
               <McpSettingsContent />
+              <BrowserUseSettings />
             </div>
           )}
           {resolvedActiveSettingsTab === 'providers' && (
