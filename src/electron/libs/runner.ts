@@ -27,6 +27,8 @@ import { captureGitTreeSnapshot, diffGitTreeSnapshots } from './git-turn-snapsho
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
 import { createDelegateMcpServer } from './delegate-mcp';
 import { DELEGATE_MCP_SERVER_NAME, isDelegateExecutionSession } from './delegate-service';
+import { BROWSER_USE_SERVER_NAME, createBrowserUseMcpServer } from './browser-use-mcp';
+import { browserManager } from '../browserManager';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 import {
   AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
@@ -802,6 +804,15 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         // tool timeout above the delegate's own 30-minute ceiling.
         if (!env.MCP_TOOL_TIMEOUT) env.MCP_TOOL_TIMEOUT = String(35 * 60 * 1000);
         if (!env.MCP_TIMEOUT) env.MCP_TIMEOUT = String(35 * 60 * 1000);
+        // Browser Use (Codex parity): drives the session's built-in browser
+        // panel. Navigation consent rides the SAME permission card pipeline
+        // (onPermissionRequest) every other tool uses, so the approval UI and
+        // stop-path auto-deny behave identically.
+        (mcpServers as Record<string, unknown>)[BROWSER_USE_SERVER_NAME] =
+          await createBrowserUseMcpServer(session.id, browserManager, async (toolUseId, toolName, input) => {
+            const result = await onPermissionRequest(toolUseId, toolName, input);
+            return { behavior: result.behavior, message: result.message };
+          });
       }
 
       const result = sdk.query({

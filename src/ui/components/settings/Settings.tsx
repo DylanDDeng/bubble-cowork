@@ -5,6 +5,7 @@ import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { BubbleProviderSettings } from './BubbleProviderSettings';
 import { DeepseekProviderSettings } from './DeepseekProviderSettings';
+import { BrowserUseSettings } from './BrowserUseSettings';
 import { McpSettingsContent } from './McpSettings';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
@@ -167,6 +168,7 @@ export function Settings() {
               <CompatibleProviderSettingsContent />
               <BubbleProviderSettings />
               <DeepseekProviderSettings />
+              <BrowserUseSettings />
             </div>
           )}
           {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}

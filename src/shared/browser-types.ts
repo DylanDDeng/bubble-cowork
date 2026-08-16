@@ -23,6 +23,10 @@ export interface SessionBrowserState {
   activeTabId: string | null;
   tabs: BrowserTabState[];
   lastError: string | null;
+  /** True while an agent-driven browser_use action is executing on the
+   * active tab — the panel shows an agent badge so the user knows who is
+   * driving (Codex parity for visible browser use). */
+  agentActive: boolean;
 }
 
 export interface BrowserPanelBounds {

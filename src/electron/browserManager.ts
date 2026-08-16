@@ -88,6 +88,7 @@ function defaultSessionBrowserState(sessionId: string): SessionBrowserState {
     activeTabId: null,
     tabs: [],
     lastError: null,
+    agentActive: false,
   };
 }
 
@@ -1127,6 +1128,22 @@ export class BrowserManager {
     const state = cloneSessionState(this.getOrCreateState(sessionId));
     for (const listener of this.listeners) {
       listener(state);
+    }
+  }
+
+  /** Mark agent-driven activity for the panel's agent badge (Codex-parity
+   * visible browser use). Callers wrap one browser_use action. */
+  async withAgentActivity<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+    const state = this.states.get(sessionId);
+    const prev = state?.agentActive ?? false;
+    if (state) state.agentActive = true;
+    this.emitState(sessionId);
+    try {
+      return await action();
+    } finally {
+      const current = this.states.get(sessionId);
+      if (current) current.agentActive = prev;
+      this.emitState(sessionId);
     }
   }
 

@@ -28,6 +28,7 @@ import type {
   GrokModelConfig,
   DeepseekModelConfig,
   DeepseekKeyStatus,
+  BrowserUsePermissionSettings,
   PiModelConfig,
   BubbleModelConfig,
   BubbleProvidersConfig,
@@ -234,6 +235,14 @@ declare global {
     getDeepseekApiKey: () => Promise<string>;
     setDeepseekApiKey: (apiKey: string) => Promise<DeepseekKeyStatus>;
     clearDeepseekApiKey: () => Promise<DeepseekKeyStatus>;
+    getBrowserUsePermissions: () => Promise<BrowserUsePermissionSettings>;
+    setBrowserUseOriginPolicy: (
+      origin: string,
+      policy: 'allow' | 'block' | 'ask' | null
+    ) => Promise<BrowserUsePermissionSettings>;
+    setBrowserUseDefaultPolicy: (
+      policy: 'allow' | 'block' | 'ask'
+    ) => Promise<BrowserUsePermissionSettings>;
     getPiModelConfig: () => Promise<PiModelConfig>;
     getBubbleModelConfig: () => Promise<BubbleModelConfig>;
     getBubbleProvidersConfig: () => Promise<BubbleProvidersConfig>;

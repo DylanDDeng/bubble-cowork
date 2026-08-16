@@ -44,18 +44,23 @@ import {
 } from './libs/delegate-service';
 import { ensureDelegateHttpServer, disposeDelegateHttpServer } from './libs/delegate-http-server';
 import {
+  ensureBrowserUseHttpServer,
+  disposeBrowserUseHttpServer,
+} from './libs/browser-use-http-server';
+import { initializeBrowserUseConsent } from './libs/browser-use-consent';
+import {
+  getBrowserUsePermissionSettings,
+  setBrowserUseOriginPolicy,
+  setBrowserUseDefaultPolicy,
+} from './libs/browser-use-permissions';
+import { saveQoderMcpServers, getQoderMcpServers } from './libs/qoder-mcp-settings';
+import {
   getOpencodeMcpServers,
   saveOpencodeMcpServers,
   getOpencodeProjectMcpServers,
   saveOpencodeProjectMcpServers,
 } from './libs/opencode-mcp-settings';
-import {
-  getKimiMcpServers,
-  saveKimiMcpServers,
-  getKimiProjectMcpServers,
-  saveKimiProjectMcpServers,
-} from './libs/kimi-mcp-settings';
-import { getQoderMcpServers, saveQoderMcpServers } from './libs/qoder-mcp-settings';
+import { getKimiMcpServers, saveKimiMcpServers, getKimiProjectMcpServers, saveKimiProjectMcpServers } from './libs/kimi-mcp-settings';
 import { getBubbleMcpServers, saveBubbleMcpServers } from './libs/bubble-mcp-settings';
 import {
   loadCompatibleProviderConfig,
@@ -5079,6 +5084,88 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // non-fatal — Claude leads work without it.
   void ensureDelegateHttpServer().catch((error) => {
     console.warn('Failed to start the delegate MCP HTTP server:', error);
+  });
+
+  // Browser Use (Codex parity): the same loopback HTTP MCP pattern, so
+  // codex/kimi/qoder/opencode sessions can drive their session browser panel.
+  // Consent attribution scans running sessions' pending browser_use calls and
+  // routes the approval card through the session's existing permission state.
+  initializeBrowserUseConsent({
+    getSessionHistory: (sessionId) => sessions.getSessionHistory(sessionId),
+    listRunningSessionIds: () => [...runnerHandles.keys()],
+    requestPermission: (sessionId, question, url) =>
+      new Promise<boolean>((resolve) => {
+        const toolUseId = `browser-use-nav-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const state = getSessionState(sessionId);
+        state.pendingPermissions.set(toolUseId, {
+          resolve: (result) => resolve(result.behavior === 'allow'),
+          reject: () => resolve(false),
+        });
+        broadcast(mainWindow, {
+          type: 'permission.request',
+          payload: {
+            sessionId,
+            toolUseId,
+            toolName: 'browser_use',
+            input: {
+              kind: 'browser-navigation',
+              question,
+              url,
+              toolName: 'browser_use',
+            } as unknown as import('../shared/types').PermissionRequestInput,
+          },
+        });
+      }),
+  });
+  void ensureBrowserUseHttpServer()
+    .then((info) => {
+      // Qoder/OpenCode take plain JSON configs (no env-var indirection):
+      // write the per-run token literally, same as the kimi delegate entry.
+      try {
+        const qoder = getQoderMcpServers();
+        qoder['aegis-browser'] = {
+          url: info.url,
+          headers: { Authorization: `Bearer ${info.token}` },
+        };
+        saveQoderMcpServers(qoder);
+      } catch (error) {
+        console.warn('Failed to write the qoder browser-use MCP entry:', error);
+      }
+      try {
+        const opencode = getOpencodeMcpServers();
+        (opencode as Record<string, unknown>)['aegis-browser'] = {
+          type: 'remote',
+          url: info.url,
+          enabled: true,
+          headers: { Authorization: `Bearer ${info.token}` },
+        };
+        saveOpencodeMcpServers(opencode);
+      } catch (error) {
+        console.warn('Failed to write the opencode browser-use MCP entry:', error);
+      }
+    })
+    .catch((error) => {
+      console.warn('Failed to start the browser-use MCP HTTP server:', error);
+    });
+
+  ipcMainHandle('get-browser-use-permissions', async () => {
+    return getBrowserUsePermissionSettings();
+  });
+
+  ipcMainHandle('set-browser-use-origin-policy', async (_event, origin: string, policy: string | null) => {
+    if (policy !== null && policy !== 'allow' && policy !== 'block' && policy !== 'ask') {
+      throw new Error('Invalid policy.');
+    }
+    setBrowserUseOriginPolicy(origin, policy);
+    return getBrowserUsePermissionSettings();
+  });
+
+  ipcMainHandle('set-browser-use-default-policy', async (_event, policy: string) => {
+    if (policy !== 'allow' && policy !== 'block' && policy !== 'ask') {
+      throw new Error('Invalid policy.');
+    }
+    setBrowserUseDefaultPolicy(policy);
+    return getBrowserUsePermissionSettings();
   });
 
   ipcMainHandle('get-notification-settings', async () => getNotificationSettings());

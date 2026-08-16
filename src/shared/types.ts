@@ -231,6 +231,14 @@ export interface DeepseekKeyStatus {
   dshKeyAvailable: boolean;
 }
 
+/** Browser Use origin permissions (Codex-parity three-state model). */
+export type BrowserUseOriginPolicy = 'allow' | 'block' | 'ask';
+
+export interface BrowserUsePermissionSettings {
+  defaultPolicy: BrowserUseOriginPolicy;
+  origins: Record<string, BrowserUseOriginPolicy>;
+}
+
 export interface PiModelConfig {
   defaultModel: string | null;
   options: string[];

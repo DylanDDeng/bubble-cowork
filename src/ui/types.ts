@@ -97,6 +97,7 @@ export type {
   GrokModelConfig,
   DeepseekModelConfig,
   DeepseekKeyStatus,
+  BrowserUsePermissionSettings,
   DeepseekPermissionMode,
   DeepseekAgentPreset,
   DeepseekReasoningEffort,

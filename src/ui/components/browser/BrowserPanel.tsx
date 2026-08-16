@@ -97,6 +97,7 @@ function persistedToState(state: PersistedSessionBrowserState): SessionBrowserSt
       })
     ),
     lastError: null,
+    agentActive: false,
   };
 }
 
@@ -150,6 +151,7 @@ export function BrowserPanel({
       activeTabId: null,
       tabs: [],
       lastError: null,
+      agentActive: false,
     };
   });
 
@@ -668,6 +670,18 @@ export function BrowserPanel({
       {/* Chrome */}
       <div className="no-drag flex-shrink-0 bg-[var(--bg-secondary)]/45">
         <div className="flex items-center gap-1 px-2 py-1.5">
+          {sessionState.agentActive ? (
+            <span
+              className="mr-0.5 inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--accent-light)] px-2 text-[11px] font-medium text-[var(--accent)]"
+              title="An agent is driving this browser panel"
+            >
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--accent)] opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+              </span>
+              Agent
+            </span>
+          ) : null}
           <button
             type="button"
             onClick={handleBack}

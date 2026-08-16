@@ -669,6 +669,18 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('clear-deepseek-api-key');
   },
 
+  getBrowserUsePermissions: () => {
+    return ipcRenderer.invoke('get-browser-use-permissions');
+  },
+
+  setBrowserUseOriginPolicy: (origin: string, policy: 'allow' | 'block' | 'ask' | null) => {
+    return ipcRenderer.invoke('set-browser-use-origin-policy', origin, policy);
+  },
+
+  setBrowserUseDefaultPolicy: (policy: 'allow' | 'block' | 'ask') => {
+    return ipcRenderer.invoke('set-browser-use-default-policy', policy);
+  },
+
   getQoderModelConfig: () => {
     return ipcRenderer.invoke('get-qoder-model-config');
   },
