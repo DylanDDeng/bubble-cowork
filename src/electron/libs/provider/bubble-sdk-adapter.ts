@@ -898,8 +898,8 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         }
         return;
       }
-      // todos_updated is a snapshot of the todo_write tool the transcript
-      // already renders; hooks / retries have no UI mapping.
+      // Other event kinds (hooks / retries / future additions) have no UI
+      // mapping yet and fall through untouched.
       default:
         return;
     }

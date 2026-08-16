@@ -34,12 +34,6 @@ export type BubbleUsageCost = {
   estimated: boolean;
 };
 
-export type BubbleTodo = {
-  content: string;
-  status: string;
-  activeForm: string;
-};
-
 export type BubbleToolResult = {
   content: string;
   isError?: boolean;
@@ -59,7 +53,6 @@ export type BubbleAgentEvent =
   | { type: 'tool_end'; id: string; name: string; result: BubbleToolResult }
   | { type: 'turn_end'; usage?: BubbleTokenUsage; cost?: BubbleUsageCost; willContinue?: boolean }
   | { type: 'mode_changed'; mode: string }
-  | { type: 'todos_updated'; todos: BubbleTodo[] }
   | { type: 'agent_end' }
   | { type: 'subagent_update' } & BubbleSubagentUpdate
   | { type: string; [key: string]: unknown };
