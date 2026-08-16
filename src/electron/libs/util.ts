@@ -239,23 +239,15 @@ Task: "${params.prompt.slice(0, 500)}"
 Output only the branch name.`;
 
   const call = async (): Promise<string> => {
-    if (provider === 'codex') {
-      const { runCodexOneShot } = await import('./codex-runner');
-      const result = await runCodexOneShot({
-        prompt: slugPrompt,
-        cwd: params.cwd,
-        model: params.model,
-        codexReasoningEffort: 'low',
-      });
-      return result.text;
-    }
     if (provider === 'opencode') {
       const { runOpenCodeOneShot } = await import('./codex-runner');
       const result = await runOpenCodeOneShot({ prompt: slugPrompt, cwd: params.cwd, model: params.model });
       return result.text;
     }
-    // claude 及走 Claude 协议的 provider（kimi/grok/pi 无 one-shot 助手，用 claude 兜底；
-    // claude 不可用时 runClaudeOneShot 抛错 → 外层回退本地命名）
+    // codex 也走直连 Claude API：分支名是纯文本进/文本出的后台任务，不需要会话。
+    // 若用 runCodexOneShot 会落盘 ~/.codex/sessions，在 Codex 客户端列表里
+    // 产生幽灵线程（与会话摘要同类泄漏）。claude 不可用时 runClaudeOneShot
+    // 抛错 → 外层 catch 回退本地命名，不影响建分支。
     const result = await runClaudeOneShot({
       prompt: slugPrompt,
       cwd: params.cwd,
