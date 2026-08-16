@@ -5102,6 +5102,17 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   initializeBrowserUseConsent({
     getSessionHistory: (sessionId) => sessions.getSessionHistory(sessionId),
     listRunningSessionIds: () => [...runnerHandles.keys()],
+    isSessionFullAccess: (sessionId) => {
+      const row = sessions.getSession(sessionId);
+      if (!row) return false;
+      if (row.provider === 'claude') {
+        return row.claude_access_mode === 'fullAccess';
+      }
+      if (row.provider === 'codex') {
+        return row.codex_permission_mode === 'fullAccess';
+      }
+      return false;
+    },
     requestPermission: (sessionId, question, url) =>
       new Promise<boolean>((resolve) => {
         const toolUseId = `browser-use-nav-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

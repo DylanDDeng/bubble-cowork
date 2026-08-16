@@ -133,6 +133,10 @@ assert.ok(
   consent.includes('requestBrowserUseNavigationConsent'),
   'navigation consent routes through the calling session permission card'
 );
+assert.ok(
+  consent.includes('isBrowserUseSessionFullAccess') && consent.includes('isLoopbackOrigin'),
+  'full-access sessions and loopback origins skip the consent card (no double-confirmation under Full Access)'
+);
 
 const ipc = read('src/electron/ipc-handlers.ts');
 assert.ok(

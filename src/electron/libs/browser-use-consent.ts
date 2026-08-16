@@ -12,10 +12,35 @@ import { resolveBrowserUsePolicy } from './browser-use-permissions';
 
 export const BROWSER_USE_TOOL_NAME = 'browser_use';
 
+/**
+ * Sessions whose permission mode is bypassPermissions (Full Access): their
+ * browser navigation needs NO consent card — the user already granted the
+ * broadest permission, asking again is double-confirmation (Codex parity:
+ * full-access sessions run browser use silently).
+ */
+const fullAccessSessions = new Set<string>();
+
+export function setBrowserUseSessionFullAccess(sessionId: string, fullAccess: boolean): void {
+  if (fullAccess) fullAccessSessions.add(sessionId);
+  else fullAccessSessions.delete(sessionId);
+}
+
+export function isBrowserUseSessionFullAccess(sessionId: string): boolean {
+  return fullAccessSessions.has(sessionId);
+}
+
+/** Loopback origins never need a card (local dev pages, health checks). */
+function isLoopbackOrigin(origin: string): boolean {
+  return origin.startsWith('http://127.0.0.1') || origin.startsWith('http://localhost') || origin.startsWith('http://[::1]');
+}
+
 export interface BrowserUseConsentHost {
   getSessionHistory(sessionId: string): StreamMessage[];
   /** Session ids with a live runner, for attribution scans. */
   listRunningSessionIds(): string[];
+  /** True when the session's permission mode is a full-access variant
+   * (claude bypassPermissions / codex bypassPermissions / equivalent). */
+  isSessionFullAccess(sessionId: string): boolean;
   /**
    * Ask navigation consent through the session's permission card. Returns
    * true when the user allowed the origin.
@@ -162,13 +187,21 @@ export function findBrowserUseCallerSessionId(
   });
 }
 
-/** Ask navigation consent: persisted policy first, then the permission card. */
+/** Ask navigation consent: persisted policy first, then the permission card.
+ * Full-access sessions and loopback origins skip the card entirely. */
 export async function requestBrowserUseNavigationConsent(
   sessionId: string,
   url: string
 ): Promise<boolean> {
   const origin = originOf(url);
   if (!origin) return false;
+  if (
+    isBrowserUseSessionFullAccess(sessionId) ||
+    (host?.isSessionFullAccess(sessionId) ?? false) ||
+    isLoopbackOrigin(origin)
+  ) {
+    return true;
+  }
   if (approvedOrigins.get(sessionId)?.has(origin)) return true;
   const policy = resolveBrowserUsePolicy(url);
   if (policy === 'allow') {

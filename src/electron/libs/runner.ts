@@ -28,6 +28,7 @@ import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } 
 import { createDelegateMcpServer } from './delegate-mcp';
 import { DELEGATE_MCP_SERVER_NAME, isDelegateExecutionSession } from './delegate-service';
 import { BROWSER_USE_SERVER_NAME, createBrowserUseMcpServer } from './browser-use-mcp';
+import { setBrowserUseSessionFullAccess } from './browser-use-consent';
 import { browserManager } from '../browserManager';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 import {
@@ -554,6 +555,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       await activeQuery.setPermissionMode(nextMode);
     }
     currentPermissionMode = nextMode;
+    // Full Access toggles silent browser-use navigation too.
+    setBrowserUseSessionFullAccess(session.id, nextMode === 'bypassPermissions');
     const nextExecutionMode = executionModeForClaudePermissionMode(nextMode);
     if (nextExecutionMode === 'execute') {
       currentAccessMode = nextMode;
@@ -813,6 +816,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             const result = await onPermissionRequest(toolUseId, toolName, input);
             return { behavior: result.behavior, message: result.message };
           });
+        // Seed the navigation-consent shortcut from the session's starting mode.
+        setBrowserUseSessionFullAccess(session.id, currentPermissionMode === 'bypassPermissions');
       }
 
       const result = sdk.query({

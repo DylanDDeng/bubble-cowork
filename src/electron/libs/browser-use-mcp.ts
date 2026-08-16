@@ -15,6 +15,7 @@ import {
   type BrowserUseActionResult,
 } from './browser-use';
 import { resolveBrowserUsePolicy } from './browser-use-permissions';
+import { isBrowserUseSessionFullAccess } from './browser-use-consent';
 import type { BrowserManager } from '../browserManager';
 
 export { BROWSER_USE_SERVER_NAME };
@@ -94,7 +95,9 @@ function originOf(url: string): string {
   }
 }
 
-/** Ask navigation consent: persisted policy first, then the permission card. */
+/** Ask navigation consent: persisted policy first, then the permission card.
+ * Full-access sessions skip everything — Codex runs browser use silently
+ * there (the user already granted the broadest permission). */
 async function askNavigationConsent(
   sessionId: string,
   url: string,
@@ -102,6 +105,7 @@ async function askNavigationConsent(
 ): Promise<boolean> {
   const origin = originOf(url);
   if (!origin) return false;
+  if (isBrowserUseSessionFullAccess(sessionId)) return true;
   if (approvedOrigins.get(sessionId)?.has(origin)) return true;
   const policy = resolveBrowserUsePolicy(url);
   if (policy === 'allow') {
