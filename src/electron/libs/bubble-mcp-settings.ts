@@ -5,11 +5,15 @@ import type { McpServerConfig } from './claude-settings';
 
 // Bubble 的 MCP 配置内嵌在 ~/.bubble/settings.json 的 "mcpServers" 键里（仅全局，
 // 无项目级配置）。结构与 Claude 的 mcpServers 基本一致：stdio 用 command/args/env，
-// http 用 url/headers，不带 type 字段（按是否有 url 推断）。
+// http 用 url/headers。
+// 注意：Bubble SDK 的配置校验器要求显式 type 判别字段——无 type 无 command 的
+// 条目会以 "unsupported transport type undefined" 被静默丢弃，所以 http/sse 条目
+// 必须写回 type。
 // settings.json 还包含其它顶层设置，写回时只替换 "mcpServers" 块，其余字段原样保留。
 const BUBBLE_SETTINGS_PATH = join(homedir(), '.bubble', 'settings.json');
 
 interface BubbleMcpEntry {
+  type?: 'http' | 'sse';
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -80,7 +84,7 @@ function writeMcpServers(configPath: string, servers: Record<string, McpServerCo
 
     if (cfg.type === 'http' || cfg.type === 'sse') {
       if (!cfg.url || !cfg.url.trim()) continue;
-      const entry: BubbleMcpEntry = { url: cfg.url.trim() };
+      const entry: BubbleMcpEntry = { type: cfg.type, url: cfg.url.trim() };
       if (cfg.headers && Object.keys(cfg.headers).length > 0) entry.headers = cfg.headers;
       next[name] = entry;
     } else {
