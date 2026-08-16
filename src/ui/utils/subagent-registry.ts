@@ -87,11 +87,19 @@ export function deriveSubagentSummaries(
       seen.add(use.id);
 
       const input = (use.input && typeof use.input === 'object' ? use.input : {}) as Record<string, unknown>;
-      // Delegate calls carry the target agent in `agent` instead of subagent_type.
-      const subagentType = getString(input.subagent_type) ?? getString(input.agent);
+      // Delegate calls carry the target agent in `agent`; Bubble's spawn
+      // surface carries it in `agent_type` / `task` (spawn_agent) or `steps`
+      // (run_workflow).
+      const subagentType =
+        getString(input.subagent_type) ??
+        getString(input.agent) ??
+        getString(input.agent_type) ??
+        null;
       const description =
         getString(input.description) ||
-        (getString(input.prompt) ? getString(input.prompt)!.slice(0, 200) : null);
+        (getString(input.prompt) ? getString(input.prompt)!.slice(0, 200) : null) ||
+        (getString(input.message) ? getString(input.message)!.slice(0, 200) : null) ||
+        (getString(input.task) ? getString(input.task)!.slice(0, 200) : null);
 
       const status = statusMap.get(use.id) ?? 'pending';
       const childMessages = messagesByParent.get(use.id) ?? [];

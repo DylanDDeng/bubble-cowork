@@ -33,6 +33,7 @@ import {
   type BubbleQuestionPrompt,
   type BubbleQuestionRequest,
   type BubbleSdkInstance,
+  type BubbleSubagentUpdate,
   type BubbleTokenUsage,
 } from './bubble-sdk-loader';
 import type { ProviderRewindAnchor, ProviderRewindResult } from './types';
@@ -87,6 +88,25 @@ type ActiveBubbleSession = {
   totalCostUsd: number;
   durationStartMs: number;
   durationEndMs?: number;
+  /** Subagent streams keyed by the SPAWNING tool_call id (the UI's nesting
+   * key). Mirrors the Kimi adapter's subagentStreams/subagentParents pair. */
+  subagentStreams: Map<string, BubbleSubagentStream>;
+  /** tool_call id -> first-seen timestamp; anchors duration for finished lanes. */
+  subagentStartedAt: Map<string, number>;
+  /** tool_call id -> tool name, so spawn results can be identified later. */
+  toolNames: Map<string, string>;
+  /** spawn_agent/run_workflow results held back until the lane's terminal
+   * subagent_update — these tools are fire-and-forget (the SDK returns
+   * "Spawned X (queued)" immediately), so emitting the tool_result right
+   * away would flip the UI lane to Done while the child is still running. */
+  heldSpawnResults: Map<string, { content?: string; isError?: boolean }>;
+};
+
+/** Accumulated child narration under one spawn lane (nested transcript). */
+type BubbleSubagentStream = {
+  text: string;
+  thinking: string;
+  toolCallIds: Set<string>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -342,6 +362,10 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       usage: createEmptyUsage(),
       totalCostUsd: 0,
       durationStartMs: Date.now(),
+      subagentStreams: new Map(),
+      subagentStartedAt: new Map(),
+      toolNames: new Map(),
+      heldSpawnResults: new Map(),
     };
     // Never orphan a previous session for the same thread — an undisposed
     // predecessor would leak its abort handle and pending approval cards.
@@ -858,10 +882,148 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         }
         return;
       }
+      case 'subagent_update': {
+        // Flattened payload: the fields live at the event top level
+        // (drainToolUpdates yields buildSubagentUpdate's return as-is).
+        this.handleSubagentUpdate(session, event as unknown as BubbleSubagentUpdate);
+        return;
+      }
+      case 'tool_update': {
+        // Spawn/wait tool execution drains child progress as tool_update
+        // frames — update carries the SAME flattened subagent payload.
+        const toolEvent = event as Extract<BubbleAgentEvent, { type: 'tool_update' }>;
+        const update = toolEvent.update as unknown as BubbleSubagentUpdate | undefined;
+        if (update && typeof update.parentToolCallId === 'string') {
+          this.handleSubagentUpdate(session, update);
+        }
+        return;
+      }
       // todos_updated is a snapshot of the todo_write tool the transcript
       // already renders; hooks / retries have no UI mapping.
       default:
         return;
+    }
+  }
+
+  /**
+   * Nest one SDK subagent lifecycle frame under its spawning tool_use id so
+   * the existing subagent board / SubagentPanel (Claude/Codex/Kimi parity)
+   * picks it up without provider-specific UI. The child's own events arrive
+   * re-keyed (their ids are unique per session), so we can emit them as
+   * nested messages with `parentToolUseId` — same wire shape Kimi uses.
+   */
+  private handleSubagentUpdate(session: ActiveBubbleSession, update: BubbleSubagentUpdate): void {
+    const parentToolCallId = getString(update.parentToolCallId);
+    if (!parentToolCallId) return;
+    if (!session.subagentStartedAt.has(parentToolCallId)) {
+      session.subagentStartedAt.set(parentToolCallId, Date.now());
+    }
+
+    // The spawning tool_use card may not have landed yet (queued frames can
+    // race the main-loop tool_call_end) — the standard handleToolUse emits it.
+    const child = update.childEvent;
+    if (child && (child.type === 'text_delta' || child.type === 'reasoning_delta')) {
+      const delta = getString((child as { content?: unknown }).content);
+      if (delta) {
+        let stream = session.subagentStreams.get(parentToolCallId);
+        if (!stream) {
+          stream = { text: '', thinking: '', toolCallIds: new Set() };
+          session.subagentStreams.set(parentToolCallId, stream);
+        }
+        if (child.type === 'reasoning_delta') stream.thinking += delta;
+        else stream.text += delta;
+      }
+    } else if (child && (child.type === 'tool_start' || child.type === 'tool_call_end')) {
+      // Flush narration buffered before the child's first tool card.
+      this.flushSubagentStream(session, parentToolCallId);
+      const childToolId = getString((child as { id?: unknown }).id);
+      const childToolName = getString((child as { name?: unknown }).name);
+      if (childToolId && childToolName) {
+        const stream = session.subagentStreams.get(parentToolCallId);
+        if (stream) {
+          if (!stream.toolCallIds.has(childToolId)) {
+            stream.toolCallIds.add(childToolId);
+            this.emitMessage(session, {
+              type: 'assistant',
+              uuid: `bubble-sub-tool-use:${session.threadId}:${childToolId}`,
+              parentToolUseId: parentToolCallId,
+              message: {
+                content: [
+                  {
+                    type: 'tool_use',
+                    id: childToolId,
+                    name: normalizeToolName(childToolName),
+                    input: isRecord((child as { args?: unknown }).args)
+                      ? ((child as { args?: unknown }).args as Record<string, unknown>)
+                      : {},
+                  },
+                ],
+              },
+            });
+          }
+        }
+      }
+    } else if (child && child.type === 'tool_end') {
+      const childToolId = getString((child as { id?: unknown }).id);
+      const childResult = (child as { result?: { content?: unknown; isError?: boolean } }).result;
+      if (childToolId) {
+        this.emitMessage(session, {
+          type: 'user',
+          uuid: `bubble-sub-tool-result:${session.threadId}:${childToolId}:${uuidv4()}`,
+          parentToolUseId: parentToolCallId,
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: childToolId,
+                content: getString(childResult?.content),
+                is_error: childResult?.isError === true,
+              },
+            ],
+          },
+        });
+      }
+    }
+
+    // Terminal statuses commit the lane's buffered narration (the child's
+    // final summary arrives as `message`/summaryDelta, not as text_delta) and
+    // release the held spawn tool_result so the UI lane flips to done NOW,
+    // not at spawn time.
+    if (
+      update.status === 'completed' ||
+      update.status === 'failed' ||
+      update.status === 'cancelled' ||
+      update.status === 'blocked'
+    ) {
+      this.flushSubagentStream(session, parentToolCallId);
+      const held = session.heldSpawnResults.get(parentToolCallId);
+      if (held) {
+        session.heldSpawnResults.delete(parentToolCallId);
+        this.emitToolResult(session, parentToolCallId, held);
+      }
+    }
+  }
+
+  /** Commit a subagent lane's accumulated thinking/text as nested messages. */
+  private flushSubagentStream(session: ActiveBubbleSession, parentToolCallId: string): void {
+    const stream = session.subagentStreams.get(parentToolCallId);
+    if (!stream) return;
+    session.subagentStreams.delete(parentToolCallId);
+    if (stream.thinking) {
+      this.emitMessage(session, {
+        type: 'assistant',
+        uuid: `bubble-sub-thinking:${session.threadId}:${parentToolCallId}:${uuidv4()}`,
+        parentToolUseId: parentToolCallId,
+        message: { content: [{ type: 'thinking', thinking: stream.thinking }] },
+      });
+    }
+    if (stream.text) {
+      this.emitMessage(session, {
+        type: 'assistant',
+        uuid: `bubble-sub-assistant:${session.threadId}:${parentToolCallId}:${uuidv4()}`,
+        parentToolUseId: parentToolCallId,
+        message: { content: [{ type: 'text', text: stream.text }] },
+      });
     }
   }
 
@@ -878,6 +1040,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
     // tool call to land before the tool_use card.
     this.flushAssistant(session);
     session.emittedToolCallIds.add(toolCallId);
+    session.toolNames.set(toolCallId, toolName);
     this.emitMessage(session, {
       type: 'assistant',
       uuid: `bubble-tool-use:${session.threadId}:${toolCallId}`,
@@ -903,6 +1066,25 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       return;
     }
     session.emittedToolResultIds.add(toolCallId);
+    // Fire-and-forget spawn: hold the result until the lane's terminal
+    // subagent_update so the UI lane stays pending/running while the child
+    // works (Claude's Task resolves only when the child finishes; Bubble's
+    // spawn_agent returns "Spawned X (queued)" immediately).
+    const toolName = (session.toolNames.get(toolCallId) || '').toLowerCase();
+    if (toolName === 'spawn_agent' || toolName === 'run_workflow') {
+      session.heldSpawnResults.set(toolCallId, result);
+      return;
+    }
+    this.emitToolResult(session, toolCallId, result);
+  }
+
+  /** Emit a (possibly held) tool_result — shared by the direct path and the
+   * subagent terminal release. */
+  private emitToolResult(
+    session: ActiveBubbleSession,
+    toolCallId: string,
+    result: { content?: string; isError?: boolean }
+  ): void {
     this.emitMessage(session, {
       type: 'user',
       uuid: `bubble-tool-result:${session.threadId}:${toolCallId}:${uuidv4()}`,
@@ -945,6 +1127,17 @@ export class BubbleSdkAdapter implements ProviderAdapter {
 
   private finishTurn(session: ActiveBubbleSession, error: Error | null): void {
     this.flushAssistant(session);
+    // Safety net: commit any subagent lane that never saw its terminal frame
+    // (interrupt, transport error) so its buffered narration isn't lost — and
+    // release any spawn results still held (their child never reported a
+    // terminal status; leaving them held would strand the UI lane pending).
+    for (const parentToolCallId of [...session.subagentStreams.keys()]) {
+      this.flushSubagentStream(session, parentToolCallId);
+    }
+    for (const [toolCallId, held] of [...session.heldSpawnResults.entries()]) {
+      session.heldSpawnResults.delete(toolCallId);
+      this.emitToolResult(session, toolCallId, held);
+    }
     if (session.status === 'stopped') {
       return;
     }

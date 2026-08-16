@@ -61,7 +61,36 @@ export type BubbleAgentEvent =
   | { type: 'mode_changed'; mode: string }
   | { type: 'todos_updated'; todos: BubbleTodo[] }
   | { type: 'agent_end' }
+  | { type: 'subagent_update' } & BubbleSubagentUpdate
   | { type: string; [key: string]: unknown };
+
+/**
+ * SDK `subagent_update` payload (agent/subagent/runtime.js buildSubagentUpdate):
+ * one lifecycle frame for a spawn_agent / run_workflow member, FLATTENED at
+ * the event top level (the generator drains these via drainToolUpdates and
+ * yields them as-is — there is no `update` wrapper). status flows queued ->
+ * running -> completed | failed | cancelled | blocked; childEvent carries the
+ * child's own agent events (text_delta / tool_start / tool_end / …) re-keyed
+ * to the child's ids — the host re-nests them under parentToolCallId, which
+ * matches the spawning tool_use id it emitted.
+ */
+export interface BubbleSubagentUpdate {
+  type: 'subagent_update';
+  parentToolCallId: string;
+  runId: string;
+  subAgentId: string;
+  agentName: string;
+  nickname?: string;
+  category?: string;
+  route?: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'blocked' | string;
+  childEvent?: BubbleAgentEvent & { id?: string; name?: string; content?: string };
+  summaryDelta?: string;
+  toolName?: string;
+  toolCallId?: string;
+  message?: string;
+  metadata?: Record<string, unknown>;
+}
 
 /** Tool-typed approval payload (bash / edit / write / patch / …). */
 export type BubbleApprovalRequest = { type: string } & Record<string, unknown>;

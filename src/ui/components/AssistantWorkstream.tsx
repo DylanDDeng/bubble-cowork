@@ -753,9 +753,12 @@ function getTaskDescription(entry: TaskEntry): string | null {
   if (typeof description === 'string' && description.trim()) {
     return description;
   }
-  const prompt = input.prompt;
-  if (typeof prompt === 'string' && prompt.trim()) {
-    return prompt.trim();
+  // Bubble's spawn surface uses message/task instead of prompt.
+  for (const key of ['prompt', 'message', 'task'] as const) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
   }
   return null;
 }

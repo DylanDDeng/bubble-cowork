@@ -361,11 +361,13 @@ export function deriveReadableToolDisplay(
     return { verb: pickVerb(TOOL_VERBS.WebSearch, status), target: query ? truncate(query, 60) : 'query' };
   }
 
-  if (name === 'Task' || name === 'task') {
+  if (name === 'Task' || name === 'task' || name === 'spawn_agent' || name === 'run_workflow') {
     const desc =
       getStringField(input, 'description') ||
       getStringField(input, 'subagent_type') ||
       getStringField(input, 'prompt') ||
+      getStringField(input, 'task') ||
+      getStringField(input, 'message') ||
       '';
     return { verb: pickVerb(TOOL_VERBS.Task, status), target: desc ? truncate(desc, 60) : 'subagent task' };
   }
@@ -447,6 +449,9 @@ export function classifyToolUse(toolName: string, input: unknown): CanonicalTool
   // runs render as a subagent board (not a generic tool row).
   if (normalized === 'task' || normalized === 'agent') return 'subagent';
   if (getStringField(input, 'subagent_type')) return 'subagent';
+  // Bubble's spawn surface: spawn_agent (one child) and run_workflow (a
+  // schema'd multi-agent pipeline) both nest their children the same way.
+  if (normalized === 'spawn_agent' || normalized === 'run_workflow') return 'subagent';
   // Cross-agent delegation (aegis-delegate MCP server): a delegate_task call
   // runs another agent whose trace mirrors into this session exactly like a
   // subagent — render it as one, not as a generic MCP row.
