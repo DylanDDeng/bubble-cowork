@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Globe, Plus, X } from '../icons';
 import type { BrowserUsePermissionSettings } from '../../types';
-import { SettingsGroup } from './SettingsPrimitives';
+import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
 
 const POLICIES = ['ask', 'allow', 'block'] as const;
 type Policy = (typeof POLICIES)[number];
@@ -109,23 +109,12 @@ export function BrowserUseSettings() {
                 Built in — every agent gets the browser_use tool with nothing to install. Turning it off removes the tool from all agents.
               </div>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings.enabled}
+            <SettingsToggle
+              checked={settings.enabled}
+              onChange={(value) => void setEnabled(value)}
               disabled={busy}
-              onClick={() => void setEnabled(!settings.enabled)}
-              className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
-                settings.enabled ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]'
-              }`}
-              title={settings.enabled ? 'Browser Use is on' : 'Browser Use is off'}
-            >
-              <span
-                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                  settings.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'
-                }`}
-              />
-            </button>
+              ariaLabel="Toggle browser use"
+            />
           </div>
 
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
