@@ -37,8 +37,6 @@ import type {
   SessionSource,
   SessionScope,
   SessionTeamMode,
-  SessionEnvironmentNote,
-  SessionEnvironmentRecap,
   ThreadEnvironmentMode,
 } from '../../shared/types';
 
@@ -2435,126 +2433,6 @@ export function listDerivedSummariesForSession(sessionId: string): DerivedSummar
   `).all(sessionId) as DerivedSummaryRow[];
 }
 
-export function getSessionEnvironmentNote(sessionId: string): SessionEnvironmentNote {
-  const row = getDb().prepare(`
-    SELECT session_id, note, updated_at
-    FROM session_environment_notes
-    WHERE session_id = ?
-    LIMIT 1
-  `).get(sessionId) as { session_id: string; note: string; updated_at: number } | undefined;
-
-  return {
-    sessionId,
-    note: row?.note || '',
-    updatedAt: row?.updated_at ?? null,
-  };
-}
-
-export function saveSessionEnvironmentNote(sessionId: string, note: string): SessionEnvironmentNote {
-  const now = Date.now();
-  getDb().prepare(`
-    INSERT INTO session_environment_notes (session_id, note, updated_at)
-    VALUES (?, ?, ?)
-    ON CONFLICT(session_id) DO UPDATE SET
-      note = excluded.note,
-      updated_at = excluded.updated_at
-  `).run(sessionId, note, now);
-
-  return {
-    sessionId,
-    note,
-    updatedAt: now,
-  };
-}
-
-export interface SessionEnvironmentRecapGenerationState {
-  sessionId: string;
-  summary: string;
-  updatedAt: number;
-  model: string | null;
-  sourceIds: string[];
-}
-
-export function getSessionEnvironmentRecapGenerationState(
-  sessionId: string
-): SessionEnvironmentRecapGenerationState | null {
-  const row = getDb().prepare(`
-    SELECT session_id, summary, model, source_ids, updated_at
-    FROM derived_summaries
-    WHERE session_id = ? AND scope = 'environment-recap'
-    ORDER BY updated_at DESC
-    LIMIT 1
-  `).get(sessionId) as {
-    session_id: string;
-    summary: string;
-    model: string | null;
-    source_ids: string | null;
-    updated_at: number;
-  } | undefined;
-
-  if (!row) return null;
-
-  let sourceIds: string[] = [];
-  if (row.source_ids) {
-    try {
-      const parsed = JSON.parse(row.source_ids);
-      if (Array.isArray(parsed)) {
-        sourceIds = parsed.filter((value): value is string => typeof value === 'string');
-      }
-    } catch {
-      sourceIds = [];
-    }
-  }
-
-  return {
-    sessionId,
-    summary: row.summary,
-    updatedAt: row.updated_at,
-    model: row.model,
-    sourceIds,
-  };
-}
-
-export function getSessionEnvironmentRecap(sessionId: string): SessionEnvironmentRecap {
-  const state = getSessionEnvironmentRecapGenerationState(sessionId);
-  const isLegacyExcerpt = state?.model === 'local';
-
-  return {
-    sessionId,
-    summary: isLegacyExcerpt ? '' : state?.summary || '',
-    updatedAt: isLegacyExcerpt ? null : state?.updatedAt ?? null,
-    source: state && !isLegacyExcerpt ? 'derived' : 'empty',
-  };
-}
-
-export function saveSessionEnvironmentRecap(params: {
-  sessionId: string;
-  summary: string;
-  sourceIds: string[];
-  model: string | null;
-}): SessionEnvironmentRecap {
-  const row = getDb().transaction(() => {
-    getDb().prepare(`
-      DELETE FROM derived_summaries
-      WHERE session_id = ? AND scope = 'environment-recap'
-    `).run(params.sessionId);
-
-    return upsertDerivedSummary({
-      sessionId: params.sessionId,
-      scope: 'environment-recap',
-      summary: params.summary,
-      sourceIds: params.sourceIds,
-      model: params.model,
-    });
-  })();
-
-  return {
-    sessionId: params.sessionId,
-    summary: row.summary,
-    updatedAt: row.updated_at,
-    source: 'generated',
-  };
-}
 
 type JoinedClaudeMessageRow = {
   data: string;

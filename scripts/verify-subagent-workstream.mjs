@@ -43,14 +43,6 @@ assert.equal(
   'history transcript builders must skip subagent messages'
 );
 assert.equal(
-  fs
-    .readFileSync(path.join(root, 'src', 'electron', 'libs', 'session-summary.ts'), 'utf8')
-    .includes('if (message.parentToolUseId) continue;') &&
-    ipcSourceForGuards.includes('collectSessionSummaryEntries(history)'),
-  true,
-  'the environment recap must skip subagent messages'
-);
-assert.equal(
   ipcSourceForGuards.includes('if (!attributedMessage.parentToolUseId) {'),
   true,
   'subagent narration must not trip local failure detection'

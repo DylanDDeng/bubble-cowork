@@ -867,10 +867,6 @@ export type ServerEvent =
   | { type: 'session.deleted'; payload: { sessionId: string } }
   | { type: 'session.pinned'; payload: { sessionId: string; pinned: boolean } }
   | {
-      type: 'session.environmentRecap';
-      payload: { sessionId: string; recap: SessionEnvironmentRecap };
-    }
-  | {
       type: 'stream.user_prompt';
       payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number };
     }
@@ -1232,24 +1228,6 @@ export interface OpenInEditorInput {
   editorId: EnvironmentEditorId;
 }
 
-export interface SessionEnvironmentNote {
-  sessionId: string;
-  note: string;
-  updatedAt: number | null;
-}
-
-export interface SessionEnvironmentRecap {
-  sessionId: string;
-  summary: string;
-  updatedAt: number | null;
-  source: 'derived' | 'generated' | 'empty';
-}
-
-export interface SessionEnvironmentContext {
-  sessionId: string;
-  note: SessionEnvironmentNote;
-  recap: SessionEnvironmentRecap;
-}
 
 export interface GitCheckoutBranchInput {
   cwd: string;

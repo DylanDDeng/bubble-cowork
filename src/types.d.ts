@@ -407,9 +407,6 @@ declare global {
     gitCreatePr: (cwd: string) => Promise<{ ok: boolean; message?: string; url?: string }>;
     getEnvironmentEditorLaunchers: () => Promise<import('./shared/types').EnvironmentEditorLauncher[]>;
     openInEditor: (input: import('./shared/types').OpenInEditorInput) => Promise<{ ok: boolean; message?: string }>;
-    getSessionEnvironmentContext: (sessionId: string) => Promise<{ ok: boolean; context?: import('./shared/types').SessionEnvironmentContext; message?: string }>;
-    saveSessionEnvironmentNote: (sessionId: string, note: string) => Promise<{ ok: boolean; note?: import('./shared/types').SessionEnvironmentNote; message?: string }>;
-    refreshSessionEnvironmentRecap: (sessionId: string) => Promise<{ ok: boolean; recap?: import('./shared/types').SessionEnvironmentRecap; message?: string }>;
     openExternalUrl: (url: string) => Promise<{ ok: boolean; message?: string }>;
     subscribeStatistics: (callback: (data: StatisticsData) => void) => () => void;
     getStaticData: () => Promise<StaticData>;

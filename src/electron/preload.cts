@@ -1027,17 +1027,8 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('open-in-editor', input);
   },
 
-  getSessionEnvironmentContext: (sessionId: string) => {
-    return ipcRenderer.invoke('get-session-environment-context', sessionId);
-  },
 
-  saveSessionEnvironmentNote: (sessionId: string, note: string) => {
-    return ipcRenderer.invoke('save-session-environment-note', sessionId, note);
-  },
 
-  refreshSessionEnvironmentRecap: (sessionId: string) => {
-    return ipcRenderer.invoke('refresh-session-environment-recap', sessionId);
-  },
 
   openExternalUrl: (url: string) => {
     return ipcRenderer.invoke('open-external-url', url);

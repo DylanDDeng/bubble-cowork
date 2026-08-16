@@ -17,7 +17,6 @@ import type { EnvironmentEditorLauncher } from '../../../shared/types';
 import type { ActiveEnvironmentContext } from './useActiveEnvironmentContext';
 import type { GitEnvironmentState } from './useGitEnvironment';
 import { EnvironmentGitActionsSection } from './EnvironmentGitActionsSection';
-import { EnvironmentContextSection } from './EnvironmentContextSection';
 import { useAppStore } from '../../store/useAppStore';
 import { deriveSubagentSummaries } from '../../utils/subagent-registry';
 import { SubagentAvatar } from '../SubagentAvatar';
@@ -525,7 +524,6 @@ export function EnvironmentHub({
                   />
                 </section>
                 <EnvironmentSubagentSection onNavigate={() => setOpen(false)} />
-                <EnvironmentContextSection context={context} />
               </>
             )}
           </div>
