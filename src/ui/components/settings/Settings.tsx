@@ -162,13 +162,17 @@ export function Settings() {
               updateStatus={updateStatus}
             />
           )}
-          {resolvedActiveSettingsTab === 'mcp' && <McpSettingsContent />}
+          {resolvedActiveSettingsTab === 'mcp' && (
+            <div className="space-y-5">
+              <BrowserUseSettings />
+              <McpSettingsContent />
+            </div>
+          )}
           {resolvedActiveSettingsTab === 'providers' && (
             <div className="flex flex-col gap-6">
               <CompatibleProviderSettingsContent />
               <BubbleProviderSettings />
               <DeepseekProviderSettings />
-              <BrowserUseSettings />
             </div>
           )}
           {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
