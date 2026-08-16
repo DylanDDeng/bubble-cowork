@@ -224,4 +224,15 @@ assert.ok(
   'attribution matches OpenCode dot-notation tool names'
 );
 
-console.log('browser-use phase 5 wiring checks passed');
+assert.ok(
+  /bubble\[BROWSER_USE_SERVER_NAME\] = \{[\s\S]{0,120}type: 'http'/.test(
+    httpServer.replace(/\n\s*\/\/[^\n]*/g, '\n')
+  ),
+  'bubble entry carries type: http (the SDK parser drops typeless entries)'
+);
+assert.ok(
+  ipc.includes('Guard the built-in browser-use entry'),
+  'MCP settings saves re-inject the browser-use entry instead of dropping it'
+);
+
+console.log('browser-use phase 6 wiring checks passed');

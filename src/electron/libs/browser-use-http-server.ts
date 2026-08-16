@@ -327,7 +327,11 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
     }
     try {
       const bubble = getBubbleMcpServers();
+      // Bubble's config parser REQUIRES a type discriminator: no type + no
+      // command falls to "unsupported transport type undefined" and the
+      // entry is silently dropped (the `paper` entry has the same bug).
       bubble[BROWSER_USE_SERVER_NAME] = {
+        type: 'http',
         url: info.url,
         headers: { Authorization: `Bearer ${info.token}` },
       } as never;
