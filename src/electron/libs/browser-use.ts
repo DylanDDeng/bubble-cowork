@@ -201,6 +201,35 @@ function normalizeKey(key: string): string {
  * built-in browser. The tab must be live (not suspended): the manager keeps
  * at least the active tab live while the panel is open.
  */
+/**
+ * Ensure the session's browser panel is open before an action runs.
+ * Injected by the IPC layer: broadcasts to the renderer, which opens the
+ * right-panel Browser tab (Codex parity — browser use never requires the
+ * user to pre-open anything). Returns once a tab is live or on timeout.
+ */
+export type BrowserUsePanelOpener = (sessionId: string) => Promise<void>;
+
+let panelOpener: BrowserUsePanelOpener | null = null;
+
+export function setBrowserUsePanelOpener(opener: BrowserUsePanelOpener | null): void {
+  panelOpener = opener;
+}
+
+async function ensurePanelOpen(manager: BrowserManager, sessionId: string): Promise<boolean> {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    const state = manager.getState({ sessionId });
+    if (state.activeTabId) return true;
+    // The opener is a persistent, idempotent hook (renderer no-ops when the
+    // tab is already open) — call it every wait round until a tab appears.
+    if (panelOpener) await panelOpener(sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const after = manager.getState({ sessionId });
+    if (after.activeTabId) return true;
+  }
+  return manager.getState({ sessionId }).activeTabId != null;
+}
+
 export async function runBrowserUseAction(
   manager: BrowserManager,
   input: BrowserUseActionInput
@@ -216,11 +245,26 @@ async function runBrowserUseActionInner(
   manager: BrowserManager,
   input: BrowserUseActionInput
 ): Promise<BrowserUseActionResult> {
-  const state = manager.getState({ sessionId: input.sessionId });
-  const tabId = state.activeTabId;
-  if (!tabId) {
-    return { ok: false, message: 'No active browser tab. Open the browser panel first.' };
+  let state = manager.getState({ sessionId: input.sessionId });
+  if (!state.activeTabId) {
+    // Codex parity: the agent's browser use opens the panel on demand —
+    // never fail just because the user hadn't pre-opened it.
+    const opened = await ensurePanelOpen(manager, input.sessionId);
+    if (!opened) {
+      return {
+        ok: false,
+        message: 'Could not open the browser panel. Open it from the right panel and retry.',
+      };
+    }
+    state = manager.getState({ sessionId: input.sessionId });
+    if (!state.activeTabId) {
+      return {
+        ok: false,
+        message: 'Could not open the browser panel. Open it from the right panel and retry.',
+      };
+    }
   }
+  const tabId = state.activeTabId;
   const webContents = manager.getLiveWebContents(input.sessionId, tabId);
   if (!webContents) {
     return { ok: false, message: 'The browser tab is suspended. Reopen the browser panel and retry.' };

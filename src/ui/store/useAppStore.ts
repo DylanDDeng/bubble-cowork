@@ -1188,6 +1188,16 @@ export const useAppStore = create<Store>()(
         get().setActiveSession(event.payload.sessionId);
         set({ showSettings: false });
         break;
+
+      // Browser Use：agent 动作自动打开会话浏览器面板（Codex parity）
+      case 'browser.open-panel': {
+        if (event.payload.sessionId !== get().activeSessionId) {
+          get().setActiveSession(event.payload.sessionId);
+        }
+        set({ showSettings: false });
+        get().openRightUtilityTab('browser', { instantReveal: true });
+        break;
+      }
     }
   },
 

@@ -937,7 +937,8 @@ export type ServerEvent =
   | { type: 'session.teamChanged'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null } }
   | { type: 'automation.changed'; payload: AutomationSnapshot }
   // 系统通知点击后的回位事件（主进程 → 聚焦窗口后广播）
-  | { type: 'app.focusSession'; payload: { sessionId: string } };
+  | { type: 'app.focusSession'; payload: { sessionId: string } }
+  | { type: 'browser.open-panel'; payload: { sessionId: string } };
 
 // Payload 类型
 export interface SessionStartPayload {

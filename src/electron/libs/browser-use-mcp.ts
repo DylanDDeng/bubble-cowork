@@ -51,7 +51,8 @@ const TOOL_NAME = 'browser_use';
 
 const TOOL_DESCRIPTION = [
   'Drive the session browser panel to browse and interact with web pages.',
-  'The panel must be open (the user watches every action). Workflow: navigate,',
+  'The panel opens automatically on first use and the user watches every action.',
+  'Workflow: navigate,',
   'then snapshot to get interactive elements with stable node ids and viewport',
   'coordinates, then click/type/scroll by node id (preferred) or x/y, then',
   'read or snapshot again to verify. Take a fresh snapshot after any navigation',

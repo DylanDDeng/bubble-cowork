@@ -48,6 +48,7 @@ import {
   disposeBrowserUseHttpServer,
 } from './libs/browser-use-http-server';
 import { initializeBrowserUseConsent } from './libs/browser-use-consent';
+import { setBrowserUsePanelOpener } from './libs/browser-use';
 import {
   getBrowserUsePermissionSettings,
   setBrowserUseOriginPolicy,
@@ -5090,6 +5091,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // codex/kimi/qoder/opencode sessions can drive their session browser panel.
   // Consent attribution scans running sessions' pending browser_use calls and
   // routes the approval card through the session's existing permission state.
+  // Browser-use panel opener: main asks the renderer to reveal the session's
+  // Browser panel (agent actions auto-open it, Codex parity).
+  setBrowserUsePanelOpener(async (sessionId) => {
+    broadcast(mainWindow, {
+      type: 'browser.open-panel',
+      payload: { sessionId },
+    } as Parameters<typeof broadcast>[1]);
+  });
   initializeBrowserUseConsent({
     getSessionHistory: (sessionId) => sessions.getSessionHistory(sessionId),
     listRunningSessionIds: () => [...runnerHandles.keys()],
