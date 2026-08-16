@@ -217,6 +217,8 @@ export class BrowserManager {
   private readonly runtimes = new Map<string, LiveTabRuntime>();
   private readonly pinnedSessions = new Set<string>();
   private readonly listeners = new Set<BrowserStateListener>();
+  /** agentActive re-entrancy depth per session (browser-use actions). */
+  private readonly agentActivityDepth = new Map<string, number>();
   private readonly selectionListeners = new Set<BrowserSendSelectionListener>();
   private readonly suspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly closingRuntimeKeys = new Set<string>();
@@ -1132,18 +1134,32 @@ export class BrowserManager {
   }
 
   /** Mark agent-driven activity for the panel's agent badge (Codex-parity
-   * visible browser use). Callers wrap one browser_use action. */
+   * visible browser use). Re-entrant via depth counting so concurrent
+   * actions keep the badge lit until the LAST one finishes. Skips state
+   * creation for sessions whose panel never opened (no ghost states). */
   async withAgentActivity<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
     const state = this.states.get(sessionId);
-    const prev = state?.agentActive ?? false;
-    if (state) state.agentActive = true;
-    this.emitState(sessionId);
+    if (!state) {
+      // No panel state: still run the action, just nothing to light up.
+      return action();
+    }
+    const depth = (this.agentActivityDepth.get(sessionId) ?? 0) + 1;
+    this.agentActivityDepth.set(sessionId, depth);
+    if (depth === 1) {
+      state.agentActive = true;
+      this.emitState(sessionId);
+    }
     try {
       return await action();
     } finally {
-      const current = this.states.get(sessionId);
-      if (current) current.agentActive = prev;
-      this.emitState(sessionId);
+      const next = (this.agentActivityDepth.get(sessionId) ?? 1) - 1;
+      if (next <= 0) {
+        this.agentActivityDepth.delete(sessionId);
+        state.agentActive = false;
+        this.emitState(sessionId);
+      } else {
+        this.agentActivityDepth.set(sessionId, next);
+      }
     }
   }
 

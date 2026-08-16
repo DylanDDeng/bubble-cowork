@@ -148,6 +148,10 @@ async function main() {
     adapterSource.includes("case 'tool_update':"),
     'tool_update frames (spawn/wait execution drains) are routed to the subagent lane too'
   );
+  assert.ok(
+    adapterSource.includes('flush deleted the stream above'),
+    'child tool_use re-creates the flushed lane (tool cards emit, no orphan tool_result)'
+  );
   console.log('ok - adapter source pins the subagent wire translation');
 
     console.log('bubble subagent protocol tests passed');

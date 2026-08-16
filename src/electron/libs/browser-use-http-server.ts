@@ -202,6 +202,19 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, token
     );
     return;
   }
+  // Path allow-list (delegate-http-server parity): only /mcp is served, so
+  // the port does not answer MCP on arbitrary paths.
+  const requestUrl = req.url || '';
+  if (requestUrl.split('?')[0] !== MCP_PATH) {
+    res.writeHead(404, { 'Content-Type': 'application/json' }).end(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        error: { code: -32001, message: 'Not Found' },
+        id: null,
+      })
+    );
+    return;
+  }
   if (req.method === 'GET') {
     // Streamable HTTP: GET opens the SSE stream we don't use; 405 is the
     // spec-sanctioned response for servers without it.

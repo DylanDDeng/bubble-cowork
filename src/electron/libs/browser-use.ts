@@ -112,19 +112,24 @@ export async function captureDomSnapshot(webContents: WebContents): Promise<Brow
   };
 }
 
-/** Resolve a node_id against a snapshot to viewport CSS coordinates. */
+/**
+ * Resolve a node_id against a snapshot to CURRENT viewport CSS pixels.
+ * Node coords were captured relative to the viewport at snapshot time
+ * (getBoundingClientRect semantics), so if the page scrolled since, the
+ * delta between snapshot-time and current scroll is applied. sendInputEvent
+ * expects viewport coordinates — this must NEVER return document coords.
+ */
 export function resolveNodePoint(
   snapshot: BrowserUseSnapshot,
-  nodeId: number
+  nodeId: number,
+  currentScrollX = 0,
+  currentScrollY = 0
 ): { x: number; y: number } | null {
   const node = snapshot.nodes.find((entry) => entry.id === nodeId);
   if (!node) return null;
-  // Node coords were captured relative to the viewport at snapshot time;
-  // re-base against the CURRENT scroll position so stale snapshots still
-  // land on the element (approximation; agents re-snapshot after scrolls).
   return {
-    x: node.x + (snapshot.scrollX ?? 0) - 0,
-    y: node.y + (snapshot.scrollY ?? 0) - 0,
+    x: node.x + (snapshot.scrollX ?? 0) - currentScrollX,
+    y: node.y + (snapshot.scrollY ?? 0) - currentScrollY,
   };
 }
 
@@ -225,9 +230,27 @@ async function runBrowserUseActionInner(
     switch (input.action) {
       case 'navigate': {
         if (!input.url) return { ok: false, message: 'url is required for navigate.' };
+        // http(s) only: file:// origins resolve to "null" (breaking consent)
+        // and other schemes are not web-browse targets.
+        let parsed: URL;
+        try {
+          parsed = new URL(input.url);
+        } catch {
+          return { ok: false, message: `Invalid URL: ${input.url}` };
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return { ok: false, message: `Only http/https URLs can be opened (${parsed.protocol}).` };
+        }
         // Navigation consent is enforced by the MCP layer (permission card);
         // this function performs the mechanical navigation only.
-        webContents.loadURL(input.url);
+        try {
+          await webContents.loadURL(input.url);
+        } catch (error) {
+          return {
+            ok: false,
+            message: `Navigation failed: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
         return { ok: true, message: `Navigated to ${input.url}.` };
       }
       case 'snapshot': {
@@ -259,7 +282,15 @@ async function runBrowserUseActionInner(
               message: 'Stale snapshot. Take a new snapshot before addressing nodes.',
             };
           }
-          const point = resolveNodePoint(snapshot, input.nodeId);
+          // Read the CURRENT scroll so viewport coords re-base correctly
+          // when the page scrolled since the snapshot.
+          const current = await readScrollPosition(webContents);
+          const point = resolveNodePoint(
+            snapshot,
+            input.nodeId,
+            current.scrollX,
+            current.scrollY
+          );
           if (!point) return { ok: false, message: `Node ${input.nodeId} not found in the snapshot.` };
           x = point.x;
           y = point.y;
@@ -267,9 +298,7 @@ async function runBrowserUseActionInner(
         if (typeof x !== 'number' || typeof y !== 'number') {
           return { ok: false, message: 'Provide x/y or nodeId+snapshotId for click.' };
         }
-        // Node coords are viewport-relative; sendInputEvent wants page coords
-        // only for full-page semantics — viewport coords are what the click
-        // API expects for visible content.
+        // sendInputEvent expects viewport coordinates for visible content.
         webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
         webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
         await waitForSettled(webContents);
@@ -322,4 +351,16 @@ async function runBrowserUseActionInner(
 /** Small settle window so navigation/render effects become observable. */
 function waitForSettled(_webContents: WebContents): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 220));
+}
+
+/** Current page scroll, for re-basing snapshot viewport coordinates. */
+async function readScrollPosition(webContents: WebContents): Promise<{ scrollX: number; scrollY: number }> {
+  try {
+    return (await webContents.executeJavaScript(
+      '({ scrollX: Math.round(scrollX), scrollY: Math.round(scrollY) })',
+      true
+    )) as { scrollX: number; scrollY: number };
+  } catch {
+    return { scrollX: 0, scrollY: 0 };
+  }
 }

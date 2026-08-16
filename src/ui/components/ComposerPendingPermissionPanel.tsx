@@ -290,6 +290,19 @@ function parsePermissionRequest(request: PermissionRequestPayload): ParsedPermis
     };
   }
 
+  if (isBrowserNavigationInput(input)) {
+    return {
+      kindLabel: 'BROWSER',
+      tool: 'browser_use',
+      fileName: null,
+      fileDir: null,
+      command: input.url || null,
+      fallback: input.question || `Allow the agent to open ${input.url || 'this origin'} in the session browser?`,
+      canAllowForSession: false,
+      mode: 'approval',
+    };
+  }
+
   if (isAcpPermissionInput(input)) {
     return {
       kindLabel:
@@ -320,6 +333,16 @@ function parsePermissionRequest(request: PermissionRequestPayload): ParsedPermis
     canAllowForSession: false,
     mode: 'approval',
   };
+}
+
+interface BrowserNavigationPermissionInput {
+  kind: 'browser-navigation';
+  question?: string;
+  url?: string;
+}
+
+function isBrowserNavigationInput(input: unknown): input is BrowserNavigationPermissionInput {
+  return (input as { kind?: unknown }).kind === 'browser-navigation';
 }
 
 function codexKindLabel(input: CodexApprovalPermissionInput): string {

@@ -122,19 +122,44 @@ export function findPendingBrowserUseSessionId(
 }
 
 /**
- * Resolve which running session made this HTTP browser_use call. Returns the
- * session id or null when no running session has a matching pending call.
+ * Resolve which running session made this HTTP browser_use call. Waits
+ * (delegate-service attribution pattern: poll until deadline) for the
+ * matching tool_use to land in a running session's transcript — the HTTP
+ * request can beat the runner's event loop. Claimed ids are remembered so
+ * two concurrent identical calls cannot double-claim one pending block.
  */
+const ATTRIBUTION_POLL_MS = 250;
+const ATTRIBUTION_TIMEOUT_MS = 5_000;
+const claimedToolUseIds = new Set<string>();
+
 export function findBrowserUseCallerSessionId(
   args: { action?: string; url?: string }
 ): Promise<string | null> {
-  if (!host) return Promise.resolve(null);
-  for (const sessionId of host.listRunningSessionIds()) {
-    const history = host.getSessionHistory(sessionId);
-    if (!history?.length) continue;
-    if (findPendingBrowserUseSessionId(args, history)) return Promise.resolve(sessionId);
-  }
-  return Promise.resolve(null);
+  const deadline = Date.now() + ATTRIBUTION_TIMEOUT_MS;
+  return new Promise((resolve) => {
+    const attempt = () => {
+      if (!host) {
+        resolve(null);
+        return;
+      }
+      for (const sessionId of host.listRunningSessionIds()) {
+        const history = host.getSessionHistory(sessionId);
+        if (!history?.length) continue;
+        const toolUseId = findPendingBrowserUseSessionId(args, history);
+        if (toolUseId && !claimedToolUseIds.has(toolUseId)) {
+          claimedToolUseIds.add(toolUseId);
+          resolve(sessionId);
+          return;
+        }
+      }
+      if (Date.now() >= deadline) {
+        resolve(null);
+        return;
+      }
+      setTimeout(attempt, ATTRIBUTION_POLL_MS);
+    };
+    attempt();
+  });
 }
 
 /** Ask navigation consent: persisted policy first, then the permission card. */

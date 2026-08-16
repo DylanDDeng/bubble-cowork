@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 import type { McpServerConfig } from './claude-settings';
@@ -46,6 +46,13 @@ function writeConfig(configPath: string, config: KimiMcpFile): void {
   try {
     mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+    // May carry the delegate/browser-use bearer token in headers — restrict
+    // to the owning user (matches ~/.aegis permissions).
+    try {
+      chmodSync(configPath, 0o600);
+    } catch {
+      // best-effort on exotic filesystems
+    }
   } catch (error) {
     console.warn(`Failed to write Kimi MCP config at ${configPath}:`, error);
     throw error;

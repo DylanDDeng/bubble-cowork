@@ -18,8 +18,20 @@ assert.ok(
   'server name exported'
 );
 assert.ok(
-  /case 'navigate'[\s\S]{0,400}loadURL/.test(service),
+  /case 'navigate'[\s\S]{0,1000}loadURL/.test(service),
   'navigate action drives loadURL on the live webContents'
+);
+assert.ok(
+  /case 'navigate'[\s\S]{0,900}protocol !== 'http:'/.test(service),
+  'navigate rejects non-http(s) schemes (file:// origins break consent)'
+);
+assert.ok(
+  /case 'navigate'[\s\S]{0,1100}await webContents\.loadURL/.test(service),
+  'loadURL is awaited and its failure reported (no unhandled rejection)'
+);
+assert.ok(
+  service.includes('currentScrollX'),
+  'node clicks re-base viewport coords against the CURRENT scroll (scroll-safe clicking)'
 );
 for (const action of ['click', 'type', 'scroll', 'key']) {
   assert.ok(new RegExp(`case '${action}'`).test(service), `${action} action implemented`);
@@ -112,6 +124,10 @@ const consent = read('src/electron/libs/browser-use-consent.ts');
 assert.ok(
   consent.includes('mcp__aegis-browser__'),
   'codex-composed mcp tool names match the attribution scan'
+);
+assert.ok(
+  consent.includes('ATTRIBUTION_POLL_MS') && consent.includes('claimedToolUseIds'),
+  'attribution polls until the tool_use lands AND claims ids (delegate pattern, no double-claim)'
 );
 assert.ok(
   consent.includes('requestBrowserUseNavigationConsent'),

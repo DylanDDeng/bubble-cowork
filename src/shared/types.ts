@@ -1472,11 +1472,18 @@ export interface AcpPermissionInput {
   toolCall?: Record<string, unknown> | null;
 }
 
+export interface BrowserNavigationPermissionInput {
+  kind: 'browser-navigation';
+  question: string;
+  url: string;
+}
+
 export type PermissionRequestInput =
   | AskUserQuestionInput
   | ExternalFilePermissionInput
   | CodexApprovalPermissionInput
-  | AcpPermissionInput;
+  | AcpPermissionInput
+  | BrowserNavigationPermissionInput;
 
 // StreamMessage 类型（SDK 消息或内部消息）
 export type StreamMessageBase = {

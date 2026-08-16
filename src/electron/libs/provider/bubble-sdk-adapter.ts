@@ -939,28 +939,33 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       const childToolId = getString((child as { id?: unknown }).id);
       const childToolName = getString((child as { name?: unknown }).name);
       if (childToolId && childToolName) {
-        const stream = session.subagentStreams.get(parentToolCallId);
-        if (stream) {
-          if (!stream.toolCallIds.has(childToolId)) {
-            stream.toolCallIds.add(childToolId);
-            this.emitMessage(session, {
-              type: 'assistant',
-              uuid: `bubble-sub-tool-use:${session.threadId}:${childToolId}`,
-              parentToolUseId: parentToolCallId,
-              message: {
-                content: [
-                  {
-                    type: 'tool_use',
-                    id: childToolId,
-                    name: normalizeToolName(childToolName),
-                    input: isRecord((child as { args?: unknown }).args)
-                      ? ((child as { args?: unknown }).args as Record<string, unknown>)
-                      : {},
-                  },
-                ],
-              },
-            });
-          }
+        // flush deleted the stream above — re-create it so subsequent frames
+        // (and the matching tool_end) still have a lane. Without this the
+        // tool_use card never emitted and tool_end produced an orphan result.
+        let stream = session.subagentStreams.get(parentToolCallId);
+        if (!stream) {
+          stream = { text: '', thinking: '', toolCallIds: new Set() };
+          session.subagentStreams.set(parentToolCallId, stream);
+        }
+        if (!stream.toolCallIds.has(childToolId)) {
+          stream.toolCallIds.add(childToolId);
+          this.emitMessage(session, {
+            type: 'assistant',
+            uuid: `bubble-sub-tool-use:${session.threadId}:${childToolId}`,
+            parentToolUseId: parentToolCallId,
+            message: {
+              content: [
+                {
+                  type: 'tool_use',
+                  id: childToolId,
+                  name: normalizeToolName(childToolName),
+                  input: isRecord((child as { args?: unknown }).args)
+                    ? ((child as { args?: unknown }).args as Record<string, unknown>)
+                    : {},
+                },
+              ],
+            },
+          });
         }
       }
     } else if (child && child.type === 'tool_end') {
