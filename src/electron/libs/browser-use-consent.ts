@@ -48,7 +48,8 @@ export interface BrowserUseConsentHost {
   requestPermission(
     sessionId: string,
     question: string,
-    url: string
+    url: string,
+    signal?: AbortSignal
   ): Promise<boolean>;
 }
 
@@ -157,15 +158,31 @@ export function findPendingBrowserUseSessionId(
 const ATTRIBUTION_POLL_MS = 250;
 const ATTRIBUTION_TIMEOUT_MS = 5_000;
 const claimedToolUseIds = new Set<string>();
+const CLAIM_TTL_MS = 2 * 60_000;
 
 export function findBrowserUseCallerSessionId(
-  args: { action?: string; url?: string }
+  args: { action?: string; url?: string },
+  signal?: AbortSignal
 ): Promise<string | null> {
   const deadline = Date.now() + ATTRIBUTION_TIMEOUT_MS;
   return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    const finish = (sessionId: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      resolve(sessionId);
+    };
+    const onAbort = () => finish(null);
     const attempt = () => {
+      if (signal?.aborted) {
+        finish(null);
+        return;
+      }
       if (!host) {
-        resolve(null);
+        finish(null);
         return;
       }
       for (const sessionId of host.listRunningSessionIds()) {
@@ -174,16 +191,19 @@ export function findBrowserUseCallerSessionId(
         const toolUseId = findPendingBrowserUseSessionId(args, history);
         if (toolUseId && !claimedToolUseIds.has(toolUseId)) {
           claimedToolUseIds.add(toolUseId);
-          resolve(sessionId);
+          const claimTimer = setTimeout(() => claimedToolUseIds.delete(toolUseId), CLAIM_TTL_MS);
+          claimTimer.unref?.();
+          finish(sessionId);
           return;
         }
       }
       if (Date.now() >= deadline) {
-        resolve(null);
+        finish(null);
         return;
       }
-      setTimeout(attempt, ATTRIBUTION_POLL_MS);
+      timer = setTimeout(attempt, ATTRIBUTION_POLL_MS);
     };
+    signal?.addEventListener('abort', onAbort, { once: true });
     attempt();
   });
 }
@@ -192,7 +212,8 @@ export function findBrowserUseCallerSessionId(
  * Full-access sessions and loopback origins skip the card entirely. */
 export async function requestBrowserUseNavigationConsent(
   sessionId: string,
-  url: string
+  url: string,
+  signal?: AbortSignal
 ): Promise<boolean> {
   const origin = originOf(url);
   if (!origin) return false;
@@ -214,7 +235,8 @@ export async function requestBrowserUseNavigationConsent(
   const allowed = await host.requestPermission(
     sessionId,
     `Allow the agent to open ${origin} in the session browser?`,
-    url
+    url,
+    signal
   );
   if (allowed) rememberBrowserUseApproval(sessionId, origin);
   return allowed;

@@ -22,7 +22,11 @@ export interface BrowserUsePermissionSettings {
   origins: Record<string, BrowserUseOriginPolicy>;
 }
 
-const SETTINGS_PATH = path.join(homedir(), '.aegis', 'browser-use-permissions.json');
+const DEFAULT_SETTINGS_PATH = path.join(homedir(), '.aegis', 'browser-use-permissions.json');
+
+function settingsPath(): string {
+  return process.env.AEGIS_BROWSER_USE_SETTINGS_PATH?.trim() || DEFAULT_SETTINGS_PATH;
+}
 
 const DEFAULT_SETTINGS: BrowserUsePermissionSettings = {
   enabled: true,
@@ -36,7 +40,7 @@ function normalizeOrigin(origin: string): string {
 
 export function getBrowserUsePermissionSettings(): BrowserUsePermissionSettings {
   try {
-    const raw = readFileSync(SETTINGS_PATH, 'utf8');
+    const raw = readFileSync(settingsPath(), 'utf8');
     const parsed = JSON.parse(raw) as Partial<BrowserUsePermissionSettings>;
     const enabled = typeof parsed.enabled === 'boolean' ? parsed.enabled : true;
     const defaultPolicy =
@@ -58,10 +62,11 @@ export function getBrowserUsePermissionSettings(): BrowserUsePermissionSettings 
 }
 
 export function saveBrowserUsePermissionSettings(settings: BrowserUsePermissionSettings): void {
-  mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
-  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+  const targetPath = settingsPath();
+  mkdirSync(path.dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, JSON.stringify(settings, null, 2));
   try {
-    chmodSync(SETTINGS_PATH, 0o600);
+    chmodSync(targetPath, 0o600);
   } catch {
     // chmod is best-effort (exotic filesystems)
   }
@@ -83,6 +88,7 @@ export function setBrowserUseDefaultPolicy(policy: BrowserUseOriginPolicy): void
 
 /** Master switch: built-in browser use is on unless explicitly disabled. */
 export function isBrowserUseEnabled(): boolean {
+  if (process.env.AEGIS_BROWSER_USE_TEST_MODE === '1') return true;
   return getBrowserUsePermissionSettings().enabled;
 }
 

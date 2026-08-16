@@ -17,6 +17,7 @@ import {
   runClaudeOneShot,
 } from './libs/util';
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
+import { browserManager } from './browserManager';
 import { readProjectTree } from './libs/project-tree';
 import {
   installClaudePlugin,
@@ -48,9 +49,12 @@ import {
   disposeBrowserUseHttpServer,
   getBrowserUseMcpDescriptor,
 } from './libs/browser-use-http-server';
-import { BROWSER_USE_SERVER_NAME } from './libs/browser-use';
+import {
+  BROWSER_USE_SERVER_NAME,
+  finishBrowserUseTurn,
+  setBrowserUsePanelOpener,
+} from './libs/browser-use';
 import { initializeBrowserUseConsent } from './libs/browser-use-consent';
-import { setBrowserUsePanelOpener } from './libs/browser-use';
 import {
   getBrowserUsePermissionSettings,
   setBrowserUseOriginPolicy,
@@ -67,6 +71,12 @@ import {
 } from './libs/opencode-mcp-settings';
 import { getKimiMcpServers, saveKimiMcpServers, getKimiProjectMcpServers, saveKimiProjectMcpServers } from './libs/kimi-mcp-settings';
 import { getBubbleMcpServers, saveBubbleMcpServers } from './libs/bubble-mcp-settings';
+import {
+  getDeepseekGlobalMcpServers,
+  getDeepseekProjectMcpServers,
+  saveDeepseekGlobalMcpServers,
+  saveDeepseekProjectMcpServers,
+} from './libs/deepseek-mcp-settings';
 import {
   loadCompatibleProviderConfig,
   saveCompatibleProviderConfig,
@@ -3710,6 +3720,19 @@ function flushClaudeRunners(sessionId?: string): void {
   }
 }
 
+/** Retire DeepSeek runtimes that captured an older per-workspace MCP graph. */
+function flushDeepseekRunners(): void {
+  for (const [id, entry] of runnerHandles) {
+    if (entry.provider !== 'deepseek') continue;
+    if (sessions.getSession(id)?.status === 'running') {
+      entry.doomed = true;
+    } else {
+      entry.handle.abort();
+      runnerHandles.delete(id);
+    }
+  }
+}
+
 /**
  * Retire a session's kept-alive runner regardless of provider. Every provider
  * keeps its handle between turns (connection reuse) and every live session is
@@ -4873,16 +4896,51 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (row.provider === 'codex') {
         return row.codex_permission_mode === 'fullAccess';
       }
+      const runner = runnerHandles.get(sessionId);
+      if (row.provider === 'deepseek' && runner?.provider === 'deepseek') {
+        return runner.deepseekPermissionMode === 'danger-full-access';
+      }
       return false;
     },
-    requestPermission: (sessionId, question, url) =>
-      new Promise<boolean>((resolve) => {
+    requestPermission: (sessionId, question, url, signal) =>
+      new Promise<boolean>((resolve, reject) => {
         const toolUseId = `browser-use-nav-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
         const state = getSessionState(sessionId);
+        let settled = false;
+        const cleanup = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          state.pendingPermissions.delete(toolUseId);
+        };
+        const finish = (callback: () => void) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          callback();
+        };
+        const dismiss = () => {
+          broadcast(mainWindow, {
+            type: 'permission.dismissed',
+            payload: { sessionId, toolUseId },
+          });
+        };
+        const onAbort = () =>
+          finish(() => {
+            dismiss();
+            reject(new Error('Browser navigation approval was cancelled.'));
+          });
+        const timer = setTimeout(() => {
+          finish(() => {
+            dismiss();
+            reject(new Error('Browser navigation approval timed out after 20000ms.'));
+          });
+        }, 20_000);
+        timer.unref?.();
         state.pendingPermissions.set(toolUseId, {
-          resolve: (result) => resolve(result.behavior === 'allow'),
-          reject: () => resolve(false),
+          resolve: (result) => finish(() => resolve(result.behavior === 'allow')),
+          reject: (error) => finish(() => reject(error)),
         });
+        signal?.addEventListener('abort', onAbort, { once: true });
         broadcast(mainWindow, {
           type: 'permission.request',
           payload: {
@@ -4897,16 +4955,23 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
             } as unknown as import('../shared/types').PermissionRequestInput,
           },
         });
+        if (signal?.aborted) onAbort();
       }),
   });
-  // All five HTTP-config providers (codex/kimi/bubble/qoder/opencode) get
+  // All six HTTP-config providers (codex/kimi/bubble/qoder/opencode/deepseek) get
   // their entry written inside ensureBrowserUseHttpServer; disabled boots
   // clean their entries instead.
-  void ensureBrowserUseHttpServer().catch((error) => {
-    if (isBrowserUseEnabled()) {
-      console.warn('Failed to start the browser-use MCP HTTP server:', error);
-    }
-  });
+  void ensureBrowserUseHttpServer()
+    .then(() => {
+      // Close the startup race where a DeepSeek runtime could capture the
+      // previous app run's loopback URL before this run writes its fresh one.
+      flushDeepseekRunners();
+    })
+    .catch((error) => {
+      if (isBrowserUseEnabled()) {
+        console.warn('Failed to start the browser-use MCP HTTP server:', error);
+      }
+    });
 
   ipcMainHandle('get-browser-use-permissions', async () => {
     return getBrowserUsePermissionSettings();
@@ -4919,6 +4984,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     } else {
       disposeBrowserUseHttpServer();
     }
+    // DeepSeek captures its MCP graph when the Cordis runtime starts.
+    // Retire any stale runtime so the toggle takes effect on the next turn.
+    flushDeepseekRunners();
     return getBrowserUsePermissionSettings();
   });
 
@@ -10377,6 +10445,13 @@ function startRunner(
                 clearClaudeTurnMetrics(session.id);
               }
             }
+          } else if (provider === 'deepseek' && currentEntry.doomed) {
+            // MCP configuration is captured by the Cordis process at spawn.
+            // A save during an active DeepSeek turn lets that activity finish,
+            // then retires the runtime so the next turn resumes natively with
+            // the newly generated MCP composition.
+            currentEntry.handle.abort();
+            runnerHandles.delete(session.id);
           }
         }
         // Reset per-turn detection state: the runner survives into the next
@@ -11077,6 +11152,7 @@ function resolveStopFallback(mainWindow: BrowserWindow, sessionId: string, entry
 const STOP_INTERRUPT_FALLBACK_MS = 8_000;
 
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
+  finishBrowserUseTurn(browserManager, sessionId);
   // Stop-cascade: stopping the parent also stops every delegated agent
   // running under it (their runners are separate entries keyed by their
   // hidden execution session ids).
@@ -11269,6 +11345,7 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
 
 // 删除会话
 function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void {
+  finishBrowserUseTurn(browserManager, sessionId);
   const session = sessions.getSession(sessionId);
   if (session?.session_origin === 'claude_remote') {
     broadcast(mainWindow, {
@@ -11337,6 +11414,8 @@ function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): vo
   const kimiProjectServers = projectPath ? getKimiProjectMcpServers(projectPath) : {};
   const qoderGlobalServers = getQoderMcpServers();
   const bubbleGlobalServers = getBubbleMcpServers();
+  const deepseekGlobalServers = getDeepseekGlobalMcpServers();
+  const deepseekProjectServers = projectPath ? getDeepseekProjectMcpServers(projectPath) : {};
 
   // 合并用于向后兼容
   const mergedServers = { ...globalServers, ...projectServers };
@@ -11354,6 +11433,8 @@ function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): vo
       kimiProjectServers,
       qoderGlobalServers,
       bubbleGlobalServers,
+      deepseekGlobalServers,
+      deepseekProjectServers,
     },
   });
 }
@@ -11372,6 +11453,8 @@ function handleMcpSaveConfig(
     kimiProjectServers?: Record<string, McpServerConfig>;
     qoderGlobalServers?: Record<string, McpServerConfig>;
     bubbleGlobalServers?: Record<string, McpServerConfig>;
+    deepseekGlobalServers?: Record<string, McpServerConfig>;
+    deepseekProjectServers?: Record<string, McpServerConfig>;
     projectPath?: string;
   }
 ): void {
@@ -11476,6 +11559,27 @@ function handleMcpSaveConfig(
     }
   }
 
+  let deepseekMcpChanged = false;
+  if (payload.deepseekGlobalServers !== undefined) {
+    // Browser Use is injected into DeepSeek's temporary runtime config with a
+    // session capability. Never persist the app bearer token in global config.
+    const incoming = { ...payload.deepseekGlobalServers };
+    delete incoming[BROWSER_USE_SERVER_NAME];
+    saveDeepseekGlobalMcpServers(incoming);
+    deepseekMcpChanged = true;
+  }
+  if (payload.projectPath && payload.deepseekProjectServers !== undefined) {
+    // The loopback browser endpoint is app-owned and global. Never let a
+    // project entry with the reserved name shadow its fresh port/token.
+    const incoming = { ...payload.deepseekProjectServers };
+    delete incoming[BROWSER_USE_SERVER_NAME];
+    saveDeepseekProjectMcpServers(payload.projectPath, incoming);
+    deepseekMcpChanged = true;
+  }
+  if (deepseekMcpChanged) {
+    flushDeepseekRunners();
+  }
+
   // 返回更新后的配置
   const globalServers = getGlobalMcpServers();
   const projectServers = payload.projectPath ? getProjectMcpServers(payload.projectPath) : {};
@@ -11486,6 +11590,10 @@ function handleMcpSaveConfig(
   const kimiProjectServers = payload.projectPath ? getKimiProjectMcpServers(payload.projectPath) : {};
   const qoderGlobalServers = getQoderMcpServers();
   const bubbleGlobalServers = getBubbleMcpServers();
+  const deepseekGlobalServers = getDeepseekGlobalMcpServers();
+  const deepseekProjectServers = payload.projectPath
+    ? getDeepseekProjectMcpServers(payload.projectPath)
+    : {};
 
   broadcast(mainWindow, {
     type: 'mcp.config',
@@ -11500,6 +11608,8 @@ function handleMcpSaveConfig(
       kimiProjectServers,
       qoderGlobalServers,
       bubbleGlobalServers,
+      deepseekGlobalServers,
+      deepseekProjectServers,
     },
   });
 }

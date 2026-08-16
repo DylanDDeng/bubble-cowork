@@ -25,9 +25,10 @@ const profilePkg = JSON.parse(read('dev-fixtures/deepseek-harness/package.json')
 assert.ok(
   profilePkg.dependencies?.['@deepseek-ai/dsh-sdk-jsonrpc-server'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-llm-deepseek'] &&
+    profilePkg.dependencies?.['@deepseek-ai/dsh-mcp-client'] === '0.1.0-rc.6' &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-bash-sandbox'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-fs-sandbox'],
-  'deepseek-harness profile must compose the SDK server, DeepSeek adapter and sandboxed tool stack'
+  'deepseek-harness profile must compose the SDK server, DeepSeek/MCP adapters and sandboxed tool stack'
 );
 const cordisYml = read('dev-fixtures/deepseek-harness/cordis.yml');
 assert.ok(
@@ -115,6 +116,73 @@ assert.ok(
   adapter.includes("readonly provider: ProviderKind = 'deepseek'") &&
     adapter.includes('loadDeepseekSdk'),
   'adapter must register provider=deepseek over the SDK loader'
+);
+assert.ok(
+  adapter.includes('mcpServers: true') &&
+    adapter.includes('createDeepseekMcpRuntimeConfig') &&
+    adapter.includes('runtimeConfig.configPath') &&
+    adapter.includes('disposeRuntimeConfig'),
+  'adapter must launch and clean up a per-workspace Cordis composition containing MCP bridges'
+);
+
+// Real runtime config generation: global/project settings are converted into
+// official bridge instances without writing secrets into the checked-in base.
+const deepseekMcp = require(
+  path.join(root, 'dist-electron', 'electron', 'libs', 'deepseek-mcp-settings.js')
+);
+const generatedMcp = deepseekMcp.createDeepseekMcpRuntimeConfig(
+  path.join(root, 'dev-fixtures', 'deepseek-harness'),
+  '/workspace',
+  {
+    'local tools': {
+      type: 'stdio',
+      command: 'node',
+      args: ['server.mjs'],
+      env: { TOKEN: 'probe' },
+    },
+    remote: {
+      type: 'http',
+      url: 'http://127.0.0.1:9876/mcp',
+      headers: { Authorization: 'Bearer probe' },
+    },
+    disabled: { type: 'stdio', command: 'false', enabled: false },
+  }
+);
+try {
+  const generated = fs.readFileSync(generatedMcp.configPath, 'utf8');
+  assert.ok(
+    generated.includes("name: \"@deepseek-ai/dsh-mcp-client\"") &&
+      generated.includes('transport: stdio') &&
+      generated.includes('transport: streamable-http') &&
+      generated.includes('local_tools_') &&
+      generated.includes("=== 'minimal'") &&
+      !generated.includes('command: \"false\"'),
+    'runtime config must bridge enabled stdio/http servers and preserve Minimal isolation'
+  );
+} finally {
+  const generatedPath = generatedMcp.configPath;
+  generatedMcp.dispose();
+  assert.equal(fs.existsSync(generatedPath), false, 'generated MCP config must be disposable');
+}
+
+const mcpSettingsSource = read('src/ui/components/settings/McpSettings.tsx');
+const ipcMcpSource = read('src/electron/ipc-handlers.ts');
+assert.ok(
+  mcpSettingsSource.includes("label: 'DeepSeek'") &&
+    mcpSettingsSource.includes("id: 'deepseek-global'") &&
+    mcpSettingsSource.includes("id: 'deepseek-project'") &&
+    mcpSettingsSource.includes('deepseekGlobalServers: nextServers') &&
+    ipcMcpSource.includes('saveDeepseekGlobalMcpServers') &&
+    ipcMcpSource.includes('saveDeepseekProjectMcpServers') &&
+    ipcMcpSource.includes('flushDeepseekRunners()'),
+  'MCP settings must expose DeepSeek global/project scopes and retire stale runtimes on save'
+);
+assert.ok(
+  deepseekMcp.toDeepseekMcpServerName('aegis-browser') === 'aegis-browser' &&
+    read('src/electron/libs/deepseek-mcp-settings.ts').includes(
+      'merged[BROWSER_USE_SERVER_NAME] = globalServers[BROWSER_USE_SERVER_NAME]'
+    ),
+  'the app-owned browser MCP namespace must survive project-level merging'
 );
 assert.ok(
   adapter.includes('listDeepseekSkills') &&

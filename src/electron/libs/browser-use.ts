@@ -1,9 +1,9 @@
 // Browser Use service: agent-driven automation of the session's built-in
-// browser (Codex-parity browser use, Phase 1).
+// browser (Codex-parity browser use, visible + background phases).
 //
 // Design mirrors what the Codex app ships:
-//   - the agent drives the SAME visible tabs the user sees (no hidden page
-//     for Phase 1 — every action lands where the user can watch it);
+//   - the agent drives the SAME tab the user sees; while the panel is closed,
+//     that tab is laid out in a hidden host and attaches when the panel opens;
 //   - navigation is gated by the session's existing permission pipeline, so
 //     Allow/Block decisions and per-origin remembers work uniformly for
 //     every provider;
@@ -13,7 +13,7 @@
 // The service lives in the main process next to BrowserManager and is exposed
 // to agents through per-provider MCP wiring (see browser-use-mcp.ts).
 
-import type { BrowserManager } from '../browserManager';
+import type { BrowserAgentTarget, BrowserManager } from '../browserManager';
 import type { WebContents } from 'electron';
 
 export const BROWSER_USE_SERVER_NAME = 'aegis-browser';
@@ -51,6 +51,181 @@ export interface BrowserUseSnapshot {
 
 const MAX_NODES = 220;
 const TEXT_PREVIEW_LIMIT = 8000;
+
+export interface BrowserUseDeadlines {
+  restoreMs: number;
+  navigationMs: number;
+  commandMs: number;
+  settleMs: number;
+}
+
+export const DEFAULT_BROWSER_USE_DEADLINES: BrowserUseDeadlines = {
+  restoreMs: 15_000,
+  navigationMs: 15_000,
+  commandMs: 20_000,
+  settleMs: 20_000,
+};
+
+export interface BrowserUseRunOptions {
+  signal?: AbortSignal;
+  deadlines?: Partial<BrowserUseDeadlines>;
+}
+
+const actionQueues = new Map<string, Promise<void>>();
+const sessionAbortControllers = new Map<string, AbortController>();
+
+function browserUseErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw new Error('Browser action was cancelled.');
+}
+
+function combineAbortSignals(signals: Array<AbortSignal | undefined>): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
+  const controller = new AbortController();
+  const cleanups: Array<() => void> = [];
+  for (const source of signals) {
+    if (!source) continue;
+    if (source.aborted) {
+      controller.abort(source.reason);
+      break;
+    }
+    const onAbort = () => controller.abort(source.reason);
+    source.addEventListener('abort', onAbort, { once: true });
+    cleanups.push(() => source.removeEventListener('abort', onAbort));
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => cleanups.splice(0).forEach((cleanup) => cleanup()),
+  };
+}
+
+function withDeadline<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  label: string,
+  signal?: AbortSignal,
+  onTimeout?: () => void
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      callback();
+    };
+    const onAbort = () =>
+      finish(() => {
+        try {
+          onTimeout?.();
+        } finally {
+          reject(new Error('Browser action was cancelled.'));
+        }
+      });
+    const timer = setTimeout(() => {
+      finish(() => {
+        try {
+          onTimeout?.();
+        } finally {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms.`));
+        }
+      });
+    }, timeoutMs);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    operation.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error))
+    );
+  });
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return withDeadline(
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    }),
+    ms + 50,
+    'Browser settle delay',
+    signal
+  );
+}
+
+function stopLoading(webContents: WebContents): void {
+  try {
+    if (!webContents.isDestroyed() && webContents.isLoading()) webContents.stop();
+  } catch {
+    // The renderer may have disappeared between the liveness check and stop.
+  }
+}
+
+/** Event-driven page readiness shared by visible and detached runtimes. */
+export function waitForBrowserPageReady(
+  webContents: WebContents,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<void> {
+  if (webContents.isDestroyed()) return Promise.reject(new Error('The browser tab was destroyed.'));
+  if (!webContents.isLoading()) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      webContents.removeListener('did-stop-loading', onReady);
+      webContents.removeListener('did-finish-load', onReady);
+      webContents.removeListener('did-fail-load', onFail);
+      webContents.removeListener('render-process-gone', onRendererGone);
+      webContents.removeListener('destroyed', onDestroyed);
+    };
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const onReady = () => finish(resolve);
+    const onFail = (
+      _event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      _validatedURL: string,
+      isMainFrame: boolean
+    ) => {
+      if (!isMainFrame || errorCode === -3) return;
+      finish(() => reject(new Error(`Page load failed: ${errorDescription} (${errorCode}).`)));
+    };
+    const onRendererGone = () =>
+      finish(() => reject(new Error('The browser renderer stopped unexpectedly.')));
+    const onDestroyed = () => finish(() => reject(new Error('The browser tab was destroyed.')));
+    const onAbort = () => {
+      stopLoading(webContents);
+      finish(() => reject(new Error('Browser action was cancelled.')));
+    };
+    const timer = setTimeout(() => {
+      stopLoading(webContents);
+      finish(() => reject(new Error(`Page readiness timed out after ${timeoutMs}ms.`)));
+    }, timeoutMs);
+    webContents.once('did-stop-loading', onReady);
+    webContents.once('did-finish-load', onReady);
+    webContents.on('did-fail-load', onFail);
+    webContents.once('render-process-gone', onRendererGone);
+    webContents.once('destroyed', onDestroyed);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
 
 /** Collect the interactable-DOM snapshot for a live webContents. */
 export async function captureDomSnapshot(webContents: WebContents): Promise<BrowserUseSnapshot> {
@@ -196,17 +371,8 @@ function normalizeKey(key: string): string {
   return KEY_ALIASES[key.trim().toLowerCase()] ?? key.trim();
 }
 
-/**
- * Execute one browser-use action against the ACTIVE tab of a session's
- * built-in browser. The tab must be live (not suspended): the manager keeps
- * at least the active tab live while the panel is open.
- */
-/**
- * Ensure the session's browser panel is open before an action runs.
- * Injected by the IPC layer: broadcasts to the renderer, which opens the
- * right-panel Browser tab (Codex parity — browser use never requires the
- * user to pre-open anything). Returns once a tab is live or on timeout.
- */
+/** Ask the renderer to reveal Browser Use. The action does not depend on the
+ * renderer responding: BrowserManager can run the same tab detached. */
 export type BrowserUsePanelOpener = (sessionId: string) => Promise<void>;
 
 let panelOpener: BrowserUsePanelOpener | null = null;
@@ -215,60 +381,68 @@ export function setBrowserUsePanelOpener(opener: BrowserUsePanelOpener | null): 
   panelOpener = opener;
 }
 
-async function ensurePanelOpen(manager: BrowserManager, sessionId: string): Promise<boolean> {
-  const deadline = Date.now() + 3_000;
-  while (Date.now() < deadline) {
-    const state = manager.getState({ sessionId });
-    if (state.activeTabId) return true;
-    // The opener is a persistent, idempotent hook (renderer no-ops when the
-    // tab is already open) — call it every wait round until a tab appears.
-    if (panelOpener) await panelOpener(sessionId);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const after = manager.getState({ sessionId });
-    if (after.activeTabId) return true;
-  }
-  return manager.getState({ sessionId }).activeTabId != null;
-}
-
 export async function runBrowserUseAction(
   manager: BrowserManager,
-  input: BrowserUseActionInput
+  input: BrowserUseActionInput,
+  options: BrowserUseRunOptions = {}
 ): Promise<BrowserUseActionResult> {
-  // Wrap the whole action in the agent-activity mark so the panel badge is
-  // up for exactly the action's lifetime (Codex-parity visible browsing).
-  return manager.withAgentActivity(input.sessionId, () =>
-    runBrowserUseActionInner(manager, input)
+  const previous = actionQueues.get(input.sessionId) ?? Promise.resolve();
+  let currentTail: Promise<void>;
+  const task = previous
+    .catch(() => undefined)
+    .then(async (): Promise<BrowserUseActionResult> => {
+      let sessionController = sessionAbortControllers.get(input.sessionId);
+      if (!sessionController || sessionController.signal.aborted) {
+        sessionController = new AbortController();
+        sessionAbortControllers.set(input.sessionId, sessionController);
+      }
+      const combined = combineAbortSignals([sessionController.signal, options.signal]);
+      const deadlines = { ...DEFAULT_BROWSER_USE_DEADLINES, ...options.deadlines };
+      try {
+        throwIfAborted(combined.signal);
+        // Reveal on a best-effort basis while acquiring the same tab
+        // immediately for detached/background execution.
+        if (panelOpener) void panelOpener(input.sessionId).catch(() => {});
+        const target = manager.acquireAgentTarget(input.sessionId);
+        await withDeadline(
+          target.restore,
+          deadlines.restoreMs,
+          'Browser tab restore',
+          combined.signal,
+          () => stopLoading(target.webContents)
+        );
+        return await manager.withAgentActivity(input.sessionId, () =>
+          runBrowserUseActionInner(input, target, combined.signal, deadlines)
+        );
+      } catch (error) {
+        return { ok: false, message: browserUseErrorMessage(error) };
+      } finally {
+        combined.cleanup();
+      }
+    });
+  currentTail = task.then(
+    () => undefined,
+    () => undefined
   );
+  actionQueues.set(input.sessionId, currentTail);
+  try {
+    return await task;
+  } finally {
+    if (actionQueues.get(input.sessionId) === currentTail) {
+      actionQueues.delete(input.sessionId);
+    }
+  }
 }
 
 async function runBrowserUseActionInner(
-  manager: BrowserManager,
-  input: BrowserUseActionInput
+  input: BrowserUseActionInput,
+  target: BrowserAgentTarget,
+  signal: AbortSignal,
+  deadlines: BrowserUseDeadlines
 ): Promise<BrowserUseActionResult> {
-  let state = manager.getState({ sessionId: input.sessionId });
-  if (!state.activeTabId) {
-    // Codex parity: the agent's browser use opens the panel on demand —
-    // never fail just because the user hadn't pre-opened it.
-    const opened = await ensurePanelOpen(manager, input.sessionId);
-    if (!opened) {
-      return {
-        ok: false,
-        message: 'Could not open the browser panel. Open it from the right panel and retry.',
-      };
-    }
-    state = manager.getState({ sessionId: input.sessionId });
-    if (!state.activeTabId) {
-      return {
-        ok: false,
-        message: 'Could not open the browser panel. Open it from the right panel and retry.',
-      };
-    }
-  }
-  const tabId = state.activeTabId;
-  const webContents = manager.getLiveWebContents(input.sessionId, tabId);
-  if (!webContents) {
-    return { ok: false, message: 'The browser tab is suspended. Reopen the browser panel and retry.' };
-  }
+  const { tabId, webContents } = target;
+  throwIfAborted(signal);
+  if (webContents.isDestroyed()) return { ok: false, message: 'The browser tab was destroyed.' };
 
   try {
     switch (input.action) {
@@ -287,18 +461,23 @@ async function runBrowserUseActionInner(
         }
         // Navigation consent is enforced by the MCP layer (permission card);
         // this function performs the mechanical navigation only.
-        try {
-          await webContents.loadURL(input.url);
-        } catch (error) {
-          return {
-            ok: false,
-            message: `Navigation failed: ${error instanceof Error ? error.message : String(error)}`,
-          };
-        }
+        await withDeadline(
+          webContents.loadURL(input.url),
+          deadlines.navigationMs,
+          'Navigation',
+          signal,
+          () => stopLoading(webContents)
+        );
+        await waitForBrowserPageReady(webContents, deadlines.navigationMs, signal);
         return { ok: true, message: `Navigated to ${input.url}.` };
       }
       case 'snapshot': {
-        const snapshot = await captureDomSnapshot(webContents);
+        const snapshot = await withDeadline(
+          captureDomSnapshot(webContents),
+          deadlines.commandMs,
+          'Snapshot',
+          signal
+        );
         rememberSnapshot(input.sessionId, tabId, snapshot);
         return {
           ok: true,
@@ -307,7 +486,12 @@ async function runBrowserUseActionInner(
         };
       }
       case 'read': {
-        const snapshot = await captureDomSnapshot(webContents);
+        const snapshot = await withDeadline(
+          captureDomSnapshot(webContents),
+          deadlines.commandMs,
+          'Page read',
+          signal
+        );
         return {
           ok: true,
           message: `Read ${snapshot.url}.`,
@@ -328,7 +512,7 @@ async function runBrowserUseActionInner(
           }
           // Read the CURRENT scroll so viewport coords re-base correctly
           // when the page scrolled since the snapshot.
-          const current = await readScrollPosition(webContents);
+          const current = await readScrollPosition(webContents, signal, deadlines.commandMs);
           const point = resolveNodePoint(
             snapshot,
             input.nodeId,
@@ -345,7 +529,7 @@ async function runBrowserUseActionInner(
         // sendInputEvent expects viewport coordinates for visible content.
         webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
         webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
-        await waitForSettled(webContents);
+        await waitForSettled(webContents, signal, deadlines.settleMs);
         return { ok: true, message: `Clicked (${x}, ${y}).` };
       }
       case 'type': {
@@ -358,7 +542,7 @@ async function runBrowserUseActionInner(
         for (const ch of input.text) {
           webContents.sendInputEvent({ type: 'char', keyCode: ch });
         }
-        await waitForSettled(webContents);
+        await waitForSettled(webContents, signal, deadlines.settleMs);
         return { ok: true, message: `Typed ${input.text.length} characters.` };
       }
       case 'key': {
@@ -366,7 +550,7 @@ async function runBrowserUseActionInner(
         const keyCode = normalizeKey(input.key);
         webContents.sendInputEvent({ type: 'keyDown', keyCode });
         webContents.sendInputEvent({ type: 'keyUp', keyCode });
-        await waitForSettled(webContents);
+        await waitForSettled(webContents, signal, deadlines.settleMs);
         return { ok: true, message: `Pressed ${keyCode}.` };
       }
       case 'scroll': {
@@ -381,30 +565,58 @@ async function runBrowserUseActionInner(
           deltaX: 0,
           deltaY: direction * amount,
         });
-        await waitForSettled(webContents);
+        await waitForSettled(webContents, signal, deadlines.settleMs);
         return { ok: true, message: `Scrolled ${direction === -1 ? 'up' : 'down'} by ${amount}px.` };
       }
       default:
         return { ok: false, message: `Unknown action: ${input.action}` };
     }
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    return { ok: false, message: browserUseErrorMessage(error) };
   }
 }
 
-/** Small settle window so navigation/render effects become observable. */
-function waitForSettled(_webContents: WebContents): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 220));
+/** Let synchronous handlers run, then wait for an event-driven navigation if
+ * the interaction started one. */
+async function waitForSettled(
+  webContents: WebContents,
+  signal: AbortSignal,
+  timeoutMs: number
+): Promise<void> {
+  await abortableDelay(80, signal);
+  if (webContents.isLoading()) {
+    await waitForBrowserPageReady(webContents, timeoutMs, signal);
+  }
 }
 
 /** Current page scroll, for re-basing snapshot viewport coordinates. */
-async function readScrollPosition(webContents: WebContents): Promise<{ scrollX: number; scrollY: number }> {
+async function readScrollPosition(
+  webContents: WebContents,
+  signal: AbortSignal,
+  timeoutMs: number
+): Promise<{ scrollX: number; scrollY: number }> {
   try {
-    return (await webContents.executeJavaScript(
-      '({ scrollX: Math.round(scrollX), scrollY: Math.round(scrollY) })',
-      true
+    return (await withDeadline(
+      webContents.executeJavaScript(
+        '({ scrollX: Math.round(scrollX), scrollY: Math.round(scrollY) })',
+        true
+      ),
+      timeoutMs,
+      'Scroll position read',
+      signal
     )) as { scrollX: number; scrollY: number };
   } catch {
     return { scrollX: 0, scrollY: 0 };
   }
+}
+
+/** Cancel in-flight/queued work and release a detached backend at turn end,
+ * Stop, Delete or app shutdown. A later turn lazily gets a fresh controller. */
+export function finishBrowserUseTurn(manager: BrowserManager, sessionId: string): void {
+  sessionAbortControllers.get(sessionId)?.abort(new Error('Browser turn ended.'));
+  sessionAbortControllers.delete(sessionId);
+  for (const key of [...lastSnapshots.keys()]) {
+    if (key.startsWith(`${sessionId}:`)) lastSnapshots.delete(key);
+  }
+  manager.releaseAgentSession(sessionId);
 }

@@ -46,10 +46,8 @@ export interface McpServerConfig {
   url?: string;
   headers?: Record<string, string>;
   env?: Record<string, string>;
-  /**
-   * Codex only: `enabled = false` under [mcp_servers.<name>] disables the
-   * server. Omit the key entirely (rather than writing `true`) to enable.
-   */
+  /** Runtime-specific enable flag. Codex persists it in config.toml; Aegis
+   * applies it while generating each DeepSeek Harness composition. */
   enabled?: boolean;
 }
 
@@ -839,6 +837,8 @@ export type ClientEvent =
       kimiProjectServers?: Record<string, McpServerConfig>;
       qoderGlobalServers?: Record<string, McpServerConfig>;
       bubbleGlobalServers?: Record<string, McpServerConfig>;
+      deepseekGlobalServers?: Record<string, McpServerConfig>;
+      deepseekProjectServers?: Record<string, McpServerConfig>;
       projectPath?: string;
   } }
   // Skills 事件
@@ -918,6 +918,8 @@ export type ServerEvent =
       kimiProjectServers?: Record<string, McpServerConfig>;
       qoderGlobalServers?: Record<string, McpServerConfig>;
       bubbleGlobalServers?: Record<string, McpServerConfig>;
+      deepseekGlobalServers?: Record<string, McpServerConfig>;
+      deepseekProjectServers?: Record<string, McpServerConfig>;
     } }
   | { type: 'mcp.status'; payload: { servers: McpServerStatus[] } }
   | { type: 'skills.list'; payload: {

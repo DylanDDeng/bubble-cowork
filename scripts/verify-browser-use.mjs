@@ -26,8 +26,8 @@ assert.ok(
   'navigate rejects non-http(s) schemes (file:// origins break consent)'
 );
 assert.ok(
-  /case 'navigate'[\s\S]{0,1100}await webContents\.loadURL/.test(service),
-  'loadURL is awaited and its failure reported (no unhandled rejection)'
+  /case 'navigate'[\s\S]{0,1100}withDeadline\([\s\S]{0,200}webContents\.loadURL/.test(service),
+  'loadURL is bounded by the internal navigation deadline'
 );
 assert.ok(
   service.includes('currentScrollX'),
@@ -41,8 +41,8 @@ assert.ok(
   'click goes through sendInputEvent (real input pipeline, not synthetic JS)'
 );
 assert.ok(
-  service.includes('getLiveWebContents'),
-  'actions resolve the live tab through BrowserManager (suspended tabs refuse clearly)'
+  service.includes('acquireAgentTarget'),
+  'actions acquire the shared visible-or-detached runtime through BrowserManager'
 );
 assert.ok(
   /case 'snapshot'[\s\S]{0,200}rememberSnapshot/.test(service),
@@ -109,7 +109,17 @@ assert.ok(
 );
 assert.ok(
   httpServer.includes('findBrowserUseCallerSessionId'),
-  'HTTP calls are attributed to a session via the pending-call scan'
+  'legacy HTTP providers retain the pending-call attribution fallback'
+);
+assert.ok(
+  httpServer.includes('createBrowserUseSessionMcpDescriptor') &&
+    httpServer.includes('BROWSER_USE_SESSION_HEADER') &&
+    httpServer.includes('sessionCapabilities.get'),
+  'session-scoped MCP capabilities bind DeepSeek requests without transcript scanning'
+);
+assert.ok(
+  /runBrowserUseAction\(browserManager, input, \{ signal \}\)/.test(httpServer),
+  'HTTP disconnect/cancellation signal reaches Browser Use actions'
 );
 assert.ok(
   httpServer.includes('upsertCodexMcpServer') && httpServer.includes('upsertKimiMcpServerRaw'),
@@ -147,6 +157,13 @@ assert.ok(
   httpServer.includes('saveQoderMcpServers') && httpServer.includes('saveOpencodeMcpServers'),
   'qoder/opencode configs receive the browser-use entry (inside the HTTP server bootstrap)'
 );
+const deepseekAdapter = read('src/electron/libs/provider/deepseek-sdk-adapter.ts');
+assert.ok(
+  deepseekAdapter.includes('createBrowserUseSessionMcpDescriptor(threadId)') &&
+    deepseekAdapter.includes('delete runtimeEnv[BROWSER_USE_TOKEN_ENV_VAR]') &&
+    !/deepseek\[BROWSER_USE_SERVER_NAME\] = \{/.test(httpServer),
+  'deepseek receives only a scoped temporary descriptor and not a persisted global token'
+);
 
 // ── Phase 3: persisted origin policies ────────────────────────────────
 const permissions = read('src/electron/libs/browser-use-permissions.ts');
@@ -173,6 +190,17 @@ assert.ok(
 assert.ok(
   read('src/electron/browserManager.ts').includes('withAgentActivity'),
   'agent activity mark wraps browser-use actions'
+);
+assert.ok(
+  read('src/electron/browserManager.ts').includes('acquireAgentTarget') &&
+    read('src/electron/browserManager.ts').includes('releaseAgentSession'),
+  'BrowserManager owns detached backend acquisition and turn-scoped release'
+);
+assert.ok(
+  service.includes('waitForBrowserPageReady') &&
+    service.includes('DEFAULT_BROWSER_USE_DEADLINES') &&
+    service.includes('actionQueues'),
+  'Browser actions use event-driven readiness, internal deadlines and per-session queues'
 );
 assert.ok(
   service.includes('manager.withAgentActivity'),
@@ -233,6 +261,13 @@ assert.ok(
 assert.ok(
   ipc.includes('Guard the built-in browser-use entry'),
   'MCP settings saves re-inject the browser-use entry instead of dropping it'
+);
+assert.ok(
+  httpServer.includes('getDeepseekGlobalMcpServers') &&
+    httpServer.includes('createBrowserUseSessionMcpDescriptor') &&
+    ipc.includes('flushDeepseekRunners();') &&
+    ipc.includes('delete incoming[BROWSER_USE_SERVER_NAME]'),
+  'deepseek browser-use scoped descriptor, reserved-name guard and runtime refresh are wired'
 );
 
 console.log('browser-use phase 6 wiring checks passed');

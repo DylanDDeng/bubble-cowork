@@ -57,6 +57,22 @@ interface LiveTabRuntime {
   view: WebContentsView;
 }
 
+export interface BrowserAgentTarget {
+  tabId: string;
+  webContents: import('electron').WebContents;
+  /** Resolves after a suspended tab has restored its last committed page. */
+  restore: Promise<void>;
+  /** True only while the native view is attached to the visible panel. */
+  visible: boolean;
+}
+
+const BROWSER_AGENT_VIEW_BOUNDS: BrowserPanelBounds = {
+  x: 0,
+  y: 0,
+  width: 1280,
+  height: 800,
+};
+
 // Native WebContentsViews default to a white background, which clashes with the
 // app's themed chrome (especially the dark theme) before a page paints and in
 // any letterbox gaps. Track the app's --bg-primary by theme bucket so the view
@@ -213,9 +229,13 @@ export class BrowserManager {
   private activeBounds: BrowserPanelBounds | null = null;
   private attachedRuntimeKey: string | null = null;
   private attachedView: WebContentsView | null = null;
+  /** Off-screen layout host for Browser Use while the user panel is closed. */
+  private hiddenAgentWindow: BrowserWindow | null = null;
   private readonly states = new Map<string, SessionBrowserState>();
   private readonly runtimes = new Map<string, LiveTabRuntime>();
   private readonly pinnedSessions = new Set<string>();
+  /** Sessions kept alive by Browser Use while their panel is detached. */
+  private readonly agentSessions = new Set<string>();
   private readonly listeners = new Set<BrowserStateListener>();
   /** agentActive re-entrancy depth per session (browser-use actions). */
   private readonly agentActivityDepth = new Map<string, number>();
@@ -250,6 +270,7 @@ export class BrowserManager {
     }
     this.detachAttachedRuntime();
     this.destroyAllRuntimes();
+    this.destroyHiddenAgentHost();
   }
 
   /**
@@ -307,9 +328,11 @@ export class BrowserManager {
     this.suspendTimers.clear();
     this.detachAttachedRuntime();
     this.destroyAllRuntimes();
+    this.destroyHiddenAgentHost();
     this.listeners.clear();
     this.selectionListeners.clear();
     this.states.clear();
+    this.agentSessions.clear();
     this.closingRuntimeKeys.clear();
     this.window = null;
     this.activeSessionId = null;
@@ -660,6 +683,77 @@ export class BrowserManager {
   }
 
   /**
+   * Acquire the active tab for agent automation. Unlike the visible-panel API,
+   * this creates a detached WebContentsView when the panel is closed. Opening
+   * the panel later attaches this exact runtime, so background and visible
+   * browsing never diverge into separate cookie/page state.
+   */
+  acquireAgentTarget(sessionId: string): BrowserAgentTarget {
+    const state = this.ensureWorkspace(sessionId);
+    const tab = this.getActiveTab(state);
+    if (!tab) {
+      throw new Error('Could not create a browser tab for this session.');
+    }
+    this.agentSessions.add(sessionId);
+    this.clearSuspendTimer(sessionId);
+
+    const runtimeKey = buildRuntimeKey(sessionId, tab.id);
+    const runtimeExisted = this.runtimes.has(runtimeKey);
+    const wasSuspended = tab.status === 'suspended';
+    const runtime = this.ensureLiveRuntime(sessionId, tab.id);
+    const visible =
+      this.activeSessionId === sessionId &&
+      this.attachedRuntimeKey === runtime.key &&
+      this.activeBounds !== null;
+    if (!visible) {
+      // A detached view still needs a viewport for layout, hit testing and DOM
+      // snapshots. Host it in a never-shown BrowserWindow so Chromium lays out
+      // the page without overlaying the user's main window.
+      this.attachRuntimeToHiddenHost(runtime);
+    }
+
+    const needsRestore =
+      (!runtimeExisted || wasSuspended) &&
+      tab.url !== ABOUT_BLANK_URL &&
+      runtime.view.webContents.getURL() !== tab.url;
+    const restore = needsRestore
+      ? this.loadTab(sessionId, tab.id, { force: true, runtime })
+      : Promise.resolve();
+    this.emitState(sessionId);
+    return { tabId: tab.id, webContents: runtime.view.webContents, restore, visible };
+  }
+
+  /**
+   * Release Browser Use's keepalive at the end of a turn. Detached runtimes
+   * are destroyed immediately; a user-visible panel keeps its live tab.
+   */
+  releaseAgentSession(sessionId: string): void {
+    this.agentSessions.delete(sessionId);
+    const state = this.states.get(sessionId);
+    if (!state) {
+      if (this.agentSessions.size === 0) this.destroyHiddenAgentHost();
+      return;
+    }
+    const visible = this.activeSessionId === sessionId && this.attachedRuntimeKey !== null;
+    if (visible) {
+      if (this.agentSessions.size === 0) this.destroyHiddenAgentHost();
+      return;
+    }
+    for (const tab of state.tabs) {
+      this.destroyRuntime(sessionId, tab.id);
+      tab.status = 'suspended';
+      tab.isLoading = false;
+      tab.canGoBack = false;
+      tab.canGoForward = false;
+    }
+    state.agentActive = false;
+    this.agentActivityDepth.delete(sessionId);
+    if (this.agentSessions.size === 0) this.destroyHiddenAgentHost();
+    syncSessionLastError(state);
+    this.emitState(sessionId);
+  }
+
+  /**
    * Design mode pins its session: the suspend timer would otherwise destroy
    * the WebContentsView (and with it the inspector + preview state) 30s after
    * the panel loses focus.
@@ -714,6 +808,7 @@ export class BrowserManager {
     const state = this.states.get(sessionId);
     if (!state?.open || this.activeSessionId === sessionId) return;
     if (this.pinnedSessions.has(sessionId)) return;
+    if (this.agentSessions.has(sessionId)) return;
     this.clearSuspendTimer(sessionId);
     const timer = setTimeout(() => {
       this.suspendSession(sessionId);
@@ -727,6 +822,7 @@ export class BrowserManager {
     const state = this.states.get(sessionId);
     if (!state || this.activeSessionId === sessionId) return;
     if (this.pinnedSessions.has(sessionId)) return;
+    if (this.agentSessions.has(sessionId)) return;
     for (const tab of state.tabs) {
       this.destroyRuntime(sessionId, tab.id);
       tab.status = 'suspended';
@@ -776,6 +872,7 @@ export class BrowserManager {
       return;
     }
     this.detachAttachedRuntime();
+    this.removeViewFromHiddenHost(runtime.view);
     try {
       if (!window.contentView.children.includes(runtime.view)) {
         window.contentView.addChildView(runtime.view);
@@ -793,11 +890,78 @@ export class BrowserManager {
   }
 
   private detachAttachedRuntime(): void {
+    const runtimeKey = this.attachedRuntimeKey;
     const view = this.attachedView;
     this.attachedRuntimeKey = null;
     this.attachedView = null;
     if (view) {
       this.removeViewFromWindow(view);
+      const runtime = runtimeKey ? this.runtimes.get(runtimeKey) : null;
+      if (runtime && this.agentSessions.has(runtime.sessionId)) {
+        this.attachRuntimeToHiddenHost(runtime);
+      }
+    }
+  }
+
+  private ensureHiddenAgentHost(): BrowserWindow {
+    if (this.hiddenAgentWindow && !this.hiddenAgentWindow.isDestroyed()) {
+      return this.hiddenAgentWindow;
+    }
+    const hidden = new BrowserWindow({
+      show: false,
+      width: BROWSER_AGENT_VIEW_BOUNDS.width,
+      height: BROWSER_AGENT_VIEW_BOUNDS.height,
+      focusable: false,
+      skipTaskbar: true,
+      backgroundColor: browserViewBackgroundColor(),
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        backgroundThrottling: false,
+      },
+    });
+    hidden.on('closed', () => {
+      if (this.hiddenAgentWindow === hidden) this.hiddenAgentWindow = null;
+    });
+    this.hiddenAgentWindow = hidden;
+    return hidden;
+  }
+
+  private attachRuntimeToHiddenHost(runtime: LiveTabRuntime): void {
+    const hidden = this.ensureHiddenAgentHost();
+    this.removeViewFromWindow(runtime.view);
+    try {
+      if (!hidden.contentView.children.includes(runtime.view)) {
+        hidden.contentView.addChildView(runtime.view);
+      }
+      runtime.view.setBounds(BROWSER_AGENT_VIEW_BOUNDS);
+    } catch (error) {
+      console.error('[browser] hidden-host attach failed:', error);
+      this.removeViewFromHiddenHost(runtime.view);
+    }
+  }
+
+  private removeViewFromHiddenHost(view: WebContentsView): void {
+    const hidden = this.hiddenAgentWindow;
+    if (!hidden || hidden.isDestroyed()) return;
+    try {
+      if (hidden.contentView.children.includes(view)) {
+        hidden.contentView.removeChildView(view);
+      }
+    } catch (error) {
+      console.error('[browser] hidden-host detach failed:', error);
+    }
+  }
+
+  private destroyHiddenAgentHost(): void {
+    const hidden = this.hiddenAgentWindow;
+    this.hiddenAgentWindow = null;
+    if (!hidden || hidden.isDestroyed()) return;
+    try {
+      hidden.destroy();
+    } catch (error) {
+      console.warn('[browser] hidden-host close failed:', error);
     }
   }
 
@@ -841,6 +1005,7 @@ export class BrowserManager {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        backgroundThrottling: false,
       },
     });
     view.setBackgroundColor(browserViewBackgroundColor());
@@ -1047,6 +1212,7 @@ export class BrowserManager {
     // and hangs the app in AppKit's exception handler. Unhook defensively,
     // whatever path led here.
     this.removeViewFromWindow(runtime.view);
+    this.removeViewFromHiddenHost(runtime.view);
     if (this.attachedView === runtime.view) {
       this.attachedView = null;
       this.attachedRuntimeKey = null;

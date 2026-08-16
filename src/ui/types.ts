@@ -421,6 +421,8 @@ export interface AppState {
   mcpKimiProjectServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpQoderGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpBubbleGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpDeepseekGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpDeepseekProjectServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpServerStatus: import('../shared/types').McpServerStatus[];
   claudeUserSkills: import('../shared/types').ClaudeSkillSummary[];
   claudeProjectSkills: import('../shared/types').ClaudeSkillSummary[];

@@ -7,7 +7,7 @@ import type { McpServerConfig, McpServerStatus } from '../../types';
 import type { CodexMcpServerRuntimeStatus } from '../../../shared/types';
 import { SegmentedControl, SegmentedControlItem, SettingsToggle } from './SettingsPrimitives';
 
-type ServerTool = 'claude' | 'codex' | 'opencode' | 'kimi' | 'qoder' | 'bubble';
+type ServerTool = 'claude' | 'codex' | 'opencode' | 'kimi' | 'qoder' | 'bubble' | 'deepseek';
 type ServerScope = 'global' | 'project';
 type GroupId =
   | 'claude-global'
@@ -18,7 +18,9 @@ type GroupId =
   | 'kimi-global'
   | 'kimi-project'
   | 'qoder-global'
-  | 'bubble-global';
+  | 'bubble-global'
+  | 'deepseek-global'
+  | 'deepseek-project';
 
 // Component-local page navigation: the settings pane swaps between the grouped
 // list and full-page create/edit forms (Codex-desktop style), no router.
@@ -70,6 +72,8 @@ export function McpSettingsContent() {
     mcpKimiProjectServers,
     mcpQoderGlobalServers,
     mcpBubbleGlobalServers,
+    mcpDeepseekGlobalServers,
+    mcpDeepseekProjectServers,
     mcpServerStatus,
     showSettings,
     activeSessionId,
@@ -243,6 +247,28 @@ export function McpSettingsContent() {
       allowedTransports: ['stdio', 'http'],
     });
 
+    items.push({
+      id: 'deepseek-global',
+      tool: 'deepseek',
+      scope: 'global',
+      title: 'Global Servers',
+      description: 'Stored by Aegis and loaded into every DeepSeek Harness workspace.',
+      servers: mcpDeepseekGlobalServers,
+      allowedTransports: ['stdio', 'http'],
+    });
+
+    if (currentProjectPath) {
+      items.push({
+        id: 'deepseek-project',
+        tool: 'deepseek',
+        scope: 'project',
+        title: 'Project Servers',
+        description: `Connections only loaded into DeepSeek Harness for ${currentProjectName}.`,
+        servers: mcpDeepseekProjectServers,
+        allowedTransports: ['stdio', 'http'],
+      });
+    }
+
     return items;
   }, [
     mcpGlobalServers,
@@ -254,6 +280,8 @@ export function McpSettingsContent() {
     mcpKimiProjectServers,
     mcpQoderGlobalServers,
     mcpBubbleGlobalServers,
+    mcpDeepseekGlobalServers,
+    mcpDeepseekProjectServers,
     currentProjectPath,
     currentProjectName,
   ]);
@@ -329,6 +357,23 @@ export function McpSettingsContent() {
         type: 'mcp.save-config',
         payload: { bubbleGlobalServers: nextServers },
       });
+      return;
+    }
+    if (groupId === 'deepseek-global') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: { deepseekGlobalServers: nextServers },
+      });
+      return;
+    }
+    if (groupId === 'deepseek-project') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: {
+          deepseekProjectServers: nextServers,
+          projectPath: currentProjectPath,
+        },
+      });
     }
   };
 
@@ -394,7 +439,15 @@ export function McpSettingsContent() {
   );
 
   const counts = useMemo(() => {
-    const byTool: Record<ServerTool, number> = { claude: 0, codex: 0, opencode: 0, kimi: 0, qoder: 0, bubble: 0 };
+    const byTool: Record<ServerTool, number> = {
+      claude: 0,
+      codex: 0,
+      opencode: 0,
+      kimi: 0,
+      qoder: 0,
+      bubble: 0,
+      deepseek: 0,
+    };
     for (const group of groups) {
       byTool[group.tool] += Object.keys(group.servers).length;
     }
@@ -465,10 +518,11 @@ export function McpSettingsContent() {
           onAdd={() => setView({ kind: 'create', groupId: group.id })}
           onOpen={(name) => setView({ kind: 'edit', groupId: group.id, name })}
           onToggleEnabled={
-            // Only where the target CLI honors a disable flag in its config:
+            // Only where the target runtime honors a disable flag in its config:
             // codex (config.toml `enabled`) and opencode (opencode.json
-            // `enabled`). Claude/Kimi mcpServers formats have no such field.
-            group.tool === 'codex' || group.tool === 'opencode'
+            // `enabled`), plus Aegis's DeepSeek runtime config. Claude/Kimi
+            // mcpServers formats have no such field.
+            group.tool === 'codex' || group.tool === 'opencode' || group.tool === 'deepseek'
               ? (name, nextEnabled) => handleToggleEnabled(name, group, nextEnabled)
               : undefined
           }
@@ -517,6 +571,11 @@ function ToolTabBar({
       id: 'bubble',
       label: 'Bubble',
       hint: '~/.bubble/settings.json',
+    },
+    {
+      id: 'deepseek',
+      label: 'DeepSeek',
+      hint: '~/.aegis/deepseek-mcp.json',
     },
   ];
 
@@ -598,6 +657,11 @@ function ServerGroupSection({
     }
     if (group.tool === 'bubble') {
       return 'Add an MCP server for the Bubble CLI. Written to ~/.bubble/settings.json.';
+    }
+    if (group.tool === 'deepseek') {
+      return group.scope === 'project'
+        ? 'Add a workspace-only MCP server for DeepSeek Harness.'
+        : 'Add an MCP server loaded into every DeepSeek Harness workspace.';
     }
     return group.scope === 'global'
       ? 'Add a reusable MCP connection to make tools available in every Claude Code workspace.'

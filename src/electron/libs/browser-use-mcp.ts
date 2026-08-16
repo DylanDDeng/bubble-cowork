@@ -52,7 +52,7 @@ const TOOL_NAME = 'browser_use';
 
 const TOOL_DESCRIPTION = [
   'Drive the session browser panel to browse and interact with web pages.',
-  'The panel opens automatically on first use and the user watches every action.',
+  'Aegis reveals the panel when available and keeps the same tab usable in the background.',
   'Workflow: navigate,',
   'then snapshot to get interactive elements with stable node ids and viewport',
   'coordinates, then click/type/scroll by node id (preferred) or x/y, then',

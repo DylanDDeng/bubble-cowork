@@ -895,6 +895,8 @@ export const useAppStore = create<Store>()(
       mcpKimiProjectServers: {},
       mcpQoderGlobalServers: {},
       mcpBubbleGlobalServers: {},
+      mcpDeepseekGlobalServers: {},
+      mcpDeepseekProjectServers: {},
       mcpServerStatus: [],
       claudeUserSkills: [],
       claudeProjectSkills: [],
@@ -1146,6 +1148,8 @@ export const useAppStore = create<Store>()(
           mcpKimiProjectServers: event.payload.kimiProjectServers || {},
           mcpQoderGlobalServers: event.payload.qoderGlobalServers || {},
           mcpBubbleGlobalServers: event.payload.bubbleGlobalServers || {},
+          mcpDeepseekGlobalServers: event.payload.deepseekGlobalServers || {},
+          mcpDeepseekProjectServers: event.payload.deepseekProjectServers || {},
         });
         break;
 

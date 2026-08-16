@@ -10,6 +10,18 @@ import {
 } from '../deepseek-cli';
 import { listDeepseekSkills } from '../deepseek-skills';
 import { estimateDeepseekUsageCost } from '../deepseek-pricing';
+import {
+  createDeepseekMcpRuntimeConfig,
+  getDeepseekMcpServers,
+} from '../deepseek-mcp-settings';
+import {
+  BROWSER_USE_TOKEN_ENV_VAR,
+  createBrowserUseSessionMcpDescriptor,
+} from '../browser-use-http-server';
+import { BROWSER_USE_SERVER_NAME, finishBrowserUseTurn } from '../browser-use';
+import { isBrowserUseEnabled } from '../browser-use-permissions';
+import { setBrowserUseSessionFullAccess } from '../browser-use-consent';
+import { browserManager } from '../../browserManager';
 import { normalizeDeepseekAgentPreset } from '../../../shared/deepseek-agent-preset';
 import {
   loadDeepseekSdk,
@@ -94,6 +106,7 @@ interface ActiveDeepseekSession {
    * run settled, and only a run-independent subscription still sees it.
    */
   subscription: DshNotificationSubscription;
+  disposeRuntimeConfig: () => void;
   contextWindow?: number;
   turn?: TurnState;
   /** True while a primary run() owns the activity — steers enqueue instead. */
@@ -106,7 +119,7 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
   sessionModelSwitch: false,
   skillDiscovery: true,
   pluginDiscovery: false,
-  mcpServers: false,
+  mcpServers: true,
   imageAttachments: false,
   forkThread: false,
   compactThread: false,
@@ -223,14 +236,23 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     const agentPreset = normalizeDeepseekAgentPreset(input.deepseekAgentPreset);
     const reasoningEffort = normalizeDeepseekReasoningEffort(input.deepseekReasoningEffort);
     const model = input.model?.trim() || getDeepseekModelConfig().defaultModel || undefined;
-    const harness = await this.spawnHarness(
-      input.cwd,
-      model,
-      permissionMode,
-      agentPreset,
-      reasoningEffort,
-      input.resumeSessionId
-    );
+    setBrowserUseSessionFullAccess(input.threadId, permissionMode === 'danger-full-access');
+    let launched: Awaited<ReturnType<DeepseekSdkAdapter['spawnHarness']>>;
+    try {
+      launched = await this.spawnHarness(
+        input.threadId,
+        input.cwd,
+        model,
+        permissionMode,
+        agentPreset,
+        reasoningEffort,
+        input.resumeSessionId
+      );
+    } catch (error) {
+      setBrowserUseSessionFullAccess(input.threadId, false);
+      throw error;
+    }
+    const { harness, disposeRuntimeConfig } = launched;
 
     // session(id) is only a client-side handle; the Aegis runtime shim decides
     // on the first prompt whether that durable identity must be resumed or a
@@ -250,6 +272,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       harness,
       session,
       subscription,
+      disposeRuntimeConfig,
     };
     // Never orphan a previous session for the same thread — an undisposed
     // predecessor would leak its runtime subprocess.
@@ -400,6 +423,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       this.emit({ type: 'status_change', threadId: input.threadId, status: 'error' });
     } finally {
       active.turnInFlight = false;
+      finishBrowserUseTurn(browserManager, input.threadId);
     }
   }
 
@@ -421,6 +445,8 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   }
 
   async stopSession(threadId: string): Promise<void> {
+    finishBrowserUseTurn(browserManager, threadId);
+    setBrowserUseSessionFullAccess(threadId, false);
     const active = this.sessions.get(threadId);
     if (!active) return;
     active.status = 'stopped';
@@ -437,23 +463,28 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       await active.harness.close();
     } catch {
       // The process may already be gone.
+    } finally {
+      active.disposeRuntimeConfig();
     }
   }
 
   disposeSession(threadId: string): boolean {
+    finishBrowserUseTurn(browserManager, threadId);
+    setBrowserUseSessionFullAccess(threadId, false);
     const active = this.sessions.get(threadId);
     if (!active) {
       return false;
     }
+    active.closed = true;
+    this.sessions.delete(threadId);
     try {
-      active.closed = true;
-      this.sessions.delete(threadId);
       active.subscription.close();
-      // Quiet, synchronous contract: fire and forget the async close ladder.
-      void active.harness.close().catch(() => {});
     } catch (error) {
-      console.warn('[DeepseekSdkAdapter] disposeSession cleanup failed:', error);
+      console.warn('[DeepseekSdkAdapter] subscription cleanup failed:', error);
     }
+    // Quiet, synchronous contract: fire and forget the async close ladder.
+    // Runtime-config cleanup must not depend on subscription teardown.
+    void active.harness.close().catch(() => {}).finally(active.disposeRuntimeConfig);
     return true;
   }
 
@@ -492,25 +523,36 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     const agentPreset = normalizeDeepseekAgentPreset(input.deepseekAgentPreset);
     const reasoningEffort = normalizeDeepseekReasoningEffort(input.deepseekReasoningEffort);
     const model = input.model?.trim() || getDeepseekModelConfig().defaultModel || undefined;
-    const harness = await this.spawnHarness(input.cwd, model, permissionMode, agentPreset, reasoningEffort);
+    setBrowserUseSessionFullAccess(input.threadId, permissionMode === 'danger-full-access');
+    const { harness, disposeRuntimeConfig } = await this.spawnHarness(
+      input.threadId,
+      input.cwd,
+      model,
+      permissionMode,
+      agentPreset,
+      reasoningEffort
+    );
     try {
       const result = await harness.run(buildPromptBlocks(input.prompt, input.attachments));
       return { text: result.finalResponse, sessionId: result.sessionId, model };
     } finally {
-      void harness.close().catch(() => {});
+      finishBrowserUseTurn(browserManager, input.threadId);
+      setBrowserUseSessionFullAccess(input.threadId, false);
+      void harness.close().catch(() => {}).finally(disposeRuntimeConfig);
     }
   }
 
   // ── Runtime management ─────────────────────────────────────────────────────
 
   private async spawnHarness(
+    threadId: string,
     cwd: string,
     model: string | undefined,
     permissionMode: DeepseekPermissionMode,
     agentPreset: DeepseekAgentPreset,
     reasoningEffort: DeepseekReasoningEffort,
     resumeSessionId?: string
-  ): Promise<DshHarness> {
+  ): Promise<{ harness: DshHarness; disposeRuntimeConfig: () => void }> {
     const profileDir = resolveDeepseekProfileDir();
     if (!profileDir) {
       throw new Error(
@@ -518,33 +560,62 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       );
     }
     const entry = resolveDeepseekRuntimeEntry(profileDir);
-    const sdk = await loadDeepseekSdk();
-    const harness = new sdk.DeepSeekHarness({
-      launch: {
-        command: process.execPath,
-        args: [entry.binPath, entry.configPath],
-        cwd: profileDir,
-        // Stop rides the close ladder (shutdown -> EOF -> SIGTERM -> SIGKILL);
-        // the SDK defaults sum to ~10s worst case, far too slow for the stop
-        // button. A mid-turn runtime holds no state worth a long quiesce —
-        // sessions persist per event — so cut each rung short (~3.5s worst).
-        shutdownTimeoutMs: 500,
-        disposeEofGraceMs: 1500,
-        disposeGraceMs: 1500,
-        env: {
-          ...buildDeepseekEnv({ cwd, permissionMode, agentPreset, reasoningEffort }),
-          // Electron's process.execPath is Electron itself; run as plain node.
-          ELECTRON_RUN_AS_NODE: '1',
-          DSH_SESSION_ROOT: path.join(profileDir, '.sessions'),
-          ...(resumeSessionId ? { AEGIS_DSH_RESUME_SESSION_ID: resumeSessionId } : {}),
+    let disposeBrowserDescriptor = () => {};
+    const servers = getDeepseekMcpServers(cwd);
+    delete servers[BROWSER_USE_SERVER_NAME];
+    if (isBrowserUseEnabled()) {
+      const descriptor = await createBrowserUseSessionMcpDescriptor(threadId);
+      disposeBrowserDescriptor = descriptor.dispose;
+      servers[BROWSER_USE_SERVER_NAME] = {
+        type: 'http',
+        url: descriptor.url,
+        headers: descriptor.headers,
+      };
+    }
+    const runtimeConfig = createDeepseekMcpRuntimeConfig(profileDir, cwd, servers);
+    let runtimeDisposed = false;
+    const disposeRuntimeConfig = () => {
+      if (runtimeDisposed) return;
+      runtimeDisposed = true;
+      runtimeConfig.dispose();
+      disposeBrowserDescriptor();
+    };
+    try {
+      const sdk = await loadDeepseekSdk();
+      const runtimeEnv = buildDeepseekEnv({ cwd, permissionMode, agentPreset, reasoningEffort });
+      // Codex uses the process-level bearer env var; DeepSeek uses the scoped
+      // temporary config and must not inherit the global bearer token.
+      delete runtimeEnv[BROWSER_USE_TOKEN_ENV_VAR];
+      const harness = new sdk.DeepSeekHarness({
+        launch: {
+          command: process.execPath,
+          args: [entry.binPath, runtimeConfig.configPath],
+          cwd: profileDir,
+          // Stop rides the close ladder (shutdown -> EOF -> SIGTERM -> SIGKILL);
+          // the SDK defaults sum to ~10s worst case, far too slow for the stop
+          // button. A mid-turn runtime holds no state worth a long quiesce —
+          // sessions persist per event — so cut each rung short (~3.5s worst).
+          shutdownTimeoutMs: 500,
+          disposeEofGraceMs: 1500,
+          disposeGraceMs: 1500,
+          env: {
+            ...runtimeEnv,
+            // Electron's process.execPath is Electron itself; run as plain node.
+            ELECTRON_RUN_AS_NODE: '1',
+            DSH_SESSION_ROOT: path.join(profileDir, '.sessions'),
+            ...(resumeSessionId ? { AEGIS_DSH_RESUME_SESSION_ID: resumeSessionId } : {}),
+          },
         },
-      },
-      cwd,
-      provider: 'deepseek-official',
-      ...(model ? { model } : {}),
-    });
-    await harness.start();
-    return harness;
+        cwd,
+        provider: 'deepseek-official',
+        ...(model ? { model } : {}),
+      });
+      await harness.start();
+      return { harness, disposeRuntimeConfig };
+    } catch (error) {
+      disposeRuntimeConfig();
+      throw error;
+    }
   }
 
   // ── Notification routing ───────────────────────────────────────────────────

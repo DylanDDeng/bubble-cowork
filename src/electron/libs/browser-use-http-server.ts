@@ -1,20 +1,22 @@
 // Loopback streamable-HTTP MCP transport for Browser Use (Codex parity).
 //
-// Non-Claude leads (codex/kimi/qoder/opencode) are singleton CLI daemons that
-// cannot reach the Electron main process over stdio, so the main process hosts
+// Non-Claude leads (codex/kimi/qoder/opencode/bubble/deepseek) run outside the
+// in-process Claude SDK path and cannot reach the Electron main process over
+// stdio, so the main process hosts
 // the browser-use MCP server on 127.0.0.1 — the exact delegate-http-server
 // pattern. Auth: per-run bearer token in process env; CLIs spawned by Aegis
 // inherit it via bearer_token_env_var, a CLI running outside Aegis lacks both
 // the live port and the token and fails fast.
 //
-// Caller attribution: an HTTP call carries no session identity, so actions
-// resolve the calling session by the delegate-service pending-tool-call scan
-// (tool name + arguments against running sessions' in-flight tool_use blocks).
+// DeepSeek runtimes receive a random session capability in their generated
+// MCP headers. Legacy providers without per-session configuration retain the
+// pending-tool-call scan as a compatibility fallback.
 
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
 import {
   BROWSER_USE_SERVER_NAME,
+  finishBrowserUseTurn,
   runBrowserUseAction,
   type BrowserUseActionInput,
   type BrowserUseActionResult,
@@ -34,13 +36,19 @@ import {
   saveOpencodeMcpServers,
 } from './opencode-mcp-settings';
 import {
+  getDeepseekGlobalMcpServers,
+  saveDeepseekGlobalMcpServers,
+} from './deepseek-mcp-settings';
+import {
   findBrowserUseCallerSessionId,
   requestBrowserUseNavigationConsent,
 } from './browser-use-consent';
 
 export const BROWSER_USE_TOKEN_ENV_VAR = 'AEGIS_BROWSER_USE_TOKEN';
+export const BROWSER_USE_SESSION_HEADER = 'x-aegis-browser-session';
 const MCP_PATH = '/mcp';
 const CODEX_TOOL_TIMEOUT_SEC = 5 * 60;
+export const BROWSER_USE_MCP_TOOL_TIMEOUT_MS = 45_000;
 
 export interface BrowserUseHttpServerInfo {
   url: string;
@@ -48,8 +56,15 @@ export interface BrowserUseHttpServerInfo {
   token: string;
 }
 
+export interface BrowserUseSessionMcpDescriptor {
+  url: string;
+  headers: Record<string, string>;
+  dispose: () => void;
+}
+
 let serverPromise: Promise<BrowserUseHttpServerInfo> | null = null;
 let httpServer: HttpServer | null = null;
+const sessionCapabilities = new Map<string, { sessionId: string; createdAt: number }>();
 
 /** Current server descriptor for adapters that pass MCP entries per session
  * (grok ACP session/new). Null when not started / disabled. */
@@ -60,6 +75,29 @@ export function getBrowserUseMcpDescriptor(): { url: string; headers: Record<str
   return { url: cached.url, headers: { Authorization: `Bearer ${cached.token}` } };
 }
 
+/** Create a non-model-visible capability that binds every request from one
+ * provider runtime to exactly one Aegis session. */
+export async function createBrowserUseSessionMcpDescriptor(
+  sessionId: string
+): Promise<BrowserUseSessionMcpDescriptor> {
+  const info = await ensureBrowserUseHttpServer();
+  const capability = randomUUID();
+  sessionCapabilities.set(capability, { sessionId, createdAt: Date.now() });
+  let disposed = false;
+  return {
+    url: info.url,
+    headers: {
+      Authorization: `Bearer ${info.token}`,
+      [BROWSER_USE_SESSION_HEADER]: capability,
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      sessionCapabilities.delete(capability);
+    },
+  };
+}
+
 let serverInfoCache: BrowserUseHttpServerInfo | null = null;
 
 /* eslint-disable @typescript-eslint/no-var-requires */
@@ -68,7 +106,10 @@ function loadMcpSdk(): {
     registerTool: (
       name: string,
       config: { description: string; inputSchema: Record<string, unknown> },
-      handler: (args: Record<string, unknown>) => Promise<{
+      handler: (
+        args: Record<string, unknown>,
+        context?: { signal?: AbortSignal }
+      ) => Promise<{
         content: Array<{ type: 'text'; text: string }>;
         isError?: boolean;
       }>
@@ -98,7 +139,7 @@ const TOOL_NAME = 'browser_use';
 
 const TOOL_DESCRIPTION = [
   'Drive the Aegis session browser panel to browse and interact with web pages.',
-  'The panel opens automatically on first use; the user watches every action.',
+  'Aegis reveals the panel when available and keeps the same tab usable in the background.',
   'Workflow: navigate (the user approves new origins), then snapshot to get',
   'interactive elements with stable node ids and viewport coordinates, then',
   'click/type/scroll by node id (preferred) or x/y, then read or snapshot again',
@@ -125,7 +166,20 @@ function formatResult(result: BrowserUseActionResult): string {
   return parts.join('\n');
 }
 
-function buildMcpServer() {
+function mergeRequestSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (!signal) continue;
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      break;
+    }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
+
+function buildMcpServer(scopedSessionId: string | null, requestSignal: AbortSignal) {
   const { McpServer } = loadMcpSdk();
   const { z } = loadZod();
   const server = new McpServer({ name: BROWSER_USE_SERVER_NAME, version: '0.1.0' });
@@ -148,10 +202,12 @@ function buildMcpServer() {
         amount: z.number().optional().describe('Scroll pixels (scroll only, default 600).'),
       },
     },
-    async (args) => {
-      // HTTP calls carry no session identity: resolve the caller by matching
-      // this tool call against running sessions' pending browser_use blocks.
-      const sessionId = await findBrowserUseCallerSessionId(args);
+    async (args, context) => {
+      const startedAt = Date.now();
+      const signal = mergeRequestSignals(requestSignal, context?.signal);
+      // Scoped runtimes never consult transcripts. The scan remains only for
+      // legacy providers whose MCP configuration is process-global.
+      const sessionId = scopedSessionId ?? (await findBrowserUseCallerSessionId(args, signal));
       if (!sessionId) {
         return {
           content: [
@@ -163,8 +219,15 @@ function buildMcpServer() {
           isError: true,
         };
       }
+      console.info('[browser-use]', {
+        stage: 'attributed',
+        sessionId,
+        action: args.action,
+        scoped: scopedSessionId !== null,
+        elapsedMs: Date.now() - startedAt,
+      });
       if (args.action === 'navigate' && typeof args.url === 'string' && args.url) {
-        const allowed = await requestBrowserUseNavigationConsent(sessionId, args.url);
+        const allowed = await requestBrowserUseNavigationConsent(sessionId, args.url, signal);
         if (!allowed) {
           return {
             content: [
@@ -202,7 +265,14 @@ function buildMcpServer() {
         direction: typedArgs.direction,
         amount: typedArgs.amount,
       };
-      const result = await runBrowserUseAction(browserManager, input);
+      const result = await runBrowserUseAction(browserManager, input, { signal });
+      console.info('[browser-use]', {
+        stage: 'response',
+        sessionId,
+        action: input.action,
+        ok: result.ok,
+        elapsedMs: Date.now() - startedAt,
+      });
       return {
         content: [{ type: 'text' as const, text: formatResult(result) }],
         ...(result.ok ? {} : { isError: true }),
@@ -243,6 +313,30 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, token
     res.writeHead(405).end();
     return;
   }
+  const capabilityHeader = req.headers[BROWSER_USE_SESSION_HEADER];
+  const capability = Array.isArray(capabilityHeader) ? capabilityHeader[0] : capabilityHeader;
+  let scopedSessionId: string | null = null;
+  if (capability) {
+    const binding = sessionCapabilities.get(capability);
+    if (!binding) {
+      res.writeHead(403, { 'Content-Type': 'application/json' }).end(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32001, message: 'Invalid or expired browser session capability' },
+          id: null,
+        })
+      );
+      return;
+    }
+    scopedSessionId = binding.sessionId;
+  }
+  const requestController = new AbortController();
+  const onResponseClose = () => {
+    if (!res.writableEnded) requestController.abort(new Error('MCP client disconnected.'));
+  };
+  const onRequestAborted = () => requestController.abort(new Error('MCP request aborted.'));
+  res.once('close', onResponseClose);
+  req.once('aborted', onRequestAborted);
   const transport = loadMcpSdk().StreamableHTTPServerTransport
     ? new (loadMcpSdk().StreamableHTTPServerTransport)({
         sessionIdGenerator: undefined,
@@ -253,11 +347,13 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse, token
     res.writeHead(500).end();
     return;
   }
-  const server = buildMcpServer();
+  const server = buildMcpServer(scopedSessionId, requestController.signal);
   await server.connect(transport);
   try {
     await transport.handleRequest(req, res);
   } finally {
+    res.removeListener('close', onResponseClose);
+    req.removeListener('aborted', onRequestAborted);
     await server.close().catch(() => {});
     await transport.close().catch(() => {});
   }
@@ -304,6 +400,7 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
       port,
       token,
     };
+    if (process.env.AEGIS_BROWSER_USE_TEST_MODE !== '1') {
     try {
       upsertCodexMcpServer(
         BROWSER_USE_SERVER_NAME,
@@ -361,6 +458,11 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
     } catch (error) {
       console.warn('Failed to write the opencode browser-use MCP entry:', error);
     }
+    // DeepSeek is intentionally absent here: its adapter injects a fresh,
+    // session-scoped capability into the per-runtime temporary config. Writing
+    // the app bearer token to its persistent global settings would defeat that
+    // isolation and leave a secret behind after crashes.
+    }
     serverInfoCache = info;
     return info;
   })();
@@ -373,6 +475,7 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
 /** Remove the browser-use entry from every provider config (toggle-off,
  * and disabled boot). Idempotent. */
 export function removeBrowserUseMcpEntries(): void {
+  if (process.env.AEGIS_BROWSER_USE_TEST_MODE === '1') return;
   try {
     const codex = getCodexMcpServers();
     if (BROWSER_USE_SERVER_NAME in codex) {
@@ -418,9 +521,25 @@ export function removeBrowserUseMcpEntries(): void {
   } catch (error) {
     console.warn('Failed to remove the opencode browser-use MCP entry:', error);
   }
+  try {
+    const deepseek = getDeepseekGlobalMcpServers();
+    if (BROWSER_USE_SERVER_NAME in deepseek) {
+      delete deepseek[BROWSER_USE_SERVER_NAME];
+      saveDeepseekGlobalMcpServers(deepseek);
+    }
+  } catch (error) {
+    console.warn('Failed to remove the deepseek browser-use MCP entry:', error);
+  }
 }
 
 export function disposeBrowserUseHttpServer(): void {
+  const boundSessionIds = new Set(
+    [...sessionCapabilities.values()].map((binding) => binding.sessionId)
+  );
+  sessionCapabilities.clear();
+  for (const sessionId of boundSessionIds) {
+    finishBrowserUseTurn(browserManager, sessionId);
+  }
   serverInfoCache = null;
   removeBrowserUseMcpEntries();
   if (httpServer) {
