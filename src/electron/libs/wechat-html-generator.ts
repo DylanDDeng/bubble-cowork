@@ -5,7 +5,7 @@ import type {
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlThemeId,
 } from '../../shared/types';
-import { runCodexOneShot, runOpenCodeOneShot } from './codex-runner';
+import { runOpenCodeOneShot } from './codex-runner';
 import { runClaudeOneShot } from './util';
 import { loadWechatHtmlGeneratorConfig } from './wechat-html-generator-config';
 
@@ -323,12 +323,12 @@ async function requestAgentText(input: {
     return { text: result.text, model: result.model || model };
   }
 
+  // codex 也走直连：此功能无 UI 入口（休眠），但 IPC 仍可达——保留 codex
+  // one-shot 会成为最后一个幽灵线程入口（同 recap/分支名泄漏类）。
   if (input.selection.runtime === 'codex') {
-    const result = await runCodexOneShot({
+    const result = await runClaudeOneShot({
       prompt,
       cwd,
-      model,
-      codexPermissionMode: 'defaultPermissions',
     });
     return { text: result.text, model: result.model || model };
   }
