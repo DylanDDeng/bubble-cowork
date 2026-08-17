@@ -50,10 +50,13 @@ function verifyPackagedDeepseekSdk(resourcesDir, projectDir) {
   const unpackedDir = path.join(resourcesDir, 'app.asar.unpacked');
   for (const name of required) {
     const asarEntry = `/node_modules/${name}/package.json`;
+    // @electron/asar resolves entries by splitting on path.sep, so the lookup
+    // key must use the host separator (backslashes on Windows).
+    const asarLookup = asarEntry.slice(1).split('/').join(path.sep);
     const unpackedFile = path.join(unpackedDir, 'node_modules', name, 'package.json');
     let manifest;
     if (entries.has(asarEntry)) {
-      manifest = asar.extractFile(asarPath, asarEntry.slice(1)).toString('utf8');
+      manifest = asar.extractFile(asarPath, asarLookup).toString('utf8');
     } else if (fs.existsSync(unpackedFile)) {
       manifest = fs.readFileSync(unpackedFile, 'utf8');
     }
