@@ -34,6 +34,8 @@
     "verify:codex-compaction": "npm run transpile:electron && node scripts/verify-codex-compaction.mjs",
     "verify:codex-app-server": "npm run transpile:electron && node scripts/verify-codex-app-server.mjs",
     "verify:codex-mcp-settings": "npm run transpile:electron && node scripts/verify-codex-mcp-settings.mjs",
+    "verify:codex-config-isolation-e2e": "npm run transpile:electron && node scripts/tests/codex-config-isolation-electron.test.mjs",
+    "verify:codex-per-thread-e2e": "npm run transpile:electron && node scripts/tests/codex-per-thread-app-server.e2e.mjs",
     "verify:delegate-mcp": "npm run transpile:electron && node scripts/verify-delegate-mcp.mjs",
     "verify:browser-use": "node scripts/verify-browser-use.mjs && npx tsx scripts/tests/browser-use-runtime.test.ts",
     "verify:browser-use-deepseek-e2e": "npm run transpile:electron && node scripts/tests/browser-use-deepseek-electron.test.mjs",

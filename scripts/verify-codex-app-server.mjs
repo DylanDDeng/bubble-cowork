@@ -16,10 +16,24 @@ process.env.AEGIS_CODEX_STOP_CONFIRM_TIMEOUT_MS = '250';
 
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { readFileSync, chmodSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  readFileSync,
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  writeFileSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+
+// The manager now reads Aegis' private MCP catalog while constructing the
+// child argv. Keep that catalog inside this test's temporary boundary.
+const codexMcpTestRoot = mkdtempSync(join(tmpdir(), 'codex-app-server-mcp-'));
+process.env.AEGIS_CODEX_MCP_CONFIG_PATH = join(codexMcpTestRoot, 'config.toml');
+process.on('exit', () => rmSync(codexMcpTestRoot, { recursive: true, force: true }));
 
 const require = createRequire(import.meta.url);
 const {
@@ -92,13 +106,19 @@ function seedSession(manager, threadId, providerThreadId, extra = {}) {
   });
 }
 
-/** Adapter wired to a capturing manager. */
-function createCapturingAdapter() {
-  const adapter = new CodexAdapter('/nonexistent-codex-binary');
-  const manager = adapter.manager;
+/** Adapter wired to a capturing per-thread manager. */
+function createCapturingAdapter({ attachThread = true } = {}) {
+  const manager = new CodexAppServerManager('/nonexistent-codex-binary', '9.9.9-test');
+  const adapter = new CodexAdapter('/nonexistent-codex-binary', {
+    managerFactory: () => manager,
+  });
   manager.initialized = true;
   manager.generation = 1;
   manager.child = { stdin: { writable: true, write() {} }, kill() {} };
+  if (attachThread) {
+    adapter.runtimeManagers.set('t1', manager);
+    adapter.setupEventForwarding(manager, 't1');
+  }
   const outbound = [];
   const responders = new Map();
   manager.writeMessage = (message) => {
@@ -380,7 +400,7 @@ async function testResume() {
 
   // resume RPC failure → fresh thread + resumeFallback + notice at adapter level
   {
-    const { adapter, manager, responders, events } = createCapturingAdapter();
+    const { adapter, manager, responders, events } = createCapturingAdapter({ attachThread: false });
     responders.set('thread/resume', () => ({ error: { code: -32602, message: 'thread not found' } }));
     responders.set('thread/start', () => ({
       result: { thread: { id: 'p-fresh', model: 'fake-model' }, cwd: '/tmp/proj' },
@@ -629,6 +649,120 @@ async function testProcessLifecycle() {
     ok('concurrent spawn → one initialize (version injected)');
   }
 
+  // Fresh shared SQLite profile: only the cold initializer is serialized.
+  // The fake binary writes a conflict marker if a second process is spawned
+  // before the first initialize/migration completes.
+  {
+    const migrationRoot = mkdtempSync(join(tmpdir(), 'codex-sqlite-gate-'));
+    const previousMode = process.env.FAKE_CODEX_MODE;
+    const previousMigrationDir = process.env.FAKE_CODEX_MIGRATION_DIR;
+    const previousSqliteHome = process.env.CODEX_SQLITE_HOME;
+    const first = new CodexAppServerManager(FAKE_BIN, 'sqlite-gate-test');
+    const second = new CodexAppServerManager(FAKE_BIN, 'sqlite-gate-test');
+    try {
+      process.env.FAKE_CODEX_MODE = 'sqlite-migration-race';
+      process.env.FAKE_CODEX_MIGRATION_DIR = migrationRoot;
+      process.env.CODEX_SQLITE_HOME = join(migrationRoot, 'profile');
+      await Promise.all([first.spawn('/tmp'), second.spawn('/tmp')]);
+      assert.ok(first.getProcessId() && second.getProcessId());
+      assert.notEqual(first.getProcessId(), second.getProcessId());
+      assert.equal(existsSync(join(migrationRoot, 'ready')), true);
+      assert.deepEqual(
+        readdirSync(migrationRoot).filter((name) => name.startsWith('conflict-')),
+        [],
+        'profile gate must prevent overlapping first SQLite initializers'
+      );
+    } finally {
+      await Promise.allSettled([first.stop(), second.stop()]);
+      if (previousMode === undefined) delete process.env.FAKE_CODEX_MODE;
+      else process.env.FAKE_CODEX_MODE = previousMode;
+      if (previousMigrationDir === undefined) delete process.env.FAKE_CODEX_MIGRATION_DIR;
+      else process.env.FAKE_CODEX_MIGRATION_DIR = previousMigrationDir;
+      if (previousSqliteHome === undefined) delete process.env.CODEX_SQLITE_HOME;
+      else process.env.CODEX_SQLITE_HOME = previousSqliteHome;
+      rmSync(migrationRoot, { recursive: true, force: true });
+    }
+    ok('fresh shared SQLite profile → cold initialize serialized, then distinct processes');
+  }
+
+  // A failed cold initializer does not poison the profile gate: one waiter
+  // takes ownership of the retry and initializes the same profile normally.
+  {
+    const takeoverRoot = mkdtempSync(join(tmpdir(), 'codex-sqlite-takeover-'));
+    const previousMode = process.env.FAKE_CODEX_MODE;
+    const previousSqliteHome = process.env.CODEX_SQLITE_HOME;
+    const first = new CodexAppServerManager(FAKE_BIN, 'sqlite-takeover-test');
+    const second = new CodexAppServerManager(FAKE_BIN, 'sqlite-takeover-test');
+    try {
+      process.env.CODEX_SQLITE_HOME = join(takeoverRoot, 'profile');
+      process.env.FAKE_CODEX_MODE = 'fail-initialize';
+      const failedOwner = first.spawn('/tmp');
+      process.env.FAKE_CODEX_MODE = 'normal';
+      const takeover = second.spawn('/tmp');
+      const [ownerResult, takeoverResult] = await Promise.allSettled([
+        failedOwner,
+        takeover,
+      ]);
+      assert.equal(ownerResult.status, 'rejected');
+      assert.equal(takeoverResult.status, 'fulfilled');
+      assert.ok(second.getProcessId(), 'waiter must own the successful retry process');
+    } finally {
+      await Promise.allSettled([first.stop(), second.stop()]);
+      if (previousMode === undefined) delete process.env.FAKE_CODEX_MODE;
+      else process.env.FAKE_CODEX_MODE = previousMode;
+      if (previousSqliteHome === undefined) delete process.env.CODEX_SQLITE_HOME;
+      else process.env.CODEX_SQLITE_HOME = previousSqliteHome;
+      rmSync(takeoverRoot, { recursive: true, force: true });
+    }
+    ok('failed cold initializer → exactly one waiter takes over successfully');
+  }
+
+  // stop() must cancel a Manager that has no child yet because it is waiting
+  // behind another profile initializer; it may never spawn after stop returns.
+  {
+    const cancellationRoot = mkdtempSync(join(tmpdir(), 'codex-sqlite-cancel-'));
+    const previousMode = process.env.FAKE_CODEX_MODE;
+    const previousMigrationDir = process.env.FAKE_CODEX_MIGRATION_DIR;
+    const previousSqliteHome = process.env.CODEX_SQLITE_HOME;
+    const owner = new CodexAppServerManager(FAKE_BIN, 'sqlite-cancel-test');
+    const waiter = new CodexAppServerManager(FAKE_BIN, 'sqlite-cancel-test');
+    try {
+      process.env.FAKE_CODEX_MODE = 'sqlite-migration-race';
+      process.env.FAKE_CODEX_MIGRATION_DIR = cancellationRoot;
+      process.env.CODEX_SQLITE_HOME = join(cancellationRoot, 'profile');
+      const ownerSpawn = owner.spawn('/tmp');
+      const waiterSpawn = waiter.spawn('/tmp');
+      const observedWaiterSpawn = waiterSpawn.then(
+        () => ({ status: 'fulfilled' }),
+        (error) => ({ status: 'rejected', error })
+      );
+      await sleep(20);
+      await waiter.stop();
+      const waiterResult = await observedWaiterSpawn;
+      assert.equal(waiterResult.status, 'rejected');
+      assert.ok(
+        waiterResult.error instanceof CodexRpcTransportError &&
+          waiterResult.error.reason === 'stopped'
+      );
+      await ownerSpawn;
+      assert.equal(waiter.getProcessId(), null, 'stopped gate waiter must never spawn later');
+      assert.deepEqual(
+        readdirSync(cancellationRoot).filter((name) => name.startsWith('conflict-')),
+        []
+      );
+    } finally {
+      await Promise.allSettled([owner.stop(), waiter.stop()]);
+      if (previousMode === undefined) delete process.env.FAKE_CODEX_MODE;
+      else process.env.FAKE_CODEX_MODE = previousMode;
+      if (previousMigrationDir === undefined) delete process.env.FAKE_CODEX_MIGRATION_DIR;
+      else process.env.FAKE_CODEX_MIGRATION_DIR = previousMigrationDir;
+      if (previousSqliteHome === undefined) delete process.env.CODEX_SQLITE_HOME;
+      else process.env.CODEX_SQLITE_HOME = previousSqliteHome;
+      rmSync(cancellationRoot, { recursive: true, force: true });
+    }
+    ok('stop while waiting on profile gate → cancelled with no late process');
+  }
+
   // initialize timeout → cleanup → retry succeeds
   {
     process.env.FAKE_CODEX_MODE = 'silent';
@@ -686,17 +820,282 @@ async function testProcessLifecycle() {
   {
     process.env.FAKE_CODEX_MODE = 'normal';
     const adapter = new CodexAdapter(FAKE_BIN);
-    const manager = adapter.manager;
     const settled = [];
-    manager.on('stop_settled', (p) => settled.push(p));
     await adapter.startSession({ provider: 'codex', threadId: 't1', cwd: '/tmp', prompt: 'hi' });
+    const manager = adapter.runtimeManagers.get('t1');
+    assert.ok(manager, 'thread runtime manager must exist');
+    manager.on('stop_settled', (p) => settled.push(p));
     await sleep(50);
     await adapter.stopSession('t1');
     await sleep(300);
     assert.equal(settled.length, 1);
     assert.equal(settled[0].confirmed, true, 'fake binary confirms the interrupt terminal');
-    await manager.stop();
+    assert.equal(
+      adapter.threadLifecycleEpochs.has('t1'),
+      false,
+      'settled thread lifecycle epoch must be reclaimed'
+    );
+    await adapter.stopAll();
     ok('end-to-end: spawn → turn → interrupt → confirmed settle');
+  }
+
+  // Architecture E2E: two Aegis threads own distinct app-server processes;
+  // one process crash is isolated, and the survivor can stop + resume through
+  // a fresh process without losing its provider thread cursor.
+  {
+    process.env.FAKE_CODEX_MODE = 'normal';
+    const adapter = new CodexAdapter(FAKE_BIN);
+    const events = [];
+    adapter.events.on('event', (event) => events.push(event));
+    const [first, second] = await Promise.all([
+      adapter.startSession({ provider: 'codex', threadId: 'thread-a', cwd: '/tmp', prompt: '' }),
+      adapter.startSession({ provider: 'codex', threadId: 'thread-b', cwd: '/tmp', prompt: '' }),
+    ]);
+    const firstPid = adapter.getRuntimeProcessId('thread-a');
+    const secondPid = adapter.getRuntimeProcessId('thread-b');
+    assert.ok(firstPid && secondPid, 'both thread runtimes must expose a live pid');
+    assert.notEqual(firstPid, secondPid, 'each thread must own a distinct app-server process');
+    assert.equal(adapter.getRuntimeCount(), 2);
+    await assert.rejects(
+      () =>
+        adapter.startSession({
+          provider: 'codex',
+          threadId: 'thread-c',
+          cwd: '/tmp',
+          prompt: '',
+          resumeSessionId: first.providerSessionId,
+        }),
+      (error) => error instanceof CodexThreadBindingError
+    );
+    assert.equal(adapter.getRuntimeCount(), 2, 'rejected duplicate binding spawns no runtime');
+
+    const firstManager = adapter.runtimeManagers.get('thread-a');
+    assert.ok(firstManager?.child, 'first runtime child must be live');
+    firstManager.child.kill('SIGKILL');
+    await sleep(100);
+    assert.equal(adapter.getRuntimeCount(), 1, 'crashed runtime alone is removed');
+    assert.equal(adapter.getRuntimeProcessId('thread-b'), secondPid, 'other thread runtime survives');
+    assert.ok(
+      events.some((event) => event.type === 'error' && event.threadId === 'thread-a'),
+      'crashed thread reports its own error'
+    );
+    assert.ok(
+      !events.some((event) => event.type === 'error' && event.threadId === 'thread-b'),
+      'surviving thread receives no crash error'
+    );
+
+    await adapter.stopSession('thread-b');
+    await sleep(100);
+    const resumed = await adapter.startSession({
+      provider: 'codex',
+      threadId: 'thread-b',
+      cwd: '/tmp',
+      prompt: '',
+      resumeSessionId: second.providerSessionId,
+    });
+    assert.equal(resumed.providerSessionId, second.providerSessionId);
+    assert.notEqual(adapter.getRuntimeProcessId('thread-b'), secondPid, 'resume uses a fresh process');
+    assert.equal(first.provider, 'codex');
+    await adapter.stopAll();
+    ok('per-thread E2E: distinct pids + crash isolation + fresh-process resume');
+  }
+
+  // Adapter lifecycle cleanup must cross the stale-runtime guard before a
+  // crashing process relinquishes ownership.
+  {
+    process.env.FAKE_CODEX_MODE = 'normal';
+    const adapter = new CodexAdapter(FAKE_BIN);
+    const events = [];
+    adapter.events.on('event', (event) => events.push(event));
+    const session = await adapter.startSession({
+      provider: 'codex',
+      threadId: 'thread-cleanup',
+      cwd: '/tmp',
+      prompt: '',
+    });
+    const manager = adapter.runtimeManagers.get('thread-cleanup');
+    assert.ok(manager?.child, 'cleanup runtime child must be live');
+    manager.pendingApprovals.set('approval-on-crash', {
+      jsonRpcId: 91,
+      method: 'item/commandExecution/requestApproval',
+      threadId: 'thread-cleanup',
+      params: { availableDecisions: ['accept', 'decline'] },
+    });
+    manager.pendingInterrupts.set(session.providerSessionId, {
+      turnId: 'turn-on-crash',
+      aegisThreadId: 'thread-cleanup',
+      generation: manager.generation,
+      timer: setTimeout(() => {}, 10_000),
+    });
+    manager.child.kill('SIGKILL');
+    await sleep(100);
+    assert.equal(
+      events.filter(
+        (event) =>
+          event.type === 'permission_dismissed' &&
+          event.requestId === 'approval-on-crash'
+      ).length,
+      1,
+      'crash must forward exactly one approval dismissal'
+    );
+    assert.equal(
+      events.filter(
+        (event) => event.type === 'stop_settled' && event.threadId === 'thread-cleanup'
+      ).length,
+      1,
+      'crash must forward exactly one stop settlement'
+    );
+    assert.equal(adapter.getRuntimeCount(), 0, 'crashed runtime ownership must be released');
+    await adapter.stopAll();
+    ok('crash cleanup crosses adapter guard before runtime ownership is released');
+  }
+
+  // Quiet dispose forwards approval dismissal, suppresses stop settlement,
+  // and tracks the retiring OS process outside the active-runtime map.
+  {
+    process.env.FAKE_CODEX_MODE = 'normal';
+    const adapter = new CodexAdapter(FAKE_BIN);
+    const events = [];
+    adapter.events.on('event', (event) => events.push(event));
+    await adapter.startSession({
+      provider: 'codex',
+      threadId: 'thread-dispose',
+      cwd: '/tmp',
+      prompt: '',
+    });
+    const manager = adapter.runtimeManagers.get('thread-dispose');
+    assert.ok(manager, 'dispose runtime manager must exist');
+    manager.pendingApprovals.set('approval-on-dispose', {
+      jsonRpcId: 92,
+      method: 'item/commandExecution/requestApproval',
+      threadId: 'thread-dispose',
+      params: { availableDecisions: ['accept', 'decline'] },
+    });
+    assert.equal(adapter.disposeSession('thread-dispose'), true);
+    assert.equal(adapter.getRuntimeCount(), 0);
+    assert.equal(
+      adapter.threadLifecycleEpochs.has('thread-dispose'),
+      false,
+      'disposed thread lifecycle epoch must be reclaimed'
+    );
+    assert.equal(
+      events.filter(
+        (event) =>
+          event.type === 'permission_dismissed' &&
+          event.requestId === 'approval-on-dispose'
+      ).length,
+      1,
+      'dispose must forward exactly one approval dismissal'
+    );
+    assert.equal(
+      events.filter(
+        (event) => event.type === 'stop_settled' && event.threadId === 'thread-dispose'
+      ).length,
+      0,
+      'quiet dispose must not emit stop settlement'
+    );
+    await adapter.stopAll();
+    assert.equal(adapter.retiringManagers.size, 0, 'shutdown must drain retiring processes');
+    ok('quiet dispose dismisses approvals and shutdown drains retirement');
+  }
+
+  // Same-thread lifecycle is latest-operation-wins: an overlapping start can
+  // never return a session backed by a manager that the replacement retired.
+  {
+    process.env.FAKE_CODEX_MODE = 'normal';
+    const adapter = new CodexAdapter(FAKE_BIN);
+    const first = adapter.startSession({
+      provider: 'codex',
+      threadId: 'thread-replace-race',
+      cwd: '/tmp',
+      prompt: '',
+    });
+    const second = adapter.startSession({
+      provider: 'codex',
+      threadId: 'thread-replace-race',
+      cwd: '/tmp',
+      prompt: '',
+    });
+    const results = await Promise.allSettled([first, second]);
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+    assert.equal(adapter.getRuntimeCount(), 1, 'same-thread overlap must leave one owner');
+    assert.ok(adapter.getRuntimeProcessId('thread-replace-race'));
+    await adapter.stopAll();
+    ok('same-thread overlapping starts leave exactly one live owner');
+  }
+
+  // Adapter-wide shutdown invalidates and drains a start that is already
+  // inside createSession, rather than clearing maps while its process escapes.
+  {
+    let resolveCreate;
+    const manager = new CodexAppServerManager('/nonexistent-codex-binary', '9.9.9-test');
+    manager.createSession = () =>
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      });
+    const adapter = new CodexAdapter('/nonexistent-codex-binary', {
+      managerFactory: () => manager,
+    });
+    const starting = adapter.startSession({
+      provider: 'codex',
+      threadId: 'thread-shutdown-race',
+      cwd: '/tmp',
+      prompt: '',
+    });
+    await sleep(0);
+    assert.equal(typeof resolveCreate, 'function', 'start must reach deferred createSession');
+    const stopping = adapter.stopAll();
+    resolveCreate({
+      providerThreadId: 'provider-shutdown-race',
+      model: 'fake-model',
+      generation: 1,
+    });
+    const [startResult] = await Promise.all([Promise.allSettled([starting]), stopping]);
+    assert.equal(startResult[0].status, 'rejected', 'shutdown must supersede in-flight start');
+    assert.equal(adapter.getRuntimeCount(), 0);
+    assert.equal(adapter.retiringManagers.size, 0);
+    assert.equal(adapter.hasSession('thread-shutdown-race'), false);
+    ok('adapter-wide shutdown invalidates and drains in-flight start');
+  }
+
+  // A terminal stop outranks auth recovery triggered by stderr while child
+  // processes are being retired. Recovery must not run after stopAll and
+  // restore cached session inputs.
+  {
+    process.env.FAKE_CODEX_MODE = 'normal';
+    const adapter = new CodexAdapter(FAKE_BIN);
+    const events = [];
+    const authWaiters = [];
+    adapter.events.on('event', (event) => events.push(event));
+    await adapter.startSession({
+      provider: 'codex',
+      threadId: 'thread-terminal-stop',
+      cwd: '/tmp',
+      prompt: '',
+    });
+    const manager = adapter.runtimeManagers.get('thread-terminal-stop');
+    assert.ok(manager, 'terminal-stop runtime manager must exist');
+    const originalStop = manager.stop.bind(manager);
+    manager.stop = () => {
+      authWaiters.push(adapter.handleAuthFailure('auth error during stopAll'));
+      return originalStop();
+    };
+    await adapter.stopAll();
+    await Promise.allSettled(authWaiters);
+    assert.equal(adapter.lastStartInput.size, 0, 'stopAll must remain the final cache owner');
+    assert.equal(adapter.threadLifecycleEpochs.size, 0);
+    assert.equal(adapter.getRuntimeCount(), 0);
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === 'error' &&
+          String(event.error?.message || '').includes('runtime has been reloaded')
+      ),
+      false,
+      'terminal stop must suppress late auth-recovery UI'
+    );
+    ok('stopAll outranks auth recovery triggered during process retirement');
   }
 }
 

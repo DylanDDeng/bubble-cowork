@@ -56,7 +56,7 @@ function methodBlock(source, marker, label) {
   assert.match(
     block,
     /if \(disposed\) \{[\s\S]{0,600}this\.directory\.remove\(threadId\);/,
-    'directory binding may be removed ONLY on a true dispose (kimi/codex no-ops keep theirs)'
+    'directory binding may be removed ONLY on a true dispose (policy no-ops keep theirs)'
   );
   assert.match(block, /catch/, 'service dispose must never throw');
   ok('service.disposeSession: sync, never-throw, hasSession fallback, boolean-gated binding removal');
@@ -144,10 +144,21 @@ function methodBlock(source, marker, label) {
   ok('bubble dispose: abort + dismissals + delete, no protocol side effects');
 }
 
-// ── Policy no-ops: codex + both kimi classes return false ──────────────────
+// ── Codex: per-thread process is locally owned and quietly retired ─────────
+{
+  const codex = read('src/electron/libs/provider/codex-adapter.ts');
+  const block = methodBlock(codex, 'disposeSession(threadId: string): boolean {', 'codex');
+  assert.match(block, /disposeSessionResources\(threadId\)/, 'codex dispose must dismiss owned approvals synchronously');
+  assert.match(block, /retireRuntimeManager\(threadId, manager\)/, 'codex dispose must retire its per-thread app-server');
+  assert.match(block, /return true;/, 'codex dispose must report owned resources released');
+  assert.ok(!block.includes("type: 'stop_settled'"), 'codex quiet dispose must not emit stop_settled');
+  assert.ok(!block.includes("type: 'status_change'"), 'codex quiet dispose must not emit status_change');
+  ok('codex dispose: dismiss approvals + retire per-thread process, no stop side effects');
+}
+
+// ── Policy no-ops: both Kimi classes return false ──────────────────────────
 {
   for (const file of [
-    'src/electron/libs/provider/codex-adapter.ts',
     'src/electron/libs/provider/kimi-adapter-facade.ts',
     'src/electron/libs/provider/kimi-server-adapter.ts',
   ]) {
@@ -155,7 +166,7 @@ function methodBlock(source, marker, label) {
     assert.match(block, /return false;/, `${file} dispose must be a policy no-op returning false`);
     assert.ok(!block.includes('this.emit('), `${file} dispose must not emit`);
   }
-  ok('codex + kimi (facade, server) dispose are documented no-ops returning false');
+  ok('kimi facade + server dispose are documented no-ops returning false');
 }
 
 console.log(`\nverify:provider-dispose OK (${passed} pins)`);

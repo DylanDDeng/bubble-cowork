@@ -10,7 +10,11 @@ import type {
   ProviderSessionStartInput,
   ProviderSessionStatus,
 } from './types';
-import { CodexAppServerManager, type CodexReviewTarget } from './codex-app-server-manager';
+import {
+  CodexAppServerManager,
+  CodexThreadBindingError,
+  type CodexReviewTarget,
+} from './codex-app-server-manager';
 import { isDev } from '../../util';
 import {
   AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
@@ -212,14 +216,42 @@ interface StreamingThinkingState {
   blockIndex: number;
 }
 
+export interface CodexAdapterOptions {
+  /** Test seam; production creates one fresh manager for every active thread. */
+  managerFactory?: () => CodexAppServerManager;
+}
+
 export class CodexAdapter implements ProviderAdapter {
   readonly provider: ProviderKind = 'codex';
   readonly displayName = 'Codex';
   readonly capabilities = CAPABILITIES;
   readonly events = new EventEmitter();
 
+  /** Process used only for provider-wide discovery/settings operations. */
   private manager: CodexAppServerManager;
+  /** One app-server process owner per active Aegis thread. */
+  private runtimeManagers = new Map<string, CodexAppServerManager>();
+  private readonly managerFactory: () => CodexAppServerManager;
   private sessions = new Map<string, ActiveSession>();
+  /** Resume cursors claimed while a per-thread app-server is still starting. */
+  private providerThreadClaims = new Map<string, string>();
+  /** Serializes start/replace/stop for one Aegis thread without blocking peers. */
+  private threadLifecycleTails = new Map<string, Promise<void>>();
+  /** Latest-operation-wins token; synchronous dispose also invalidates queued work. */
+  private threadLifecycleEpochs = new Map<string, number>();
+  /** Global monotonic source prevents ABA when an idle thread entry is reclaimed. */
+  private nextThreadLifecycleEpoch = 0;
+  /** Operations an adapter-wide shutdown must drain before it can finish. */
+  private activeLifecycleOperations = new Set<Promise<void>>();
+  /** Processes removed from ownership but not yet confirmed exited. */
+  private retiringManagers = new Map<CodexAppServerManager, Promise<void>>();
+  /** Invalidates in-flight thread operations when all runtimes are reset. */
+  private adapterLifecycleEpoch = 0;
+  /** Exclusive adapter-wide stop/auth-reset barrier; new starts wait behind it. */
+  private shutdownInFlight: Promise<void> | null = null;
+  /** Terminal shutdown outranks auth recovery and suppresses late rehydration. */
+  private stopAllRequested = false;
+  private stopAllInFlight: Promise<void> | null = null;
   private static readonly STREAMING_TEXT_COALESCE_MS = 100;
   // Per-thread streaming accumulator. Codex emits agent text as token-level
   // deltas; expose those deltas through one stable assistant message id so the
@@ -253,22 +285,44 @@ export class CodexAdapter implements ProviderAdapter {
   private toolOutputBuffers = new Map<string, Map<string, string>>();
   private toolOutputFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(binaryPath?: string) {
+  constructor(binaryPath?: string, options: CodexAdapterOptions = {}) {
+    this.managerFactory =
+      options.managerFactory ??
+      (() => new CodexAppServerManager(binaryPath, resolveClientVersion()));
     this.manager = new CodexAppServerManager(binaryPath, resolveClientVersion());
-    this.setupEventForwarding();
+    this.setupEventForwarding(this.manager);
   }
 
-  private setupEventForwarding(): void {
+  private setupEventForwarding(
+    manager: CodexAppServerManager,
+    ownerThreadId?: string
+  ): void {
+    // A stopped/replaced process may still deliver a final queued event. Only
+    // the manager currently registered for this thread is allowed to publish.
+    const on = (
+      event: string,
+      listener: (payload: any) => void
+    ): void => {
+      manager.on(event, (payload: any) => {
+        if (
+          ownerThreadId &&
+          this.runtimeManagers.get(ownerThreadId) !== manager
+        ) {
+          return;
+        }
+        listener(payload);
+      });
+    };
     // Forward manager events as ProviderRuntimeEvents
-    this.manager.on('text_delta', ({ threadId, text }) => {
+    on('text_delta', ({ threadId, text }) => {
       this.enqueueStreamingTextDelta(threadId, text);
     });
 
-    this.manager.on('tool_output_delta', ({ threadId, itemId, delta }) => {
+    on('tool_output_delta', ({ threadId, itemId, delta }) => {
       this.enqueueToolOutputDelta(threadId, itemId, delta);
     });
 
-    this.manager.on('reasoning_delta', ({ threadId, text }) => {
+    on('reasoning_delta', ({ threadId, text }) => {
       let state = this.streamingThinking.get(threadId);
       if (!state) {
         state = { thinking: '', blockIndex: 0 };
@@ -290,12 +344,12 @@ export class CodexAdapter implements ProviderAdapter {
       });
     });
 
-    this.manager.on('agent_message_done', ({ threadId, text }) => {
+    on('agent_message_done', ({ threadId, text }) => {
       this.finalizeStreamingAssistant(threadId, text);
       this.clearStreamingState(threadId);
     });
 
-    this.manager.on('token_usage_updated', ({ threadId, usage }) => {
+    on('token_usage_updated', ({ threadId, usage }) => {
       this.lastKnownContextTokens.set(threadId, usage.totalTokens || 0);
       const message: StreamMessage = {
         type: 'system',
@@ -308,7 +362,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    this.manager.on('context_compacted', ({ threadId }) => {
+    on('context_compacted', ({ threadId }) => {
       // Codex reports neither trigger nor pre-compaction size: a compaction is
       // manual iff this thread has a pending /compact command, and the latest
       // token_usage snapshot is the best preTokens approximation.
@@ -326,7 +380,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    this.manager.on('tool_call', ({ threadId, params }) => {
+    on('tool_call', ({ threadId, params }) => {
       const p = params as Record<string, unknown>;
       const { item, toolName, toolInput, toolId } = this.extractToolCallInfo(p);
 
@@ -363,7 +417,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    this.manager.on('tool_result', ({ threadId, params }) => {
+    on('tool_result', ({ threadId, params }) => {
       const p = params as Record<string, unknown>;
       const { item, toolUseId, rawContent } = this.extractToolResultInfo(threadId, p);
       const isError = Boolean(item.isError ?? item.error ?? p.isError);
@@ -407,7 +461,7 @@ export class CodexAdapter implements ProviderAdapter {
     // turn.status ∈ completed | interrupted | failed (there is no
     // `turn/aborted` notification). Failed turns must surface as errors —
     // never as a success result (P0-1).
-    this.manager.on('turn_completed', ({ threadId, turnId, status, error }) => {
+    on('turn_completed', ({ threadId, turnId, status, error }) => {
       this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
       // The turn is over — every tool has its final result, so buffered live
@@ -457,7 +511,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    this.manager.on('error_notification', ({ threadId, message, willRetry, turnId }) => {
+    on('error_notification', ({ threadId, message, willRetry, turnId }) => {
       // willRetry: codex is retrying the same turn itself. Keep the stream
       // and session state intact — finalizing here would corrupt the
       // continuation, and marking error would kill the steer gate (P0-1).
@@ -482,12 +536,20 @@ export class CodexAdapter implements ProviderAdapter {
     // Two-phase stop settle (P0-6). Cleanup is staleness-guarded: a
     // replacement runner may have rebuilt this aegis threadId on a new
     // provider thread/generation — a late settle must not wipe its state.
-    this.manager.on('stop_settled', ({ aegisThreadId, providerThreadId, generation, confirmed, noTurn }) => {
+    on('stop_settled', ({
+      aegisThreadId,
+      providerThreadId,
+      generation,
+      confirmed,
+      noTurn,
+      managerTerminating,
+    }) => {
       const session = this.sessions.get(aegisThreadId);
       // Staleness guard, with one exception: a noTurn settle with an empty
       // providerThreadId means the manager had no session at all (e.g. after
       // a crash cleared it) — the adapter-side leftovers must go regardless.
       const orphanCleanup = noTurn === true && providerThreadId === '';
+      let cleaned = false;
       if (
         session &&
         (orphanCleanup ||
@@ -498,6 +560,7 @@ export class CodexAdapter implements ProviderAdapter {
         this.lastStartInput.delete(aegisThreadId);
         this.lastKnownContextTokens.delete(aegisThreadId);
         this.reportedErrorTurnKeys.delete(aegisThreadId);
+        cleaned = true;
       }
       this.emit({
         type: 'stop_settled',
@@ -507,27 +570,33 @@ export class CodexAdapter implements ProviderAdapter {
         confirmed: confirmed === true,
         ...(noTurn === true ? { noTurn: true } : {}),
       });
+      if (cleaned && ownerThreadId === aegisThreadId && managerTerminating !== true) {
+        this.releaseRuntimeManager(aegisThreadId, manager);
+      }
+      this.releaseThreadLifecycleEpochIfIdle(aegisThreadId);
     });
 
-    this.manager.on('approval_dismissed', ({ requestId, threadId }) => {
+    on('approval_dismissed', ({ requestId, threadId }) => {
       this.permissionResolvers.delete(requestId);
       this.emit({ type: 'permission_dismissed', threadId, requestId });
     });
 
-    this.manager.on('fast_mode_unavailable', ({ threadId, model }) => {
+    on('fast_mode_unavailable', ({ threadId, model }) => {
       this.emitLocalNotice(
         threadId,
         `Fast mode is not available for model ${model}; running on the default service tier.`
       );
     });
 
-    this.manager.on('model_catalog_updated', ({ models }) => {
+    on('model_catalog_updated', ({ models }) => {
       this.emit({ type: 'model_catalog_updated', threadId: null, models });
     });
 
-    this.manager.on('process_exit', ({ code, signal }) => {
-      // Mark all sessions as error
-      for (const [threadId] of this.sessions) {
+    on('process_exit', ({ code, signal }) => {
+      // A per-thread process failure must not poison unrelated Codex threads.
+      const affectedThreadIds = ownerThreadId ? [ownerThreadId] : [];
+      for (const threadId of affectedThreadIds) {
+        if (this.runtimeManagers.get(threadId) !== manager) continue;
         this.finalizeStreamingAssistant(threadId);
         this.clearStreamingState(threadId);
         this.updateSessionStatus(threadId, 'error');
@@ -536,26 +605,34 @@ export class CodexAdapter implements ProviderAdapter {
           threadId,
           error: new Error(`Codex process exited (code=${code}, signal=${signal})`),
         });
+        this.runtimeManagers.delete(threadId);
+        this.sessions.delete(threadId);
+        this.releaseThreadLifecycleEpochIfIdle(threadId);
       }
     });
 
-    this.manager.on('process_error', (error: Error) => {
-      for (const [threadId] of this.sessions) {
+    on('process_error', (error: Error) => {
+      const affectedThreadIds = ownerThreadId ? [ownerThreadId] : [];
+      for (const threadId of affectedThreadIds) {
+        if (this.runtimeManagers.get(threadId) !== manager) continue;
         this.finalizeStreamingAssistant(threadId);
         this.clearStreamingState(threadId);
         this.updateSessionStatus(threadId, 'error');
         this.emit({ type: 'error', threadId, error });
+        this.runtimeManagers.delete(threadId);
+        this.sessions.delete(threadId);
+        this.releaseThreadLifecycleEpochIfIdle(threadId);
       }
     });
 
-    this.manager.on('auth_error', (error: Error) => {
+    on('auth_error', (error: Error) => {
       void this.handleAuthFailure(error.message);
     });
 
     // Routing happened once in the manager (exact match / descendant map,
     // fail-closed) — the event carries the resolved Aegis threadId. No
     // re-inference here (P0-7).
-    this.manager.on('approval_request', ({ requestId, method, threadId, params }) => {
+    on('approval_request', ({ requestId, method, threadId, params }) => {
       const { toolName, input } = this.buildCodexApprovalInput(method, params);
 
       if (
@@ -579,7 +656,7 @@ export class CodexAdapter implements ProviderAdapter {
       });
     });
 
-    this.manager.on('user_input_request', ({ requestId, threadId, params }) => {
+    on('user_input_request', ({ requestId, threadId, params }) => {
       this.emit({
         type: 'permission_request',
         threadId,
@@ -589,7 +666,7 @@ export class CodexAdapter implements ProviderAdapter {
       });
     });
 
-    this.manager.on('thread_started', ({ threadId, model }) => {
+    on('thread_started', ({ threadId, model }) => {
       const session = this.sessions.get(threadId);
       if (session && model) {
         session.model = model;
@@ -602,9 +679,9 @@ export class CodexAdapter implements ProviderAdapter {
     // exactly one source: `turn/completed`. (Wire status is a tagged union —
     // notLoaded | idle | systemError | active — "ready"/"running" are legacy
     // internal values kept only for older binaries.)
-    this.manager.on('thread_status_changed', () => {});
+    on('thread_status_changed', () => {});
 
-    this.manager.on('turn_started', ({ threadId, turnId }) => {
+    on('turn_started', ({ threadId, turnId }) => {
       if (typeof turnId !== 'string' || !turnId) {
         return;
       }
@@ -616,7 +693,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    this.manager.on('plan_updated', ({ threadId, params }) => {
+    on('plan_updated', ({ threadId, params }) => {
       const p = params as Record<string, unknown>;
       const turnId = typeof p.turnId === 'string' ? p.turnId : '';
       const rawPlan = Array.isArray(p.plan) ? p.plan : [];
@@ -650,7 +727,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    this.manager.on('plan_item_completed', ({ threadId, text, itemId, turnId }) => {
+    on('plan_item_completed', ({ threadId, text, itemId, turnId }) => {
       const planMarkdown = typeof text === 'string' ? text.trim() : '';
       if (!planMarkdown) {
         return;
@@ -667,7 +744,7 @@ export class CodexAdapter implements ProviderAdapter {
     // MCP startup status routing (P0-4): the 0.144.3 notification is per-
     // thread ({threadId} non-null → the manager resolved the owning session)
     // or process-scoped (threadId null → broadcast to every session).
-    this.manager.on('mcp_status_updated', ({ servers, threadId }) => {
+    on('mcp_status_updated', ({ servers, threadId }) => {
       if (!Array.isArray(servers) || servers.length === 0) return;
       const message: StreamMessage = { type: 'mcp_status', servers };
       if (typeof threadId === 'string' && threadId) {
@@ -681,7 +758,7 @@ export class CodexAdapter implements ProviderAdapter {
 
     // OAuth outcome for the settings panel — process-scoped, like
     // model_catalog_updated (threadId null so session filters skip it).
-    this.manager.on('mcp_oauth_login_completed', ({ name, success, error }) => {
+    on('mcp_oauth_login_completed', ({ name, success, error }) => {
       this.emit({
         type: 'mcp_oauth_login_completed',
         threadId: null,
@@ -976,9 +1053,182 @@ export class CodexAdapter implements ProviderAdapter {
     await this.manager.uninstallPlugin({ pluginId: input.pluginId });
   }
 
+  private runtimeManagerForThread(threadId: string): CodexAppServerManager {
+    const manager = this.runtimeManagers.get(threadId);
+    if (!manager) {
+      throw new Error(`No Codex app-server runtime found for thread "${threadId}"`);
+    }
+    return manager;
+  }
+
+  private bumpThreadLifecycleEpoch(threadId: string): number {
+    const next = ++this.nextThreadLifecycleEpoch;
+    this.threadLifecycleEpochs.set(threadId, next);
+    return next;
+  }
+
+  private releaseThreadLifecycleEpochIfIdle(threadId: string): void {
+    if (
+      this.threadLifecycleTails.has(threadId) ||
+      this.runtimeManagers.has(threadId) ||
+      this.sessions.has(threadId)
+    ) {
+      return;
+    }
+    this.threadLifecycleEpochs.delete(threadId);
+  }
+
+  private assertLifecycleCurrent(
+    threadId: string,
+    threadEpoch: number,
+    adapterEpoch: number,
+    manager?: CodexAppServerManager
+  ): void {
+    if (
+      this.threadLifecycleEpochs.get(threadId) !== threadEpoch ||
+      this.adapterLifecycleEpoch !== adapterEpoch ||
+      (manager !== undefined && this.runtimeManagers.get(threadId) !== manager)
+    ) {
+      throw new Error(`Codex lifecycle operation was superseded for thread "${threadId}"`);
+    }
+  }
+
+  private runThreadLifecycle<T>(threadId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.threadLifecycleTails.get(threadId) ?? Promise.resolve();
+    const result = previous.then(operation, operation);
+    const tail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    this.threadLifecycleTails.set(threadId, tail);
+    this.activeLifecycleOperations.add(tail);
+    void tail.then(() => {
+      this.activeLifecycleOperations.delete(tail);
+      if (this.threadLifecycleTails.get(threadId) === tail) {
+        this.threadLifecycleTails.delete(threadId);
+        this.releaseThreadLifecycleEpochIfIdle(threadId);
+      }
+    });
+    return result;
+  }
+
+  /**
+   * Stop a runtime without opening a stale-event window. manager.stop() emits
+   * all synchronous cleanup events before its first await; ownership is
+   * removed only after those events have crossed the adapter guard. The
+   * returned promise stays tracked until the OS process is confirmed gone.
+   */
+  private retireRuntimeManager(
+    threadId: string,
+    manager: CodexAppServerManager
+  ): Promise<void> {
+    const existing = this.retiringManagers.get(manager);
+    if (existing) return existing;
+
+    let resolveRetirement!: () => void;
+    let rejectRetirement!: (error: unknown) => void;
+    const retirement = new Promise<void>((resolve, reject) => {
+      resolveRetirement = resolve;
+      rejectRetirement = reject;
+    });
+    this.retiringManagers.set(manager, retirement);
+
+    let stopping: Promise<void>;
+    try {
+      stopping = manager.stop();
+    } catch (error) {
+      stopping = Promise.reject(error);
+    }
+
+    // cleanupGeneration() has now synchronously emitted dismiss/settle events.
+    if (this.runtimeManagers.get(threadId) === manager) {
+      this.runtimeManagers.delete(threadId);
+    }
+    this.releaseThreadLifecycleEpochIfIdle(threadId);
+
+    void stopping.then(resolveRetirement, rejectRetirement);
+    void retirement.then(
+      () => this.retiringManagers.delete(manager),
+      () => this.retiringManagers.delete(manager)
+    );
+    return retirement;
+  }
+
+  private releaseRuntimeManager(
+    threadId: string,
+    expectedManager?: CodexAppServerManager
+  ): void {
+    const manager = this.runtimeManagers.get(threadId);
+    if (!manager || (expectedManager && manager !== expectedManager)) return;
+    void this.retireRuntimeManager(threadId, manager).catch((error) => {
+      console.warn('[CodexAdapter] failed to stop thread runtime:', threadId, error);
+    });
+  }
+
+  private async replaceRuntimeManager(threadId: string): Promise<CodexAppServerManager> {
+    const previous = this.runtimeManagers.get(threadId);
+    if (previous) {
+      await this.retireRuntimeManager(threadId, previous);
+    }
+    const manager = this.managerFactory();
+    this.runtimeManagers.set(threadId, manager);
+    this.setupEventForwarding(manager, threadId);
+    return manager;
+  }
+
+  /** Runtime diagnostics used by the focused process-isolation E2E. */
+  getRuntimeProcessId(threadId: string): number | null {
+    return this.runtimeManagers.get(threadId)?.getProcessId() ?? null;
+  }
+
+  getRuntimeCount(): number {
+    return this.runtimeManagers.size;
+  }
+
+  private assertProviderThreadAvailable(
+    providerThreadId: string,
+    threadId: string
+  ): void {
+    const claimedBy = this.providerThreadClaims.get(providerThreadId);
+    if (claimedBy && claimedBy !== threadId) {
+      throw new CodexThreadBindingError(providerThreadId, claimedBy);
+    }
+    const activeOwner = [...this.sessions.values()].find(
+      (session) =>
+        session.threadId !== threadId &&
+        session.providerThreadId === providerThreadId
+    );
+    if (activeOwner) {
+      throw new CodexThreadBindingError(providerThreadId, activeOwner.threadId);
+    }
+  }
+
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
-    const { providerThreadId, model, generation, resumeFallback } =
-      await this.manager.createSession(
+    const shutdown = this.shutdownInFlight;
+    if (shutdown) await shutdown;
+    const threadEpoch = this.bumpThreadLifecycleEpoch(input.threadId);
+    const adapterEpoch = this.adapterLifecycleEpoch;
+    return this.runThreadLifecycle(input.threadId, () =>
+      this.startSessionLocked(input, threadEpoch, adapterEpoch)
+    );
+  }
+
+  private async startSessionLocked(
+    input: ProviderSessionStartInput,
+    threadEpoch: number,
+    adapterEpoch: number
+  ): Promise<ProviderSession> {
+    this.assertLifecycleCurrent(input.threadId, threadEpoch, adapterEpoch);
+    const resumeCursor = input.resumeSessionId?.trim() || null;
+    if (resumeCursor) {
+      this.assertProviderThreadAvailable(resumeCursor, input.threadId);
+      this.providerThreadClaims.set(resumeCursor, input.threadId);
+    }
+    let manager: CodexAppServerManager | null = null;
+    let created: Awaited<ReturnType<CodexAppServerManager['createSession']>>;
+    try {
+      manager = await this.replaceRuntimeManager(input.threadId);
+      created = await manager.createSession(
         input.threadId,
         input.cwd,
         input.resumeSessionId,
@@ -990,6 +1240,20 @@ export class CodexAdapter implements ProviderAdapter {
           codexFastMode: input.codexFastMode,
         }
       );
+      this.assertLifecycleCurrent(input.threadId, threadEpoch, adapterEpoch, manager);
+      this.assertProviderThreadAvailable(created.providerThreadId, input.threadId);
+    } catch (error) {
+      if (manager) this.releaseRuntimeManager(input.threadId, manager);
+      throw error;
+    } finally {
+      if (
+        resumeCursor &&
+        this.providerThreadClaims.get(resumeCursor) === input.threadId
+      ) {
+        this.providerThreadClaims.delete(resumeCursor);
+      }
+    }
+    const { providerThreadId, model, generation, resumeFallback } = created;
 
     const session: ActiveSession = {
       threadId: input.threadId,
@@ -1047,7 +1311,13 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   async forkThread(input: { cwd: string; providerThreadId: string }): Promise<string> {
-    return this.manager.forkThread(input.cwd, input.providerThreadId);
+    const source = [...this.sessions.values()].find(
+      (session) => session.providerThreadId === input.providerThreadId
+    );
+    const manager = source
+      ? this.runtimeManagerForThread(source.threadId)
+      : this.manager;
+    return manager.forkThread(input.cwd, input.providerThreadId);
   }
 
   async sendTurn(input: ProviderSendTurnInput): Promise<void> {
@@ -1080,7 +1350,8 @@ export class CodexAdapter implements ProviderAdapter {
     // and tool-call dedupe state belong to the still-running turn, so they
     // must survive. (If the steer races a just-finished turn, the completion
     // handlers have already cleared this state.)
-    const steering = this.manager.hasActiveTurn(input.threadId);
+    const manager = this.runtimeManagerForThread(input.threadId);
+    const steering = manager.hasActiveTurn(input.threadId);
     if (!steering) {
       this.finalizedStreamingText.delete(input.threadId);
       this.clearStreamingState(input.threadId);
@@ -1102,18 +1373,18 @@ export class CodexAdapter implements ProviderAdapter {
       if (slashCommand.name === 'compact') {
         this.pendingManualCompacts.add(input.threadId);
         try {
-          await this.manager.compactThread(input.threadId);
+          await manager.compactThread(input.threadId);
         } catch (error) {
           this.pendingManualCompacts.delete(input.threadId);
           throw error;
         }
       } else {
-        await this.manager.startReview(input.threadId, slashCommand.target);
+        await manager.startReview(input.threadId, slashCommand.target);
       }
       return;
     }
 
-    await this.manager.sendTurn(
+    await manager.sendTurn(
       input.threadId,
       input.prompt,
       input.attachments,
@@ -1129,31 +1400,134 @@ export class CodexAdapter implements ProviderAdapter {
 	    );
   }
 
-  disposeSession(_threadId: string): boolean {
-    // Policy no-op: codex sessions are threads on a shared app-server
-    // process, not per-thread local resources — an errored turn leaves
-    // nothing to release, and the directory binding must survive so late
-    // permission responses and stopSession keep working.
-    return false;
+  disposeSession(threadId: string): boolean {
+    // Synchronously invalidate running and queued start/stop work. The
+    // provider contract requires disposeSession itself to be synchronous.
+    this.bumpThreadLifecycleEpoch(threadId);
+    const manager = this.runtimeManagers.get(threadId);
+    if (!manager) return false;
+    // Dismiss approval cards while this manager still owns event routing, but
+    // suppress stop_settled because quiet dispose must not satisfy a new
+    // runner's interrupt gate.
+    manager.disposeSessionResources(threadId);
+    void this.retireRuntimeManager(threadId, manager).catch((error) => {
+      console.warn('[CodexAdapter] failed to dispose thread runtime:', threadId, error);
+    });
+    this.sessions.delete(threadId);
+    this.clearStreamingState(threadId);
+    this.lastKnownContextTokens.delete(threadId);
+    this.pendingManualCompacts.delete(threadId);
+    this.reportedErrorTurnKeys.delete(threadId);
+    this.releaseThreadLifecycleEpochIfIdle(threadId);
+    return true;
   }
 
   async stopSession(threadId: string): Promise<void> {
+    const shutdown = this.shutdownInFlight;
+    if (shutdown) await shutdown;
+    const threadEpoch = this.bumpThreadLifecycleEpoch(threadId);
+    const adapterEpoch = this.adapterLifecycleEpoch;
+    return this.runThreadLifecycle(threadId, async () => {
+      this.assertLifecycleCurrent(threadId, threadEpoch, adapterEpoch);
+      await this.stopSessionLocked(threadId);
+    });
+  }
+
+  private async stopSessionLocked(threadId: string): Promise<void> {
     // Two-phase stop (P0-6): this only requests the interrupt. Adapter-side
     // state is released by the guarded `stop_settled` handler — deleting it
     // here would orphan the confirmation window and can wipe a replacement
     // session's state.
-    await this.manager.stopSession(threadId);
+    const manager = this.runtimeManagers.get(threadId);
+    if (!manager) {
+      // Preserve the provider stop contract even if a prior crash already
+      // removed the runtime: emit an immediate no-turn settlement.
+      this.emit({
+        type: 'stop_settled',
+        threadId,
+        providerThreadId: '',
+        generation: 0,
+        confirmed: true,
+        noTurn: true,
+      });
+      return;
+    }
+    await manager.stopSession(threadId);
+  }
+
+  private enqueueExclusiveShutdown(operation: () => Promise<void>): Promise<void> {
+    const previous = this.shutdownInFlight ?? Promise.resolve();
+    // Invalidate admitted thread operations synchronously, before this
+    // shutdown waits for any earlier exclusive reset. Otherwise a deferred
+    // createSession can win the microtask race and publish a live session
+    // after stopAll has already been requested.
+    this.adapterLifecycleEpoch += 1;
+    const run = previous
+      .catch(() => undefined)
+      .then(operation);
+    const barrier = run.then(
+      () => undefined,
+      () => undefined
+    );
+    this.shutdownInFlight = barrier;
+    void barrier.then(() => {
+      if (this.shutdownInFlight === barrier) this.shutdownInFlight = null;
+    });
+    return run;
+  }
+
+  private async stopRuntimeProcesses(): Promise<void> {
+    // Retire known owners first. cleanupGeneration rejects in-flight RPCs, so
+    // lifecycle operations waiting on create/interrupt can drain promptly.
+    const firstRetirements = [...this.runtimeManagers.entries()].map(
+      ([threadId, manager]) => this.retireRuntimeManager(threadId, manager)
+    );
+    const discoveryStop = this.manager.stop();
+    const activeOperations = [...this.activeLifecycleOperations];
+    await Promise.allSettled([
+      discoveryStop,
+      ...firstRetirements,
+      ...activeOperations,
+    ]);
+
+    // An operation already between queue admission and manager registration
+    // can appear after the first snapshot. Its adapter epoch is stale, but a
+    // second retirement pass makes process ownership explicit and awaitable.
+    const lateRetirements = [...this.runtimeManagers.entries()].map(
+      ([threadId, manager]) => this.retireRuntimeManager(threadId, manager)
+    );
+    await Promise.allSettled([
+      ...lateRetirements,
+      ...this.retiringManagers.values(),
+    ]);
   }
 
   async stopAll(): Promise<void> {
-    await this.manager.stop();
-    for (const threadId of this.streamingText.keys()) {
-      this.clearStreamingState(threadId);
-    }
-    this.sessions.clear();
-    this.lastStartInput.clear();
-    this.lastKnownContextTokens.clear();
-    this.pendingManualCompacts.clear();
+    if (this.stopAllInFlight) return this.stopAllInFlight;
+    this.stopAllRequested = true;
+    const shutdown = this.enqueueExclusiveShutdown(async () => {
+      await this.stopRuntimeProcesses();
+      for (const threadId of this.streamingText.keys()) {
+        this.clearStreamingState(threadId);
+      }
+      this.sessions.clear();
+      this.providerThreadClaims.clear();
+      this.lastStartInput.clear();
+      this.lastKnownContextTokens.clear();
+      this.pendingManualCompacts.clear();
+      this.threadLifecycleTails.clear();
+      this.activeLifecycleOperations.clear();
+      this.threadLifecycleEpochs.clear();
+    });
+    let tracked: Promise<void>;
+    tracked = shutdown.finally(() => {
+      if (this.stopAllInFlight === tracked) {
+        this.stopAllInFlight = null;
+        this.stopAllRequested = false;
+      }
+    });
+    this.stopAllInFlight = tracked;
+    return tracked;
   }
 
   listSessions(): ProviderSession[] {
@@ -1176,7 +1550,11 @@ export class CodexAdapter implements ProviderAdapter {
     decision: PermissionResult
   ): Promise<void> {
     // threadId asserts the decision comes from the owning session (P0-7).
-    await this.manager.respondToApproval(requestId, decision, threadId);
+    await this.runtimeManagerForThread(threadId).respondToApproval(
+      requestId,
+      decision,
+      threadId
+    );
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1343,6 +1721,9 @@ export class CodexAdapter implements ProviderAdapter {
    * concurrent error notifications.
    */
   private async handleAuthFailure(originalMessage: string): Promise<void> {
+    if (this.stopAllRequested) {
+      return this.stopAllInFlight ?? Promise.resolve();
+    }
     if (this.authRecoveryInFlight) {
       return this.authRecoveryInFlight;
     }
@@ -1354,21 +1735,37 @@ export class CodexAdapter implements ProviderAdapter {
 
   private async runAuthRecovery(originalMessage: string): Promise<void> {
     const affectedThreads = Array.from(this.sessions.keys());
-
-    try {
-      await this.manager.stop();
-    } catch (error) {
-      console.warn('[CodexAdapter] failed to stop manager during auth recovery:', error);
+    const recoveryInputs = new Map<string, ProviderSessionStartInput>();
+    for (const threadId of affectedThreads) {
+      const input = this.lastStartInput.get(threadId);
+      if (input) recoveryInputs.set(threadId, input);
     }
 
-    for (const threadId of this.streamingText.keys()) {
-      this.clearStreamingState(threadId);
-    }
-    this.sessions.clear();
-    this.emittedToolCalls.clear();
-    this.emittedToolResults.clear();
-    this.pendingToolCallIds.clear();
-    this.permissionResolvers.clear();
+    await this.enqueueExclusiveShutdown(async () => {
+      await this.stopRuntimeProcesses();
+      for (const threadId of this.streamingText.keys()) {
+        this.clearStreamingState(threadId);
+      }
+      this.sessions.clear();
+      this.providerThreadClaims.clear();
+      this.emittedToolCalls.clear();
+      this.emittedToolResults.clear();
+      this.pendingToolCallIds.clear();
+      this.permissionResolvers.clear();
+      this.threadLifecycleTails.clear();
+      this.activeLifecycleOperations.clear();
+      this.threadLifecycleEpochs.clear();
+      // Normal stop settlement deletes cached inputs. Auth recovery is the
+      // one reset that intentionally retains them for a transparent resend.
+      for (const [threadId, input] of recoveryInputs) {
+        this.lastStartInput.set(threadId, input);
+      }
+    });
+
+    // A terminal stop requested while auth recovery was ahead of it in the
+    // exclusive queue owns the final state and must not be followed by stale
+    // recovery UI or session rehydration semantics.
+    if (this.stopAllRequested) return;
 
     const recoveryMessage =
       'Codex auth was invalidated (likely a sign-in elsewhere). ' +

@@ -246,6 +246,7 @@ import type {
   ClaudeRewindResult,
 } from '../shared/types';
 import { buildSessionUserPromptSummaries } from '../shared/outline-summary';
+import { isGrokModelId } from '../shared/provider-model';
 import { getProviderService } from './libs/provider/service';
 import { isKimiServerRuntimeConfirmed, warmKimiCapabilityProbe } from './libs/provider/kimi-adapter-facade';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
@@ -1606,6 +1607,17 @@ function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeTy
 
 function normalizeModel(model?: string | null): string | undefined {
   return normalizeClaudeRequestedModel(model);
+}
+
+function normalizeProviderModel(
+  provider: AgentProvider | null | undefined,
+  model?: string | null
+): string | undefined {
+  const normalized = normalizeModel(model);
+  if (provider === 'grok' && normalized && !isGrokModelId(normalized)) {
+    return undefined;
+  }
+  return normalized;
 }
 
 function normalizeBetas(betas?: string[] | null): string[] | undefined {
@@ -8731,7 +8743,7 @@ async function handleSessionStart(
             prompt,
             cwd: sessionCwd,
             provider: chosenProvider,
-            model: normalizeModel(model) || undefined,
+            model: normalizeProviderModel(chosenProvider, model),
             compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
             betas: chosenProvider === 'claude' ? normalizeBetas(betas) : undefined,
           });
@@ -8762,7 +8774,7 @@ async function handleSessionStart(
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
     await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt, sessionCwd),
   );
-  const selectedModel = normalizeModel(model);
+  const selectedModel = normalizeProviderModel(chosenProvider, model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
   const selectedClaudeAccessMode =
     chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined;
@@ -9184,7 +9196,7 @@ async function handleSessionContinue(
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
   const sessionAgentId = session.agent_id || null;
-  const nextModel = normalizeModel(model ?? session.model ?? undefined);
+  const nextModel = normalizeProviderModel(nextProvider, model ?? session.model ?? undefined);
   const previousCompatibleProviderId = session.compatible_provider_id || undefined;
   const nextCompatibleProviderId =
     nextProvider === 'claude'
@@ -9194,7 +9206,7 @@ async function handleSessionContinue(
   const nextBetas = nextProvider === 'claude'
     ? normalizeBetas(betas ?? previousBetas)
     : undefined;
-  const previousModel = normalizeModel(session.model ?? undefined);
+  const previousModel = normalizeProviderModel(previousProvider, session.model ?? undefined);
   const providerChanged = nextProvider !== previousProvider;
   const compatibleProviderChanged = nextCompatibleProviderId !== previousCompatibleProviderId;
   // Claude compares alias-aware: init records the concrete model id the CLI
@@ -9859,6 +9871,7 @@ function startRunner(
       : session;
   const sessionState = getSessionState(session.id);
   const provider = providerOverride || session.provider || 'claude';
+  const resolvedModelOverride = normalizeProviderModel(provider, modelOverride);
   const normalizedDeepseekAgentPreset =
     provider === 'deepseek'
       ? normalizeDeepseekAgentPreset(session.deepseek_agent_preset)
@@ -9897,7 +9910,7 @@ function startRunner(
           : provider === 'kimi'
             ? 'kimi acp'
             : 'opencode sdk',
-      model: modelOverride,
+      model: resolvedModelOverride,
       compatibleProviderId,
       cwd: runnerSession.cwd || process.cwd(),
       scope: normalizeSessionScope(session.conversation_scope),
@@ -9934,7 +9947,7 @@ function startRunner(
     attachments,
     session: runnerSession,
     resumeSessionId,
-    model: modelOverride,
+    model: resolvedModelOverride,
     compatibleProviderId,
     betas: provider === 'claude' ? betasOverride || parseStoredBetas(session.betas) : undefined,
     claudeAccessMode: normalizedClaudeAccessMode,
@@ -10014,7 +10027,7 @@ function startRunner(
           markClaudeInit(session.id);
           sessions.updateClaudeSessionId(session.id, message.session_id);
           const resolvedDisplayModel = reconcileClaudeDisplayModel(
-            modelOverride || session.model,
+            resolvedModelOverride || session.model,
             message.model
           );
           if (resolvedDisplayModel) {
@@ -10032,8 +10045,8 @@ function startRunner(
             provider,
             model:
               provider === 'claude'
-                ? reconcileClaudeDisplayModel(modelOverride || session.model, message.model)
-                : message.model || modelOverride || undefined,
+                ? reconcileClaudeDisplayModel(resolvedModelOverride || session.model, message.model)
+                : message.model || resolvedModelOverride || undefined,
             compatibleProviderId:
               provider === 'claude'
                 ? sessions.getSession(session.id)?.compatible_provider_id || compatibleProviderId
@@ -10319,7 +10332,7 @@ function startRunner(
             scope: normalizeSessionScope(sessions.getSession(session.id)?.conversation_scope),
             agentId: sessions.getSession(session.id)?.agent_id || null,
             provider,
-            model: sessions.getSession(session.id)?.model || modelOverride || undefined,
+            model: sessions.getSession(session.id)?.model || resolvedModelOverride || undefined,
             compatibleProviderId:
               provider === 'claude'
                 ? sessions.getSession(session.id)?.compatible_provider_id || compatibleProviderId
@@ -10590,7 +10603,7 @@ function startRunner(
           sessionId: session.id,
           status: (current?.status || 'running') as SessionStatus,
           provider,
-          model: current?.model || modelOverride || undefined,
+          model: current?.model || resolvedModelOverride || undefined,
           compatibleProviderId:
             provider === 'claude'
               ? current?.compatible_provider_id || compatibleProviderId
@@ -10824,8 +10837,8 @@ async function prewarmGrokRunner(
   // a wasted spawn on top of the cold start. Reasoning effort has no row: the
   // send compares it against the runner entry, so booting with the composer's
   // current value is what makes the runner reusable.
-  const rowModel = normalizeModel(session.model ?? undefined);
-  const nextModel = normalizeModel(payload.model ?? session.model ?? undefined);
+  const rowModel = normalizeProviderModel('grok', session.model ?? undefined);
+  const nextModel = normalizeProviderModel('grok', payload.model ?? session.model ?? undefined);
   if (nextModel !== rowModel) {
     return;
   }
@@ -11481,7 +11494,7 @@ function handleMcpSaveConfig(
     flushClaudeRunners();
   }
 
-  // 保存 Codex 全局配置（写入 ~/.codex/config.toml）
+  // 保存 Aegis 专用的 Codex MCP 配置（不修改 ~/.codex/config.toml）
   if (payload.codexGlobalServers !== undefined) {
     try {
       saveCodexMcpServers(payload.codexGlobalServers);

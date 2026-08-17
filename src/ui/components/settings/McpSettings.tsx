@@ -177,8 +177,8 @@ export function McpSettingsContent() {
       id: 'codex-global',
       tool: 'codex',
       scope: 'global',
-      title: 'Global Servers',
-      description: 'Written to ~/.codex/config.toml.',
+      title: 'Aegis Servers',
+      description: 'Stored by Aegis. Your ~/.codex/config.toml remains unchanged.',
       servers: mcpCodexGlobalServers,
       allowedTransports: ['stdio', 'http'],
     });
@@ -407,7 +407,7 @@ export function McpSettingsContent() {
     toast.success(`${originalName ? 'Updated' : 'Saved'} "${trimmedName}".`);
   };
 
-  // Codex only: `enabled = false` disables the server in ~/.codex/config.toml.
+  // Codex only: `enabled = false` disables the server in Aegis' private catalog.
   // Enabling removes the key entirely instead of writing `enabled = true`.
   const handleToggleEnabled = (name: string, group: ServerGroup, nextEnabled: boolean) => {
     const current = group.servers[name];
@@ -550,7 +550,7 @@ function ToolTabBar({
     {
       id: 'codex',
       label: 'Codex',
-      hint: '~/.codex/config.toml',
+      hint: 'Aegis private config',
     },
     {
       id: 'opencode',
@@ -640,7 +640,7 @@ function ServerGroupSection({
 
   const emptyDescription = (() => {
     if (group.tool === 'codex') {
-      return 'Add an MCP server for the Codex CLI. Written to ~/.codex/config.toml.';
+      return 'Add an MCP server for Codex sessions in Aegis. Your Codex App configuration stays unchanged.';
     }
     if (group.tool === 'opencode') {
       return group.scope === 'project'

@@ -7,9 +7,39 @@
 //   crash-after-turn  — accepts turn/start, then exits mid-turn
 //   crash-on-turn     — exits on turn/start WITHOUT responding (pending-
 //                       rejection fixture)
+//   fail-initialize   — rejects initialize after a short delay
+//   sqlite-migration-race — simulates a fresh shared SQLite store that rejects
+//                       overlapping first initializers
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
 import * as readline from 'node:readline';
 
 const mode = process.env.FAKE_CODEX_MODE || 'normal';
+const migrationDir = process.env.FAKE_CODEX_MIGRATION_DIR || '';
+let ownsMigration = false;
+let migrationConflict = false;
+
+if (mode === 'sqlite-migration-race') {
+  mkdirSync(migrationDir, { recursive: true });
+  const readyPath = join(migrationDir, 'ready');
+  if (!existsSync(readyPath)) {
+    try {
+      const fd = openSync(join(migrationDir, 'migration.lock'), 'wx');
+      closeSync(fd);
+      ownsMigration = true;
+    } catch {
+      migrationConflict = true;
+      writeFileSync(join(migrationDir, `conflict-${process.pid}`), 'overlap');
+    }
+  }
+}
 
 if (mode === 'silent') {
   // Swallow stdin forever.
@@ -35,11 +65,37 @@ if (mode === 'silent') {
 
     switch (msg.method) {
       case 'initialize':
+        if (mode === 'fail-initialize') {
+          setTimeout(() => {
+            write({
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32000, message: 'fake initialize failure' },
+            });
+          }, 100);
+          return;
+        }
+        if (mode === 'sqlite-migration-race' && migrationConflict) {
+          write({
+            jsonrpc: '2.0',
+            id: msg.id,
+            error: { code: -32000, message: 'failed to initialize sqlite state runtime' },
+          });
+          return;
+        }
+        if (mode === 'sqlite-migration-race' && ownsMigration) {
+          setTimeout(() => {
+            writeFileSync(join(migrationDir, 'ready'), 'initialized');
+            rmSync(join(migrationDir, 'migration.lock'), { force: true });
+            respond(msg.id, { userAgent: 'fake-codex', codexHome: '/tmp/fake-codex-home' });
+          }, 100);
+          return;
+        }
         respond(msg.id, { userAgent: 'fake-codex', codexHome: '/tmp/fake-codex-home' });
         return;
       case 'thread/start': {
         threadCounter += 1;
-        const threadId = `fake-thread-${threadCounter}`;
+        const threadId = `fake-thread-${process.pid}-${threadCounter}`;
         respond(msg.id, {
           thread: { id: threadId, model: 'fake-model' },
           model: 'fake-model',

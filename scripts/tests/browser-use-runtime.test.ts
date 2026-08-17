@@ -14,6 +14,8 @@ import {
   setBrowserUseSessionFullAccess,
 } from '../../src/electron/libs/browser-use-consent';
 import { saveBrowserUsePermissionSettings } from '../../src/electron/libs/browser-use-permissions';
+import { createGrokAcpHttpMcpServer } from '../../src/electron/libs/provider/grok-acp-mcp';
+import { AcpJsonRpcError } from '../../src/electron/libs/provider/acp-json-rpc-client';
 
 type SnapshotShape = {
   url: string;
@@ -118,6 +120,26 @@ class FakeBrowserManager {
 const deadlines = { restoreMs: 100, navigationMs: 35, commandMs: 250, settleMs: 100 };
 
 async function main() {
+  assert.deepEqual(
+    createGrokAcpHttpMcpServer('aegis-browser', {
+      url: 'http://127.0.0.1:12345/mcp',
+      headers: { Authorization: 'Bearer test-token' },
+    }),
+    {
+      type: 'http',
+      name: 'aegis-browser',
+      url: 'http://127.0.0.1:12345/mcp',
+      headers: [{ name: 'Authorization', value: 'Bearer test-token' }],
+    },
+    'Grok session MCP injection must use the ACP HTTP descriptor shape'
+  );
+  assert.equal(
+    new AcpJsonRpcError('session/new', -32602, { field: 'mcpServers' }, 'Invalid params')
+      .message,
+    'session/new: Invalid params (code -32602): {"field":"mcpServers"}',
+    'ACP errors must retain the method, code and server-provided detail'
+  );
+
   const manager = new FakeBrowserManager();
 
   // Same-session actions are serialized even when the MCP client dispatches

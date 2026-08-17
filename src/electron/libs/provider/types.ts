@@ -215,7 +215,7 @@ export interface ProviderAdapter {
    * it clears stranded approval cards and cannot be misread by stop gates),
    * and never throws. Returns true iff resources were actually released —
    * false means either "nothing to release" (unknown/already-clean thread)
-   * or "policy no-op" (codex/kimi sessions are not locally owned), and the
+   * or "policy no-op" (for adapters whose sessions are not locally owned), and the
    * caller must then leave the directory binding alone. Used when retiring
    * an errored runner and defensively before a same-thread startSession
    * overwrite ("never orphan" enforced at the owning layer).

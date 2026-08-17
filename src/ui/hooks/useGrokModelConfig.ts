@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { GrokModelConfig } from '../types';
 
 const FALLBACK_CONFIG: GrokModelConfig = {
@@ -59,6 +59,7 @@ function normalizeGrokModelConfig(raw: Partial<GrokModelConfig> | null | undefin
 
 export function useGrokModelConfig() {
   const [config, setConfig] = useState<GrokModelConfig>(FALLBACK_CONFIG);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,10 +69,14 @@ export function useGrokModelConfig() {
         .then((nextConfig) => {
           if (!cancelled) {
             setConfig(normalizeGrokModelConfig(nextConfig));
+            setLoaded(true);
           }
         })
         .catch((error) => {
           console.error('Failed to load Grok model config:', error);
+          if (!cancelled) {
+            setLoaded(true);
+          }
         });
 
     void loadConfig();
@@ -87,5 +92,5 @@ export function useGrokModelConfig() {
     };
   }, []);
 
-  return config;
+  return useMemo(() => ({ ...config, loaded }), [config, loaded]);
 }

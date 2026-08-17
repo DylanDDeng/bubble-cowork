@@ -38,7 +38,8 @@ export function resolveListedOrPendingModel(
   requestedModel: string | null | undefined,
   preferredModel: string | null | undefined,
   defaultModel: string | null | undefined,
-  listedValues: Iterable<string>
+  listedValues: Iterable<string>,
+  isAllowedWhilePending?: (model: string) => boolean
 ): string | null {
   const nonEmptyListed = new Set(
     Array.from(listedValues)
@@ -50,15 +51,43 @@ export function resolveListedOrPendingModel(
     .filter((value): value is string => Boolean(value));
 
   for (const candidate of candidates) {
-    if (nonEmptyListed.size === 0 || nonEmptyListed.has(candidate)) {
+    if (
+      nonEmptyListed.has(candidate) ||
+      (nonEmptyListed.size === 0 && (!isAllowedWhilePending || isAllowedWhilePending(candidate)))
+    ) {
       return candidate;
     }
   }
 
-  if (requestedModel?.trim()) {
+  if (requestedModel?.trim() && (!isAllowedWhilePending || isAllowedWhilePending(requestedModel.trim()))) {
     return requestedModel.trim();
   }
   return null;
+}
+
+export function resolveConfirmedListedPreference(
+  preferredModel: string | null | undefined,
+  defaultModel: string | null | undefined,
+  listedValues: Iterable<string>
+): string | null {
+  const listed = Array.from(
+    new Set(
+      Array.from(listedValues)
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  );
+  if (listed.length === 0) {
+    return null;
+  }
+  const listedSet = new Set(listed);
+  for (const candidate of [preferredModel, defaultModel]) {
+    const normalized = candidate?.trim() || null;
+    if (normalized && listedSet.has(normalized)) {
+      return normalized;
+    }
+  }
+  return listed[0] || null;
 }
 
 export function getSessionModel(messages?: StreamMessage[] | null): string | null {

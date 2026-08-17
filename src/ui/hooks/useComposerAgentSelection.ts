@@ -2,9 +2,11 @@ import { rendererStateStorage } from '../utils/renderer-state-storage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AgentProvider, ClaudeCompatibleProviderId, SettingsTab } from '../types';
 import {
+  resolveConfirmedListedPreference,
   resolveListedOrPendingModel,
   type AgentModelSelection,
 } from '../utils/session-model';
+import { formatGrokModelId, isGrokModelId } from '../../shared/provider-model';
 import { useClaudeModelConfig } from './useClaudeModelConfig';
 import { useCodexModelConfig } from './useCodexModelConfig';
 import { useOpencodeModelConfig } from './useOpencodeModelConfig';
@@ -379,7 +381,10 @@ function buildGrokModelOptions(config: ReturnType<typeof useGrokModelConfig>): C
 
 function formatGrokModelLabel(value: string, config: ReturnType<typeof useGrokModelConfig>): string {
   const match = config.availableModels.find((model) => model.name === value);
-  return match?.label || value;
+  if (match?.label) {
+    return match.label;
+  }
+  return formatGrokModelId(value);
 }
 
 function resolveConfiguredGrokModel(
@@ -391,7 +396,8 @@ function resolveConfiguredGrokModel(
     requestedModel,
     loadPreferredGrokModel(),
     config.defaultModel,
-    options.map((option) => option.value)
+    options.map((option) => option.value),
+    isGrokModelId
   );
 }
 
@@ -603,12 +609,15 @@ export function useComposerAgentSelection(input?: {
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
   const [model, setModelState] = useState<string | null>(() => {
+    const initialProvider = input?.provider || loadPreferredProvider();
     const explicit = input?.model?.trim() || null;
-    if (explicit) return explicit;
+    if (explicit && (initialProvider !== 'grok' || isGrokModelId(explicit))) return explicit;
     // Draft/new sessions often have no model field yet — seed from preferred
     // so the first paint never flashes the empty "Default" option.
-    const initialProvider = input?.provider || loadPreferredProvider();
-    if (initialProvider === 'grok') return loadPreferredGrokModel();
+    if (initialProvider === 'grok') {
+      const preferredModel = loadPreferredGrokModel();
+      return isGrokModelId(preferredModel) ? preferredModel : null;
+    }
     if (initialProvider === 'kimi') return loadPreferredKimiModel();
     if (initialProvider === 'codex') return loadPreferredCodexModel();
     if (initialProvider === 'opencode') return loadPreferredOpencodeModel();
@@ -891,6 +900,25 @@ export function useComposerAgentSelection(input?: {
   }, [input?.compatibleProviderId, input?.model, model, provider, resolveModelForProvider]);
 
   useEffect(() => {
+    if (!grokModelConfig.loaded) {
+      return;
+    }
+    const preferredModel = loadPreferredGrokModel();
+    const configuredModels =
+      buildGrokModelOptions(grokModelConfig)
+        .map((option) => option.value.trim())
+        .filter(Boolean);
+    const confirmedModel = resolveConfirmedListedPreference(
+      preferredModel,
+      grokModelConfig.defaultModel,
+      configuredModels
+    );
+    if (confirmedModel && confirmedModel !== preferredModel) {
+      savePreferredGrokModel(confirmedModel);
+    }
+  }, [grokModelConfig]);
+
+  useEffect(() => {
     const normalizedModel = model?.trim() || null;
     // Only treat a model as "configured" when it matches a non-empty option.
     // Matching the empty "Default" option while model is null was preventing
@@ -948,6 +976,13 @@ export function useComposerAgentSelection(input?: {
 
   const selectModel = useCallback(
     (option: ComposerModelOption, targetProvider: AgentProvider = provider) => {
+      if (!option.key.startsWith(`${targetProvider}:`)) {
+        console.error('Ignored cross-provider model selection', {
+          optionKey: option.key,
+          targetProvider,
+        });
+        return;
+      }
       const nextModel = option.value.trim() || null;
       const nextCompatibleProviderId =
         targetProvider === 'claude' ? option.compatibleProviderId || null : null;
@@ -1026,6 +1061,9 @@ export function useComposerAgentSelection(input?: {
     }
 
     if (provider === 'grok') {
+      if (!grokModelConfig.loaded) {
+        return null;
+      }
       return {
         label: 'Setup Grok',
         title: 'Configure Grok Build',
@@ -1054,7 +1092,7 @@ export function useComposerAgentSelection(input?: {
     }
 
     return null;
-  }, [model, modelOptions, provider]);
+  }, [grokModelConfig.loaded, model, modelOptions, provider]);
 
   const selectedModelLabel =
     modelSetup?.label ||

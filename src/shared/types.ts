@@ -46,8 +46,8 @@ export interface McpServerConfig {
   url?: string;
   headers?: Record<string, string>;
   env?: Record<string, string>;
-  /** Runtime-specific enable flag. Codex persists it in config.toml; Aegis
-   * applies it while generating each DeepSeek Harness composition. */
+  /** Runtime-specific enable flag. Aegis persists the Codex value in its
+   * private MCP catalog and applies DeepSeek values per harness composition. */
   enabled?: boolean;
 }
 

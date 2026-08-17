@@ -19,8 +19,19 @@ assert.ok(
 const hook = read('src/ui/hooks/useComposerAgentSelection.ts');
 assert.ok(
   hook.includes('targetProvider: AgentProvider = provider') &&
-    hook.includes('input?.onSelectionChange?.({'),
-  'model selection must be atomic and report the new controlled value'
+    hook.includes('input?.onSelectionChange?.({') &&
+    hook.includes('option.key.startsWith(`${targetProvider}:`)') &&
+    hook.includes('isGrokModelId') &&
+    hook.includes('savePreferredGrokModel(confirmedModel)'),
+  'model selection must be atomic, provider-scoped, and reject foreign Grok models'
+);
+
+const ipcHandlers = read('src/electron/ipc-handlers.ts');
+assert.ok(
+  ipcHandlers.includes('normalizeProviderModel(chosenProvider, model)') &&
+    ipcHandlers.includes("normalizeProviderModel('grok', payload.model ?? session.model ?? undefined)") &&
+    ipcHandlers.includes('model: resolvedModelOverride'),
+  'the main process must reject foreign models before starting or prewarming Grok'
 );
 
 const promptInput = read('src/ui/components/PromptInput.tsx');

@@ -1,35 +1,65 @@
+import { app } from 'electron';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import type { McpServerConfig } from './claude-settings';
 
-// Codex 的 MCP 配置保存在 ~/.codex/config.toml 的 [mcp_servers.<name>] 段里。
-// 为了避免破坏用户原有的 TOML（比如 profiles、providers、注释等），这里不使用
-// 完整的 TOML 解析/序列化器，而是只对 [mcp_servers.*] 段做就地替换。
-const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
+// Aegis owns a private Codex MCP catalog. The user's ~/.codex/config.toml is
+// read exactly once to seed that catalog and is never written. At runtime the
+// catalog is supplied to `codex app-server` through `-c` overrides, so Aegis
+// does not need to repoint CODEX_HOME merely to isolate MCP configuration.
+function userCodexConfigPath(): string {
+  return process.env.AEGIS_CODEX_USER_CONFIG_PATH?.trim() || join(homedir(), '.codex', 'config.toml');
+}
+
+export function aegisCodexMcpConfigPath(): string {
+  const override = process.env.AEGIS_CODEX_MCP_CONFIG_PATH?.trim();
+  if (override) return override;
+  return join(app.getPath('userData'), 'codex', 'config.toml');
+}
+
+function ensurePrivateConfig(): string {
+  const targetPath = aegisCodexMcpConfigPath();
+  const sourcePath = userCodexConfigPath();
+  if (resolve(targetPath) === resolve(sourcePath)) {
+    throw new Error('Aegis Codex MCP config must not resolve to the user Codex config path.');
+  }
+  if (existsSync(targetPath)) return targetPath;
+
+  mkdirSync(dirname(targetPath), { recursive: true, mode: 0o700 });
+  const initial = existsSync(sourcePath)
+    ? extractMcpCatalogText(readFileSync(sourcePath, 'utf-8'))
+    : '';
+  try {
+    writeFileSync(targetPath, initial, { encoding: 'utf-8', flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+  return targetPath;
+}
 
 function readText(): string {
   try {
-    if (!existsSync(CODEX_CONFIG_PATH)) return '';
-    return readFileSync(CODEX_CONFIG_PATH, 'utf-8');
+    return readFileSync(ensurePrivateConfig(), 'utf-8');
   } catch (error) {
-    console.warn('Failed to read ~/.codex/config.toml:', error);
+    console.warn('Failed to read the Aegis Codex MCP config:', error);
     return '';
   }
 }
 
 function writeText(content: string): void {
   try {
-    mkdirSync(dirname(CODEX_CONFIG_PATH), { recursive: true });
-    writeFileSync(CODEX_CONFIG_PATH, content, 'utf-8');
+    const targetPath = ensurePrivateConfig();
+    writeFileSync(targetPath, content, { encoding: 'utf-8', mode: 0o600 });
   } catch (error) {
-    console.warn('Failed to write ~/.codex/config.toml:', error);
+    console.warn('Failed to write the Aegis Codex MCP config:', error);
     throw error;
   }
 }
 
-// 匹配类似 [mcp_servers.foo] 的一行段标头；不匹配子表如 [mcp_servers.foo.env]
-const SECTION_HEADER_RE = /^\s*\[mcp_servers\.([^\]\s.]+)\]\s*$/;
+// 匹配 [mcp_servers.foo] / [mcp_servers."foo.bar"] 段标头；不匹配
+// [mcp_servers.foo.env] 这类子表。
+const SECTION_HEADER_RE = /^\s*\[mcp_servers\.(.+)\]\s*$/;
 // 任意段标头（包括上面这种）用于定位段结束
 const ANY_SECTION_HEADER_RE = /^\s*\[[^\]]+\]\s*$/;
 
@@ -53,8 +83,13 @@ function findMcpSections(lines: string[]): ParsedSection[] {
   while (i < lines.length) {
     const line = lines[i];
     const match = line.match(SECTION_HEADER_RE);
-    if (match) {
-      const name = match[1];
+    const rawName = match?.[1]?.trim();
+    const name = rawName
+      ? /^[A-Za-z0-9_-]+$/.test(rawName)
+        ? rawName
+        : parseString(rawName)
+      : null;
+    if (match && name != null) {
       const startLine = i;
       let j = i + 1;
       while (j < lines.length && !ANY_SECTION_HEADER_RE.test(lines[j])) {
@@ -72,6 +107,14 @@ function findMcpSections(lines: string[]): ParsedSection[] {
     }
   }
   return sections;
+}
+
+function extractMcpCatalogText(text: string): string {
+  const lines = splitLines(text);
+  const blocks = findMcpSections(lines).map((section) =>
+    lines.slice(section.startLine, section.endLine).join('\n').trimEnd()
+  );
+  return blocks.length > 0 ? `${blocks.join('\n\n')}\n` : '';
 }
 
 // 解析内联 TOML 字符串字面量 "..."，简单支持常见转义。
@@ -311,6 +354,79 @@ function serializeSection(name: string, config: McpServerConfig, extraLines: str
   }
   lines.push(...extraLines);
   return lines.join('\n');
+}
+
+function formatDottedSegment(value: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(value) ? value : `"${escapeString(value)}"`;
+}
+
+/**
+ * Build an isolated MCP view for one app-server process.
+ *
+ * Codex config overrides merge tables instead of replacing them, so an empty
+ * `mcp_servers={}` alone does not remove entries from the user's read-only
+ * config. Explicitly disable every user entry that is absent from Aegis' private
+ * catalog, then reconstruct the private entries. This preserves normal Codex
+ * auth/session/config behavior while ensuring the MCP editor, Browser Use, and
+ * delegate server never write ~/.codex/config.toml.
+ */
+export function buildCodexMcpConfigOverrideArgs(): string[] {
+  const text = readText();
+  const sections = findMcpSections(splitLines(text));
+  const args = ['-c', 'mcp_servers={}'];
+  const privateNames = new Set(sections.map((section) => section.name));
+
+  // A higher-precedence empty table is deep-merged by Codex 0.147+, not
+  // treated as a replacement. Disable source-only entries one by one so a
+  // server removed in Aegis cannot remain active through ~/.codex/config.toml.
+  try {
+    const sourcePath = userCodexConfigPath();
+    const sourceText = existsSync(sourcePath) ? readFileSync(sourcePath, 'utf-8') : '';
+    const sourceSections = findMcpSections(splitLines(sourceText));
+    for (const sourceSection of sourceSections) {
+      if (privateNames.has(sourceSection.name)) continue;
+      const prefix = `mcp_servers.${formatDottedSegment(sourceSection.name)}`;
+      args.push('-c', `${prefix}.enabled=false`);
+    }
+  } catch (error) {
+    console.warn('Failed to build Codex MCP disables from the user config:', error);
+  }
+
+  for (const section of sections) {
+    const { config, extraLines } = parseSectionBody(section.body);
+    const hasCommand = typeof config.command === 'string' && config.command.trim().length > 0;
+    const hasUrl = typeof config.url === 'string' && config.url.trim().length > 0;
+    if (!hasCommand && !hasUrl) continue;
+
+    const prefix = `mcp_servers.${formatDottedSegment(section.name)}`;
+    const pushOverride = (key: string, value: string) => {
+      args.push('-c', `${prefix}.${key}=${value}`);
+    };
+
+    if (hasUrl) pushOverride('url', `"${escapeString(config.url!.trim())}"`);
+    else pushOverride('command', `"${escapeString(config.command!.trim())}"`);
+    if (config.args && config.args.length > 0) pushOverride('args', serializeArgs(config.args));
+    if (config.env && Object.keys(config.env).length > 0) pushOverride('env', serializeEnv(config.env));
+    if (config.headers && Object.keys(config.headers).length > 0) {
+      pushOverride('http_headers', serializeEnv(config.headers));
+    }
+    if (typeof config.enabled === 'boolean') {
+      pushOverride('enabled', config.enabled ? 'true' : 'false');
+    }
+
+    for (const rawLine of extraLines) {
+      const line = rawLine.replace(/\r$/, '').replace(/\s*#.*$/, '').trim();
+      if (!line || line.startsWith('[')) continue;
+      const eq = findTopLevelEquals(line);
+      if (eq < 1) continue;
+      const key = line.slice(0, eq).trim();
+      const value = line.slice(eq + 1).trim();
+      if (!key || !value) continue;
+      pushOverride(key, value);
+    }
+  }
+
+  return args;
 }
 
 // 读取所有 [mcp_servers.*] 段。

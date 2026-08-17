@@ -142,7 +142,7 @@ class ProviderServiceImpl implements ProviderService {
       const disposed = adapter?.disposeSession(threadId) ?? false;
       if (disposed) {
         // Only a true dispose may drop the binding: for policy no-op
-        // adapters (codex/kimi) the session is still live, and removing the
+        // adapters the session is still live, and removing the
         // binding would break late permission responses and neuter
         // stopSession for that thread.
         this.directory.remove(threadId);

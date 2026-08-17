@@ -251,7 +251,7 @@ export function ensureDelegateHttpServer(): Promise<DelegateHttpServerInfo> {
   return serverPromise;
 }
 
-/** Refresh ~/.codex/config.toml with this run's endpoint (port is ephemeral). */
+/** Refresh Aegis' private Codex MCP catalog with this run's endpoint. */
 export function writeCodexDelegateEntry(info: DelegateHttpServerInfo): void {
   upsertCodexMcpServer(
     DELEGATE_MCP_SERVER_NAME,

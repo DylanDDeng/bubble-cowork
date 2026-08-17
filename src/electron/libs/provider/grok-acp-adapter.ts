@@ -36,6 +36,7 @@ import {
   withGeneratedMediaInput,
 } from '../../../shared/generated-media';
 import { getBrowserUseMcpDescriptor } from '../browser-use-http-server';
+import { createGrokAcpHttpMcpServer } from './grok-acp-mcp';
 
 type PromptBlock =
   | { type: 'text'; text: string }
@@ -92,6 +93,19 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
  * against xAI's cost-tracking docs, e.g. 37756000 ticks = $0.0037756).
  */
 const GROK_COST_TICKS_PER_USD = 1e10;
+
+function terminateSpawnedGrokProcess(proc: ChildProcessWithoutNullStreams): void {
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+
+  proc.kill('SIGTERM');
+  const killTimer = setTimeout(() => {
+    if (proc.exitCode === null && proc.signalCode === null) {
+      proc.kill('SIGKILL');
+    }
+  }, 500);
+  killTimer.unref?.();
+  proc.once('exit', () => clearTimeout(killTimer));
+}
 
 interface GrokTurnUsage {
   inputTokens: number;
@@ -378,37 +392,44 @@ export class GrokAcpAdapter implements ProviderAdapter {
       }
     );
 
-    await rpc.request('initialize', {
-      protocolVersion: 1,
-      clientInfo: { name: 'aegis', title: 'Aegis', version: '0.0.32' },
-      clientCapabilities: {
-        fs: { readTextFile: true, writeTextFile: true },
-        terminal: true,
-      },
-    });
+    await rpc
+      .request('initialize', {
+        protocolVersion: 1,
+        clientInfo: { name: 'aegis', title: 'Aegis', version: '0.0.32' },
+        clientCapabilities: {
+          fs: { readTextFile: true, writeTextFile: true },
+          terminal: true,
+        },
+      })
+      .catch((error) => {
+        terminateSpawnedGrokProcess(proc);
+        throw error;
+      });
 
     const permissionMode = normalizeGrokPermissionMode(input.grokPermissionMode);
     // Built-in browser use: hand grok the loopback HTTP MCP server when the
     // feature is on (ACP session/new mcpServers, http variant).
     const browserUseDescriptor = getBrowserUseMcpDescriptor();
     const mcpServers = browserUseDescriptor
-      ? [
-          {
-            name: 'aegis-browser',
-            url: browserUseDescriptor.url,
-            headers: browserUseDescriptor.headers,
-          },
-        ]
+      ? [createGrokAcpHttpMcpServer('aegis-browser', browserUseDescriptor)]
       : [];
-    const sessionResult = await rpc.request(input.resumeSessionId ? 'session/resume' : 'session/new', {
-      ...(input.resumeSessionId ? { sessionId: input.resumeSessionId } : {}),
-      cwd: input.cwd,
-      mcpServers,
-      ...(permissionMode ? { permissionMode } : {}),
-    });
+    const sessionResult = await rpc
+      .request(input.resumeSessionId ? 'session/resume' : 'session/new', {
+        ...(input.resumeSessionId ? { sessionId: input.resumeSessionId } : {}),
+        cwd: input.cwd,
+        mcpServers,
+        ...(permissionMode ? { permissionMode } : {}),
+      })
+      .catch((error) => {
+        terminateSpawnedGrokProcess(proc);
+        throw error;
+      });
     let sessionRecord = getRecord(sessionResult);
-    const providerSessionId = getString(sessionRecord?.sessionId || sessionRecord?.id || input.resumeSessionId);
+    const providerSessionId = getString(
+      sessionRecord?.sessionId || sessionRecord?.id || input.resumeSessionId
+    );
     if (!providerSessionId) {
+      terminateSpawnedGrokProcess(proc);
       throw new Error('Grok ACP did not return a sessionId.');
     }
     let model = extractModelFromSessionResult(sessionRecord);

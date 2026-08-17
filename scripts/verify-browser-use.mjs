@@ -123,7 +123,7 @@ assert.ok(
 );
 assert.ok(
   httpServer.includes('upsertCodexMcpServer') && httpServer.includes('upsertKimiMcpServerRaw'),
-  'codex config.toml + kimi mcp.json entries are written'
+  'Aegis-private Codex catalog + kimi mcp.json entries are written'
 );
 assert.ok(
   httpServer.includes("'AEGIS_BROWSER_USE_TOKEN'"),
@@ -232,8 +232,13 @@ assert.ok(
 );
 const grok = read('src/electron/libs/provider/grok-acp-adapter.ts');
 assert.ok(
-  grok.includes('getBrowserUseMcpDescriptor()'),
-  'grok ACP passes the browser-use server into session/new'
+  grok.includes('getBrowserUseMcpDescriptor()') &&
+    grok.includes("createGrokAcpHttpMcpServer('aegis-browser', browserUseDescriptor)"),
+  'grok ACP converts browser-use into the typed HTTP session descriptor'
+);
+assert.ok(
+  /\.catch\(\(error\) => \{\s*terminateSpawnedGrokProcess\(proc\);/.test(grok),
+  'grok startup failures terminate the spawned ACP process'
 );
 assert.ok(
   runner.includes('if (isBrowserUseEnabled())'),

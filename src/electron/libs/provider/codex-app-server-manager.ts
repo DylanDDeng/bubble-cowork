@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
 import { promises as fsPromises } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import * as readline from 'readline';
 import { v4 as uuidv4 } from 'uuid';
 import type {
@@ -30,6 +30,7 @@ import type {
   McpServerStatus,
 } from '../../../shared/types';
 import { isDev } from '../../util';
+import { buildCodexMcpConfigOverrideArgs } from '../codex-mcp-settings';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -137,6 +138,11 @@ interface PendingInterrupt {
   timer: NodeJS.Timeout;
 }
 
+interface CodexProfileInitializationState {
+  ready: boolean;
+  inFlight: Promise<void> | null;
+}
+
 export interface CodexModelServiceTier {
   id: string;
   name: string;
@@ -199,6 +205,7 @@ const TURN_TIMEOUT_MS = envTimeout('AEGIS_CODEX_TURN_TIMEOUT_MS', 300_000);
 // How long a stop waits for `turn/completed(interrupted)` before settling
 // unconfirmed (P0-6).
 const STOP_CONFIRM_TIMEOUT_MS = envTimeout('AEGIS_CODEX_STOP_CONFIRM_TIMEOUT_MS', 10_000);
+const PROCESS_STOP_TIMEOUT_MS = envTimeout('AEGIS_CODEX_PROCESS_STOP_TIMEOUT_MS', 2_000);
 
 function resolveSkillsDiscoveryCwd(cwd: string | undefined): string {
   const trimmed = cwd?.trim();
@@ -225,6 +232,16 @@ function isTransientConnectionMessage(message: string): boolean {
 // ── CodexAppServerManager ──────────────────────────────────────────────────
 
 export class CodexAppServerManager extends EventEmitter {
+  /**
+   * Codex initializes/migrates one SQLite state store per profile. Separate
+   * manager instances normally start in parallel, but two first-ever
+   * initializers can race inside the same fresh store. Gate only that cold
+   * initialize; after one succeeds, per-thread processes spawn concurrently.
+   */
+  private static readonly profileInitializationStates = new Map<
+    string,
+    CodexProfileInitializationState
+  >();
   private child: ChildProcessWithoutNullStreams | null = null;
   private rl: readline.Interface | null = null;
   private nextRequestId = 1;
@@ -236,6 +253,10 @@ export class CodexAppServerManager extends EventEmitter {
   // Single-flight spawn barrier: concurrent ensureSpawned() calls await the
   // same in-flight promise; nothing proceeds before initialize completes.
   private spawnPromise: Promise<void> | null = null;
+  /** Cancels a manager that is waiting behind another profile initializer. */
+  private spawnAbortController: AbortController | null = null;
+  /** Monotonic token: stop() invalidates every admitted spawn attempt. */
+  private lifecycleEpoch = 0;
   // Monotonic process generation. Sessions/handlers capture it so events from
   // a dead child and operations on stale sessions can be rejected.
   private generation = 0;
@@ -276,6 +297,10 @@ export class CodexAppServerManager extends EventEmitter {
     return this.ensureSpawned(cwd);
   }
 
+  getProcessId(): number | null {
+    return this.child?.pid ?? null;
+  }
+
   private async doSpawn(cwd: string): Promise<void> {
     if (this.child) {
       return;
@@ -284,7 +309,7 @@ export class CodexAppServerManager extends EventEmitter {
     this.generation += 1;
     const gen = this.generation;
 
-    const child = spawn(this.binaryPath, ['app-server'], {
+    const child = spawn(this.binaryPath, ['app-server', ...buildCodexMcpConfigOverrideArgs()], {
       cwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -304,15 +329,19 @@ export class CodexAppServerManager extends EventEmitter {
       if (isDev()) {
         console.log('[Codex AppServer] process exited', { code, signal });
       }
-      this.emit('process_exit', { code, signal });
+      // Drain stop/approval lifecycle events while the adapter still owns
+      // this manager. The process failure event is the ownership terminal;
+      // emitting it first would make the adapter's stale-manager guard drop
+      // the cleanup events that follow.
       this.cleanupGeneration(gen, 'process_exit');
+      this.emit('process_exit', { code, signal });
     });
 
     child.on('error', (error) => {
       console.error('[Codex AppServer] process error', error);
-      this.emit('process_error', error);
       if (this.child !== child) return;
       this.cleanupGeneration(gen, 'process_error');
+      this.emit('process_error', error);
     });
 
     child.stderr?.on('data', (chunk) => {
@@ -366,8 +395,153 @@ export class CodexAppServerManager extends EventEmitter {
     }
   }
 
+  private profileInitializationKey(): string {
+    const sqliteHome = process.env.CODEX_SQLITE_HOME?.trim();
+    const codexHome = process.env.CODEX_HOME?.trim();
+    const stateHome = sqliteHome
+      ? `sqlite:${resolve(sqliteHome)}`
+      : `codex:${resolve(codexHome || join(homedir(), '.codex'))}`;
+    // A different binary/version may own a different migration level even if
+    // the state directory is unchanged.
+    return `${resolve(this.binaryPath)}\0${this.clientVersion}\0${stateHome}`;
+  }
+
+  private assertSpawnLifecycleCurrent(epoch: number, signal: AbortSignal): void {
+    if (signal.aborted || this.lifecycleEpoch !== epoch) {
+      throw new CodexRpcTransportError('stopped', 'initialize');
+    }
+  }
+
+  private waitForProfileInitializationAttempt(
+    attempt: Promise<void>,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(new CodexRpcTransportError('stopped', 'initialize'));
+    }
+    return new Promise<void>((resolveWait, rejectWait) => {
+      const onAbort = () => {
+        cleanup();
+        rejectWait(new CodexRpcTransportError('stopped', 'initialize'));
+      };
+      const cleanup = () => signal.removeEventListener('abort', onAbort);
+      signal.addEventListener('abort', onAbort, { once: true });
+      void attempt.then(
+        () => {
+          cleanup();
+          resolveWait();
+        },
+        (error) => {
+          cleanup();
+          rejectWait(error);
+        }
+      );
+    });
+  }
+
+  private async spawnAfterProfileInitializationGate(
+    cwd: string,
+    epoch: number,
+    signal: AbortSignal
+  ): Promise<void> {
+    const key = this.profileInitializationKey();
+    let state = CodexAppServerManager.profileInitializationStates.get(key);
+    if (!state) {
+      state = { ready: false, inFlight: null };
+      CodexAppServerManager.profileInitializationStates.set(key, state);
+    }
+
+    while (!state.ready) {
+      this.assertSpawnLifecycleCurrent(epoch, signal);
+      if (state.inFlight) {
+        try {
+          await this.waitForProfileInitializationAttempt(state.inFlight, signal);
+        } catch {
+          this.assertSpawnLifecycleCurrent(epoch, signal);
+          // The owner failed before completing initialize. Re-check the gate:
+          // exactly one waiter will claim the next attempt; others follow it.
+        }
+        continue;
+      }
+
+      const attempt = this.doSpawn(cwd);
+      state.inFlight = attempt;
+      try {
+        await this.waitForProfileInitializationAttempt(attempt, signal);
+        this.assertSpawnLifecycleCurrent(epoch, signal);
+        state.ready = true;
+        return;
+      } finally {
+        if (state.inFlight === attempt) state.inFlight = null;
+      }
+    }
+
+    this.assertSpawnLifecycleCurrent(epoch, signal);
+    await this.doSpawn(cwd);
+    this.assertSpawnLifecycleCurrent(epoch, signal);
+  }
+
   async stop(): Promise<void> {
+    const spawnPromise = this.spawnPromise;
+    this.lifecycleEpoch += 1;
+    this.spawnAbortController?.abort();
+    const child = this.child;
+    if (!child) {
+      this.cleanupGeneration(this.generation, 'stopped');
+      if (spawnPromise) await Promise.allSettled([spawnPromise]);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const exited = new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve();
+      };
+      if (child.exitCode !== null || child.signalCode !== null) {
+        finish();
+        return;
+      }
+      child.once('exit', finish);
+      timer = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // The process may have exited between the timeout and the signal.
+        }
+        finish();
+      }, PROCESS_STOP_TIMEOUT_MS);
+      timer.unref?.();
+    });
     this.cleanupGeneration(this.generation, 'stopped');
+    await Promise.allSettled([
+      exited,
+      ...(spawnPromise ? [spawnPromise] : []),
+    ]);
+  }
+
+  /**
+   * Synchronous, quiet per-thread disposal used by the adapter's errored-runner
+   * path. Pending approval cards are dismissed while event routing is still
+   * live, but pending stop confirmations are cancelled without emitting
+   * stop_settled (disposeSession's contract forbids stop side effects).
+   */
+  disposeSessionResources(threadId: string): void {
+    const session = this.sessions.get(threadId);
+    if (session) {
+      const pendingInterrupt = this.pendingInterrupts.get(session.providerThreadId);
+      if (pendingInterrupt) {
+        clearTimeout(pendingInterrupt.timer);
+        this.pendingInterrupts.delete(session.providerThreadId);
+      }
+      this.sessions.delete(threadId);
+      if (this.lastActiveThreadId === threadId) {
+        this.lastActiveThreadId = this.findMostRecentFallbackThreadId();
+      }
+    }
+    this.declineApprovalsForThread(threadId);
   }
 
   /**
@@ -386,23 +560,26 @@ export class CodexAppServerManager extends EventEmitter {
 
     // Settle stop confirmations immediately — the UI shouldn't sit in
     // "stopping" for the remaining timeout after the process is gone.
-    for (const [providerThreadId, interrupt] of this.pendingInterrupts) {
+    const pendingInterrupts = [...this.pendingInterrupts.entries()];
+    this.pendingInterrupts.clear();
+    const pendingApprovals = [...this.pendingApprovals.entries()];
+    this.pendingApprovals.clear();
+    for (const [providerThreadId, interrupt] of pendingInterrupts) {
       clearTimeout(interrupt.timer);
       this.emit('stop_settled', {
         aegisThreadId: interrupt.aegisThreadId,
         providerThreadId,
         generation: interrupt.generation,
         confirmed: false,
+        managerTerminating: true,
       });
     }
-    this.pendingInterrupts.clear();
 
     // The JSON-RPC ids of these approvals can never be answered now; tell the
     // UI to drop the cards instead of leaving them pointing at dead requests.
-    for (const [requestId, approval] of this.pendingApprovals) {
+    for (const [requestId, approval] of pendingApprovals) {
       this.emit('approval_dismissed', { requestId, threadId: approval.threadId });
     }
-    this.pendingApprovals.clear();
 
     if (this.rl) {
       this.rl.close();
@@ -2321,9 +2498,15 @@ export class CodexAppServerManager extends EventEmitter {
   private async ensureSpawned(cwd: string): Promise<void> {
     if (this.initialized) return;
     if (!this.spawnPromise) {
-      this.spawnPromise = this.doSpawn(cwd).finally(() => {
-        this.spawnPromise = null;
+      const epoch = this.lifecycleEpoch;
+      const controller = new AbortController();
+      this.spawnAbortController = controller;
+      let tracked: Promise<void>;
+      tracked = this.spawnAfterProfileInitializationGate(cwd, epoch, controller.signal).finally(() => {
+        if (this.spawnPromise === tracked) this.spawnPromise = null;
+        if (this.spawnAbortController === controller) this.spawnAbortController = null;
       });
+      this.spawnPromise = tracked;
     }
     return this.spawnPromise;
   }

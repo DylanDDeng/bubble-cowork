@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import {
   applySessionAgentSelection,
+  resolveConfirmedListedPreference,
   resolveListedOrPendingModel,
 } from '../../src/ui/utils/session-model';
+import { formatGrokModelId, isGrokModelId } from '../../src/shared/provider-model';
 import type { SessionView } from '../../src/ui/types';
 
 function testPrefersSessionModelWhenListLoaded() {
@@ -52,6 +54,71 @@ function testFallsBackToConfigDefault() {
 function testReturnsNullOnlyWhenNothingKnown() {
   const resolved = resolveListedOrPendingModel(null, null, null, ['']);
   assert.equal(resolved, null);
+}
+
+function testRejectsForeignGrokPreferenceWhileCatalogLoads() {
+  const resolved = resolveListedOrPendingModel(
+    null,
+    'gpt-5.6-sol',
+    null,
+    [''],
+    isGrokModelId
+  );
+  assert.equal(resolved, null, 'a Codex preference must never render under Grok during cold start');
+}
+
+function testAcceptsGrokPreferenceWhileCatalogLoads() {
+  const resolved = resolveListedOrPendingModel(
+    null,
+    'grok-4.6',
+    null,
+    [''],
+    isGrokModelId
+  );
+  assert.equal(resolved, 'grok-4.6');
+}
+
+function testRejectsForeignExplicitGrokModelAfterCatalogLoads() {
+  const resolved = resolveListedOrPendingModel(
+    'gpt-5.6-sol',
+    null,
+    'grok-4.6',
+    ['', 'grok-4.6'],
+    isGrokModelId
+  );
+  assert.equal(resolved, 'grok-4.6', 'a foreign session model must fall back to the Grok catalog');
+}
+
+function testRepairsMissingGrokPreferenceFromConfirmedDefault() {
+  const resolved = resolveConfirmedListedPreference(
+    null,
+    'grok-4.6',
+    ['', 'grok-4.5', 'grok-4.6']
+  );
+  assert.equal(resolved, 'grok-4.6');
+}
+
+function testRepairsForeignGrokPreferenceFromConfirmedDefault() {
+  const resolved = resolveConfirmedListedPreference(
+    'gpt-5.6-sol',
+    'grok-4.6',
+    ['', 'grok-4.5', 'grok-4.6']
+  );
+  assert.equal(resolved, 'grok-4.6');
+}
+
+function testKeepsConfirmedGrokPreference() {
+  const resolved = resolveConfirmedListedPreference(
+    'grok-4.5',
+    'grok-4.6',
+    ['', 'grok-4.5', 'grok-4.6']
+  );
+  assert.equal(resolved, 'grok-4.5');
+}
+
+function testFormatsPersistedGrokModelBeforeCatalogLoads() {
+  assert.equal(formatGrokModelId('grok-4.6'), 'Grok 4.6');
+  assert.equal(formatGrokModelId('grok-composer-2.5-fast'), 'Grok Composer 2.5 Fast');
 }
 
 /**
@@ -137,6 +204,13 @@ testUsesPreferredWhileConfigStillLoading();
 testKeepsSessionModelMissingFromStaleList();
 testFallsBackToConfigDefault();
 testReturnsNullOnlyWhenNothingKnown();
+testRejectsForeignGrokPreferenceWhileCatalogLoads();
+testAcceptsGrokPreferenceWhileCatalogLoads();
+testRejectsForeignExplicitGrokModelAfterCatalogLoads();
+testRepairsMissingGrokPreferenceFromConfirmedDefault();
+testRepairsForeignGrokPreferenceFromConfirmedDefault();
+testKeepsConfirmedGrokPreference();
+testFormatsPersistedGrokModelBeforeCatalogLoads();
 testSessionSwitchDoesNotPassThroughDefaultLabel();
 testCurrentSessionSelectionUpdatesImmediately();
 testDefaultModelClearsSessionOverride();

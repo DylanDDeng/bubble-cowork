@@ -26,6 +26,27 @@ export type AcpJsonRpcIncomingRequest = {
   params?: Record<string, unknown>;
 };
 
+export class AcpJsonRpcError extends Error {
+  constructor(
+    readonly method: string,
+    readonly code: number | undefined,
+    readonly data: unknown,
+    message: string
+  ) {
+    const codePart = typeof code === 'number' ? ` (code ${code})` : '';
+    let dataPart = '';
+    if (data !== undefined) {
+      try {
+        dataPart = `: ${JSON.stringify(data)}`;
+      } catch {
+        dataPart = `: ${String(data)}`;
+      }
+    }
+    super(`${method}: ${message}${codePart}${dataPart}`);
+    this.name = 'AcpJsonRpcError';
+  }
+}
+
 export class AcpJsonRpcClient {
   private nextId = 1;
   private buffer = '';
@@ -115,10 +136,14 @@ export class AcpJsonRpcClient {
       this.pending.delete(parsed.id);
       if (parsed.error) {
         const message = parsed.error.message || `ACP request ${pending.method} failed`;
-        const err = new Error(message) as Error & { code?: number; data?: unknown };
-        err.code = parsed.error.code;
-        err.data = parsed.error.data;
-        pending.reject(err);
+        pending.reject(
+          new AcpJsonRpcError(
+            pending.method,
+            parsed.error.code,
+            parsed.error.data,
+            message
+          )
+        );
         return;
       }
       pending.resolve(parsed.result);

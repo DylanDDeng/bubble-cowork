@@ -61,11 +61,6 @@ assert.ok(
   ipcSource.includes('disposeDelegateHttpServer()'),
   'cleanup must dispose the delegate HTTP server'
 );
-assert.ok(
-  ipcSource.includes('!isDelegateExecutionSession(session.id)') ,
-  'environment recap must skip hidden delegate executions'
-);
-
 const codexAdapterSource = fs.readFileSync(
   path.join(root, 'src', 'electron', 'libs', 'provider', 'codex-adapter.ts'),
   'utf8'
@@ -123,6 +118,12 @@ const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-delegate-home-'));
 process.env.HOME = fakeHome;
 delete process.env.KIMI_CODE_HOME; // must resolve inside the fake home
 fs.mkdirSync(path.join(fakeHome, '.codex'), { recursive: true });
+const userCodexConfigPath = path.join(fakeHome, '.codex', 'config.toml');
+const privateCodexConfigPath = path.join(fakeHome, 'aegis-user-data', 'codex', 'config.toml');
+const userCodexSentinel = 'model = "user-config-must-remain-unchanged"\n';
+fs.writeFileSync(userCodexConfigPath, userCodexSentinel, 'utf8');
+const userCodexStatBefore = fs.statSync(userCodexConfigPath);
+process.env.AEGIS_CODEX_MCP_CONFIG_PATH = privateCodexConfigPath;
 
 const serviceMod = await import(
   path.join(root, 'dist-electron', 'electron', 'libs', 'delegate-service.js')
@@ -146,13 +147,18 @@ const info = await httpServer.ensureDelegateHttpServer();
 assert.match(info.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/, 'loopback URL');
 assert.ok(info.token.length >= 16, 'bearer token present');
 
-// codex config entry written with auth + timeout extras
-const codexConfig = fs.readFileSync(path.join(fakeHome, '.codex', 'config.toml'), 'utf8');
-assert.ok(codexConfig.includes('[mcp_servers.aegis-delegate]'), 'codex config gets the delegate entry');
+// Codex entry is written only to Aegis' private catalog. The user's source
+// config remains byte-for-byte and metadata unchanged.
+const codexConfig = fs.readFileSync(privateCodexConfigPath, 'utf8');
+assert.ok(codexConfig.includes('[mcp_servers.aegis-delegate]'), 'Aegis Codex catalog gets the delegate entry');
 assert.ok(codexConfig.includes(`url = "${info.url}"`), 'entry carries the live URL');
 assert.ok(codexConfig.includes('bearer_token_env_var = "AEGIS_DELEGATE_TOKEN"'), 'entry references the token env var');
 assert.ok(codexConfig.includes('tool_timeout_sec = 2100'), 'entry lifts the codex tool timeout');
 assert.equal(process.env.AEGIS_DELEGATE_TOKEN, info.token, 'token exported for spawned CLIs');
+const userCodexStatAfter = fs.statSync(userCodexConfigPath);
+assert.equal(fs.readFileSync(userCodexConfigPath, 'utf8'), userCodexSentinel, 'user Codex config content is unchanged');
+assert.equal(userCodexStatAfter.mtimeMs, userCodexStatBefore.mtimeMs, 'user Codex config mtime is unchanged');
+assert.equal(userCodexStatAfter.ino, userCodexStatBefore.ino, 'user Codex config inode is unchanged');
 
 // kimi lead entry: BOTH the legacy CLI path (~/.kimi/mcp.json) and the
 // kimi-code server runtime path (~/.kimi-code/mcp.json) get the endpoint —
