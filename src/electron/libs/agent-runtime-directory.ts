@@ -16,7 +16,7 @@ import { resolvePiAgentDir } from './provider/pi-sdk-loader';
 import { resolveBubbleHome } from './provider/bubble-sdk-loader';
 import { findMachineQoderCli } from './provider/qoder-sdk-loader';
 import {
-  buildDeepseekSetupCommand,
+  formatDeepseekProfileMissingMessage,
   hasDeepseekCredentials,
   resolveDeepseekProfileDir,
 } from './deepseek-cli';
@@ -298,14 +298,15 @@ async function probeDeepseek(): Promise<AgentRuntimeEntry> {
   try {
     if (!resolveDeepseekProfileDir()) {
       return entry('deepseek', 'not_installed', {
-        summary: 'DeepSeek Harness ACP profile is not installed.',
-        detail: `Run \`${buildDeepseekSetupCommand()}\` (or set AEGIS_DSH_ACP_DIR to an installed profile).`,
+        summary: 'DeepSeek Harness runtime is missing or incomplete.',
+        detail: formatDeepseekProfileMissingMessage(),
       });
     }
     if (!hasDeepseekCredentials()) {
       return entry('deepseek', 'login_required', {
         summary: 'DeepSeek Harness has no API key yet.',
-        detail: 'Set DEEPSEEK_API_KEY or put api_key in ~/.deepseek/config.toml.',
+        detail:
+          'Add a key in Settings → Providers → DeepSeek, set DEEPSEEK_API_KEY, or sign in with the DSH CLI.',
       });
     }
     return entry('deepseek', 'ready', {

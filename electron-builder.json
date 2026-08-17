@@ -5,6 +5,7 @@
     "output": "release",
     "buildResources": "build"
   },
+  "afterPack": "scripts/after-pack-verify-deepseek.cjs",
   "files": [
     "dist-electron/**/*",
     "dist-react/**/*",
@@ -42,6 +43,21 @@
     {
       "from": "dist-electron/electron/preload.cjs",
       "to": "preload.cjs"
+    },
+    {
+      "from": "dev-fixtures/deepseek-harness",
+      "to": "deepseek-harness",
+      "filter": [
+        "cordis.yml",
+        "runtime-bin.mjs",
+        "runtime-resume-shim.mjs",
+        "package.json"
+      ]
+    },
+    {
+      "from": "dev-fixtures/deepseek-harness/node_modules",
+      "to": "deepseek-harness/node_modules",
+      "filter": ["**/*"]
     }
   ],
   "mac": {

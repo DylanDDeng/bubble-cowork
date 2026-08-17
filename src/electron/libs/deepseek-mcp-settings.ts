@@ -231,7 +231,7 @@ export function createDeepseekMcpRuntimeConfig(
 
   if (!existsSync(join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-mcp-client'))) {
     throw new Error(
-      'DeepSeek Harness MCP support is not installed. Run `npm install` in the configured DeepSeek Harness profile, then retry.'
+      'DeepSeek Harness MCP support is missing from the runtime profile. Reinstall Aegis or repair the profile configured by AEGIS_DSH_PROFILE_DIR.'
     );
   }
 

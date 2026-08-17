@@ -1,12 +1,12 @@
 import { EventEmitter } from 'events';
-import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import {
   buildDeepseekEnv,
-  buildDeepseekSetupCommand,
+  formatDeepseekProfileMissingMessage,
   getDeepseekModelConfig,
   resolveDeepseekProfileDir,
   resolveDeepseekRuntimeEntry,
+  resolveDeepseekSessionRoot,
 } from '../deepseek-cli';
 import { listDeepseekSkills } from '../deepseek-skills';
 import { estimateDeepseekUsageCost } from '../deepseek-pricing';
@@ -57,7 +57,7 @@ import type {
 /**
  * DeepSeek Harness SDK adapter.
  *
- * Drives a per-thread dsh SDK runtime (dev-fixtures/deepseek-harness profile)
+ * Drives a per-thread DSH runtime from the bundled, installed, or source profile
  * through @deepseek-ai/dsh-sdk-client. Unlike the trimmed ACP surface, the
  * SDK wire streams the FULL session log — reasoning/text deltas, tool calls
  * and results, per-request usage and context window — which this adapter maps
@@ -555,9 +555,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   ): Promise<{ harness: DshHarness; disposeRuntimeConfig: () => void }> {
     const profileDir = resolveDeepseekProfileDir();
     if (!profileDir) {
-      throw new Error(
-        `DeepSeek Harness launch profile was not found. Run \`${buildDeepseekSetupCommand()}\` or set AEGIS_DSH_PROFILE_DIR.`
-      );
+      throw new Error(formatDeepseekProfileMissingMessage());
     }
     const entry = resolveDeepseekRuntimeEntry(profileDir);
     let disposeBrowserDescriptor = () => {};
@@ -602,7 +600,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
             ...runtimeEnv,
             // Electron's process.execPath is Electron itself; run as plain node.
             ELECTRON_RUN_AS_NODE: '1',
-            DSH_SESSION_ROOT: path.join(profileDir, '.sessions'),
+            DSH_SESSION_ROOT: resolveDeepseekSessionRoot(profileDir),
             ...(resumeSessionId ? { AEGIS_DSH_RESUME_SESSION_ID: resumeSessionId } : {}),
           },
         },

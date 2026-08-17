@@ -20,6 +20,7 @@ import type {
  */
 const PROFILE_RUNTIME_BIN = 'runtime-bin.mjs';
 const PROFILE_BOOT_MARKER = path.join('node_modules', '@deepseek-ai', 'dsh-app-boot');
+const PACKAGED_PROFILE_DIRNAME = 'deepseek-harness';
 
 // Aegis-owned key store. Written from the settings page; encrypted with the
 // OS keychain when available, otherwise a 0600 plaintext fallback (matching
@@ -89,9 +90,13 @@ export function hasDshCredentialsKey(): boolean {
 }
 
 export function resolveDeepseekProfileDir(): string | null {
+  const packagedProfileDir = process.resourcesPath
+    ? path.join(process.resourcesPath, PACKAGED_PROFILE_DIRNAME)
+    : null;
   const candidates = [
     process.env.AEGIS_DSH_PROFILE_DIR?.trim(),
     path.join(homedir(), '.aegis', 'deepseek-harness'),
+    packagedProfileDir,
     path.join(process.cwd(), 'dev-fixtures', 'deepseek-harness'),
   ];
   for (const candidate of candidates) {
@@ -104,6 +109,22 @@ export function resolveDeepseekProfileDir(): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Packaged app resources are read-only on normal installations. Keep durable
+ * Harness sessions in the user's Aegis directory when the bundled profile is
+ * active; source and explicitly installed profiles retain their existing
+ * colocated `.sessions` directory for backwards compatibility.
+ */
+export function resolveDeepseekSessionRoot(profileDir: string): string {
+  const packagedProfileDir = process.resourcesPath
+    ? path.join(process.resourcesPath, PACKAGED_PROFILE_DIRNAME)
+    : null;
+  if (packagedProfileDir && path.resolve(profileDir) === path.resolve(packagedProfileDir)) {
+    return path.join(homedir(), '.aegis', 'deepseek-sessions');
+  }
+  return path.join(profileDir, '.sessions');
 }
 
 export function resolveDeepseekRuntimeEntry(profileDir: string): {
@@ -216,7 +237,14 @@ export function getDeepseekModelConfig(): DeepseekModelConfig {
 }
 
 export function buildDeepseekSetupCommand(): string {
-  return 'cd dev-fixtures/deepseek-harness && npm install';
+  return 'npm ci --prefix dev-fixtures/deepseek-harness';
+}
+
+export function formatDeepseekProfileMissingMessage(): string {
+  return (
+    'DeepSeek Harness runtime profile is missing or incomplete. Reinstall Aegis, ' +
+    `or set AEGIS_DSH_PROFILE_DIR to a valid profile. Source builds can run \`${buildDeepseekSetupCommand()}\`.`
+  );
 }
 
 export interface DeepseekRuntimeStatus {
@@ -233,7 +261,7 @@ export function getDeepseekRuntimeStatus(): DeepseekRuntimeStatus {
 
 export function formatDeepseekRuntimeBlockingMessage(status: DeepseekRuntimeStatus): string {
   if (!status.profileInstalled) {
-    return `DeepSeek Harness launch profile is not installed. Run \`${buildDeepseekSetupCommand()}\` or set AEGIS_DSH_PROFILE_DIR, then retry.`;
+    return formatDeepseekProfileMissingMessage();
   }
   if (!status.hasApiKey) {
     return 'DeepSeek Harness has no API key. Add one in Settings → Providers → DeepSeek, then retry.';
