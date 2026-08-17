@@ -24,6 +24,9 @@ const beforePack = read('scripts/before-pack-prepare-deepseek.cjs');
 const afterPack = read('scripts/after-pack-verify-deepseek.cjs');
 assert.ok(
   beforePack.includes("['ci', '--prefix', profileDir") &&
+    beforePack.includes('spawnSync(') &&
+    beforePack.includes('process.execPath') &&
+    beforePack.includes('[npmCli, ...installArgs]') &&
     beforePack.includes('`--os=${platform}`') &&
     beforePack.includes('`--cpu=${arch}`') &&
     beforePack.includes("installArgs.push('--ignore-scripts')") &&

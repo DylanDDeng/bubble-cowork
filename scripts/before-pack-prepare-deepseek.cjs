@@ -19,13 +19,14 @@ function prepareDeepseekRuntime(context) {
   const { platform, arch } = targetFromContext(context);
   const projectDir = context.packager.projectDir;
   const profileDir = path.join(projectDir, 'dev-fixtures', 'deepseek-harness');
-  const npmExecutable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmCli = process.env.npm_execpath;
+  if (!npmCli) throw new Error('npm_execpath is required to prepare DeepSeek Harness');
   const crossArch = platform === process.platform && arch !== process.arch;
   const installArgs = ['ci', '--prefix', profileDir, `--os=${platform}`, `--cpu=${arch}`];
   if (crossArch) installArgs.push('--ignore-scripts');
   const result = spawnSync(
-    npmExecutable,
-    installArgs,
+    process.execPath,
+    [npmCli, ...installArgs],
     {
       cwd: projectDir,
       env: process.env,
