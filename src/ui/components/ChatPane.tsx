@@ -1072,6 +1072,7 @@ export function ChatPane({
             tool_use_id: normalizedResult.tool_use_id,
             content: normalizedResult.content,
             is_error: normalizedResult.is_error,
+            ...(normalizedResult.mediaRefs ? { mediaRefs: normalizedResult.mediaRefs } : {}),
           });
         }
       }

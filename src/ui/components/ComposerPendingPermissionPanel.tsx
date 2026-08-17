@@ -5,6 +5,7 @@ import type {
   AcpPermissionInput,
   AskUserQuestionInput,
   CodexApprovalPermissionInput,
+  ComputerUsePermissionInput,
   ExternalFilePermissionInput,
   PermissionRequestPayload,
   PermissionResult,
@@ -29,7 +30,7 @@ type ParsedPermission = {
   command: string | null;
   fallback: string | null;
   canAllowForSession: boolean;
-  mode: 'approval' | 'question' | 'acp';
+  mode: 'approval' | 'question' | 'acp' | 'computer-use';
 };
 
 export const ComposerPendingPermissionPanel = memo(function ComposerPendingPermissionPanel({
@@ -82,6 +83,11 @@ export const ComposerPendingPermissionPanel = memo(function ComposerPendingPermi
             input={request.input}
             onSubmit={(result) => onSubmit(request.toolUseId, result)}
           />
+        </div>
+      ) : parsed.mode === 'computer-use' && isComputerUsePermissionInput(request.input) ? (
+        <div className="flex flex-col gap-3 px-4 py-3 sm:px-5">
+          <ComputerUseApprovalBody input={request.input} />
+          <ComposerPendingPermissionActions request={request} onSubmit={onSubmit} />
         </div>
       ) : (
         <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -139,6 +145,7 @@ export const ComposerPendingPermissionActions = memo(function ComposerPendingPer
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
+      {parsed.mode !== 'computer-use' ? (
       <button
         type="button"
         onClick={() =>
@@ -151,6 +158,7 @@ export const ComposerPendingPermissionActions = memo(function ComposerPendingPer
       >
         Cancel turn
       </button>
+      ) : null}
       <button
         type="button"
         onClick={() =>
@@ -276,6 +284,19 @@ function parsePermissionRequest(request: PermissionRequestPayload): ParsedPermis
     };
   }
 
+  if (isComputerUsePermissionInput(input)) {
+    return {
+      kindLabel: 'COMPUTER USE',
+      tool: input.toolName,
+      fileName: null,
+      fileDir: null,
+      command: input.app,
+      fallback: input.question,
+      canAllowForSession: input.canAllowForSession,
+      mode: 'computer-use',
+    };
+  }
+
   if (isAskUserQuestionInput(input)) {
     const firstQuestion = input.questions[0];
     return {
@@ -367,6 +388,43 @@ function isCodexApprovalPermissionInput(input: unknown): input is CodexApprovalP
     input !== null &&
     'kind' in input &&
     (input as { kind?: unknown }).kind === 'codex-approval'
+  );
+}
+
+function ComputerUseApprovalBody({ input }: { input: ComputerUsePermissionInput }) {
+  return (
+    <div className="space-y-2 text-[12px] text-[var(--text-secondary)]">
+      <p className="text-sm text-[var(--text-primary)]">{input.question}</p>
+      {input.app ? (
+        <p>
+          Target app: <span className="font-medium text-[var(--text-primary)]">{input.app}</span>
+        </p>
+      ) : null}
+      {input.paramLines.length > 0 ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          {input.paramLines.map((line) => (
+            <div key={line.label} className="contents">
+              <dt className="text-[11px] uppercase tracking-[0.08em] text-[var(--text-muted)]">{line.label}</dt>
+              <dd className="break-all font-mono text-[11px] text-[var(--text-primary)]">{line.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {input.code ? (
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-[var(--border)]/60 bg-[var(--bg-secondary)]/40 p-2 font-mono text-[11px] text-[var(--text-primary)]">
+          {input.code}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+function isComputerUsePermissionInput(input: unknown): input is ComputerUsePermissionInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'kind' in input &&
+    (input as { kind?: unknown }).kind === 'computer-use'
   );
 }
 

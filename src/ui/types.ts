@@ -37,6 +37,7 @@ export type {
   AcpPermissionInput,
   AcpPermissionOption,
   CodexApprovalPermissionInput,
+  ComputerUsePermissionInput,
   ExternalFilePermissionInput,
   PermissionRequestInput,
   ContentBlock,

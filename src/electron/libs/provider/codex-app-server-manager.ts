@@ -31,6 +31,18 @@ import type {
 } from '../../../shared/types';
 import { isDev } from '../../util';
 import { buildCodexMcpConfigOverrideArgs } from '../codex-mcp-settings';
+import {
+  COMPUTER_USE_DENIED_TARGET_MESSAGE,
+  COMPUTER_USE_LEASE_MESSAGE,
+  computerUseLease,
+  type ComputerUseSpawnPolicy,
+} from '../codex-computer-use';
+import {
+  buildMcpElicitationResponse,
+  isMcpElicitationMethod,
+  parseMcpToolApprovalElicitation,
+} from '../codex-computer-use-elicitation';
+import { isComputerUseMutatingTool, isDeniedComputerUseTarget } from '../../../shared/computer-use';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -283,6 +295,7 @@ export class CodexAppServerManager extends EventEmitter {
   // answered with an error instead (codex then fails auth normally).
   private static readonly AUTH_REFRESH_REPLAY_WINDOW_MS = 30_000;
   private lastAuthRefreshAnswer: { accessToken: string; at: number } | null = null;
+  private computerUsePolicy: ComputerUseSpawnPolicy = 'read-only';
 
   constructor(
     private readonly binaryPath = 'codex',
@@ -309,7 +322,10 @@ export class CodexAppServerManager extends EventEmitter {
     this.generation += 1;
     const gen = this.generation;
 
-    const child = spawn(this.binaryPath, ['app-server', ...buildCodexMcpConfigOverrideArgs()], {
+    const child = spawn(
+      this.binaryPath,
+      ['app-server', ...buildCodexMcpConfigOverrideArgs({ computerUsePolicy: this.computerUsePolicy })],
+      {
       cwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -578,7 +594,11 @@ export class CodexAppServerManager extends EventEmitter {
     // The JSON-RPC ids of these approvals can never be answered now; tell the
     // UI to drop the cards instead of leaving them pointing at dead requests.
     for (const [requestId, approval] of pendingApprovals) {
+      computerUseLease.releaseThread(approval.threadId);
       this.emit('approval_dismissed', { requestId, threadId: approval.threadId });
+    }
+    for (const session of this.sessions.values()) {
+      computerUseLease.releaseThread(session.threadId);
     }
 
     if (this.rl) {
@@ -959,6 +979,10 @@ export class CodexAppServerManager extends EventEmitter {
     generation: number;
     resumeFallback?: { reason: string };
   }> {
+    this.computerUsePolicy = this.resolveComputerUsePolicy(
+      options.codexPermissionMode,
+      options.codexExecutionMode
+    );
     await this.ensureSpawned(cwd);
 
     let response: Record<string, unknown>;
@@ -1433,6 +1457,15 @@ export class CodexAppServerManager extends EventEmitter {
     });
   }
 
+  private resolveComputerUsePolicy(
+    mode: CodexPermissionMode | undefined,
+    executionMode: CodexExecutionMode | undefined
+  ): ComputerUseSpawnPolicy {
+    if (this.normalizeCodexExecutionMode(executionMode) === 'plan') return 'read-only';
+    if (this.normalizeCodexPermissionMode(mode) === 'defaultPermissions') return 'mutating';
+    return 'read-only';
+  }
+
   private normalizeCodexPermissionMode(
     mode: CodexPermissionMode | undefined
   ): CodexPermissionMode {
@@ -1601,10 +1634,14 @@ export class CodexAppServerManager extends EventEmitter {
     });
 
     this.pendingApprovals.delete(requestId);
+    if (result.behavior !== 'allow') {
+      computerUseLease.release(pending.threadId, String(pending.jsonRpcId));
+    }
   }
 
   /** Decline + dismiss every pending approval owned by the given session. */
   private declineApprovalsForThread(threadId: string): void {
+    computerUseLease.releaseThread(threadId);
     for (const [requestId, pending] of this.pendingApprovals) {
       if (pending.threadId !== threadId) continue;
       this.writeMessage({
@@ -1661,17 +1698,19 @@ export class CodexAppServerManager extends EventEmitter {
       };
     }
 
-    // MCP elicitation: decline/cancel responses carry no content.
-    if (lower.includes('elicitation')) {
+    // MCP elicitation: round-trip persist metadata when the protocol offers it.
+    // Prompt/Writes modes on Codex's side ignore remembered approvals, so Aegis
+    // only sends persist when the parsed elicitation actually advertised it.
+    if (isMcpElicitationMethod(lower) || lower.includes('elicitation')) {
+      const parsed = parseMcpToolApprovalElicitation(pending.method, pending.params);
       if (result.behavior !== 'allow') {
-        return { action: 'decline', content: null, _meta: null };
+        return buildMcpElicitationResponse({ allow: false });
       }
-      const updatedInput = this.asObject(result.updatedInput);
-      return {
-        action: 'accept',
-        content: updatedInput ?? {},
-        _meta: null,
-      };
+      const persist =
+        result.scope === 'session' && parsed?.persistOptions.includes('session')
+          ? 'session'
+          : null;
+      return buildMcpElicitationResponse({ allow: true, persist });
     }
 
     return {
@@ -1902,7 +1941,10 @@ export class CodexAppServerManager extends EventEmitter {
       method.includes('requestpermission') ||
       method.includes('confirm');
     const isUserInput = method.includes('requestuserinput') || method.includes('askuser');
-    const isElicitation = method.includes('elicitation');
+    const elicitation = isMcpElicitationMethod(method) || method.includes('elicitation')
+      ? parseMcpToolApprovalElicitation(request.method, request.params)
+      : null;
+    const isElicitation = elicitation !== null || method.includes('elicitation');
 
     if (isApproval || isUserInput || isElicitation) {
       // Fail-closed routing (P0-7): resolve the owner by exact provider
@@ -1932,6 +1974,52 @@ export class CodexAppServerManager extends EventEmitter {
         return;
       }
 
+      if (method.includes('elicitation') && !elicitation) {
+        console.warn('[Codex AppServer] declining unparseable elicitation', request.method);
+        this.writeMessage({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: buildMcpElicitationResponse({ allow: false }),
+        });
+        return;
+      }
+
+      if (elicitation?.deniedTarget) {
+        console.warn('[Codex AppServer]', COMPUTER_USE_DENIED_TARGET_MESSAGE);
+        this.writeMessage({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: buildMcpElicitationResponse({ allow: false }),
+        });
+        return;
+      }
+
+      const mutating = Boolean(
+        elicitation?.action?.mutating ||
+          (elicitation?.toolName && isComputerUseMutatingTool(elicitation.toolName)) ||
+          elicitation?.isNodeRepl
+      );
+      if (mutating && elicitation) {
+        const app = this.readString(elicitation.toolParams, 'app');
+        if (isDeniedComputerUseTarget(app)) {
+          this.writeMessage({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: buildMcpElicitationResponse({ allow: false }),
+          });
+          return;
+        }
+        if (!computerUseLease.tryAcquire(threadId, String(request.id))) {
+          console.warn('[Codex AppServer]', COMPUTER_USE_LEASE_MESSAGE);
+          this.writeMessage({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: buildMcpElicitationResponse({ allow: false }),
+          });
+          return;
+        }
+      }
+
       const requestId = uuidv4();
       this.pendingApprovals.set(requestId, {
         jsonRpcId: request.id,
@@ -1940,7 +2028,7 @@ export class CodexAppServerManager extends EventEmitter {
         params: request.params,
       });
 
-      this.emit(isApproval ? 'approval_request' : 'user_input_request', {
+      this.emit(isApproval || isElicitation ? 'approval_request' : 'user_input_request', {
         requestId,
         jsonRpcId: request.id,
         method: request.method,
@@ -2066,6 +2154,7 @@ export class CodexAppServerManager extends EventEmitter {
             session.status = 'ready';
             session.activeTurnId = undefined;
           }
+          computerUseLease.releaseThread(threadId);
           this.emit('turn_completed', {
             threadId,
             turnId: this.readString(turn, 'id'),

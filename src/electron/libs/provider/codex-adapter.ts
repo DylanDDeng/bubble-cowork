@@ -20,9 +20,19 @@ import {
   AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
   shouldBlockSystemBrowserPreviewOpen,
 } from '../browser-preview-policy';
+import { persistComputerUseMedia } from '../codex-computer-use';
+import { parseMcpToolApprovalElicitation } from '../codex-computer-use-elicitation';
+import {
+  classifyComputerUseAction,
+  formatComputerUseLabel,
+  isDeniedComputerUseTarget,
+} from '../../../shared/computer-use';
+import { homedir } from 'os';
+import { join } from 'path';
 import type {
   CodexApprovalKind,
   CodexApprovalPermissionInput,
+  ComputerUsePermissionInput,
   ContentBlock,
   PermissionResult,
   PlanStepStatus,
@@ -61,6 +71,18 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 function getString(v: unknown): string {
   return typeof v === 'string' && v.length > 0 ? v : '';
+}
+
+function resolveComputerUseUserDataDir(): string {
+  const override = process.env.AEGIS_USER_DATA_DIR?.trim();
+  if (override) return override;
+  try {
+    const electron = require('electron') as { app?: { getPath: (name: string) => string } };
+    if (electron.app?.getPath) return electron.app.getPath('userData');
+  } catch {
+    // Tests and non-electron hosts fall back to the home directory.
+  }
+  return join(homedir(), '.aegis');
 }
 
 function getFirstString(...values: unknown[]): string {
@@ -440,6 +462,21 @@ export class CodexAdapter implements ProviderAdapter {
         });
       }
 
+      const persisted = persistComputerUseMedia({
+        userDataDir: resolveComputerUseUserDataDir(),
+        sessionId: threadId,
+        payload: rawContent,
+      });
+      const content =
+        persisted.text ||
+        (typeof rawContent === 'string' && !rawContent.includes('data:image/')
+          ? rawContent
+          : persisted.mediaRefs.length > 0
+            ? ''
+            : typeof rawContent === 'string'
+              ? rawContent
+              : JSON.stringify(rawContent ?? ''));
+
       const message: StreamMessage = {
         type: 'user',
         uuid: uuidv4(),
@@ -448,8 +485,9 @@ export class CodexAdapter implements ProviderAdapter {
             {
               type: 'tool_result',
               tool_use_id: toolUseId,
-              content: typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent ?? ''),
+              content,
               is_error: isError,
+              ...(persisted.mediaRefs.length > 0 ? { mediaRefs: persisted.mediaRefs } : {}),
             },
           ],
         },
@@ -633,6 +671,27 @@ export class CodexAdapter implements ProviderAdapter {
     // fail-closed) — the event carries the resolved Aegis threadId. No
     // re-inference here (P0-7).
     on('approval_request', ({ requestId, method, threadId, params }) => {
+      const elicitation = parseMcpToolApprovalElicitation(method, params);
+      if (elicitation) {
+        const app =
+          typeof elicitation.toolParams.app === 'string' ? elicitation.toolParams.app : null;
+        if (elicitation.deniedTarget || isDeniedComputerUseTarget(app)) {
+          void this.respondToRequest(threadId, requestId, {
+            behavior: 'deny',
+            message: 'Aegis blocked Computer Use from targeting the Aegis app itself.',
+          });
+          return;
+        }
+        this.emit({
+          type: 'permission_request',
+          threadId,
+          requestId,
+          toolName: elicitation.toolName || 'Computer Use',
+          input: this.buildComputerUsePermissionInput(elicitation),
+        });
+        return;
+      }
+
       const { toolName, input } = this.buildCodexApprovalInput(method, params);
 
       if (
@@ -1648,6 +1707,41 @@ export class CodexAdapter implements ProviderAdapter {
     };
   }
 
+  private buildComputerUsePermissionInput(
+    elicitation: NonNullable<ReturnType<typeof parseMcpToolApprovalElicitation>>
+  ): ComputerUsePermissionInput {
+    const code =
+      typeof elicitation.toolParams.code === 'string' ? elicitation.toolParams.code : null;
+    const app = typeof elicitation.toolParams.app === 'string' ? elicitation.toolParams.app : null;
+    const paramLines =
+      elicitation.toolParamsDisplay.length > 0
+        ? elicitation.toolParamsDisplay.map((item) => ({
+            label: item.displayName,
+            value: typeof item.value === 'string' ? item.value : JSON.stringify(item.value),
+          }))
+        : Object.entries(elicitation.toolParams)
+            .filter(([key]) => key !== 'title')
+            .map(([label, value]) => ({
+              label,
+              value: typeof value === 'string' ? value : JSON.stringify(value),
+            }));
+    const mutating = Boolean(elicitation.action?.mutating || elicitation.isNodeRepl);
+    return {
+      kind: 'computer-use',
+      question: elicitation.message,
+      title: elicitation.toolTitle || elicitation.message,
+      server: elicitation.server,
+      toolName: elicitation.toolName || 'Computer Use',
+      toolTitle: elicitation.toolTitle,
+      app,
+      mutating,
+      code,
+      params: elicitation.toolParams,
+      paramLines,
+      canAllowForSession: !mutating && elicitation.persistOptions.includes('session'),
+    };
+  }
+
   private extractApprovalCommand(params: Record<string, unknown>): string {
     const direct = getFirstString(params.command);
     if (direct) return direct;
@@ -1900,6 +1994,8 @@ export class CodexAdapter implements ProviderAdapter {
     }
     if (title) {
       toolInput.__aegisDisplayTitle = title;
+    } else if (typeof toolInput.title === 'string' && toolInput.title.trim()) {
+      toolInput.__aegisDisplayTitle = toolInput.title.trim();
     }
 
     // Codex `mcpToolCall` items carry the identity in `server` + `tool`, not
@@ -1927,6 +2023,20 @@ export class CodexAdapter implements ProviderAdapter {
       normalizeCodexToolName(rawName) ||
       inferCodexToolNameFromFields({ command, filePath, title }) ||
       'unknown';
+
+    const action = classifyComputerUseAction({
+      toolName,
+      server: mcpServer,
+      tool: mcpTool,
+      app: getString(toolInput.app),
+      title: getString(toolInput.title) || getString(toolInput.__aegisDisplayTitle),
+    });
+    if (action) {
+      toolInput.__aegisComputerUse = action;
+      if (!getString(toolInput.__aegisDisplayTitle)) {
+        toolInput.__aegisDisplayTitle = formatComputerUseLabel(action, 'pending');
+      }
+    }
 
     // Use Codex's own id so tool_result's `toolUseId` can find this entry.
     const codexId = getFirstString(

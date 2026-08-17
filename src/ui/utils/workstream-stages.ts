@@ -15,6 +15,7 @@ export type WorkstreamStageKind =
   | 'memory'
   | 'web'
   | 'todo'
+  | 'computer_use'
   | 'other';
 
 export type WorkstreamStageStatus =
@@ -137,6 +138,8 @@ function classifyStageKind(entry: WorkstreamEntry): WorkstreamStageKind | null {
       return 'approval';
     case 'todo_update':
       return 'todo';
+    case 'computer_use':
+      return 'computer_use';
     default:
       return 'other';
   }
@@ -399,6 +402,15 @@ function buildGenericTitle(
       return `Searched the web ${plural(entries.length, 'time')}`;
     case 'todo':
       return `Updated todo list ${plural(entries.length, 'time')}`;
+    case 'computer_use': {
+      const summaries = entries
+        .map((entry) => ('summary' in entry ? entry.summary : ''))
+        .filter((summary): summary is string => Boolean(summary && summary.trim()));
+      if (summaries.length === 1) return summaries[0];
+      return status === 'pending'
+        ? 'Using the computer'
+        : `Used the computer ${plural(entries.length, 'time')}`;
+    }
     default:
       return `${plural(entries.length, 'step')}`;
   }
@@ -440,7 +452,7 @@ function makeStage(
     commands,
     addedLines,
     removedLines,
-    defaultExpanded: status === 'error' || status === 'waiting',
+    defaultExpanded: status === 'error' || status === 'waiting' || kind === 'computer_use',
   };
 }
 

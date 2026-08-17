@@ -68,6 +68,7 @@ export interface NormalizedToolResultBlock {
   content: string;
   is_error?: boolean;
   originType: string;
+  mediaRefs?: import('../../shared/computer-use').ComputerUseMediaRef[];
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -114,6 +115,7 @@ export function normalizeToolResultBlock(block: unknown): NormalizedToolResultBl
     content: stringifyResultContent(block.content),
     is_error: block.is_error === true,
     originType: type,
+    ...(Array.isArray(block.mediaRefs) ? { mediaRefs: block.mediaRefs as NormalizedToolResultBlock['mediaRefs'] } : {}),
   };
 }
 
