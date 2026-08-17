@@ -19,11 +19,13 @@ const overrideProfile = createProfile(path.join(testRoot, 'override-profile'));
 mkdirSync(testHome, { recursive: true });
 
 const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
 const originalOverride = process.env.AEGIS_DSH_PROFILE_DIR;
 const resourcesDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath');
 
 try {
   process.env.HOME = testHome;
+  process.env.USERPROFILE = testHome;
   delete process.env.AEGIS_DSH_PROFILE_DIR;
   Object.defineProperty(process, 'resourcesPath', {
     configurable: true,
@@ -63,6 +65,8 @@ try {
 } finally {
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
   if (originalOverride === undefined) delete process.env.AEGIS_DSH_PROFILE_DIR;
   else process.env.AEGIS_DSH_PROFILE_DIR = originalOverride;
   if (resourcesDescriptor) {
