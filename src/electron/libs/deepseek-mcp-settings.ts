@@ -66,7 +66,7 @@ function readSettings(): DeepseekMcpSettingsFile {
       ? (parsed as DeepseekMcpSettingsFile)
       : {};
   } catch (error) {
-    console.warn(`Failed to read DeepSeek MCP config at ${DEEPSEEK_MCP_CONFIG_PATH}:`, error);
+    console.warn(`Failed to read DeepSeek Harness MCP config at ${DEEPSEEK_MCP_CONFIG_PATH}:`, error);
     return {};
   }
 }

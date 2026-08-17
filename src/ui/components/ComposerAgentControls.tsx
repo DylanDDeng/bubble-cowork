@@ -84,6 +84,7 @@ function agentLabel(provider: AgentProvider): string {
 // menu opens.
 const triggerClassName =
   'composer-pill-trigger relative flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[12px] text-[var(--text-secondary)] outline-none transition-colors hover:text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50';
+const fullModelLabelTriggerClassName = 'w-max max-w-none shrink-0 whitespace-nowrap';
 
 function readinessDotClass(state: AgentReadinessState): string {
   switch (state) {
@@ -335,13 +336,13 @@ export function ComposerModelPicker({
           <button
             type="button"
             disabled={disabled || codexModels.length === 0}
-            className={`${triggerClassName} max-w-[240px]`}
+            className={`${triggerClassName} ${fullModelLabelTriggerClassName}`}
             title={`Model: ${label}${codexReasoningEffort ? ` – ${codexReasoningEffort}` : ''}`}
             aria-label="Select model"
           >
-            <span className="flex min-w-0 items-center gap-1 truncate">
+            <span className="flex items-center gap-1 whitespace-nowrap">
               {codexFastMode && <FastModeIcon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-primary)]" />}
-              <span className="truncate">
+              <span className="whitespace-nowrap">
                 {codexReasoningEffort
                   ? `${label} ${formatCodexReasoningEffortLabel(codexReasoningEffort)}`
                   : (label || value || 'Default model')}
@@ -1067,6 +1068,7 @@ const CodexAgentSubContent: FC<{
   onCodexFastModeChange,
 }) => {
   const models = codexModels ?? [];
+  const supportsFastMode = models.find((entry) => entry.name === selectedModel)?.supportsFastMode === true;
   return (
     <>
       {/* Reasoning Effort */}
@@ -1112,7 +1114,7 @@ const CodexAgentSubContent: FC<{
               {models.map((codexModel) => {
                 const label = formatCodexModelLabel(codexModel.name, codexModel.label);
                 const option: ComposerModelOption = {
-                  key: codexModel.name,
+                  key: `codex:${codexModel.name}`,
                   value: codexModel.name,
                   label,
                 };
@@ -1137,57 +1139,59 @@ const CodexAgentSubContent: FC<{
         </DropdownMenu.Portal>
       </DropdownMenu.Sub>
 
-      {/* Speed submenu */}
-      <DropdownMenu.Sub>
-        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
-            Speed
-          </span>
-          <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-        </DropdownMenu.SubTrigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.SubContent
-            sideOffset={6}
-            alignOffset={-4}
-            className="z-50 w-[200px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
-          >
-            <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+      {/* Speed is model-scoped. Do not offer a mode the selected model cannot run. */}
+      {supportsFastMode ? (
+        <DropdownMenu.Sub>
+          <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
+            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
               Speed
-            </div>
-            <DropdownMenu.Item
-              onSelect={() => onCodexFastModeChange(false)}
-              className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+            </span>
+            <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+          </DropdownMenu.SubTrigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.SubContent
+              sideOffset={6}
+              alignOffset={-4}
+              className="z-50 w-[200px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
             >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] text-[var(--text-primary)]">
-                  Standard
-                </span>
-                <span className="block truncate text-[11px] text-[var(--text-muted)]">
-                  Default speed
-                </span>
-              </span>
-              {!codexFastMode ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
-              onSelect={() => onCodexFastModeChange(true)}
-              className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5">
-                  <FastModeIcon className="h-3 w-3 text-[var(--text-primary)]" />
-                  <span className="truncate text-[12px] text-[var(--text-primary)]">
-                    Fast
+              <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+                Speed
+              </div>
+              <DropdownMenu.Item
+                onSelect={() => onCodexFastModeChange(false)}
+                className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] text-[var(--text-primary)]">
+                    Standard
+                  </span>
+                  <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                    Default speed
                   </span>
                 </span>
-                <span className="block truncate text-[11px] text-[var(--text-muted)]">
-                  1.5x speed, increased usage
+                {!codexFastMode ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                onSelect={() => onCodexFastModeChange(true)}
+                className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5">
+                    <FastModeIcon className="h-3 w-3 text-[var(--text-primary)]" />
+                    <span className="truncate text-[12px] text-[var(--text-primary)]">
+                      Fast
+                    </span>
+                  </span>
+                  <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                    1.5x speed, increased usage
+                  </span>
                 </span>
-              </span>
-              {codexFastMode ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
-            </DropdownMenu.Item>
-          </DropdownMenu.SubContent>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Sub>
+                {codexFastMode ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+              </DropdownMenu.Item>
+            </DropdownMenu.SubContent>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Sub>
+      ) : null}
 
     </>
   );
@@ -1197,6 +1201,7 @@ export function ComposerAgentModelPicker({
   agentProvider,
   modelLabel,
   modelValue,
+  modelValueByProvider,
   allAgentModelOptions,
   disabled,
   onAgentChange,
@@ -1226,6 +1231,7 @@ export function ComposerAgentModelPicker({
   agentProvider: AgentProvider;
   modelLabel: string;
   modelValue: string | null;
+  modelValueByProvider: Record<AgentProvider, string | null>;
   allAgentModelOptions: Record<string, ComposerModelOption[]>;
   disabled?: boolean;
   onAgentChange: (provider: AgentProvider) => void;
@@ -1314,7 +1320,7 @@ export function ComposerAgentModelPicker({
         <button
           type="button"
           disabled={disabled}
-          className={`${triggerClassName} max-w-[190px]`}
+          className={`${triggerClassName} ${fullModelLabelTriggerClassName}`}
           title={
             currentReadiness && currentReadiness.state !== 'ready'
               ? `${agentLabel(agentProvider)} — ${currentReadiness.summary}`
@@ -1328,7 +1334,7 @@ export function ComposerAgentModelPicker({
           {agentProvider === 'codex' && codexFastMode ? (
             <FastModeIcon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-primary)]" aria-hidden="true" />
           ) : null}
-          <span className="min-w-0 truncate">{modelLabel}{effortSuffix}</span>
+          <span className="whitespace-nowrap">{modelLabel}{effortSuffix}</span>
           {currentReadiness && currentReadiness.state !== 'ready' && currentReadiness.state !== 'checking' ? (
             <span
               className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(currentReadiness.state)}`}
@@ -1378,13 +1384,10 @@ export function ComposerAgentModelPicker({
                     >
                       <ClaudeAgentSubContent
                         modelOptions={modelOptions}
-                        selectedModel={modelValue}
+                        selectedModel={modelValueByProvider[provider]}
                         claudeReasoningEffort={claudeReasoningEffort ?? null}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                        onClaudeReasoningEffortChange={(effort) => {
-                          onAgentChange(provider);
-                          onClaudeReasoningEffortChange?.(effort);
-                        }}
+                        onClaudeReasoningEffortChange={(effort) => onClaudeReasoningEffortChange?.(effort)}
                       />
                     </DropdownMenu.SubContent>
                   </DropdownMenu.Portal>
@@ -1419,18 +1422,12 @@ export function ComposerAgentModelPicker({
                     >
                       <CodexAgentSubContent
                         codexModels={codexModels}
-                        selectedModel={modelValue}
+                        selectedModel={modelValueByProvider[provider]}
                         codexReasoningEffort={codexReasoningEffort ?? null}
                         codexFastMode={codexFastMode ?? false}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                        onCodexReasoningEffortChange={(effort) => {
-                          onAgentChange(provider);
-                          onCodexReasoningEffortChange?.(effort);
-                        }}
-                        onCodexFastModeChange={(enabled) => {
-                          onAgentChange(provider);
-                          onCodexFastModeChange?.(enabled);
-                        }}
+                        onCodexReasoningEffortChange={(effort) => onCodexReasoningEffortChange?.(effort)}
+                        onCodexFastModeChange={(enabled) => onCodexFastModeChange?.(enabled)}
                       />
                     </DropdownMenu.SubContent>
                   </DropdownMenu.Portal>
@@ -1465,14 +1462,11 @@ export function ComposerAgentModelPicker({
                     >
                       <GrokAgentSubContent
                         modelOptions={modelOptions}
-                        selectedModel={modelValue}
+                        selectedModel={modelValueByProvider[provider]}
                         grokModels={grokModels}
                         grokReasoningEffort={grokReasoningEffort ?? null}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                        onGrokReasoningEffortChange={(effort) => {
-                          onAgentChange(provider);
-                          onGrokReasoningEffortChange?.(effort);
-                        }}
+                        onGrokReasoningEffortChange={(effort) => onGrokReasoningEffortChange?.(effort)}
                       />
                     </DropdownMenu.SubContent>
                   </DropdownMenu.Portal>
@@ -1506,7 +1500,7 @@ export function ComposerAgentModelPicker({
                     >
                       <DeepseekAgentSubContent
                         modelOptions={modelOptions}
-                        selectedModel={modelValue}
+                        selectedModel={modelValueByProvider[provider]}
                         reasoningEffort={deepseekReasoningEffort ?? 'max'}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
                         onReasoningEffortChange={(effort) => {
@@ -1550,7 +1544,7 @@ export function ComposerAgentModelPicker({
                         modelOptions={modelOptions}
                         kimiThinkingOptions={kimiThinkingOptions ?? []}
                         kimiThinkingChecked={kimiThinkingChecked ?? null}
-                        selectedModel={modelValue}
+                        selectedModel={modelValueByProvider[provider]}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
                         onKimiThinkingChange={(value) => {
                           onAgentChange(provider);
@@ -1590,15 +1584,12 @@ export function ComposerAgentModelPicker({
                     >
                       <BubbleAgentSubContent
                         modelOptions={modelOptions}
-                        selectedModel={modelValue}
+                        selectedModel={modelValueByProvider[provider]}
                         bubbleModels={bubbleModels}
                         thinkingLevel={bubbleThinkingLevel ?? null}
                         modelsLoading={bubbleModelsLoading}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                        onThinkingLevelChange={(level) => {
-                          onAgentChange(provider);
-                          onBubbleThinkingLevelChange?.(level);
-                        }}
+                        onThinkingLevelChange={(level) => onBubbleThinkingLevelChange?.(level)}
                       />
                     </DropdownMenu.SubContent>
                   </DropdownMenu.Portal>
@@ -1636,7 +1627,7 @@ export function ComposerAgentModelPicker({
                     <div className="max-h-[280px] overflow-y-auto">
                       <ModelSubContent
                         modelOptions={modelOptions}
-                        selectedValue={modelValue}
+                        selectedValue={modelValueByProvider[provider]}
                         onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
                       />
                     </div>

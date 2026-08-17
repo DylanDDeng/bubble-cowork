@@ -35,7 +35,7 @@ const PROVIDER_ORDER: Array<{ provider: AgentProvider; label: string }> = [
   { provider: 'pi', label: 'Pi' },
   { provider: 'qoder', label: 'Qoder' },
   { provider: 'bubble', label: 'Bubble' },
-  { provider: 'deepseek', label: 'DeepSeek' },
+  { provider: 'deepseek', label: 'DeepSeek Harness' },
 ];
 
 // Shared across hook instances: several pickers/panels mount at once and the

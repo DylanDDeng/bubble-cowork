@@ -12,18 +12,32 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-composer-agent-selec
 
 const controls = read('src/ui/components/ComposerAgentControls.tsx');
 assert.ok(
-  controls.includes('onModelChange(option, provider);'),
-  'the merged picker must forward the model option with its target provider'
+  controls.includes('onModelChange(option, provider);') &&
+    controls.includes('key: `codex:${codexModel.name}`') &&
+    !controls.includes('onCodexReasoningEffortChange={(effort) => {\n                          onAgentChange(provider);') &&
+    !controls.includes('onClaudeReasoningEffortChange={(effort) => {\n                          onAgentChange(provider);') &&
+    !controls.includes('onGrokReasoningEffortChange={(effort) => {\n                          onAgentChange(provider);'),
+  'model options must remain provider-scoped and per-model controls must not split one click into two state updates'
+);
+assert.ok(
+  controls.includes("const fullModelLabelTriggerClassName = 'w-max max-w-none shrink-0 whitespace-nowrap';") &&
+    (controls.match(/className=\{`\$\{triggerClassName\} \$\{fullModelLabelTriggerClassName\}`\}/g) ?? []).length === 2 &&
+    controls.includes('<span className="whitespace-nowrap">{modelLabel}{effortSuffix}</span>') &&
+    !controls.includes('<span className="min-w-0 truncate">{modelLabel}{effortSuffix}</span>'),
+  'composer model triggers must reserve their full content width without truncating the reasoning label'
 );
 
 const hook = read('src/ui/hooks/useComposerAgentSelection.ts');
 assert.ok(
   hook.includes('targetProvider: AgentProvider = provider') &&
-    hook.includes('input?.onSelectionChange?.({') &&
+    hook.includes('input?.onSelectionChange?.(nextSelection)') &&
     hook.includes('option.key.startsWith(`${targetProvider}:`)') &&
     hook.includes('isGrokModelId') &&
-    hook.includes('savePreferredGrokModel(confirmedModel)'),
-  'model selection must be atomic, provider-scoped, and reject foreign Grok models'
+    hook.includes('savePreferredGrokModel(confirmedModel)') &&
+    hook.includes('const selectAgentConfiguration = useCallback(') &&
+    hook.includes('savePreferredCodexReasoningEffort(nextModel, change.codexReasoningEffort)') &&
+    hook.includes('input?.codexReasoningEffort'),
+  'model selection must be atomic, target-model scoped, restorable, and reject foreign provider values'
 );
 
 const ipcHandlers = read('src/electron/ipc-handlers.ts');
@@ -39,8 +53,20 @@ assert.ok(
   promptInput.includes('handoffSessionToProvider,\n    setSessionAgentSelection,') &&
   promptInput.includes('onSelectionChange: handleSessionAgentSelectionChange') &&
     promptInput.includes('setSessionAgentSelection(activeSession.id, selection)') &&
-    promptInput.includes('onModelChange={handleModelChange}'),
-  'PromptInput must write picker changes back to the current session'
+    promptInput.includes('onModelChange={handleModelChange}') &&
+    (promptInput.match(/codexReasoningEffort:/g) ?? []).length >= 3 &&
+    (promptInput.match(/codexFastMode:/g) ?? []).length >= 3 &&
+    promptInput.includes("handleAgentConfigurationChange({ provider: 'codex', codexReasoningEffort: effort })") &&
+    promptInput.includes('change.provider !== activeSession.provider'),
+  'PromptInput must persist atomic picker changes and send Codex effort/speed on start and continue'
+);
+
+const newSessionView = read('src/ui/components/NewSessionView.tsx');
+assert.ok(
+  newSessionView.includes('codexReasoningEffort:') &&
+    newSessionView.includes('codexFastMode:') &&
+    newSessionView.includes("selectAgentConfiguration({ provider: 'codex', codexReasoningEffort: effort })"),
+  'NewSessionView must send the exact Codex effort/speed selected in the composer'
 );
 
 const tscBin = path.join(

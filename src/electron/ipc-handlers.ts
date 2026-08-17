@@ -1740,7 +1740,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'pi') return 'Pi';
   if (provider === 'qoder') return 'Qoder';
   if (provider === 'bubble') return 'Bubble';
-  if (provider === 'deepseek') return 'DeepSeek';
+  if (provider === 'deepseek') return 'DeepSeek Harness';
   return 'Claude Code';
 }
 

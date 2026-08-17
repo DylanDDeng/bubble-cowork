@@ -199,6 +199,58 @@ function testDefaultModelClearsSessionOverride() {
   assert.equal(updated.compatibleProviderId, undefined);
 }
 
+function testAtomicCodexSelectionUpdatesModelAndRuntimeControls() {
+  const session = {
+    id: 'draft-3',
+    title: 'New Chat',
+    status: 'idle',
+    provider: 'claude',
+    model: 'claude-sonnet-4-6',
+    claudeReasoningEffort: 'high',
+    codexReasoningEffort: 'high',
+    codexFastMode: false,
+  } as unknown as SessionView;
+
+  const updated = applySessionAgentSelection(session, {
+    provider: 'codex',
+    model: 'gpt-5.6-sol',
+    compatibleProviderId: null,
+    codexReasoningEffort: 'xhigh',
+    codexFastMode: true,
+  });
+
+  assert.equal(updated.provider, 'codex');
+  assert.equal(updated.model, 'gpt-5.6-sol');
+  assert.equal(updated.codexReasoningEffort, 'xhigh');
+  assert.equal(updated.codexFastMode, true);
+  assert.equal(
+    updated.claudeReasoningEffort,
+    'high',
+    'provider-specific settings must remain available when switching back'
+  );
+}
+
+function testProviderSelectionWithoutRuntimeOverridePreservesSessionValue() {
+  const session = {
+    id: 'draft-4',
+    title: 'New Chat',
+    status: 'idle',
+    provider: 'codex',
+    model: 'gpt-5.6-sol',
+    codexReasoningEffort: 'max',
+    codexFastMode: true,
+  } as unknown as SessionView;
+
+  const updated = applySessionAgentSelection(session, {
+    provider: 'codex',
+    model: 'gpt-5.6-terra',
+    compatibleProviderId: null,
+  });
+
+  assert.equal(updated.codexReasoningEffort, 'max');
+  assert.equal(updated.codexFastMode, true);
+}
+
 testPrefersSessionModelWhenListLoaded();
 testUsesPreferredWhileConfigStillLoading();
 testKeepsSessionModelMissingFromStaleList();
@@ -214,4 +266,6 @@ testFormatsPersistedGrokModelBeforeCatalogLoads();
 testSessionSwitchDoesNotPassThroughDefaultLabel();
 testCurrentSessionSelectionUpdatesImmediately();
 testDefaultModelClearsSessionOverride();
+testAtomicCodexSelectionUpdatesModelAndRuntimeControls();
+testProviderSelectionWithoutRuntimeOverridePreservesSessionValue();
 console.log('composer-agent-selection-session-switch.test.ts: ok');

@@ -7,8 +7,8 @@ import openaiLogo from '../../assets/openai.svg';
 import piLogo from '../../assets/pi-logo-auto.svg';
 import bubbleLogo from '../../assets/bubble-logo-auto.svg';
 import qoderLogo from '../../assets/qoder.svg';
-import deepseekLogo from '../../assets/deepseek-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
+import { DeepseekLogo } from '../DeepseekLogo';
 import { Check, Copy, ExternalLink, Loader2, RefreshCw } from '../icons';
 import type { AgentProvider, AgentRuntimeDirectoryReport, AgentRuntimeEntry } from '../../../shared/types';
 import { rendererStateStorage } from '../../utils/renderer-state-storage';
@@ -24,7 +24,7 @@ const PROVIDER_LOGOS: Record<AgentProvider, ReactNode> = {
   pi: <img src={piLogo} alt="" className="h-5 w-5" aria-hidden="true" />,
   qoder: <img src={qoderLogo} alt="" className="h-5 w-5" aria-hidden="true" />,
   bubble: <img src={bubbleLogo} alt="" className="h-5 w-5" aria-hidden="true" />,
-  deepseek: <img src={deepseekLogo} alt="" className="h-5 w-5" aria-hidden="true" />,
+  deepseek: <DeepseekLogo className="h-5 w-5" />,
 };
 
 /**

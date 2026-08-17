@@ -69,7 +69,7 @@ const PROVIDER_META: Record<
     docsUrl: null,
   },
   deepseek: {
-    title: 'DeepSeek',
+    title: 'DeepSeek Harness',
     installCommand: null,
     docsUrl: 'https://github.com/deepseek-ai/deepseek-harness',
   },
@@ -306,7 +306,7 @@ async function probeDeepseek(): Promise<AgentRuntimeEntry> {
       return entry('deepseek', 'login_required', {
         summary: 'DeepSeek Harness has no API key yet.',
         detail:
-          'Add a key in Settings → Providers → DeepSeek, set DEEPSEEK_API_KEY, or sign in with the DSH CLI.',
+          'Add a key in Settings → Providers → DeepSeek Harness, set DEEPSEEK_API_KEY, or sign in with the DSH CLI.',
       });
     }
     return entry('deepseek', 'ready', {

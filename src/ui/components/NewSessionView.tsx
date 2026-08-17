@@ -294,6 +294,12 @@ export function NewSessionView() {
           agentSelection.provider === 'codex'
             ? agentSelection.codexPermissionMode
             : undefined,
+        codexReasoningEffort:
+          agentSelection.provider === 'codex'
+            ? agentSelection.codexReasoningEffort || undefined
+            : undefined,
+        codexFastMode:
+          agentSelection.provider === 'codex' ? agentSelection.codexFastMode : undefined,
         kimiPermissionMode:
           agentSelection.provider === 'kimi' || agentSelection.provider === 'grok'
             ? agentSelection.kimiPermissionMode
@@ -757,6 +763,7 @@ export function NewSessionView() {
                       agentProvider={agentSelection.provider}
                       modelLabel={agentSelection.selectedModelLabel}
                       modelValue={agentSelection.model}
+                      modelValueByProvider={agentSelection.modelValueByProvider}
                       allAgentModelOptions={agentSelection.allAgentModelOptions}
                       disabled={pendingStart}
                       onAgentChange={agentSelection.selectAgent}
@@ -765,17 +772,27 @@ export function NewSessionView() {
                       grokModels={agentSelection.grokModels.length > 0 ? agentSelection.grokModels : undefined}
                       bubbleModels={agentSelection.bubbleModels.length > 0 ? agentSelection.bubbleModels : undefined}
                       claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
-                      onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
+                      onClaudeReasoningEffortChange={(effort) =>
+                        agentSelection.selectAgentConfiguration({ provider: 'claude', claudeReasoningEffort: effort })
+                      }
                       codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
-                      onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                      onCodexReasoningEffortChange={(effort) =>
+                        agentSelection.selectAgentConfiguration({ provider: 'codex', codexReasoningEffort: effort })
+                      }
                       grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
-                      onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
+                      onGrokReasoningEffortChange={(effort) =>
+                        agentSelection.selectAgentConfiguration({ provider: 'grok', grokReasoningEffort: effort })
+                      }
                       bubbleThinkingLevel={agentSelection.bubbleThinkingLevel ?? undefined}
-                      onBubbleThinkingLevelChange={agentSelection.setBubbleThinkingLevel}
+                      onBubbleThinkingLevelChange={(level) =>
+                        agentSelection.selectAgentConfiguration({ provider: 'bubble', bubbleThinkingLevel: level })
+                      }
                       deepseekReasoningEffort={agentSelection.deepseekReasoningEffort}
                       onDeepseekReasoningEffortChange={agentSelection.setDeepseekReasoningEffort}
                       codexFastMode={agentSelection.codexFastMode}
-                      onCodexFastModeChange={agentSelection.setCodexFastMode}
+                      onCodexFastModeChange={(enabled) =>
+                        agentSelection.selectAgentConfiguration({ provider: 'codex', codexFastMode: enabled })
+                      }
                       kimiThinkingOptions={agentSelection.kimiThinkingOptions}
                       kimiThinkingChecked={agentSelection.kimiThinkingChecked}
                       onKimiThinkingChange={agentSelection.setKimiThinking}

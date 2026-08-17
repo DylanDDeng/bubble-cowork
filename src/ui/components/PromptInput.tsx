@@ -54,6 +54,7 @@ import { ClaudePlanModePill } from './ClaudePlanModePill';
 import { DeepseekAgentPresetPicker } from './DeepseekAgentPresetPicker';
 import {
   useComposerAgentSelection,
+  type ComposerAgentConfigurationChange,
   type ComposerModelOption,
 } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
@@ -277,6 +278,10 @@ export function PromptInput({
       activeSession?.provider === 'bubble' ? activeSession.bubblePermissionMode || null : null,
     claudeReasoningEffort:
       activeSession?.provider === 'claude' ? activeSession.claudeReasoningEffort || null : null,
+    codexReasoningEffort:
+      activeSession?.provider === 'codex' ? activeSession.codexReasoningEffort || null : null,
+    codexFastMode:
+      activeSession?.provider === 'codex' ? activeSession.codexFastMode ?? null : null,
     grokReasoningEffort:
       activeSession?.provider === 'grok' ? activeSession.grokReasoningEffort || null : null,
     deepseekAgentPreset:
@@ -400,6 +405,20 @@ export function PromptInput({
       agentSelection.selectModel(option, targetProvider);
     },
     [activeSession?.provider, agentSelection, runtimeProvider, sessionProviderLocked]
+  );
+  const handleAgentConfigurationChange = useCallback(
+    (change: ComposerAgentConfigurationChange) => {
+      if (
+        sessionProviderLocked &&
+        activeSession?.provider &&
+        change.provider !== activeSession.provider
+      ) {
+        setHandoffTarget(change.provider);
+        return;
+      }
+      agentSelection.selectAgentConfiguration(change);
+    },
+    [activeSession?.provider, agentSelection, sessionProviderLocked]
   );
   const confirmHandoff = useCallback(async () => {
     if (!activeSession || !handoffTarget || handoffBusy) {
@@ -830,6 +849,12 @@ export function PromptInput({
             runtimeProvider === 'codex'
               ? agentSelection.codexPermissionMode
               : undefined,
+          codexReasoningEffort:
+            runtimeProvider === 'codex'
+              ? agentSelection.codexReasoningEffort || undefined
+              : undefined,
+          codexFastMode:
+            runtimeProvider === 'codex' ? agentSelection.codexFastMode : undefined,
           kimiPermissionMode:
             runtimeProvider === 'kimi' || runtimeProvider === 'grok'
               ? agentSelection.kimiPermissionMode
@@ -948,6 +973,12 @@ export function PromptInput({
           runtimeProvider === 'codex'
             ? agentSelection.codexPermissionMode
             : undefined,
+        codexReasoningEffort:
+          runtimeProvider === 'codex'
+            ? agentSelection.codexReasoningEffort || undefined
+            : undefined,
+        codexFastMode:
+          runtimeProvider === 'codex' ? agentSelection.codexFastMode : undefined,
         kimiPermissionMode:
           runtimeProvider === 'kimi' || runtimeProvider === 'grok'
             ? agentSelection.kimiPermissionMode
@@ -1698,6 +1729,7 @@ export function PromptInput({
                 agentProvider={runtimeProvider}
                 modelLabel={agentSelection.selectedModelLabel}
                 modelValue={selectedModel}
+                modelValueByProvider={agentSelection.modelValueByProvider}
                 allAgentModelOptions={agentSelection.allAgentModelOptions}
                 disabled={isBusy}
                 onAgentChange={handleAgentChange}
@@ -1706,17 +1738,27 @@ export function PromptInput({
                 grokModels={agentSelection.grokModels.length > 0 ? agentSelection.grokModels : undefined}
                 bubbleModels={agentSelection.bubbleModels.length > 0 ? agentSelection.bubbleModels : undefined}
                 claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
-                onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
+                onClaudeReasoningEffortChange={(effort) =>
+                  handleAgentConfigurationChange({ provider: 'claude', claudeReasoningEffort: effort })
+                }
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
-                onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                onCodexReasoningEffortChange={(effort) =>
+                  handleAgentConfigurationChange({ provider: 'codex', codexReasoningEffort: effort })
+                }
                 grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
-                onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
+                onGrokReasoningEffortChange={(effort) =>
+                  handleAgentConfigurationChange({ provider: 'grok', grokReasoningEffort: effort })
+                }
                 bubbleThinkingLevel={agentSelection.bubbleThinkingLevel ?? undefined}
-                onBubbleThinkingLevelChange={agentSelection.setBubbleThinkingLevel}
+                onBubbleThinkingLevelChange={(level) =>
+                  handleAgentConfigurationChange({ provider: 'bubble', bubbleThinkingLevel: level })
+                }
                 deepseekReasoningEffort={agentSelection.deepseekReasoningEffort}
                 onDeepseekReasoningEffortChange={agentSelection.setDeepseekReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
-                onCodexFastModeChange={agentSelection.setCodexFastMode}
+                onCodexFastModeChange={(enabled) =>
+                  handleAgentConfigurationChange({ provider: 'codex', codexFastMode: enabled })
+                }
                 kimiThinkingOptions={agentSelection.kimiThinkingOptions}
                 kimiThinkingChecked={agentSelection.kimiThinkingChecked}
                 onKimiThinkingChange={agentSelection.setKimiThinking}

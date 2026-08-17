@@ -52,8 +52,8 @@ export function DeepseekAgentPresetPicker({
         disabled={disabled || readOnly}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Select DeepSeek agent mode"
-        title={readOnly ? 'Agent mode is fixed for this session' : 'DeepSeek agent mode for this new session'}
+        aria-label="Select DeepSeek Harness agent mode"
+        title={readOnly ? 'Agent mode is fixed for this session' : 'DeepSeek Harness agent mode for this new session'}
         className={`inline-flex items-center rounded-lg px-1.5 py-1 text-[12px] font-medium text-[var(--text-muted)] transition-colors ${
           readOnly
             ? 'cursor-default'

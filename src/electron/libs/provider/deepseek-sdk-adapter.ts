@@ -205,7 +205,7 @@ function extractToolResultText(content: unknown): string {
 
 export class DeepseekSdkAdapter implements ProviderAdapter {
   readonly provider: ProviderKind = 'deepseek';
-  readonly displayName = 'DeepSeek';
+  readonly displayName = 'DeepSeek Harness';
   readonly capabilities = CAPABILITIES;
   readonly events = new EventEmitter();
 
@@ -308,7 +308,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   async sendTurn(input: ProviderSendTurnInput): Promise<void> {
     const active = this.sessions.get(input.threadId);
     if (!active) {
-      throw new Error(`No DeepSeek session found for thread "${input.threadId}"`);
+      throw new Error(`No DeepSeek Harness session found for thread "${input.threadId}"`);
     }
 
     // Steer: while the primary run owns the activity, a follow-up send rides
@@ -387,7 +387,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
         this.emit({
           type: 'error',
           threadId: input.threadId,
-          error: new Error(turn?.endReason?.message || 'DeepSeek turn ended with an error.'),
+          error: new Error(turn?.endReason?.message || 'DeepSeek Harness turn ended with an error.'),
         });
       }
       this.emit({

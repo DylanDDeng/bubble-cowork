@@ -4,11 +4,20 @@ import type {
   SessionView,
   StreamMessage,
 } from '../types';
+import type {
+  ClaudeReasoningEffort,
+  CodexReasoningEffort,
+  GrokReasoningEffort,
+} from '../../shared/types';
 
 export interface AgentModelSelection {
   provider: AgentProvider;
   model: string | null;
   compatibleProviderId: ClaudeCompatibleProviderId | null;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
+  grokReasoningEffort?: GrokReasoningEffort;
 }
 
 export function applySessionAgentSelection(
@@ -23,6 +32,22 @@ export function applySessionAgentSelection(
       selection.provider === 'claude'
         ? selection.compatibleProviderId || undefined
         : undefined,
+    claudeReasoningEffort:
+      selection.provider === 'claude' && selection.claudeReasoningEffort !== undefined
+        ? selection.claudeReasoningEffort
+        : session.claudeReasoningEffort,
+    codexReasoningEffort:
+      selection.provider === 'codex' && selection.codexReasoningEffort !== undefined
+        ? selection.codexReasoningEffort
+        : session.codexReasoningEffort,
+    codexFastMode:
+      selection.provider === 'codex' && selection.codexFastMode !== undefined
+        ? selection.codexFastMode
+        : session.codexFastMode,
+    grokReasoningEffort:
+      selection.provider === 'grok' && selection.grokReasoningEffort !== undefined
+        ? selection.grokReasoningEffort
+        : session.grokReasoningEffort,
   };
 }
 

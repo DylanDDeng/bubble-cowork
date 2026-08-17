@@ -53,6 +53,7 @@ import {
 } from '../../shared/types';
 import {
   getDefaultCodexReasoningEffort,
+  getCodexReasoningOptions,
   loadPreferredCodexReasoningEffort,
   savePreferredCodexReasoningEffort,
 } from '../utils/codex-reasoning';
@@ -140,6 +141,15 @@ export interface ComposerModelSetupState {
   label: string;
   title: string;
   settingsTab: SettingsTab;
+}
+
+export interface ComposerAgentConfigurationChange {
+  provider: AgentProvider;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
+  grokReasoningEffort?: GrokReasoningEffort;
+  bubbleThinkingLevel?: string;
 }
 
 function loadPreferredKimiModel(): string | null {
@@ -591,6 +601,8 @@ export function useComposerAgentSelection(input?: {
   codexPermissionMode?: CodexPermissionMode | null;
   opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
+  codexReasoningEffort?: CodexReasoningEffort | null;
+  codexFastMode?: boolean | null;
   grokReasoningEffort?: GrokReasoningEffort | null;
   /** Bubble thinking level seed (open set, per model). */
   bubbleThinkingLevel?: string | null;
@@ -836,6 +848,62 @@ export function useComposerAgentSelection(input?: {
     [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig]
   );
 
+  const decorateAgentSelection = useCallback(
+    (
+      selection: AgentModelSelection,
+      overrides: Partial<Pick<
+        AgentModelSelection,
+        'claudeReasoningEffort' | 'codexReasoningEffort' | 'codexFastMode' | 'grokReasoningEffort'
+      >> = {}
+    ): AgentModelSelection => {
+      const nextModel = selection.model;
+      if (selection.provider === 'claude') {
+        return {
+          ...selection,
+          claudeReasoningEffort:
+            overrides.claudeReasoningEffort ||
+            loadPreferredClaudeReasoningEffort(nextModel) ||
+            getDefaultClaudeReasoningEffort(nextModel),
+        };
+      }
+      if (selection.provider === 'codex' && nextModel) {
+        return {
+          ...selection,
+          codexReasoningEffort:
+            overrides.codexReasoningEffort ||
+            loadPreferredCodexReasoningEffort(nextModel) ||
+            getDefaultCodexReasoningEffort(codexModelConfig, nextModel),
+          codexFastMode:
+            overrides.codexFastMode !== undefined
+              ? overrides.codexFastMode
+              : loadPreferredCodexFastMode(codexModelConfig, nextModel),
+        };
+      }
+      if (selection.provider === 'grok') {
+        return {
+          ...selection,
+          grokReasoningEffort:
+            overrides.grokReasoningEffort ||
+            loadPreferredGrokReasoningEffort(nextModel) ||
+            getDefaultGrokReasoningEffort(nextModel),
+        };
+      }
+      return selection;
+    },
+    [codexModelConfig]
+  );
+
+  const modelValueByProvider = useMemo(() => {
+    return Object.fromEntries(
+      (Object.keys(allAgentModelOptions) as AgentProvider[]).map((candidateProvider) => [
+        candidateProvider,
+        candidateProvider === provider
+          ? model
+          : resolveModelForProvider(candidateProvider).model,
+      ])
+    ) as Record<AgentProvider, string | null>;
+  }, [allAgentModelOptions, model, provider, resolveModelForProvider]);
+
   // Apply session switches during render so the first painted frame already
   // shows the target session's provider/model (avoids a one-frame "Default"
   // flash after switching threads).
@@ -961,17 +1029,16 @@ export function useComposerAgentSelection(input?: {
   const selectAgent = useCallback(
     (nextProvider: AgentProvider) => {
       savePreferredProvider(nextProvider);
-      const nextSelection = resolveModelForProvider(nextProvider);
+      const nextSelection = decorateAgentSelection({
+        provider: nextProvider,
+        ...resolveModelForProvider(nextProvider),
+      });
       setProviderState(nextProvider);
       setModelState(nextSelection.model);
       setCompatibleProviderId(nextSelection.compatibleProviderId);
-      input?.onSelectionChange?.({
-        provider: nextProvider,
-        model: nextSelection.model,
-        compatibleProviderId: nextSelection.compatibleProviderId,
-      });
+      input?.onSelectionChange?.(nextSelection);
     },
-    [input?.onSelectionChange, resolveModelForProvider]
+    [decorateAgentSelection, input?.onSelectionChange, resolveModelForProvider]
   );
 
   const selectModel = useCallback(
@@ -986,6 +1053,11 @@ export function useComposerAgentSelection(input?: {
       const nextModel = option.value.trim() || null;
       const nextCompatibleProviderId =
         targetProvider === 'claude' ? option.compatibleProviderId || null : null;
+      const nextSelection = decorateAgentSelection({
+        provider: targetProvider,
+        model: nextModel,
+        compatibleProviderId: nextCompatibleProviderId,
+      });
       if (targetProvider !== provider) {
         savePreferredProvider(targetProvider);
         setProviderState(targetProvider);
@@ -1014,13 +1086,9 @@ export function useComposerAgentSelection(input?: {
         savePreferredDeepseekModel(nextModel);
       }
 
-      input?.onSelectionChange?.({
-        provider: targetProvider,
-        model: nextModel,
-        compatibleProviderId: nextCompatibleProviderId,
-      });
+      input?.onSelectionChange?.(nextSelection);
     },
-    [input?.onSelectionChange, provider]
+    [decorateAgentSelection, input?.onSelectionChange, provider]
   );
 
   const selectedModelOption = useMemo(() => {
@@ -1073,7 +1141,7 @@ export function useComposerAgentSelection(input?: {
 
     if (provider === 'deepseek') {
       return {
-        label: 'Setup DeepSeek',
+        label: 'Setup DeepSeek Harness',
         title: 'Install the DeepSeek Harness ACP profile',
         settingsTab: 'providers',
       };
@@ -1117,6 +1185,7 @@ export function useComposerAgentSelection(input?: {
 
   const [codexReasoningEffort, setCodexReasoningEffortState] = useState<CodexReasoningEffort | null>(() => {
     if (provider !== 'codex' || !model) return null;
+    if (input?.codexReasoningEffort) return input.codexReasoningEffort;
     const preferred = loadPreferredCodexReasoningEffort(model);
     if (preferred) return preferred;
     return getDefaultCodexReasoningEffort(codexModelConfig, model) || null;
@@ -1155,6 +1224,16 @@ export function useComposerAgentSelection(input?: {
       setCodexReasoningEffortState(null);
     }
   }, [provider, model, codexModelConfig]);
+
+  // A persisted session owns its last effective Codex effort. Apply that seed
+  // after the model-sync effect when switching/restoring sessions; explicit
+  // picker changes update the renderer session immediately through
+  // onSelectionChange, so this never replays a stale value over a user click.
+  useEffect(() => {
+    if (provider === 'codex' && input?.provider === 'codex' && input.codexReasoningEffort) {
+      setCodexReasoningEffortState(input.codexReasoningEffort);
+    }
+  }, [input?.codexReasoningEffort, input?.provider, input?.selectionKey, provider]);
 
   const setCodexReasoningEffort = useCallback(
     (effort: CodexReasoningEffort) => {
@@ -1264,6 +1343,9 @@ export function useComposerAgentSelection(input?: {
 
   const [codexFastMode, setCodexFastModeState] = useState<boolean>(() => {
     if (!supportsCodexFastModeCheck || !model) return false;
+    if (input?.provider === 'codex' && input.codexFastMode != null) {
+      return input.codexFastMode;
+    }
     return loadPreferredCodexFastMode(codexModelConfig, model) === true;
   });
 
@@ -1276,6 +1358,12 @@ export function useComposerAgentSelection(input?: {
       setCodexFastModeState(false);
     }
   }, [supportsCodexFastModeCheck, codexModelConfig, model]);
+
+  useEffect(() => {
+    if (provider === 'codex' && input?.provider === 'codex' && input.codexFastMode != null) {
+      setCodexFastModeState(input.codexFastMode && supportsCodexFastModeCheck);
+    }
+  }, [input?.codexFastMode, input?.provider, input?.selectionKey, provider, supportsCodexFastModeCheck]);
 
   const setCodexFastMode = useCallback(
     (enabled: boolean) => {
@@ -1461,11 +1549,115 @@ export function useComposerAgentSelection(input?: {
     savePreferredBubblePermissionMode(mode);
   }, []);
 
+  const selectAgentConfiguration = useCallback(
+    (change: ComposerAgentConfigurationChange) => {
+      const resolved = resolveModelForProvider(change.provider);
+      const nextModel = resolved.model;
+
+      if (change.provider === 'codex' && change.codexReasoningEffort) {
+        const supported = getCodexReasoningOptions(codexModelConfig, nextModel).some(
+          (option) => option.effort === change.codexReasoningEffort
+        );
+        if (!supported) {
+          console.error('Ignored unsupported Codex reasoning effort', {
+            model: nextModel,
+            effort: change.codexReasoningEffort,
+          });
+          return;
+        }
+      }
+      if (
+        change.provider === 'codex' &&
+        change.codexFastMode === true &&
+        !supportsCodexFastMode(codexModelConfig, nextModel)
+      ) {
+        console.error('Ignored unsupported Codex fast mode', { model: nextModel });
+        return;
+      }
+      if (change.provider === 'grok' && change.grokReasoningEffort) {
+        const supported = grokModelConfig.availableModels.find((entry) => entry.name === nextModel)
+          ?.reasoningEfforts;
+        if (supported?.length && !supported.includes(change.grokReasoningEffort)) {
+          console.error('Ignored unsupported Grok reasoning effort', {
+            model: nextModel,
+            effort: change.grokReasoningEffort,
+          });
+          return;
+        }
+      }
+      if (change.provider === 'bubble' && change.bubbleThinkingLevel) {
+        const supported = bubbleThinkingLevelsForModel(bubbleModelConfig.availableModels, nextModel);
+        if (!supported.includes(change.bubbleThinkingLevel)) {
+          console.error('Ignored unsupported Bubble thinking level', {
+            model: nextModel,
+            effort: change.bubbleThinkingLevel,
+          });
+          return;
+        }
+      }
+
+      const nextSelection = decorateAgentSelection(
+        {
+          provider: change.provider,
+          model: nextModel,
+          compatibleProviderId: resolved.compatibleProviderId,
+        },
+        change
+      );
+
+      // Persist against the resolved TARGET model before React commits the
+      // provider/model switch. Model-sync effects then read the same explicit
+      // choice instead of replacing it with a default from the new model.
+      if (change.provider === 'claude' && nextSelection.claudeReasoningEffort) {
+        setClaudeReasoningEffortState(nextSelection.claudeReasoningEffort);
+        if (change.claudeReasoningEffort) {
+          savePreferredClaudeReasoningEffort(nextModel, change.claudeReasoningEffort);
+        }
+      } else if (change.provider === 'codex' && nextModel) {
+        if (nextSelection.codexReasoningEffort) {
+          setCodexReasoningEffortState(nextSelection.codexReasoningEffort);
+        }
+        setCodexFastModeState(nextSelection.codexFastMode === true);
+        if (change.codexReasoningEffort) {
+          savePreferredCodexReasoningEffort(nextModel, change.codexReasoningEffort);
+        }
+        if (change.codexFastMode !== undefined) {
+          savePreferredCodexFastMode(codexModelConfig, nextModel, change.codexFastMode);
+        }
+      } else if (change.provider === 'grok' && nextSelection.grokReasoningEffort) {
+        setGrokReasoningEffortState(nextSelection.grokReasoningEffort);
+        if (change.grokReasoningEffort) {
+          savePreferredGrokReasoningEffort(nextModel, change.grokReasoningEffort);
+        }
+      } else if (change.provider === 'bubble' && change.bubbleThinkingLevel) {
+        setBubbleThinkingLevelState(change.bubbleThinkingLevel);
+        if (nextModel) {
+          savePreferredBubbleThinkingLevel(nextModel, change.bubbleThinkingLevel);
+        }
+      }
+
+      savePreferredProvider(change.provider);
+      setProviderState(change.provider);
+      setModelState(nextModel);
+      setCompatibleProviderId(resolved.compatibleProviderId);
+      input?.onSelectionChange?.(nextSelection);
+    },
+    [
+      bubbleModelConfig.availableModels,
+      codexModelConfig,
+      decorateAgentSelection,
+      grokModelConfig.availableModels,
+      input?.onSelectionChange,
+      resolveModelForProvider,
+    ]
+  );
+
   return {
     provider,
     model,
     compatibleProviderId,
     allAgentModelOptions,
+    modelValueByProvider,
     modelOptions,
     modelSetup,
     bubbleModelsLoading: !bubbleModelConfig.loaded,
@@ -1473,6 +1665,7 @@ export function useComposerAgentSelection(input?: {
     selectedModelLabel,
     selectAgent,
     selectModel,
+    selectAgentConfiguration,
     codexModelConfig,
     codexModels,
     grokModels,

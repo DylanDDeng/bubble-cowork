@@ -54,7 +54,7 @@ const USAGE_PROVIDERS: Array<{ id: AgentProvider; title: string; logoSrc?: strin
   { id: 'pi', title: 'Pi', logoSrc: piLogo },
   { id: 'qoder', title: 'Qoder', logoSrc: qoderLogo },
   { id: 'bubble', title: 'Bubble', logoSrc: bubbleLogo },
-  { id: 'deepseek', title: 'DeepSeek', logoSrc: deepseekLogo },
+  { id: 'deepseek', title: 'DeepSeek Harness', logoSrc: deepseekLogo },
 ];
 
 const INITIAL_PROVIDER_USAGE: Record<AgentProvider, ProviderUsageState> = Object.fromEntries(

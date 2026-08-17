@@ -264,7 +264,7 @@ export function formatDeepseekRuntimeBlockingMessage(status: DeepseekRuntimeStat
     return formatDeepseekProfileMissingMessage();
   }
   if (!status.hasApiKey) {
-    return 'DeepSeek Harness has no API key. Add one in Settings → Providers → DeepSeek, then retry.';
+    return 'DeepSeek Harness has no API key. Add one in Settings → Providers → DeepSeek Harness, then retry.';
   }
   return 'DeepSeek Harness is not ready.';
 }

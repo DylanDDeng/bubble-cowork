@@ -10,7 +10,7 @@ export const PROVIDERS: Array<{ id: AgentProvider; label: string }> = [
   { id: 'pi', label: 'Pi' },
   { id: 'qoder', label: 'Qoder' },
   { id: 'bubble', label: 'Bubble' },
-  { id: 'deepseek', label: 'DeepSeek' },
+  { id: 'deepseek', label: 'DeepSeek Harness' },
 ];
 
 const STORAGE_KEY = 'cowork.preferredProvider';

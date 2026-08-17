@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ChevronDown, Eye, EyeOff } from '../icons';
-import deepseekLogo from '../../assets/deepseek-color.svg';
 import type { DeepseekKeyStatus } from '../../types';
+import { DeepseekLogo } from '../DeepseekLogo';
 import { SettingsGroup } from './SettingsPrimitives';
 
 /**
@@ -111,7 +111,7 @@ export function DeepseekProviderSettings() {
           <div className="px-4 py-3">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
               <div className="flex min-w-0 items-center gap-2.5">
-                <img src={deepseekLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                <DeepseekLogo />
                 <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-[var(--text-primary)]">
                   <span className="truncate">DeepSeek API Key</span>
                 </div>

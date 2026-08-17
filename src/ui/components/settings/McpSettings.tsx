@@ -574,7 +574,7 @@ function ToolTabBar({
     },
     {
       id: 'deepseek',
-      label: 'DeepSeek',
+      label: 'DeepSeek Harness',
       hint: '~/.aegis/deepseek-mcp.json',
     },
   ];

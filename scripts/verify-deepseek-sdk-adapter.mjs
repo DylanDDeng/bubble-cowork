@@ -168,7 +168,7 @@ try {
 const mcpSettingsSource = read('src/ui/components/settings/McpSettings.tsx');
 const ipcMcpSource = read('src/electron/ipc-handlers.ts');
 assert.ok(
-  mcpSettingsSource.includes("label: 'DeepSeek'") &&
+  mcpSettingsSource.includes("label: 'DeepSeek Harness'") &&
     mcpSettingsSource.includes("id: 'deepseek-global'") &&
     mcpSettingsSource.includes("id: 'deepseek-project'") &&
     mcpSettingsSource.includes('deepseekGlobalServers: nextServers') &&
@@ -489,18 +489,24 @@ assert.ok(
 const providers = read('src/ui/utils/provider.ts');
 const picker = read('src/ui/components/ProviderPicker.tsx');
 const onboarding = read('src/ui/components/onboarding/AgentOnboardingView.tsx');
+const deepseekLogo = read('src/ui/components/DeepseekLogo.tsx');
 const readiness = read('src/ui/hooks/useAgentReadiness.ts');
 const composerSelection = read('src/ui/hooks/useComposerAgentSelection.ts');
 const usage = read('src/ui/components/settings/ClaudeUsageSettings.tsx');
 assert.ok(
-  providers.includes("{ id: 'deepseek', label: 'DeepSeek' }") &&
+    providers.includes("{ id: 'deepseek', label: 'DeepSeek Harness' }") &&
     picker.includes('DeepseekLogo') &&
-    onboarding.includes('deepseek:') &&
-    readiness.includes("provider: 'deepseek'") &&
+    onboarding.includes('deepseek: <DeepseekLogo') &&
+    deepseekLogo.includes('<svg') &&
+    deepseekLogo.includes('fill="currentColor"') &&
+    deepseekLogo.includes('M23.748 4.482') &&
+    !deepseekLogo.includes('maskImage') &&
+    readiness.includes("{ provider: 'deepseek', label: 'DeepSeek Harness' }") &&
     composerSelection.includes('useDeepseekModelConfig') &&
     composerSelection.includes('savePreferredDeepseekModel') &&
-    usage.includes("id: 'deepseek'"),
-  'UI must list DeepSeek across picker, onboarding, readiness, composer and usage settings'
+    usage.includes("{ id: 'deepseek', title: 'DeepSeek Harness', logoSrc: deepseekLogo }") &&
+    mcpSettingsSource.includes("label: 'DeepSeek Harness'"),
+  'UI must identify the DeepSeek agent runtime as DeepSeek Harness across picker, onboarding, readiness, composer, MCP and usage settings'
 );
 assert.ok(
   usage.includes('estimatedCost={estimatedCost}') && !usage.includes('activeReport!.note'),
