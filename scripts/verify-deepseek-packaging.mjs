@@ -2,6 +2,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const { deepseekSdkClosure, electronBuilderCollected } = createRequire(import.meta.url)(
+  './deepseek-sdk-closure.cjs'
+);
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -38,6 +43,13 @@ assert.ok(
     afterPack.includes('ripgrep-${platform}-${arch}'),
   'each packaged app must verify the target-specific DeepSeek native dependencies'
 );
+assert.ok(
+  afterPack.includes('verifyPackagedDeepseekSdk') &&
+    afterPack.includes("'app.asar'") &&
+    afterPack.includes("'app.asar.unpacked'") &&
+    afterPack.includes('deepseekSdkClosure('),
+  'each packaged app must verify the DeepSeek SDK client graph inside app.asar'
+);
 
 const rootPackage = JSON.parse(read('package.json'));
 assert.equal(
@@ -49,6 +61,29 @@ assert.ok(
   rootPackage.scripts?.['prebuild:electron']?.includes('prepare:deepseek-runtime') &&
     rootPackage.scripts?.['prebuild:electron']?.includes('verify:deepseek-packaging'),
   'every npm-driven Electron package must prepare and verify the DeepSeek runtime first'
+);
+
+// See scripts/deepseek-sdk-closure.cjs for why peer-only packages must be
+// declared as direct dependencies.
+const rootLock = JSON.parse(read('package-lock.json'));
+const lockPackages = rootLock.packages ?? {};
+const sdkClosure = deepseekSdkClosure(lockPackages);
+const collectedByElectronBuilder = electronBuilderCollected(lockPackages, rootPackage.dependencies);
+const uncollected = [...sdkClosure].filter((name) => !collectedByElectronBuilder.has(name));
+assert.deepEqual(
+  uncollected,
+  [],
+  `DeepSeek SDK packages reachable only through peerDependencies must be declared in package.json dependencies, otherwise electron-builder drops them from app.asar: ${uncollected.join(', ')}`
+);
+for (const name of sdkClosure) {
+  assert.ok(
+    fs.existsSync(path.join(root, 'node_modules', name, 'package.json')),
+    `DeepSeek SDK dependency ${name} is not installed`
+  );
+}
+assert.ok(
+  rootPackage.devDependencies?.['@electron/asar'],
+  'afterPack inspects app.asar with @electron/asar, which must be an explicit devDependency'
 );
 
 const profileDir = path.join(root, 'dev-fixtures', 'deepseek-harness');
