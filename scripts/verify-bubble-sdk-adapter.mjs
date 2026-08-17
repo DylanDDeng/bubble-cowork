@@ -139,14 +139,20 @@ assert.ok(
 // dedicated list IPC plus the three renderer whitelists and the '/' insertion.
 const slashSkillsHook = read('src/ui/hooks/useProviderSlashSkills.ts');
 const autocompleteHook = read('src/ui/hooks/useClaudeSkillAutocomplete.ts');
+const skillLibrary = read('src/ui/components/settings/SkillMarketSettings.tsx');
+const bubbleSkillLibrary = read('src/ui/components/settings/BubbleSkillLibrary.tsx');
 const preload = read('src/electron/preload.cts');
 assert.ok(
   read('src/electron/ipc-handlers.ts').includes("ipcMainHandle('bubble-list-skills'") &&
     preload.includes('listBubbleSkills') &&
     slashSkillsHook.includes("provider === 'bubble'") &&
     slashSkillsHook.includes('listBubbleSkills') &&
-    autocompleteHook.split("'bubble'").length >= 5,
-  'Bubble skills must be listable over IPC and surfaced in the composer slash menu'
+    autocompleteHook.split("'bubble'").length >= 5 &&
+    skillLibrary.includes("view === 'bubble'") &&
+    skillLibrary.includes('<BubbleSkillLibraryContent />') &&
+    bubbleSkillLibrary.includes('listBubbleSkills') &&
+    bubbleSkillLibrary.includes('mentionPrefix="/"'),
+  'Bubble skills must be listable over IPC and surfaced in the library and composer slash menu'
 );
 
 // Provider credentials are configurable from the settings page (no Bubble CLI

@@ -19,6 +19,7 @@ import { OpenCodeSkillLibraryContent } from './OpenCodeSkillLibrary';
 import { KimiSkillLibraryContent } from './KimiSkillLibrary';
 import { GrokSkillLibraryContent } from './GrokSkillLibrary';
 import { QoderSkillLibraryContent } from './QoderSkillLibrary';
+import { BubbleSkillLibraryContent } from './BubbleSkillLibrary';
 
 const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
@@ -51,7 +52,7 @@ export function SkillMarketSettingsContent() {
     claudeUserSkills,
     claudeProjectSkills,
   } = useAppStore();
-  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'qoder'>('skills');
+  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode' | 'kimi' | 'bubble' | 'grok' | 'qoder'>('skills');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SkillMarketItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -241,6 +242,15 @@ export function SkillMarketSettingsContent() {
             <button
               type="button"
               role="tab"
+              aria-selected={view === 'bubble'}
+              onClick={() => setView('bubble')}
+              className={getTopTabClassName('bubble')}
+            >
+              Bubble
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={view === 'grok'}
               onClick={() => setView('grok')}
               className={getTopTabClassName('grok')}
@@ -268,6 +278,8 @@ export function SkillMarketSettingsContent() {
         <OpenCodeSkillLibraryContent />
       ) : view === 'kimi' ? (
         <KimiSkillLibraryContent />
+      ) : view === 'bubble' ? (
+        <BubbleSkillLibraryContent />
       ) : view === 'grok' ? (
         <GrokSkillLibraryContent />
       ) : view === 'qoder' ? (
