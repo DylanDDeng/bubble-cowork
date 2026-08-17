@@ -8,7 +8,8 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 const builder = read('electron-builder.json');
 assert.ok(
-  builder.includes('"afterPack": "scripts/after-pack-verify-deepseek.cjs"') &&
+  builder.includes('"beforePack": "scripts/before-pack-prepare-deepseek.cjs"') &&
+    builder.includes('"afterPack": "scripts/after-pack-verify-deepseek.cjs"') &&
     builder.includes('"from": "dev-fixtures/deepseek-harness"') &&
     builder.includes('"to": "deepseek-harness"') &&
     builder.includes('"from": "dev-fixtures/deepseek-harness/node_modules"') &&
@@ -17,6 +18,22 @@ assert.ok(
     builder.includes('"runtime-resume-shim.mjs"') &&
     builder.includes('"cordis.yml"'),
   'electron-builder must copy the complete DeepSeek Harness runtime profile outside app.asar'
+);
+
+const beforePack = read('scripts/before-pack-prepare-deepseek.cjs');
+const afterPack = read('scripts/after-pack-verify-deepseek.cjs');
+assert.ok(
+  beforePack.includes("['ci', '--prefix', profileDir") &&
+    beforePack.includes('`--os=${platform}`') &&
+    beforePack.includes('`--cpu=${arch}`') &&
+    beforePack.includes("installArgs.push('--ignore-scripts')") &&
+    beforePack.includes('fs.chmodSync(spawnHelper, 0o755)'),
+  'each Electron target must install DeepSeek Harness dependencies for its own architecture'
+);
+assert.ok(
+  afterPack.includes('koffi-${platform}-${arch}') &&
+    afterPack.includes('ripgrep-${platform}-${arch}'),
+  'each packaged app must verify the target-specific DeepSeek native dependencies'
 );
 
 const rootPackage = JSON.parse(read('package.json'));

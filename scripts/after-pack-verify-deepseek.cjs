@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { Arch } = require('builder-util');
 
 const REQUIRED_RUNTIME_PATHS = [
   'runtime-bin.mjs',
@@ -13,9 +14,16 @@ const REQUIRED_RUNTIME_PATHS = [
   'node_modules/@deepseek-ai/dsh-mcp-client',
 ];
 
-function verifyPackagedDeepseekRuntime(resourcesDir) {
+function verifyPackagedDeepseekRuntime(resourcesDir, platform, arch) {
   const profileDir = path.join(resourcesDir, 'deepseek-harness');
-  for (const relativePath of REQUIRED_RUNTIME_PATHS) {
+  const requiredPaths = [...REQUIRED_RUNTIME_PATHS];
+  if (platform && arch) {
+    requiredPaths.push(
+      `node_modules/@koromix/koffi-${platform}-${arch}`,
+      `node_modules/@vscode/ripgrep-${platform}-${arch}`
+    );
+  }
+  for (const relativePath of requiredPaths) {
     assert.ok(
       fs.existsSync(path.join(profileDir, relativePath)),
       `packaged DeepSeek Harness runtime is missing ${relativePath}`
@@ -25,8 +33,10 @@ function verifyPackagedDeepseekRuntime(resourcesDir) {
 }
 
 async function afterPack(context) {
+  const platform = context.electronPlatformName;
+  const arch = Arch[context.arch];
   const resourcesDir =
-    context.electronPlatformName === 'darwin'
+    platform === 'darwin'
       ? path.join(
           context.appOutDir,
           `${context.packager.appInfo.productFilename}.app`,
@@ -34,7 +44,7 @@ async function afterPack(context) {
           'Resources'
         )
       : path.join(context.appOutDir, 'resources');
-  verifyPackagedDeepseekRuntime(resourcesDir);
+  verifyPackagedDeepseekRuntime(resourcesDir, platform, arch);
 }
 
 module.exports = afterPack;
@@ -43,5 +53,5 @@ module.exports.verifyPackagedDeepseekRuntime = verifyPackagedDeepseekRuntime;
 if (require.main === module) {
   const resourcesDir = process.argv[2];
   assert.ok(resourcesDir, 'usage: node scripts/after-pack-verify-deepseek.cjs <resources-dir>');
-  verifyPackagedDeepseekRuntime(path.resolve(resourcesDir));
+  verifyPackagedDeepseekRuntime(path.resolve(resourcesDir), process.argv[3], process.argv[4]);
 }

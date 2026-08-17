@@ -5,6 +5,7 @@
     "output": "release",
     "buildResources": "build"
   },
+  "beforePack": "scripts/before-pack-prepare-deepseek.cjs",
   "afterPack": "scripts/after-pack-verify-deepseek.cjs",
   "files": [
     "dist-electron/**/*",
