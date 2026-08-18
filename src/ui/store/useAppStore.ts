@@ -513,6 +513,9 @@ function freshSessionViewFromInfo(info: import('../../shared/types').SessionInfo
     hasMoreHistory: false,
     loadingMoreHistory: false,
     permissionRequests: [],
+    computerUseLive: null,
+    computerUseFrames: [],
+    computerUseGrants: [],
     streaming: createEmptyStreamingState(),
     updatedAt: info.updatedAt,
   };
@@ -1032,6 +1035,47 @@ export const useAppStore = create<Store>()(
             sessions: {
               ...state.sessions,
               [event.payload.sessionId]: { ...session, permissionRequests: remaining },
+            },
+          };
+        });
+        break;
+
+      case 'computerUse.live':
+        set((state) => {
+          const session = state.sessions[event.payload.sessionId];
+          if (!session) return state;
+          const frame = event.payload.frame;
+          const previous = session.computerUseFrames || [];
+          const frames = frame.hasFreshMedia
+            ? [...previous.filter((item) => item.media?.sha256 !== frame.media?.sha256), frame].slice(-12)
+            : previous;
+          return {
+            ...state,
+            sessions: {
+              ...state.sessions,
+              [event.payload.sessionId]: {
+                ...session,
+                computerUseLive: frame.hasFreshMedia
+                  ? frame
+                  : session.computerUseLive
+                    ? { ...session.computerUseLive, label: frame.label, app: frame.app, tool: frame.tool, mutating: frame.mutating, at: frame.at, hasFreshMedia: false }
+                    : frame,
+                computerUseFrames: frames,
+              },
+            },
+          };
+        });
+        break;
+
+      case 'computerUse.grants':
+        set((state) => {
+          const session = state.sessions[event.payload.sessionId];
+          if (!session) return state;
+          return {
+            ...state,
+            sessions: {
+              ...state.sessions,
+              [event.payload.sessionId]: { ...session, computerUseGrants: event.payload.grants },
             },
           };
         });

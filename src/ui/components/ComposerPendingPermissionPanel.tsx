@@ -185,6 +185,23 @@ export const ComposerPendingPermissionActions = memo(function ComposerPendingPer
           Always allow this session
         </button>
       ) : null}
+      {parsed.mode === 'computer-use' &&
+      isComputerUsePermissionInput(request.input) &&
+      request.input.canAllowUntilRevoked ? (
+        <button
+          type="button"
+          onClick={() =>
+            onSubmit(request.toolUseId, {
+              behavior: 'allow',
+              scope: 'once',
+              computerUseGrant: 'until-revoked',
+            })
+          }
+          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+        >
+          {`Allow ${request.input.toolName} in ${request.input.app || 'this app'} until revoked`}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() =>

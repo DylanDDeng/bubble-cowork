@@ -36,6 +36,40 @@ const computerUseMod = require(
 );
 const { buildCodexMcpConfigOverrideArgs } = settingsMod.default ?? settingsMod;
 const { resolveComputerUseClientPath } = computerUseMod.default ?? computerUseMod;
+const elicitationMod = require(
+  path.join(projectRoot, 'dist-electron/electron/libs/codex-computer-use-elicitation.js')
+);
+const grantsMod = require(
+  path.join(projectRoot, 'dist-electron/electron/libs/codex-computer-use-grants.js')
+);
+const { parseMcpToolApprovalElicitation, wrappedComputerUseElicitationFixture } =
+  elicitationMod.default ?? elicitationMod;
+const { ComputerUseGrantRegistry } = grantsMod.default ?? grantsMod;
+
+{
+  const wrapped = parseMcpToolApprovalElicitation(
+    'mcpServer/elicitation/request',
+    wrappedComputerUseElicitationFixture({
+      threadId: 'p-e2e',
+      tool: 'click',
+      app: 'com.apple.finder',
+    })
+  );
+  assert.equal(wrapped?.grantEligible, true);
+  const registry = new ComputerUseGrantRegistry();
+  registry.createFromElicitation({ threadId: 't-e2e', generation: 1, elicitation: wrapped });
+  assert.ok(registry.match({ threadId: 't-e2e', generation: 1, elicitation: wrapped }));
+  const typeText = parseMcpToolApprovalElicitation(
+    'mcpServer/elicitation/request',
+    wrappedComputerUseElicitationFixture({
+      threadId: 'p-e2e',
+      tool: 'type_text',
+      app: 'com.apple.finder',
+    })
+  );
+  assert.equal(registry.match({ threadId: 't-e2e', generation: 1, elicitation: typeText }), null);
+  console.log('codex computer-use grant e2e passed');
+}
 
 const clientPath = resolveComputerUseClientPath(realHome);
 if (!clientPath) {

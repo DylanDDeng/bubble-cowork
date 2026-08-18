@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   classifyComputerUseAction,
+  formatComputerUseGrantLabel,
   formatComputerUseLabel,
   isDeniedComputerUseTarget,
   parseMcpToolName,
@@ -12,10 +13,13 @@ import {
   buildComputerUseMcpOverrideArgs,
   ComputerUseLease,
   persistComputerUseMedia,
+  resolveComputerUseArtifact,
 } from '../../src/electron/libs/codex-computer-use';
+import { ComputerUseGrantRegistry } from '../../src/electron/libs/codex-computer-use-grants';
 import {
   buildMcpElicitationResponse,
   parseMcpToolApprovalElicitation,
+  wrappedComputerUseElicitationFixture,
 } from '../../src/electron/libs/codex-computer-use-elicitation';
 import { classifyToolUse } from '../../src/ui/utils/tool-summary';
 import { summarizeWorkstreamEntries } from '../../src/ui/utils/workstream-stages';
@@ -87,6 +91,40 @@ function testElicitationParser() {
   });
   assert.equal(unknown, null);
 
+  const wrapped = parseMcpToolApprovalElicitation(
+    'mcpServer/elicitation/request',
+    wrappedComputerUseElicitationFixture({
+      threadId: 'p-thread',
+      tool: 'click',
+      app: 'com.apple.finder',
+      persist: 'session',
+    })
+  );
+  assert.ok(wrapped);
+  assert.equal(wrapped?.toolName, 'click');
+  assert.equal(wrapped?.canonicalApp, 'com.apple.finder');
+  assert.equal(wrapped?.providerThreadId, 'p-thread');
+  assert.equal(wrapped?.turnId, 'turn-cu-1');
+  assert.equal(wrapped?.requestType, 'form');
+  assert.equal(wrapped?.grantEligible, true);
+  assert.equal(wrapped?.persistOptions.includes('session'), true);
+
+  const nodeRepl = parseMcpToolApprovalElicitation('mcpServer/elicitation/request', {
+    threadId: 'p-thread',
+    serverName: 'node_repl',
+    request: {
+      type: 'form',
+      message: 'Allow node_repl?',
+      _meta: {
+        codex_approval_kind: 'mcp_tool_call',
+        tool_name: 'js',
+        tool_params: { code: 'sky.click()' },
+      },
+    },
+  });
+  assert.equal(nodeRepl?.isNodeRepl, true);
+  assert.equal(nodeRepl?.grantEligible, false);
+
   const accept = buildMcpElicitationResponse({ allow: true, persist: 'session' });
   assert.equal(accept.action, 'accept');
   assert.deepEqual(accept._meta, { persist: 'session' });
@@ -145,8 +183,13 @@ function testMediaSidecar() {
     });
     assert.equal(persisted.text, 'Finder windows');
     assert.equal(persisted.mediaRefs.length, 1);
+    assert.equal(persisted.mediaRefs[0].sessionId, 'session-1');
     assert.equal(persisted.text.includes('data:image'), false);
-    const saved = readFileSync(persisted.mediaRefs[0].path);
+    const resolved = resolveComputerUseArtifact(dir, 'session-1', persisted.mediaRefs[0].sha256);
+    assert.ok(resolved);
+    const saved = readFileSync(resolved!.path);
+    assert.equal(resolveComputerUseArtifact(dir, '../escape', persisted.mediaRefs[0].sha256), null);
+    assert.equal(resolveComputerUseArtifact(dir, 'session-1', 'not-a-hash'), null);
     assert.ok(saved.length > 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -181,9 +224,68 @@ function testWorkstreamStage() {
   assert.equal(stages[0]?.title, 'Clicking in Finder');
 }
 
+function testGrants() {
+  const registry = new ComputerUseGrantRegistry();
+  const clickFinder = parseMcpToolApprovalElicitation(
+    'mcpServer/elicitation/request',
+    wrappedComputerUseElicitationFixture({
+      threadId: 'p-root',
+      tool: 'click',
+      app: 'com.apple.finder',
+    })
+  );
+  assert.ok(clickFinder?.grantEligible);
+  const grant = registry.createFromElicitation({
+    threadId: 't1',
+    generation: 1,
+    elicitation: clickFinder!,
+  });
+  assert.ok(grant);
+  assert.equal(formatComputerUseGrantLabel('click', 'com.apple.finder'), 'Allow click in com.apple.finder until revoked');
+  assert.ok(
+    registry.match({ threadId: 't1', generation: 1, elicitation: clickFinder! }),
+    'same app+tool should match'
+  );
+
+  const clickChrome = parseMcpToolApprovalElicitation(
+    'mcpServer/elicitation/request',
+    wrappedComputerUseElicitationFixture({
+      threadId: 'p-root',
+      tool: 'click',
+      app: 'com.google.Chrome',
+    })
+  );
+  assert.equal(registry.match({ threadId: 't1', generation: 1, elicitation: clickChrome! }), null);
+
+  const typeFinder = parseMcpToolApprovalElicitation(
+    'mcpServer/elicitation/request',
+    wrappedComputerUseElicitationFixture({
+      threadId: 'p-root',
+      tool: 'type_text',
+      app: 'com.apple.finder',
+    })
+  );
+  assert.equal(registry.match({ threadId: 't1', generation: 1, elicitation: typeFinder! }), null);
+
+  const descendant = parseMcpToolApprovalElicitation(
+    'mcpServer/elicitation/request',
+    wrappedComputerUseElicitationFixture({
+      threadId: 'p-child',
+      tool: 'click',
+      app: 'com.apple.finder',
+    })
+  );
+  assert.equal(registry.match({ threadId: 't1', generation: 1, elicitation: descendant! }), null);
+  assert.equal(registry.match({ threadId: 't1', generation: 2, elicitation: clickFinder! }), null);
+
+  registry.revokeThread('t1');
+  assert.equal(registry.match({ threadId: 't1', generation: 1, elicitation: clickFinder! }), null);
+}
+
 testClassification();
 testElicitationParser();
 testOverridesAndLease();
 testMediaSidecar();
 testWorkstreamStage();
+testGrants();
 console.log('codex computer-use unit tests passed');

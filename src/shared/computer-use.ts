@@ -24,10 +24,51 @@ export type ComputerUseActionKind =
   | 'unknown';
 
 export interface ComputerUseMediaRef {
-  path: string;
-  mimeType: string;
+  sessionId: string;
   sha256: string;
+  mimeType: string;
   sizeBytes: number;
+}
+
+export interface ComputerUseGrantView {
+  key: string;
+  threadId: string;
+  providerThreadId: string | null;
+  generation: number;
+  server: string;
+  tool: string;
+  app: string;
+  maxRisk: number;
+  createdAt: number;
+}
+
+export interface ComputerUseLiveFrame {
+  threadId: string;
+  toolUseId: string;
+  label: string;
+  app: string | null;
+  tool: string | null;
+  mutating: boolean;
+  media: ComputerUseMediaRef | null;
+  hasFreshMedia: boolean;
+  at: number;
+}
+
+export function canonicalizeComputerUseApp(app: string | null | undefined): string | null {
+  const raw = (app || '').trim();
+  return raw || null;
+}
+
+export function computerUseRiskRank(risk: string | null | undefined): number {
+  const value = (risk || '').trim().toLowerCase();
+  if (value === 'critical' || value === 'high') return 3;
+  if (value === 'medium' || value === 'moderate') return 2;
+  if (value === 'low') return 1;
+  return 0;
+}
+
+export function formatComputerUseGrantLabel(tool: string, app: string): string {
+  return `Allow ${tool} in ${app} until revoked`;
 }
 
 export interface ComputerUseAction {

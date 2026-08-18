@@ -314,6 +314,7 @@ declare global {
     selectDirectory: () => Promise<string | null>;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
+    readComputerUseArtifact: (sessionId: string, sha256: string) => Promise<string | null>;
     downloadAttachment: (filePath: string, suggestedName?: string) => Promise<{ filePath: string | null; error?: string }>;
     readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
     resolveGrokSessionFile: (cwd: string, relativePath: string) => Promise<string | null>;

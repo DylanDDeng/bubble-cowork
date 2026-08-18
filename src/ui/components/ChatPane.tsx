@@ -33,6 +33,7 @@ import { NewThreadLanding } from './NewThreadLanding';
 import { ComposerContextPills } from './ComposerContextPills';
 import { InSessionSearch } from './search/InSessionSearch';
 import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
+import { ComputerUseGrantBadge, ComputerUseLiveHud } from './ComputerUseLiveHud';
 import { ErrorBoundary } from './ErrorBoundary';
 import { TurnChangesCard } from './TurnChangesCard';
 import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
@@ -987,6 +988,7 @@ export function ChatPane({
     }))
   );
   const session = useAppStore((s) => (sessionId ? s.sessions[sessionId] ?? null : null));
+  const activeSessionId = useAppStore((s) => s.activeSessionId);
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollUpdateStateRef = useRef<{ key: string; messageCount: number } | null>(null);
@@ -1906,6 +1908,15 @@ export function ChatPane({
           <>
           <div className="relative flex min-h-0 flex-1 flex-col">
           {sessionId ? (
+            <ComputerUseLiveHud
+              sessionId={sessionId}
+              frame={session?.computerUseLive || null}
+              frames={session?.computerUseFrames || []}
+              grants={session?.computerUseGrants || []}
+              isForeground={activeSessionId === sessionId}
+            />
+          ) : null}
+          {sessionId ? (
             <ChatOutlineRail
               sessionId={sessionId}
               livePrompts={outlineLivePrompts}
@@ -2238,6 +2249,9 @@ export function ChatPane({
 
           {session.readOnly ? null : (
             <div className="px-8 pb-4">
+              {sessionId ? (
+                <ComputerUseGrantBadge sessionId={sessionId} grants={session?.computerUseGrants || []} />
+              ) : null}
               {activePermissionRequest ? (
                 <PromptInput
                   sessionId={sessionId}

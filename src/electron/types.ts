@@ -157,6 +157,11 @@ export interface RunnerOptions {
    * display data for the live tool card — not part of the transcript.
    */
   onToolOutputDelta?: (toolUseId: string, delta: string) => void;
+  onComputerUseLive?: (frame: import('../shared/computer-use').ComputerUseLiveFrame) => void;
+  onComputerUseGrants?: (
+    grants: import('../shared/computer-use').ComputerUseGrantView[],
+    reason: string
+  ) => void;
   onClaudeExecutionModeChange?: (
     mode: import('../shared/types').ClaudeExecutionMode,
     permissionMode: import('../shared/types').ClaudeAccessMode

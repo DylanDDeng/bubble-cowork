@@ -153,6 +153,17 @@ export type ProviderRuntimeEvent =
   // The provider resolved/abandoned a pending permission request itself
   // (process death, stop, serverRequest/resolved) — UI should drop the card.
   | { type: 'permission_dismissed'; threadId: string; requestId: string }
+  | {
+      type: 'computer_use_live';
+      threadId: string;
+      frame: import('../../../shared/computer-use').ComputerUseLiveFrame;
+    }
+  | {
+      type: 'computer_use_grants';
+      threadId: string;
+      grants: import('../../../shared/computer-use').ComputerUseGrantView[];
+      reason: string;
+    }
   | { type: 'status_change'; threadId: string; status: ProviderSessionStatus }
   // Two-phase stop settled (codex): confirmed=false means the provider never
   // acknowledged the interrupt within the timeout.

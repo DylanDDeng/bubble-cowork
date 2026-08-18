@@ -325,6 +325,9 @@ export interface SessionView {
   hydrationError?: boolean;
   hydrationAttempts?: number;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
+  computerUseLive?: import('../shared/computer-use').ComputerUseLiveFrame | null;
+  computerUseFrames?: import('../shared/computer-use').ComputerUseLiveFrame[];
+  computerUseGrants?: import('../shared/computer-use').ComputerUseGrantView[];
   /**
    * Live stdout/stderr tails keyed by tool_use id, streamed while a tool is
    * still running. Transient: never hydrated from history, cleared when the

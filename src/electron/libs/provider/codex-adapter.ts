@@ -21,11 +21,16 @@ import {
   shouldBlockSystemBrowserPreviewOpen,
 } from '../browser-preview-policy';
 import { persistComputerUseMedia } from '../codex-computer-use';
-import { parseMcpToolApprovalElicitation } from '../codex-computer-use-elicitation';
+import { computerUseGrants } from '../codex-computer-use-grants';
+import {
+  parseMcpToolApprovalElicitation,
+  type McpToolApprovalElicitation,
+} from '../codex-computer-use-elicitation';
 import {
   classifyComputerUseAction,
   formatComputerUseLabel,
   isDeniedComputerUseTarget,
+  type ComputerUseLiveFrame,
 } from '../../../shared/computer-use';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -306,6 +311,19 @@ export class CodexAdapter implements ProviderAdapter {
   // 100ms cadence so high-frequency command output can't flood IPC.
   private toolOutputBuffers = new Map<string, Map<string, string>>();
   private toolOutputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingComputerUseApprovals = new Map<string, McpToolApprovalElicitation>();
+  private grantListener = (payload: {
+    threadId: string;
+    grants: import('../../../shared/computer-use').ComputerUseGrantView[];
+    reason: string;
+  }) => {
+    this.emit({
+      type: 'computer_use_grants',
+      threadId: payload.threadId,
+      grants: payload.grants,
+      reason: payload.reason,
+    });
+  };
 
   constructor(binaryPath?: string, options: CodexAdapterOptions = {}) {
     this.managerFactory =
@@ -313,6 +331,7 @@ export class CodexAdapter implements ProviderAdapter {
       (() => new CodexAppServerManager(binaryPath, resolveClientVersion()));
     this.manager = new CodexAppServerManager(binaryPath, resolveClientVersion());
     this.setupEventForwarding(this.manager);
+    computerUseGrants.on('change', this.grantListener);
   }
 
   private setupEventForwarding(
@@ -437,6 +456,22 @@ export class CodexAdapter implements ProviderAdapter {
         },
       };
       this.emit({ type: 'message', threadId, message });
+      const action = classifyComputerUseAction({
+        toolName,
+        app: getString(toolInput.app),
+        title: getString(toolInput.__aegisDisplayTitle) || getString(toolInput.title),
+      });
+      if (action) {
+        this.emitComputerUseLive(threadId, {
+          toolUseId: toolId,
+          label: formatComputerUseLabel(action, 'pending'),
+          app: action.app,
+          tool: action.tool,
+          mutating: action.mutating,
+          media: null,
+          hasFreshMedia: false,
+        });
+      }
     });
 
     on('tool_result', ({ threadId, params }) => {
@@ -493,6 +528,17 @@ export class CodexAdapter implements ProviderAdapter {
         },
       };
       this.emit({ type: 'message', threadId, message });
+      if (persisted.mediaRefs[0]) {
+        this.emitComputerUseLive(threadId, {
+          toolUseId: toolUseId || '',
+          label: 'Looked at the screen',
+          app: null,
+          tool: null,
+          mutating: false,
+          media: persisted.mediaRefs[0],
+          hasFreshMedia: true,
+        });
+      }
     });
 
     // 0.144.3 delivers every turn terminal via `turn/completed` with
@@ -673,8 +719,7 @@ export class CodexAdapter implements ProviderAdapter {
     on('approval_request', ({ requestId, method, threadId, params }) => {
       const elicitation = parseMcpToolApprovalElicitation(method, params);
       if (elicitation) {
-        const app =
-          typeof elicitation.toolParams.app === 'string' ? elicitation.toolParams.app : null;
+        const app = elicitation.canonicalApp;
         if (elicitation.deniedTarget || isDeniedComputerUseTarget(app)) {
           void this.respondToRequest(threadId, requestId, {
             behavior: 'deny',
@@ -682,6 +727,18 @@ export class CodexAdapter implements ProviderAdapter {
           });
           return;
         }
+        const manager = this.runtimeManagers.get(threadId);
+        const matchedGrant = computerUseGrants.match({
+          threadId,
+          generation: manager?.getGeneration() ?? 0,
+          elicitation,
+        });
+        if (matchedGrant) {
+          this.emitComputerUseAudit(threadId, 'used', matchedGrant.key, elicitation);
+          void this.respondToRequest(threadId, requestId, { behavior: 'allow', scope: 'once' });
+          return;
+        }
+        this.pendingComputerUseApprovals.set(requestId, elicitation);
         this.emit({
           type: 'permission_request',
           threadId,
@@ -1225,6 +1282,7 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   private async replaceRuntimeManager(threadId: string): Promise<CodexAppServerManager> {
+    computerUseGrants.revokeThread(threadId, 'runtime-replaced');
     const previous = this.runtimeManagers.get(threadId);
     if (previous) {
       await this.retireRuntimeManager(threadId, previous);
@@ -1468,6 +1526,7 @@ export class CodexAdapter implements ProviderAdapter {
     // Dismiss approval cards while this manager still owns event routing, but
     // suppress stop_settled because quiet dispose must not satisfy a new
     // runner's interrupt gate.
+    computerUseGrants.revokeThread(threadId, 'disposed');
     manager.disposeSessionResources(threadId);
     void this.retireRuntimeManager(threadId, manager).catch((error) => {
       console.warn('[CodexAdapter] failed to dispose thread runtime:', threadId, error);
@@ -1565,6 +1624,7 @@ export class CodexAdapter implements ProviderAdapter {
     if (this.stopAllInFlight) return this.stopAllInFlight;
     this.stopAllRequested = true;
     const shutdown = this.enqueueExclusiveShutdown(async () => {
+      computerUseGrants.revokeAll('stop-all');
       await this.stopRuntimeProcesses();
       for (const threadId of this.streamingText.keys()) {
         this.clearStreamingState(threadId);
@@ -1608,12 +1668,35 @@ export class CodexAdapter implements ProviderAdapter {
     requestId: string,
     decision: PermissionResult
   ): Promise<void> {
+    const pending = this.pendingComputerUseApprovals.get(requestId);
+    this.pendingComputerUseApprovals.delete(requestId);
+    let nextDecision = decision;
+    if (
+      decision.behavior === 'allow' &&
+      decision.computerUseGrant === 'until-revoked' &&
+      pending
+    ) {
+      const manager = this.runtimeManagers.get(threadId);
+      const grant = computerUseGrants.createFromElicitation({
+        threadId,
+        generation: manager?.getGeneration() ?? 0,
+        elicitation: pending,
+      });
+      if (grant) {
+        this.emitComputerUseAudit(threadId, 'granted', grant.key, pending);
+      }
+      nextDecision = { behavior: 'allow', scope: 'once' };
+    }
     // threadId asserts the decision comes from the owning session (P0-7).
     await this.runtimeManagerForThread(threadId).respondToApproval(
       requestId,
-      decision,
+      nextDecision,
       threadId
     );
+  }
+
+  revokeComputerUseGrants(threadId: string, grantKey?: string): void {
+    computerUseGrants.revoke(threadId, grantKey);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1739,7 +1822,39 @@ export class CodexAdapter implements ProviderAdapter {
       params: elicitation.toolParams,
       paramLines,
       canAllowForSession: !mutating && elicitation.persistOptions.includes('session'),
+      canAllowUntilRevoked: elicitation.grantEligible,
     };
+  }
+
+  private emitComputerUseLive(
+    threadId: string,
+    frame: Omit<ComputerUseLiveFrame, 'threadId' | 'at'>
+  ): void {
+    this.emit({
+      type: 'computer_use_live',
+      threadId,
+      frame: { ...frame, threadId, at: Date.now() },
+    });
+  }
+
+  private emitComputerUseAudit(
+    threadId: string,
+    reason: string,
+    grantKey: string,
+    elicitation: McpToolApprovalElicitation
+  ): void {
+    if (isDev()) {
+      console.log('[CodexAdapter] computer-use grant', {
+        threadId,
+        reason,
+        grantKey,
+        tool: elicitation.toolName,
+        app: elicitation.canonicalApp,
+        providerThreadId: elicitation.providerThreadId,
+        turnId: elicitation.turnId,
+        toolCallId: elicitation.toolCallId,
+      });
+    }
   }
 
   private extractApprovalCommand(params: Record<string, unknown>): string {
@@ -1836,6 +1951,7 @@ export class CodexAdapter implements ProviderAdapter {
     }
 
     await this.enqueueExclusiveShutdown(async () => {
+      computerUseGrants.revokeAll('auth-recovery');
       await this.stopRuntimeProcesses();
       for (const threadId of this.streamingText.keys()) {
         this.clearStreamingState(threadId);

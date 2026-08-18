@@ -37,6 +37,7 @@ import {
   computerUseLease,
   type ComputerUseSpawnPolicy,
 } from '../codex-computer-use';
+import { computerUseGrants } from '../codex-computer-use-grants';
 import {
   buildMcpElicitationResponse,
   isMcpElicitationMethod,
@@ -312,6 +313,10 @@ export class CodexAppServerManager extends EventEmitter {
 
   getProcessId(): number | null {
     return this.child?.pid ?? null;
+  }
+
+  getGeneration(): number {
+    return this.generation;
   }
 
   private async doSpawn(cwd: string): Promise<void> {
@@ -595,10 +600,12 @@ export class CodexAppServerManager extends EventEmitter {
     // UI to drop the cards instead of leaving them pointing at dead requests.
     for (const [requestId, approval] of pendingApprovals) {
       computerUseLease.releaseThread(approval.threadId);
+      computerUseGrants.revokeThread(approval.threadId, 'runtime-gone');
       this.emit('approval_dismissed', { requestId, threadId: approval.threadId });
     }
     for (const session of this.sessions.values()) {
       computerUseLease.releaseThread(session.threadId);
+      computerUseGrants.revokeThread(session.threadId, 'runtime-gone');
     }
 
     if (this.rl) {
@@ -1160,6 +1167,13 @@ export class CodexAppServerManager extends EventEmitter {
     session.model = options.model || session.model;
     session.codexExecutionMode = options.codexExecutionMode || session.codexExecutionMode;
     session.codexPermissionMode = options.codexPermissionMode || session.codexPermissionMode;
+    const nextPolicy = this.resolveComputerUsePolicy(
+      session.codexPermissionMode,
+      session.codexExecutionMode
+    );
+    if (nextPolicy === 'read-only') {
+      computerUseGrants.revokeThread(threadId, 'mode-exit');
+    }
     session.codexReasoningEffort = options.codexReasoningEffort || session.codexReasoningEffort;
     session.codexFastMode = options.codexFastMode ?? session.codexFastMode;
 
@@ -1642,6 +1656,7 @@ export class CodexAppServerManager extends EventEmitter {
   /** Decline + dismiss every pending approval owned by the given session. */
   private declineApprovalsForThread(threadId: string): void {
     computerUseLease.releaseThread(threadId);
+    computerUseGrants.revokeThread(threadId, 'stop');
     for (const [requestId, pending] of this.pendingApprovals) {
       if (pending.threadId !== threadId) continue;
       this.writeMessage({
@@ -1707,9 +1722,11 @@ export class CodexAppServerManager extends EventEmitter {
         return buildMcpElicitationResponse({ allow: false });
       }
       const persist =
-        result.scope === 'session' && parsed?.persistOptions.includes('session')
-          ? 'session'
-          : null;
+        result.computerUseGrant === 'until-revoked' || result.scope !== 'session'
+          ? null
+          : parsed?.persistOptions.includes('session')
+            ? 'session'
+            : null;
       return buildMcpElicitationResponse({ allow: true, persist });
     }
 
@@ -1999,8 +2016,21 @@ export class CodexAppServerManager extends EventEmitter {
           (elicitation?.toolName && isComputerUseMutatingTool(elicitation.toolName)) ||
           elicitation?.isNodeRepl
       );
+      const ownerSession = this.sessions.get(threadId);
+      const livePolicy = this.resolveComputerUsePolicy(
+        ownerSession?.codexPermissionMode,
+        ownerSession?.codexExecutionMode
+      );
+      if (mutating && elicitation && livePolicy === 'read-only') {
+        this.writeMessage({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: buildMcpElicitationResponse({ allow: false }),
+        });
+        return;
+      }
       if (mutating && elicitation) {
-        const app = this.readString(elicitation.toolParams, 'app');
+        const app = elicitation.canonicalApp || this.readString(elicitation.toolParams, 'app');
         if (isDeniedComputerUseTarget(app)) {
           this.writeMessage({
             jsonrpc: '2.0',

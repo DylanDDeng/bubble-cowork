@@ -1,6 +1,8 @@
 import {
   AEGIS_COMPUTER_USE_SERVER_NAME,
+  canonicalizeComputerUseApp,
   classifyComputerUseAction,
+  isComputerUseMutatingTool,
   isComputerUseServerName,
   isDeniedComputerUseTarget,
   isNodeReplServerName,
@@ -42,6 +44,13 @@ export interface McpToolApprovalElicitation {
   isComputerUse: boolean;
   isNodeRepl: boolean;
   deniedTarget: boolean;
+  providerThreadId: string | null;
+  turnId: string | null;
+  toolCallId: string | null;
+  riskLevel: string | null;
+  requestType: string | null;
+  canonicalApp: string | null;
+  grantEligible: boolean;
   rawParams: Record<string, unknown>;
 }
 
@@ -53,6 +62,16 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function unwrapElicitation(params: Record<string, unknown>): {
+  envelope: Record<string, unknown>;
+  request: Record<string, unknown>;
+} {
+  return {
+    envelope: params,
+    request: isRecord(params.request) ? params.request : params,
+  };
+}
+
 function readMeta(params: Record<string, unknown>): Record<string, unknown> {
   const direct = isRecord(params._meta)
     ? params._meta
@@ -60,7 +79,8 @@ function readMeta(params: Record<string, unknown>): Record<string, unknown> {
       ? params.meta
       : {};
   const nested = isRecord(params.params) ? readMeta(params.params) : {};
-  return { ...nested, ...direct };
+  const request = isRecord(params.request) ? readMeta(params.request) : {};
+  return { ...nested, ...request, ...direct };
 }
 
 export function isMcpElicitationMethod(method: string): boolean {
@@ -99,6 +119,15 @@ function displayParamsFromMeta(
   });
 }
 
+function isCompatibleApprovalSchema(schema: unknown): boolean {
+  if (schema == null) return true;
+  if (!isRecord(schema)) return false;
+  const props = schema.properties;
+  if (props == null) return true;
+  if (!isRecord(props)) return false;
+  return Object.keys(props).length === 0;
+}
+
 export function parseMcpToolApprovalElicitation(
   method: string,
   params: unknown
@@ -107,42 +136,48 @@ export function parseMcpToolApprovalElicitation(
     return null;
   }
 
+  const { envelope, request } = unwrapElicitation(params);
   const meta = readMeta(params);
   const kind = asString(meta[MCP_APPROVAL_META.kindKey]);
   let toolParamsRaw: Record<string, unknown> = {};
   const metaParams = meta[MCP_APPROVAL_META.toolParamsKey];
   if (isRecord(metaParams)) {
     toolParamsRaw = metaParams;
-  } else if (isRecord(params.arguments)) {
-    toolParamsRaw = params.arguments;
-  } else if (isRecord(params.toolArguments)) {
-    toolParamsRaw = params.toolArguments;
+  } else if (isRecord(request.arguments)) {
+    toolParamsRaw = request.arguments;
+  } else if (isRecord(envelope.arguments)) {
+    toolParamsRaw = envelope.arguments;
+  } else if (isRecord(envelope.toolArguments)) {
+    toolParamsRaw = envelope.toolArguments;
   }
   const server =
-    asString(params.server) ||
-    asString(params.serverName) ||
+    asString(envelope.serverName) ||
+    asString(envelope.server) ||
+    asString(request.server) ||
     asString(meta.server) ||
     asString(meta.server_name) ||
+    asString(meta.connector_name) ||
     null;
   const toolName =
     asString(meta[MCP_APPROVAL_META.toolNameKey]) ||
-    asString(params.tool) ||
-    asString(params.toolName) ||
-    asString(params.name) ||
+    asString(request.tool) ||
+    asString(envelope.tool) ||
+    asString(envelope.toolName) ||
+    asString(request.name) ||
     null;
   const toolTitle =
     asString(meta[MCP_APPROVAL_META.toolTitleKey]) ||
     asString(toolParamsRaw.title) ||
-    asString(params.title) ||
+    asString(request.title) ||
+    asString(envelope.title) ||
     null;
   const message =
-    asString(params.message) ||
-    asString(params.question) ||
+    asString(request.message) ||
+    asString(envelope.message) ||
+    asString(request.question) ||
+    asString(envelope.question) ||
     (toolName ? `Allow the ${server || 'MCP'} server to run "${toolName}"?` : null);
 
-  // Fail closed: an elicitation without the MCP tool-call discriminator and
-  // without a recognizable computer-use/node_repl identity is not ours to
-  // auto-shape. Callers still decline unknown elicitation methods.
   const looksLikeToolApproval =
     kind === MCP_APPROVAL_META.kindMcpToolCall ||
     Boolean(server || toolName || Object.keys(toolParamsRaw).length > 0);
@@ -150,7 +185,9 @@ export function parseMcpToolApprovalElicitation(
     return null;
   }
 
-  const app = asString(toolParamsRaw.app);
+  const app = canonicalizeComputerUseApp(
+    asString(toolParamsRaw.app) || asString(toolParamsRaw.bundle_id) || asString(toolParamsRaw.bundleId)
+  );
   const action = classifyComputerUseAction({
     server,
     tool: toolName,
@@ -161,6 +198,20 @@ export function parseMcpToolApprovalElicitation(
   });
   const isComputerUse = Boolean(action && (isComputerUseServerName(action.server) || action.kind !== 'script'));
   const isNodeRepl = isNodeReplServerName(server) || action?.kind === 'script';
+  const requestType = asString(request.type);
+  const grantEligible = Boolean(
+    kind === MCP_APPROVAL_META.kindMcpToolCall &&
+      server === AEGIS_COMPUTER_USE_SERVER_NAME &&
+      toolName &&
+      isComputerUseMutatingTool(toolName) &&
+      !isNodeRepl &&
+      app &&
+      !isDeniedComputerUseTarget(app) &&
+      (requestType == null || requestType === 'form') &&
+      isCompatibleApprovalSchema(request.requestedSchema) &&
+      action?.kind !== 'script' &&
+      action?.kind !== 'unknown'
+  );
 
   return {
     method,
@@ -176,6 +227,22 @@ export function parseMcpToolApprovalElicitation(
     isComputerUse: isComputerUse || isComputerUseServerName(server),
     isNodeRepl,
     deniedTarget: isDeniedComputerUseTarget(app),
+    providerThreadId:
+      asString(envelope.threadId) ||
+      asString(envelope.conversationId) ||
+      asString(request.threadId) ||
+      null,
+    turnId: asString(envelope.turnId) || asString(request.turnId) || null,
+    toolCallId:
+      asString(envelope.tool_call_id) ||
+      asString(envelope.toolCallId) ||
+      asString(meta.tool_call_id) ||
+      asString(meta.toolCallId) ||
+      null,
+    riskLevel: asString(envelope.riskLevel) || asString(meta.risk_level) || asString(meta.riskLevel) || null,
+    requestType,
+    canonicalApp: app,
+    grantEligible,
     rawParams: params,
   };
 }
@@ -204,4 +271,32 @@ export function computerUseServerLabel(server: string | null): string {
   }
   if (isNodeReplServerName(server)) return 'node_repl';
   return server || 'MCP';
+}
+
+export function wrappedComputerUseElicitationFixture(input: {
+  threadId: string;
+  tool?: string;
+  app?: string;
+  persist?: 'session' | 'always';
+  message?: string;
+}): Record<string, unknown> {
+  const tool = input.tool || 'click';
+  const app = input.app || 'com.apple.finder';
+  return {
+    threadId: input.threadId,
+    turnId: 'turn-cu-1',
+    serverName: AEGIS_COMPUTER_USE_SERVER_NAME,
+    request: {
+      type: 'form',
+      message: input.message || `Allow Computer Use to ${tool}?`,
+      requestedSchema: { type: 'object', properties: {} },
+      _meta: {
+        codex_approval_kind: 'mcp_tool_call',
+        tool_name: tool,
+        tool_title: `Use ${tool}`,
+        tool_params: { app },
+        ...(input.persist ? { persist: input.persist } : {}),
+      },
+    },
+  };
 }

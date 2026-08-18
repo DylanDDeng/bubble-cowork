@@ -799,6 +799,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-attachment-preview', filePath);
   },
 
+  readComputerUseArtifact: (sessionId: string, sha256: string) => {
+    return ipcRenderer.invoke('read-computer-use-artifact', sessionId, sha256);
+  },
+
   downloadAttachment: (filePath: string, suggestedName?: string) => {
     return ipcRenderer.invoke('download-attachment', filePath, suggestedName);
   },

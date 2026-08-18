@@ -1,4 +1,4 @@
-import type { ComputerUseMediaRef } from './computer-use';
+import type { ComputerUseGrantView, ComputerUseLiveFrame, ComputerUseMediaRef } from './computer-use';
 
 // 共享类型定义（可导出）
 
@@ -826,6 +826,7 @@ export type ClientEvent =
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.togglePin'; payload: { sessionId: string } }
   | { type: 'permission.response'; payload: PermissionResponsePayload }
+  | { type: 'computerUse.revoke'; payload: { sessionId: string; grantKey?: string } }
   // MCP 事件
   | { type: 'mcp.get-config'; payload?: { projectPath?: string } }
   | { type: 'mcp.save-config'; payload: {
@@ -880,6 +881,8 @@ export type ServerEvent =
   // The provider resolved/abandoned a pending permission request (process
   // death, stop, server-side resolution) — the card must be dropped.
   | { type: 'permission.dismissed'; payload: { sessionId: string; toolUseId: string } }
+  | { type: 'computerUse.live'; payload: { sessionId: string; frame: ComputerUseLiveFrame } }
+  | { type: 'computerUse.grants'; payload: { sessionId: string; grants: ComputerUseGrantView[]; reason: string } }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
   // Codex app-server pushed a fresh authoritative model catalog — renderers
   // should refetch codex model config (fast-mode eligibility may change).
@@ -1397,6 +1400,8 @@ export interface PermissionResult {
   updatedInput?: Record<string, unknown>;
   message?: string;
   scope?: 'once' | 'session';
+  /** Aegis-only Computer Use grant. Never mapped to Codex persist. */
+  computerUseGrant?: 'until-revoked';
 }
 
 // AskUserQuestion 输入结构
@@ -1475,6 +1480,7 @@ export interface ComputerUsePermissionInput {
   params: Record<string, unknown>;
   paramLines: Array<{ label: string; value: string }>;
   canAllowForSession: boolean;
+  canAllowUntilRevoked: boolean;
 }
 
 export type PermissionRequestInput =

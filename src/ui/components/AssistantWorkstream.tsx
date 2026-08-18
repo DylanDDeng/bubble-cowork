@@ -390,15 +390,10 @@ function ComputerUseScreenshots({ refs }: { refs: NonNullable<ToolResultBlock['m
     void Promise.all(
       refs.map(async (ref) => {
         try {
-          const dataUrl = await window.electron.readAttachmentPreview(ref.path);
-          if (dataUrl) return [ref.path, dataUrl] as const;
-          const preview = (await window.electron.readProjectFilePreview(
-            ref.path.replace(/[/\\][^/\\]+$/, ''),
-            ref.path
-          )) as { kind?: string; dataUrl?: string };
-          return [ref.path, preview?.kind === 'image' && preview.dataUrl ? preview.dataUrl : null] as const;
+          const dataUrl = await window.electron.readComputerUseArtifact(ref.sessionId, ref.sha256);
+          return [ref.sha256, dataUrl] as const;
         } catch {
-          return [ref.path, null] as const;
+          return [ref.sha256, null] as const;
         }
       })
     ).then((entries) => {
@@ -417,8 +412,8 @@ function ComputerUseScreenshots({ refs }: { refs: NonNullable<ToolResultBlock['m
           key={ref.sha256}
           className="overflow-hidden rounded border border-[var(--border)]/50 bg-[var(--bg-secondary)]"
         >
-          {previews[ref.path] ? (
-            <img src={previews[ref.path] || ''} alt="Computer use screenshot" className="max-h-40 max-w-full" />
+          {previews[ref.sha256] ? (
+            <img src={previews[ref.sha256] || ''} alt="Computer use screenshot" className="max-h-40 max-w-full" />
           ) : (
             <div className="px-2 py-1 text-[11px] text-[var(--text-muted)]">Screenshot saved</div>
           )}

@@ -33,6 +33,8 @@ import {
 import { isSameClaudeModelSelection, normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfigWithCatalog, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
+import { resolveComputerUseArtifact } from './libs/codex-computer-use';
+import { computerUseGrants } from './libs/codex-computer-use-grants';
 import {
   getDelegateMirrorTarget,
   hasActiveDelegationForParent,
@@ -4704,6 +4706,12 @@ async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: 
 export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
   sessions.initialize();
+  computerUseGrants.on('change', ({ threadId, grants, reason }) => {
+    broadcast(mainWindow, {
+      type: 'computerUse.grants',
+      payload: { sessionId: threadId, grants, reason },
+    });
+  });
 
   // 加载 Claude 配置
   loadClaudeSettings();
@@ -6537,6 +6545,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   // RPC: 读取图片预览（data URL）
+  ipcMainHandle('read-computer-use-artifact', async (_event, sessionId: string, sha256: string) => {
+    const artifact = resolveComputerUseArtifact(app.getPath('userData'), sessionId, sha256);
+    if (!artifact) return null;
+    return `data:${artifact.mimeType};base64,${artifact.bytes.toString('base64')}`;
+  });
+
   ipcMainHandle('read-attachment-preview', async (_event, filePath: string) => {
     const spec = getAttachmentSpec(filePath);
     if (!spec || spec.kind !== 'image') {
@@ -8508,6 +8522,10 @@ async function handleClientEvent(
 
     case 'permission.response':
       handlePermissionResponse(event.payload);
+      break;
+
+    case 'computerUse.revoke':
+      computerUseGrants.revoke(event.payload.sessionId, event.payload.grantKey);
       break;
 
     case 'mcp.get-config':
@@ -10721,6 +10739,21 @@ function startRunner(
       broadcast(mainWindow, {
         type: 'permission.dismissed',
         payload: { sessionId: dismissSessionId, toolUseId },
+      });
+    },
+    onComputerUseLive: (frame) => {
+      if (userStoppedRunnerHandles.has(handle) && runnerHandles.get(session.id)?.handle !== handle) {
+        return;
+      }
+      broadcast(mainWindow, {
+        type: 'computerUse.live',
+        payload: { sessionId: session.id, frame },
+      });
+    },
+    onComputerUseGrants: (grants, reason) => {
+      broadcast(mainWindow, {
+        type: 'computerUse.grants',
+        payload: { sessionId: session.id, grants, reason },
       });
     },
     onToolOutputDelta: (toolUseId, delta) => {

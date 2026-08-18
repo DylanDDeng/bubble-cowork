@@ -44,6 +44,10 @@ const {
   resolveFastTier,
 } = require('../dist-electron/electron/libs/provider/codex-app-server-manager.js');
 const { CodexAdapter } = require('../dist-electron/electron/libs/provider/codex-adapter.js');
+const grantsMod = require('../dist-electron/electron/libs/codex-computer-use-grants.js');
+const elicitationMod = require('../dist-electron/electron/libs/codex-computer-use-elicitation.js');
+const { computerUseGrants } = grantsMod.default ?? grantsMod;
+const { wrappedComputerUseElicitationFixture } = elicitationMod.default ?? elicitationMod;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAKE_BIN = join(__dirname, 'fake-codex-app-server.mjs');
@@ -1499,6 +1503,85 @@ function testToolOutputStreaming() {
   ok('renderer store accumulates a bounded live-output tail');
 }
 
+async function testComputerUseGrants() {
+  console.log('Computer Use grants + wrapped elicitation');
+  computerUseGrants.revokeAll('test-reset');
+
+  {
+    const { manager, outbound, serverRequest } = createCapturingManager();
+    serverRequest(301, 'mcpServer/elicitation/request', wrappedComputerUseElicitationFixture({
+      threadId: 'p-unknown',
+      tool: 'click',
+      app: 'com.apple.finder',
+    }));
+    await sleep(5);
+    const reply = outbound.find((m) => m.id === 301);
+    assert.equal(reply?.result?.action, 'decline');
+    assert.equal(reply?.result?.content, null);
+    ok('wrapped unroutable elicitation stays fail-closed');
+  }
+
+  {
+    const { adapter, manager, outbound, events } = createCapturingAdapter();
+    seedSession(manager, 't1', 'p1', { status: 'running', codexPermissionMode: 'defaultPermissions' });
+    adapter.sessions.set('t1', { threadId: 't1', providerThreadId: 'p1', status: 'running' });
+    manager.handleStdoutLine(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 302,
+      method: 'mcpServer/elicitation/request',
+      params: wrappedComputerUseElicitationFixture({
+        threadId: 'p1',
+        tool: 'click',
+        app: 'com.apple.finder',
+      }),
+    }));
+    await sleep(10);
+    const request = events.find((event) => event.type === 'permission_request');
+    assert.ok(request, 'first click must reach the UI');
+    assert.equal(request.input.canAllowUntilRevoked, true);
+    await adapter.respondToRequest('t1', request.requestId, {
+      behavior: 'allow',
+      scope: 'once',
+      computerUseGrant: 'until-revoked',
+    });
+    const first = outbound.find((m) => m.id === 302);
+    assert.equal(first?.result?.action, 'accept');
+    assert.equal(first?.result?._meta, undefined);
+
+    manager.handleStdoutLine(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 303,
+      method: 'mcpServer/elicitation/request',
+      params: wrappedComputerUseElicitationFixture({
+        threadId: 'p1',
+        tool: 'click',
+        app: 'com.apple.finder',
+      }),
+    }));
+    await sleep(10);
+    const secondUi = events.filter((event) => event.type === 'permission_request');
+    assert.equal(secondUi.length, 1, 'matching grant must not show another card');
+    const second = outbound.find((m) => m.id === 303);
+    assert.equal(second?.result?.action, 'accept');
+    assert.equal(second?.result?._meta, undefined);
+
+    manager.handleStdoutLine(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 304,
+      method: 'mcpServer/elicitation/request',
+      params: wrappedComputerUseElicitationFixture({
+        threadId: 'p1',
+        tool: 'type_text',
+        app: 'com.apple.finder',
+      }),
+    }));
+    await sleep(10);
+    assert.equal(events.filter((event) => event.type === 'permission_request').length, 2, 'other tools still prompt');
+    computerUseGrants.revokeAll('test-reset');
+    ok('exact app+tool grant auto-accepts without Codex persist');
+  }
+}
+
 async function main() {
   await testTurnTerminals();
   await testAutoPermissionMode();
@@ -1507,6 +1590,7 @@ async function main() {
   await testResume();
   await testTwoPhaseStop();
   await testApprovalRouting();
+  await testComputerUseGrants();
   await testProcessLifecycle();
   await testSlashCommands();
   await testEffortOpenVocabulary();

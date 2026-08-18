@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import {
   AEGIS_COMPUTER_USE_SERVER_NAME,
   COMPUTER_USE_READ_ONLY_TOOLS,
@@ -191,7 +191,7 @@ export function persistComputerUseMedia(input: {
       writeFileSync(filePath, image.bytes, { mode: 0o600 });
     }
     mediaRefs.push({
-      path: filePath,
+      sessionId: input.sessionId,
       mimeType: image.mimeType,
       sha256,
       sizeBytes: image.bytes.length,
@@ -229,6 +229,46 @@ function extractComputerUseText(payload: unknown): string {
     return '';
   }
   return '';
+}
+
+const SHA256_RE = /^[a-f0-9]{64}$/;
+const SESSION_ID_RE = /^[A-Za-z0-9._-]+$/;
+
+export function isPathWithinRoot(root: string, target: string): boolean {
+  const rootPath = resolve(root);
+  const targetPath = resolve(target);
+  return targetPath === rootPath || targetPath.startsWith(`${rootPath}/`) || targetPath.startsWith(`${rootPath}\\`);
+}
+
+export function resolveComputerUseArtifact(
+  userDataDir: string,
+  sessionId: string,
+  sha256: string
+): { mimeType: string; bytes: Buffer; path: string } | null {
+  if (!SESSION_ID_RE.test(sessionId) || !SHA256_RE.test(sha256)) return null;
+  const root = resolveComputerUseArtifactRoot(userDataDir, sessionId);
+  const candidates = [join(root, `${sha256}.jpg`), join(root, `${sha256}.png`)];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    let realRoot: string;
+    let realFile: string;
+    try {
+      realRoot = realpathSync(root);
+      realFile = realpathSync(candidate);
+    } catch {
+      return null;
+    }
+    if (!isPathWithinRoot(realRoot, realFile)) return null;
+    const bytes = readFileSync(realFile);
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    if (digest !== sha256) return null;
+    return {
+      path: realFile,
+      bytes,
+      mimeType: candidate.endsWith('.png') ? 'image/png' : 'image/jpeg',
+    };
+  }
+  return null;
 }
 
 export const COMPUTER_USE_DENIED_TARGET_MESSAGE =
