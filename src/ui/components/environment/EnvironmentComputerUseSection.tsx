@@ -92,7 +92,7 @@ export function EnvironmentComputerUseSection({
               className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)]"
             >
               <FileTypeIcon name={fileName} className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{fileName}</span>
+              <span className="min-w-0 flex-1 truncate">{fileName}</span>
               {frame.label ? (
                 <span className="max-w-[120px] truncate text-[11px] text-[var(--text-muted)]">{frame.label}</span>
               ) : null}
