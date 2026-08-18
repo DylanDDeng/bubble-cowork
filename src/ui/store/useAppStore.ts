@@ -56,7 +56,11 @@ import {
   updateThemePack,
 } from '../theme/themes';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
-import { appendComputerUseLiveFrame, mergeComputerUseLiveFrame } from '../../shared/computer-use';
+import {
+  appendComputerUseLiveFrame,
+  mergeComputerUseLiveFrame,
+  shouldAcceptComputerUseLive,
+} from '../../shared/computer-use';
 import { getMessageContentBlocks } from '../utils/message-content';
 import { loadPreferredProvider } from '../utils/provider';
 import {
@@ -1045,7 +1049,7 @@ export const useAppStore = create<Store>()(
       case 'computerUse.live':
         set((state) => {
           const session = state.sessions[event.payload.sessionId];
-          if (!session) return state;
+          if (!session || !shouldAcceptComputerUseLive(session.status)) return state;
           const frame = event.payload.frame;
           const previous = session.computerUseFrames || [];
           return {
@@ -1079,6 +1083,26 @@ export const useAppStore = create<Store>()(
       case 'computerUse.preview':
         set({
           computerUsePreviewSessionId: event.payload.open ? event.payload.sessionId : null,
+        });
+        break;
+
+      case 'computerUse.stopped':
+        set((state) => {
+          const session = state.sessions[event.payload.sessionId];
+          if (!session && state.computerUsePreviewSessionId !== event.payload.sessionId) return state;
+          return {
+            ...state,
+            computerUsePreviewSessionId:
+              state.computerUsePreviewSessionId === event.payload.sessionId
+                ? null
+                : state.computerUsePreviewSessionId,
+            sessions: session
+              ? {
+                  ...state.sessions,
+                  [event.payload.sessionId]: { ...session, computerUseLive: null },
+                }
+              : state.sessions,
+          };
         });
         break;
 
@@ -2907,6 +2931,7 @@ function handleSessionStatus(
             status === 'running' && session.status !== 'running'
               ? null
               : session.activeCodexTurnId ?? null,
+          computerUseLive: status === 'running' ? session.computerUseLive : null,
           title: title || session.title,
           scope: scope || session.scope || 'project',
           agentId:

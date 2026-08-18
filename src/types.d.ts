@@ -323,6 +323,7 @@ declare global {
     setComputerUsePreviewParked: (
       sha256: string | null
     ) => Promise<import('./shared/computer-use').ComputerUsePreviewSnapshot | null>;
+    stopComputerUse: (sessionId: string) => Promise<{ ok: boolean }>;
     onComputerUsePreviewState: (
       callback: (state: import('./shared/computer-use').ComputerUsePreviewSnapshot | null) => void
     ) => () => void;

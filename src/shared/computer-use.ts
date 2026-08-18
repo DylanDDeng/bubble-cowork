@@ -137,6 +137,10 @@ export function formatComputerUseGrantLabel(tool: string, app: string): string {
   return `Allow ${tool} in ${app} until revoked`;
 }
 
+export function shouldAcceptComputerUseLive(status: string | null | undefined): boolean {
+  return status === 'running';
+}
+
 export function environmentHasComputerUseSection(input: {
   frames?: Array<{ media?: ComputerUseMediaRef | null }> | null;
   grants?: unknown[] | null;

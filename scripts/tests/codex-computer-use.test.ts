@@ -13,6 +13,7 @@ import {
   isDeniedComputerUseTarget,
   mergeComputerUseLiveFrame,
   parseMcpToolName,
+  shouldAcceptComputerUseLive,
 } from '../../src/shared/computer-use';
 import {
   buildComputerUseMcpOverrideArgs,
@@ -356,6 +357,9 @@ function testPreviewWindowPolicy() {
   assert.equal(isComputerUsePreviewHash('#computer-use-preview'), true);
   assert.equal(isComputerUsePreviewHash('#/computer-use-preview'), true);
   assert.equal(isComputerUsePreviewHash('#settings'), false);
+  assert.equal(shouldAcceptComputerUseLive('running'), true);
+  assert.equal(shouldAcceptComputerUseLive('stopping'), false);
+  assert.equal(shouldAcceptComputerUseLive('idle'), false);
 }
 
 function testPreviewSourceWiring() {
@@ -375,6 +379,10 @@ function testPreviewSourceWiring() {
   const hud = readFileSync(join(root, 'src/ui/components/ComputerUseLiveHud.tsx'), 'utf8');
   assert.match(hud, /Pop out/);
   assert.match(hud, /openComputerUsePreview/);
+  assert.match(hud, /stopComputerUse/);
+
+  const previewApp = readFileSync(join(root, 'src/ui/components/ComputerUsePreviewApp.tsx'), 'utf8');
+  assert.match(previewApp, /stopComputerUse/);
 
   const env = readFileSync(join(root, 'src/ui/components/environment/EnvironmentComputerUseSection.tsx'), 'utf8');
   assert.match(env, /Pop out/);

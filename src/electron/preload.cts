@@ -819,6 +819,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('set-computer-use-preview-parked', sha256);
   },
 
+  stopComputerUse: (sessionId: string) => {
+    return ipcRenderer.invoke('stop-computer-use', sessionId);
+  },
+
   onComputerUsePreviewState: (callback: (state: unknown) => void) => {
     const handler = (_: unknown, payload: string) => {
       try {

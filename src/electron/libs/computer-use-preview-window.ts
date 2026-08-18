@@ -157,6 +157,10 @@ export function closeComputerUsePreviewWindow(): void {
   notifyHostPreview(false);
 }
 
+export function stopComputerUsePreviewIfSession(sessionId: string): void {
+  if (previewSessionId === sessionId) closeComputerUsePreviewWindow();
+}
+
 export function setComputerUsePreviewParked(sha256: string | null): void {
   parkedSha256 = sanitizeSha256(sha256);
   pushPreviewSnapshot();

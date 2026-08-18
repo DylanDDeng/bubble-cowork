@@ -99,7 +99,7 @@ export function ComputerUseLiveHud({
 
   if (detached) {
     return (
-      <div className="pointer-events-none absolute bottom-3 right-3 z-20">
+      <div className="pointer-events-none absolute bottom-3 right-3 z-[80]">
         <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-[12px] shadow-[0_16px_40px_rgba(15,23,42,0.16)]">
           <Monitor className="h-3.5 w-3.5 text-[var(--text-muted)]" />
           <span className="text-[var(--text-secondary)]">Preview popped out</span>
@@ -116,7 +116,7 @@ export function ComputerUseLiveHud({
   }
 
   return (
-    <div className="pointer-events-none absolute bottom-3 right-3 z-20">
+    <div className="pointer-events-none absolute bottom-3 right-3 z-[80]">
       <div className="pointer-events-auto w-[320px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_16px_40px_rgba(15,23,42,0.16)]">
         <div className="flex items-center gap-2 px-3 py-2">
           <Monitor className="h-3.5 w-3.5 text-[var(--text-muted)]" />
@@ -165,7 +165,11 @@ export function ComputerUseLiveHud({
         <div className="flex justify-end gap-2 border-t border-[var(--border)] px-3 py-2">
           <button
             type="button"
-            onClick={() => sendEvent({ type: 'session.stop', payload: { sessionId } })}
+            onClick={() => {
+              setOpen(false);
+              setPinned(false);
+              void window.electron.stopComputerUse(sessionId);
+            }}
             className="rounded-md bg-[var(--text-primary)] px-2 py-1 text-[11px] font-medium text-[var(--bg-primary)]"
           >
             Stop Computer Use

@@ -46,7 +46,7 @@ export function ComputerUsePreviewApp() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-[var(--bg-primary)] text-[var(--text-primary)]">
+    <div className="no-drag flex h-screen flex-col bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div className="drag-region flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
         <Monitor className="no-drag h-3.5 w-3.5 text-[var(--text-muted)]" />
         <div className="min-w-0 flex-1 truncate text-[12px]">{selected?.label || 'Computer Use'}</div>
@@ -90,11 +90,11 @@ export function ComputerUsePreviewApp() {
           </button>
         </div>
       ) : null}
-      <div className="flex justify-end border-t border-[var(--border)] px-3 py-2">
+      <div className="no-drag flex justify-end border-t border-[var(--border)] px-3 py-2">
         <button
           type="button"
-          className="no-drag rounded-md bg-[var(--text-primary)] px-2 py-1 text-[11px] font-medium text-[var(--bg-primary)]"
-          onClick={() => sendEvent({ type: 'session.stop', payload: { sessionId: snapshot.sessionId } })}
+          className="rounded-md bg-[var(--text-primary)] px-2 py-1 text-[11px] font-medium text-[var(--bg-primary)]"
+          onClick={() => void window.electron.stopComputerUse(snapshot.sessionId)}
         >
           Stop Computer Use
         </button>

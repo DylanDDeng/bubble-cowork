@@ -44,6 +44,7 @@ import {
   rememberComputerUseGrants,
   rememberComputerUseLive,
   setComputerUsePreviewParked,
+  stopComputerUsePreviewIfSession,
 } from './libs/computer-use-preview-window';
 import {
   getDelegateMirrorTarget,
@@ -6581,6 +6582,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getComputerUsePreviewSnapshot();
   });
 
+  ipcMainHandle('stop-computer-use', async (_event, sessionId: string) => {
+    stopComputerUseSession(mainWindow, sessionId);
+    return { ok: true };
+  });
+
   ipcMainHandle('read-attachment-preview', async (_event, filePath: string) => {
     const spec = getAttachmentSpec(filePath);
     if (!spec || spec.kind !== 'image') {
@@ -8556,6 +8562,10 @@ async function handleClientEvent(
 
     case 'computerUse.revoke':
       computerUseGrants.revoke(event.payload.sessionId, event.payload.grantKey);
+      break;
+
+    case 'computerUse.stop':
+      stopComputerUseSession(mainWindow, event.payload.sessionId);
       break;
 
     case 'mcp.get-config':
@@ -11229,7 +11239,20 @@ function resolveStopFallback(mainWindow: BrowserWindow, sessionId: string, entry
 /** How long to wait for an interrupted turn's result before hard-aborting. */
 const STOP_INTERRUPT_FALLBACK_MS = 8_000;
 
+function finishComputerUseUi(mainWindow: BrowserWindow, sessionId: string): void {
+  stopComputerUsePreviewIfSession(sessionId);
+  broadcast(mainWindow, {
+    type: 'computerUse.stopped',
+    payload: { sessionId },
+  });
+}
+
+function stopComputerUseSession(mainWindow: BrowserWindow, sessionId: string): void {
+  handleSessionStop(mainWindow, sessionId);
+}
+
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
+  finishComputerUseUi(mainWindow, sessionId);
   finishBrowserUseTurn(browserManager, sessionId);
   // Stop-cascade: stopping the parent also stops every delegated agent
   // running under it (their runners are separate entries keyed by their

@@ -827,6 +827,7 @@ export type ClientEvent =
   | { type: 'session.togglePin'; payload: { sessionId: string } }
   | { type: 'permission.response'; payload: PermissionResponsePayload }
   | { type: 'computerUse.revoke'; payload: { sessionId: string; grantKey?: string } }
+  | { type: 'computerUse.stop'; payload: { sessionId: string } }
   // MCP 事件
   | { type: 'mcp.get-config'; payload?: { projectPath?: string } }
   | { type: 'mcp.save-config'; payload: {
@@ -884,6 +885,7 @@ export type ServerEvent =
   | { type: 'computerUse.live'; payload: { sessionId: string; frame: ComputerUseLiveFrame } }
   | { type: 'computerUse.grants'; payload: { sessionId: string; grants: ComputerUseGrantView[]; reason: string } }
   | { type: 'computerUse.preview'; payload: { sessionId: string; open: boolean } }
+  | { type: 'computerUse.stopped'; payload: { sessionId: string } }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
   // Codex app-server pushed a fresh authoritative model catalog — renderers
   // should refetch codex model config (fast-mode eligibility may change).
