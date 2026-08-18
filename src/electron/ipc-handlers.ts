@@ -36,6 +36,16 @@ import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settin
 import { resolveComputerUseArtifact } from './libs/codex-computer-use';
 import { computerUseGrants } from './libs/codex-computer-use-grants';
 import {
+  attachComputerUsePreviewHost,
+  closeComputerUsePreviewWindow,
+  forgetComputerUseSession,
+  getComputerUsePreviewSnapshot,
+  openComputerUsePreviewWindow,
+  rememberComputerUseGrants,
+  rememberComputerUseLive,
+  setComputerUsePreviewParked,
+} from './libs/computer-use-preview-window';
+import {
   getDelegateMirrorTarget,
   hasActiveDelegationForParent,
   initializeDelegateService,
@@ -4706,7 +4716,9 @@ async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: 
 export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
   sessions.initialize();
+  attachComputerUsePreviewHost(mainWindow);
   computerUseGrants.on('change', ({ threadId, grants, reason }) => {
+    rememberComputerUseGrants(threadId, grants);
     broadcast(mainWindow, {
       type: 'computerUse.grants',
       payload: { sessionId: threadId, grants, reason },
@@ -6549,6 +6561,24 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     const artifact = resolveComputerUseArtifact(app.getPath('userData'), sessionId, sha256);
     if (!artifact) return null;
     return `data:${artifact.mimeType};base64,${artifact.bytes.toString('base64')}`;
+  });
+
+  ipcMainHandle('open-computer-use-preview', async (_event, input: import('../shared/computer-use').ComputerUsePreviewOpenInput) => {
+    return openComputerUsePreviewWindow(input);
+  });
+
+  ipcMainHandle('close-computer-use-preview', async () => {
+    closeComputerUsePreviewWindow();
+    return { ok: true, open: false };
+  });
+
+  ipcMainHandle('get-computer-use-preview-state', async () => {
+    return getComputerUsePreviewSnapshot();
+  });
+
+  ipcMainHandle('set-computer-use-preview-parked', async (_event, sha256: string | null) => {
+    setComputerUsePreviewParked(sha256);
+    return getComputerUsePreviewSnapshot();
   });
 
   ipcMainHandle('read-attachment-preview', async (_event, filePath: string) => {
@@ -10745,12 +10775,14 @@ function startRunner(
       if (userStoppedRunnerHandles.has(handle) && runnerHandles.get(session.id)?.handle !== handle) {
         return;
       }
+      rememberComputerUseLive(session.id, frame);
       broadcast(mainWindow, {
         type: 'computerUse.live',
         payload: { sessionId: session.id, frame },
       });
     },
     onComputerUseGrants: (grants, reason) => {
+      rememberComputerUseGrants(session.id, grants);
       broadcast(mainWindow, {
         type: 'computerUse.grants',
         payload: { sessionId: session.id, grants, reason },
@@ -11425,6 +11457,7 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
   }
 
   // 广播删除事件（幂等）
+  forgetComputerUseSession(sessionId);
   broadcast(mainWindow, {
     type: 'session.deleted',
     payload: { sessionId },

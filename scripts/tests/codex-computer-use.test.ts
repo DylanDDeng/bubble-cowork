@@ -3,11 +3,15 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  appendComputerUseLiveFrame,
   classifyComputerUseAction,
+  computerUsePreviewWindowPolicy,
   environmentHasComputerUseSection,
   formatComputerUseGrantLabel,
   formatComputerUseLabel,
+  isComputerUsePreviewHash,
   isDeniedComputerUseTarget,
+  mergeComputerUseLiveFrame,
   parseMcpToolName,
 } from '../../src/shared/computer-use';
 import {
@@ -306,6 +310,78 @@ function testEnvironmentFilmstripVisibility() {
   );
 }
 
+function testLiveFrameMerge() {
+  const first = {
+    threadId: 't1',
+    toolUseId: 'u1',
+    label: 'Looking at Finder',
+    app: 'Finder',
+    tool: 'get_app_state',
+    mutating: false,
+    media: { sessionId: 's1', sha256: 'a'.repeat(64), mimeType: 'image/png', sizeBytes: 8 },
+    hasFreshMedia: true,
+    at: 1,
+  };
+  const second = {
+    ...first,
+    toolUseId: 'u2',
+    label: 'Clicking in Finder',
+    tool: 'click',
+    mutating: true,
+    media: { sessionId: 's1', sha256: 'b'.repeat(64), mimeType: 'image/png', sizeBytes: 8 },
+    at: 2,
+  };
+  const labelOnly = {
+    ...second,
+    hasFreshMedia: false,
+    label: 'Clicked in Finder',
+    at: 3,
+  };
+
+  const frames = appendComputerUseLiveFrame(appendComputerUseLiveFrame([], first), second);
+  assert.equal(frames.length, 2);
+  assert.equal(appendComputerUseLiveFrame(frames, labelOnly).length, 2);
+  assert.equal(mergeComputerUseLiveFrame(second, labelOnly).label, 'Clicked in Finder');
+  assert.equal(mergeComputerUseLiveFrame(second, labelOnly).media?.sha256, 'b'.repeat(64));
+}
+
+function testPreviewWindowPolicy() {
+  const policy = computerUsePreviewWindowPolicy();
+  assert.equal(policy.alwaysOnTop, false);
+  assert.equal(policy.fullscreenable, false);
+  assert.equal(policy.modal, false);
+  assert.equal(policy.type, null);
+  assert.equal(policy.visibleOnAllWorkspaces, false);
+  assert.equal(policy.hasParent, true);
+  assert.equal(isComputerUsePreviewHash('#computer-use-preview'), true);
+  assert.equal(isComputerUsePreviewHash('#/computer-use-preview'), true);
+  assert.equal(isComputerUsePreviewHash('#settings'), false);
+}
+
+function testPreviewSourceWiring() {
+  const root = join(process.cwd());
+  const preview = readFileSync(join(root, 'src/electron/libs/computer-use-preview-window.ts'), 'utf8');
+  assert.match(preview, /parent/);
+  assert.match(preview, /alwaysOnTop: policy\.alwaysOnTop/);
+  assert.equal(preview.includes("type: 'panel'"), false);
+  assert.equal(preview.includes('screen-saver'), false);
+  assert.equal(preview.includes('setAlwaysOnTop'), false);
+  assert.match(preview, /COMPUTER_USE_PREVIEW_HASH/);
+
+  const mainUi = readFileSync(join(root, 'src/ui/main.tsx'), 'utf8');
+  assert.match(mainUi, /ComputerUsePreviewApp/);
+  assert.match(mainUi, /isComputerUsePreviewHash/);
+
+  const hud = readFileSync(join(root, 'src/ui/components/ComputerUseLiveHud.tsx'), 'utf8');
+  assert.match(hud, /Pop out/);
+  assert.match(hud, /openComputerUsePreview/);
+
+  const env = readFileSync(join(root, 'src/ui/components/environment/EnvironmentComputerUseSection.tsx'), 'utf8');
+  assert.match(env, /Pop out/);
+  assert.match(env, /openComputerUsePreview/);
+  assert.match(env, /readComputerUseArtifact|ComputerUseFilmstrip/);
+}
+
 testClassification();
 testElicitationParser();
 testOverridesAndLease();
@@ -313,4 +389,7 @@ testMediaSidecar();
 testWorkstreamStage();
 testGrants();
 testEnvironmentFilmstripVisibility();
+testLiveFrameMerge();
+testPreviewWindowPolicy();
+testPreviewSourceWiring();
 console.log('codex computer-use unit tests passed');

@@ -379,10 +379,12 @@ export function EnvironmentHub({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const overview = git.overview;
+  const previewSessionId = useAppStore((s) => s.computerUsePreviewSessionId);
   const hasComputerUse = environmentHasComputerUseSection({
     frames: context.session?.computerUseFrames,
     grants: context.session?.computerUseGrants,
   });
+  const previewOpen = Boolean(context.sessionId) && previewSessionId === context.sessionId;
 
   useEffect(() => {
     if (!open) return;
@@ -534,7 +536,11 @@ export function EnvironmentHub({
                     onClick={() => void copyPath(context.effectiveCwd)}
                   />
                 </section>
-                <EnvironmentComputerUseSection session={context.session} sessionId={context.sessionId} />
+                <EnvironmentComputerUseSection
+                  session={context.session}
+                  sessionId={context.sessionId}
+                  previewOpen={previewOpen}
+                />
                 <EnvironmentSubagentSection onNavigate={() => setOpen(false)} />
               </>
             )}

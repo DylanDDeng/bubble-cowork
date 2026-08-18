@@ -54,6 +54,72 @@ export interface ComputerUseLiveFrame {
   at: number;
 }
 
+export const COMPUTER_USE_FRAME_LIMIT = 12;
+export const COMPUTER_USE_PREVIEW_HASH = 'computer-use-preview';
+
+export interface ComputerUsePreviewSnapshot {
+  sessionId: string;
+  parkedSha256: string | null;
+  live: ComputerUseLiveFrame | null;
+  frames: ComputerUseLiveFrame[];
+  grants: ComputerUseGrantView[];
+}
+
+export interface ComputerUsePreviewOpenInput {
+  sessionId: string;
+  parkedSha256?: string | null;
+  live?: ComputerUseLiveFrame | null;
+  frames?: ComputerUseLiveFrame[];
+  grants?: ComputerUseGrantView[];
+}
+
+export function computerUsePreviewWindowPolicy() {
+  return {
+    alwaysOnTop: false as const,
+    fullscreenable: false as const,
+    modal: false as const,
+    type: null,
+    visibleOnAllWorkspaces: false as const,
+    hash: COMPUTER_USE_PREVIEW_HASH,
+    hasParent: true as const,
+  };
+}
+
+export function isComputerUsePreviewHash(hash: string): boolean {
+  return hash.replace(/^#\/?/, '') === COMPUTER_USE_PREVIEW_HASH;
+}
+
+export function isComputerUseArtifactSha256(value: string | null | undefined): boolean {
+  return /^[a-f0-9]{64}$/i.test((value || '').trim());
+}
+
+export function appendComputerUseLiveFrame(
+  previous: ComputerUseLiveFrame[],
+  frame: ComputerUseLiveFrame
+): ComputerUseLiveFrame[] {
+  if (!frame.hasFreshMedia) return previous;
+  return [...previous.filter((item) => item.media?.sha256 !== frame.media?.sha256), frame].slice(
+    -COMPUTER_USE_FRAME_LIMIT
+  );
+}
+
+export function mergeComputerUseLiveFrame(
+  current: ComputerUseLiveFrame | null,
+  frame: ComputerUseLiveFrame
+): ComputerUseLiveFrame {
+  if (frame.hasFreshMedia) return frame;
+  if (!current) return frame;
+  return {
+    ...current,
+    label: frame.label,
+    app: frame.app,
+    tool: frame.tool,
+    mutating: frame.mutating,
+    at: frame.at,
+    hasFreshMedia: false,
+  };
+}
+
 export function canonicalizeComputerUseApp(app: string | null | undefined): string | null {
   const raw = (app || '').trim();
   return raw || null;

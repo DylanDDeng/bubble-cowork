@@ -455,6 +455,7 @@ export interface AppState {
   skinImage: string | null;
   skinImageData: string | null;
   skinOpacity: number;
+  computerUsePreviewSessionId: string | null;
 }
 
 // Store Actions

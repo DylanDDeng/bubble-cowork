@@ -315,6 +315,17 @@ declare global {
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
     readComputerUseArtifact: (sessionId: string, sha256: string) => Promise<string | null>;
+    openComputerUsePreview: (
+      input: import('./shared/computer-use').ComputerUsePreviewOpenInput
+    ) => Promise<{ ok: boolean; open: boolean; sessionId: string; message?: string }>;
+    closeComputerUsePreview: () => Promise<{ ok: boolean; open: boolean }>;
+    getComputerUsePreviewState: () => Promise<import('./shared/computer-use').ComputerUsePreviewSnapshot | null>;
+    setComputerUsePreviewParked: (
+      sha256: string | null
+    ) => Promise<import('./shared/computer-use').ComputerUsePreviewSnapshot | null>;
+    onComputerUsePreviewState: (
+      callback: (state: import('./shared/computer-use').ComputerUsePreviewSnapshot | null) => void
+    ) => () => void;
     downloadAttachment: (filePath: string, suggestedName?: string) => Promise<{ filePath: string | null; error?: string }>;
     readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
     resolveGrokSessionFile: (cwd: string, relativePath: string) => Promise<string | null>;

@@ -56,6 +56,7 @@ import {
   updateThemePack,
 } from '../theme/themes';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import { appendComputerUseLiveFrame, mergeComputerUseLiveFrame } from '../../shared/computer-use';
 import { getMessageContentBlocks } from '../utils/message-content';
 import { loadPreferredProvider } from '../utils/provider';
 import {
@@ -929,6 +930,7 @@ export const useAppStore = create<Store>()(
       skinImage: null,
       skinImageData: null,
       skinOpacity: DEFAULT_SKIN_OPACITY,
+      computerUsePreviewSessionId: null,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -1046,21 +1048,14 @@ export const useAppStore = create<Store>()(
           if (!session) return state;
           const frame = event.payload.frame;
           const previous = session.computerUseFrames || [];
-          const frames = frame.hasFreshMedia
-            ? [...previous.filter((item) => item.media?.sha256 !== frame.media?.sha256), frame].slice(-12)
-            : previous;
           return {
             ...state,
             sessions: {
               ...state.sessions,
               [event.payload.sessionId]: {
                 ...session,
-                computerUseLive: frame.hasFreshMedia
-                  ? frame
-                  : session.computerUseLive
-                    ? { ...session.computerUseLive, label: frame.label, app: frame.app, tool: frame.tool, mutating: frame.mutating, at: frame.at, hasFreshMedia: false }
-                    : frame,
-                computerUseFrames: frames,
+                computerUseLive: mergeComputerUseLiveFrame(session.computerUseLive || null, frame),
+                computerUseFrames: appendComputerUseLiveFrame(previous, frame),
               },
             },
           };
@@ -1078,6 +1073,12 @@ export const useAppStore = create<Store>()(
               [event.payload.sessionId]: { ...session, computerUseGrants: event.payload.grants },
             },
           };
+        });
+        break;
+
+      case 'computerUse.preview':
+        set({
+          computerUsePreviewSessionId: event.payload.open ? event.payload.sessionId : null,
         });
         break;
 

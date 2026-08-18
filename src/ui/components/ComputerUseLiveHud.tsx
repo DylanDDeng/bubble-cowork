@@ -36,12 +36,14 @@ export function ComputerUseLiveHud({
   frames,
   grants,
   isForeground,
+  detached,
 }: {
   sessionId: string;
   frame: ComputerUseLiveFrame | null;
   frames: ComputerUseLiveFrame[];
   grants: ComputerUseGrantView[];
   isForeground: boolean;
+  detached: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -83,14 +85,45 @@ export function ComputerUseLiveHud({
     };
   }, [shown?.media?.sessionId, shown?.media?.sha256]);
 
-  if (!isForeground || (!open && !pinned) || !shown) return null;
+  const popOut = () => {
+    void window.electron.openComputerUsePreview({
+      sessionId,
+      parkedSha256,
+      live: frame,
+      frames,
+      grants,
+    });
+  };
+
+  if (!isForeground || (!open && !pinned && !detached) || (!shown && !detached)) return null;
+
+  if (detached) {
+    return (
+      <div className="pointer-events-none absolute bottom-3 right-3 z-20">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-[12px] shadow-[0_16px_40px_rgba(15,23,42,0.16)]">
+          <Monitor className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+          <span className="text-[var(--text-secondary)]">Preview popped out</span>
+          <button
+            type="button"
+            onClick={() => void window.electron.closeComputerUsePreview()}
+            className="text-[11px] font-medium text-[var(--text-primary)]"
+          >
+            Dock
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pointer-events-none absolute bottom-3 right-3 z-20">
       <div className="pointer-events-auto w-[320px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_16px_40px_rgba(15,23,42,0.16)]">
         <div className="flex items-center gap-2 px-3 py-2">
           <Monitor className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-          <div className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">{shown.label}</div>
+          <div className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">{shown?.label}</div>
+          <button type="button" onClick={popOut} className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            Pop out
+          </button>
           <button type="button" onClick={() => setPinned((value) => !value)} className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-muted)]">
             {pinned ? 'Pinned' : 'Pin'}
           </button>

@@ -803,6 +803,36 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-computer-use-artifact', sessionId, sha256);
   },
 
+  openComputerUsePreview: (input: unknown) => {
+    return ipcRenderer.invoke('open-computer-use-preview', input);
+  },
+
+  closeComputerUsePreview: () => {
+    return ipcRenderer.invoke('close-computer-use-preview');
+  },
+
+  getComputerUsePreviewState: () => {
+    return ipcRenderer.invoke('get-computer-use-preview-state');
+  },
+
+  setComputerUsePreviewParked: (sha256: string | null) => {
+    return ipcRenderer.invoke('set-computer-use-preview-parked', sha256);
+  },
+
+  onComputerUsePreviewState: (callback: (state: unknown) => void) => {
+    const handler = (_: unknown, payload: string) => {
+      try {
+        callback(JSON.parse(payload));
+      } catch (error) {
+        console.error('Failed to parse computer-use preview state:', error);
+      }
+    };
+    ipcRenderer.on('computer-use-preview-state', handler);
+    return () => {
+      ipcRenderer.removeListener('computer-use-preview-state', handler);
+    };
+  },
+
   downloadAttachment: (filePath: string, suggestedName?: string) => {
     return ipcRenderer.invoke('download-attachment', filePath, suggestedName);
   },

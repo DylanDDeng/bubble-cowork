@@ -989,6 +989,7 @@ export function ChatPane({
   );
   const session = useAppStore((s) => (sessionId ? s.sessions[sessionId] ?? null : null));
   const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const computerUsePreviewSessionId = useAppStore((s) => s.computerUsePreviewSessionId);
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollUpdateStateRef = useRef<{ key: string; messageCount: number } | null>(null);
@@ -1914,6 +1915,7 @@ export function ChatPane({
               frames={session?.computerUseFrames || []}
               grants={session?.computerUseGrants || []}
               isForeground={activeSessionId === sessionId}
+              detached={computerUsePreviewSessionId === sessionId}
             />
           ) : null}
           {sessionId ? (

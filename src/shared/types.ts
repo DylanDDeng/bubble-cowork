@@ -883,6 +883,7 @@ export type ServerEvent =
   | { type: 'permission.dismissed'; payload: { sessionId: string; toolUseId: string } }
   | { type: 'computerUse.live'; payload: { sessionId: string; frame: ComputerUseLiveFrame } }
   | { type: 'computerUse.grants'; payload: { sessionId: string; grants: ComputerUseGrantView[]; reason: string } }
+  | { type: 'computerUse.preview'; payload: { sessionId: string; open: boolean } }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
   // Codex app-server pushed a fresh authoritative model catalog — renderers
   // should refetch codex model config (fast-mode eligibility may change).
