@@ -17,10 +17,7 @@ import type { EnvironmentEditorLauncher } from '../../../shared/types';
 import type { ActiveEnvironmentContext } from './useActiveEnvironmentContext';
 import type { GitEnvironmentState } from './useGitEnvironment';
 import { EnvironmentGitActionsSection } from './EnvironmentGitActionsSection';
-import {
-  EnvironmentComputerUseSection,
-  environmentHasComputerUseSection,
-} from './EnvironmentComputerUseSection';
+import { EnvironmentComputerUseSection } from './EnvironmentComputerUseSection';
 import { useAppStore } from '../../store/useAppStore';
 import { deriveSubagentSummaries } from '../../utils/subagent-registry';
 import { SubagentAvatar } from '../SubagentAvatar';
@@ -380,10 +377,6 @@ export function EnvironmentHub({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const overview = git.overview;
   const previewSessionId = useAppStore((s) => s.computerUsePreviewSessionId);
-  const hasComputerUse = environmentHasComputerUseSection({
-    frames: context.session?.computerUseFrames,
-    grants: context.session?.computerUseGrants,
-  });
   const previewOpen = Boolean(context.sessionId) && previewSessionId === context.sessionId;
 
   useEffect(() => {
@@ -445,14 +438,11 @@ export function EnvironmentHub({
             ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
         }`}
-        title={hasComputerUse ? 'Environment · Computer Use screenshots' : 'Environment'}
+        title="Environment"
         aria-label="Open environment panel"
         aria-expanded={open}
       >
         <EnvironmentListIcon />
-        {hasComputerUse ? (
-          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-        ) : null}
       </button>
       {open ? (
         // Anchored to the trigger (the wrapper div is position:relative) so the

@@ -52,8 +52,8 @@ assert.ok(
 );
 const filmstrip = read('src/ui/components/environment/EnvironmentComputerUseSection.tsx');
 assert.ok(
-  filmstrip.includes('readComputerUseArtifact') || filmstrip.includes('ComputerUseFilmstrip'),
-  'EnvironmentComputerUseSection: must load screenshots via opaque artifact IPC'
+  filmstrip.includes('openComputerUsePreview'),
+  'EnvironmentComputerUseSection: must open screenshots in the Aegis child preview'
 );
 assert.ok(
   filmstrip.includes('Pop out'),
