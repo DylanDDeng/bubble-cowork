@@ -28,7 +28,7 @@ import {
   parseMcpToolApprovalElicitation,
   wrappedComputerUseElicitationFixture,
 } from '../../src/electron/libs/codex-computer-use-elicitation';
-import { classifyToolUse } from '../../src/ui/utils/tool-summary';
+import { classifyToolUse, deriveReadableToolDisplay, formatReadableToolSummary } from '../../src/ui/utils/tool-summary';
 import { summarizeWorkstreamEntries } from '../../src/ui/utils/workstream-stages';
 import type { WorkstreamEntry } from '../../src/ui/utils/workstream';
 
@@ -60,6 +60,19 @@ function testClassification() {
 
   assert.equal(classifyToolUse('mcp__aegis-computer-use__get_app_state', { app: 'Finder' }), 'computer_use');
   assert.equal(classifyToolUse('mcp__pencil__get_screenshot', {}), 'mcp_tool_call');
+  assert.equal(
+    formatReadableToolSummary(
+      deriveReadableToolDisplay(
+        'Bash',
+        {
+          command:
+            "/bin/zsh -lc \"sed -n '1,240p' /Users/me/.codex/plugins/cache/openai-bundled/computer-use/1.0.1000717/skills/computer-use/SKILL.md\"",
+        },
+        'success'
+      )
+    ),
+    'Read Computer Use skill'
+  );
   assert.equal(isDeniedComputerUseTarget('com.aegis.desktop'), true);
   assert.equal(isDeniedComputerUseTarget('Finder'), false);
 }
@@ -239,8 +252,22 @@ function testWorkstreamStage() {
   ];
   const stages = summarizeWorkstreamEntries(entries);
   assert.equal(stages[0]?.kind, 'computer_use');
-  assert.equal(stages[0]?.defaultExpanded, true);
+  assert.equal(stages[0]?.defaultExpanded, false);
   assert.equal(stages[0]?.title, 'Clicking in Finder');
+
+  const grouped = summarizeWorkstreamEntries([
+    entries[0],
+    {
+      ...entries[0],
+      id: 'cu-2',
+      summary: 'Typing in Notes',
+      block: { ...entries[0].block, id: 'cu-2', name: 'mcp__aegis-computer-use__type_text' },
+      result: { type: 'tool_result', tool_use_id: 'cu-2', content: 'ok' },
+    },
+  ]);
+  assert.equal(grouped.length, 2, 'each Computer Use action should be its own stage row');
+  assert.equal(grouped[0]?.title, 'Clicking in Finder');
+  assert.equal(grouped[1]?.title, 'Typing in Notes');
 }
 
 function testGrants() {

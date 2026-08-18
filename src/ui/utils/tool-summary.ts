@@ -225,6 +225,12 @@ function firstNonFlagToken(args: string): string | null {
 }
 
 function describeBashCommand(command: string, status: ToolStatus): ReadableToolDisplay {
+  if (/computer-use\/(?:skills\/)?computer-use\/SKILL\.md|skills\/computer-use\/SKILL\.md/.test(command)) {
+    return {
+      verb: pickVerb(['Reading', 'Read'], status),
+      target: 'Computer Use skill',
+    };
+  }
   const inner = unwrapShellCommand(command);
   // Strip the suffix after pipes / chains so the verb describes the leading
   // command rather than the full pipeline.

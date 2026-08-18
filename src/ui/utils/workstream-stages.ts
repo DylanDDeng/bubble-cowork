@@ -452,7 +452,7 @@ function makeStage(
     commands,
     addedLines,
     removedLines,
-    defaultExpanded: status === 'error' || status === 'waiting' || kind === 'computer_use',
+    defaultExpanded: status === 'error' || status === 'waiting',
   };
 }
 
@@ -469,6 +469,7 @@ function shouldMergeStageEntries(
 ): boolean {
   if (!currentKind || currentKind !== nextKind) return false;
   if (nextKind === 'approval' || nextKind === 'error' || nextKind === 'other') return false;
+  if (nextKind === 'computer_use') return false;
   if (nextKind === 'task') {
     // Only Tasks fanned out by the same assistant message actually ran in
     // parallel. Sequential Tasks (each launched after the previous resolved)
@@ -531,6 +532,8 @@ export function formatWorkstreamStageSummary(stages: WorkstreamStage[]): string 
   let exploredFiles = new Set<string>();
   let exploreCount = 0;
 
+  let computerUseCount = 0;
+
   for (const stage of stages) {
     if (stage.kind === 'edit') {
       for (const file of stage.files) editedFiles.add(file.filePath);
@@ -539,11 +542,14 @@ export function formatWorkstreamStageSummary(stages: WorkstreamStage[]): string 
     } else if (stage.kind === 'explore') {
       for (const file of stage.files) exploredFiles.add(file.filePath);
       if (stage.files.length === 0) exploreCount += stage.entries.length;
+    } else if (stage.kind === 'computer_use') {
+      computerUseCount += stage.entries.length;
     }
   }
 
   if (editedFiles.size > 0) parts.push(`edited ${plural(editedFiles.size, 'file')}`);
   if (commandCount > 0) parts.push(`ran ${plural(commandCount, 'command')}`);
+  if (computerUseCount > 0) parts.push(`used the computer ${plural(computerUseCount, 'time')}`);
   if (exploredFiles.size > 0) {
     parts.push(`explored ${plural(exploredFiles.size, 'file')}`);
   } else if (exploreCount > 0) {

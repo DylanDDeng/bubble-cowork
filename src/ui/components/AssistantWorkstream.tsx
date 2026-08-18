@@ -250,7 +250,7 @@ function StageRow({
     stage.files.length > 0 ||
     stage.commands.length > 0 ||
     hasErrorFallback ||
-    stage.kind === 'computer_use';
+    (stage.kind === 'computer_use' && stage.entries.some(hasComputerUseStageDetail));
   const isPending = stage.status === 'pending';
   const isError = stage.status === 'error';
   const titleClass = isError
@@ -367,6 +367,11 @@ function StageDetails({
 
 // Command failures already show their output in StageCommandsDetail, so the
 // failure notes only cover the remaining failed entries (e.g. a rejected Edit).
+function hasComputerUseStageDetail(entry: WorkstreamEntry): boolean {
+  if (entry.type !== 'tool' && entry.type !== 'task' && entry.type !== 'memory') return false;
+  return hasEntryDetail(entry);
+}
+
 function StageComputerUseDetail({ entries }: { entries: WorkstreamEntry[] }) {
   const tools = entries.filter(
     (entry): entry is Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }> =>
@@ -374,9 +379,9 @@ function StageComputerUseDetail({ entries }: { entries: WorkstreamEntry[] }) {
   );
   if (tools.length === 0) return null;
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       {tools.map((entry) => (
-        <ToolRow key={entry.id} entry={entry} showChangeHint={false} />
+        <ToolEntryDetail key={entry.id} entry={entry} />
       ))}
     </div>
   );
