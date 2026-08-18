@@ -195,6 +195,20 @@ function getApprovalStateFromRequest(
     };
   }
 
+  if (isRecord(request.input) && request.input.kind === 'computer-use') {
+    return {
+      id: `approval-${request.toolUseId}`,
+      type: 'approval',
+      summary:
+        getString(request.input.toolTitle) ||
+        getString(request.input.title) ||
+        getString(request.input.question) ||
+        'Waiting for Computer Use approval',
+      detail: getString(request.input.app) || getString(request.input.toolName) || undefined,
+      state: 'waiting',
+    };
+  }
+
   return {
     id: `approval-${request.toolUseId}`,
     type: 'approval',

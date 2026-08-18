@@ -20,9 +20,24 @@ import {
   AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
   shouldBlockSystemBrowserPreviewOpen,
 } from '../browser-preview-policy';
+import { persistComputerUseMedia } from '../codex-computer-use';
+import { computerUseGrants } from '../codex-computer-use-grants';
+import {
+  parseMcpToolApprovalElicitation,
+  type McpToolApprovalElicitation,
+} from '../codex-computer-use-elicitation';
+import {
+  classifyComputerUseAction,
+  formatComputerUseLabel,
+  isDeniedComputerUseTarget,
+  type ComputerUseLiveFrame,
+} from '../../../shared/computer-use';
+import { homedir } from 'os';
+import { join } from 'path';
 import type {
   CodexApprovalKind,
   CodexApprovalPermissionInput,
+  ComputerUsePermissionInput,
   ContentBlock,
   PermissionResult,
   PlanStepStatus,
@@ -61,6 +76,18 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 function getString(v: unknown): string {
   return typeof v === 'string' && v.length > 0 ? v : '';
+}
+
+function resolveComputerUseUserDataDir(): string {
+  const override = process.env.AEGIS_USER_DATA_DIR?.trim();
+  if (override) return override;
+  try {
+    const electron = require('electron') as { app?: { getPath: (name: string) => string } };
+    if (electron.app?.getPath) return electron.app.getPath('userData');
+  } catch {
+    // Tests and non-electron hosts fall back to the home directory.
+  }
+  return join(homedir(), '.aegis');
 }
 
 function getFirstString(...values: unknown[]): string {
@@ -284,6 +311,19 @@ export class CodexAdapter implements ProviderAdapter {
   // 100ms cadence so high-frequency command output can't flood IPC.
   private toolOutputBuffers = new Map<string, Map<string, string>>();
   private toolOutputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingComputerUseApprovals = new Map<string, McpToolApprovalElicitation>();
+  private grantListener = (payload: {
+    threadId: string;
+    grants: import('../../../shared/computer-use').ComputerUseGrantView[];
+    reason: string;
+  }) => {
+    this.emit({
+      type: 'computer_use_grants',
+      threadId: payload.threadId,
+      grants: payload.grants,
+      reason: payload.reason,
+    });
+  };
 
   constructor(binaryPath?: string, options: CodexAdapterOptions = {}) {
     this.managerFactory =
@@ -291,6 +331,7 @@ export class CodexAdapter implements ProviderAdapter {
       (() => new CodexAppServerManager(binaryPath, resolveClientVersion()));
     this.manager = new CodexAppServerManager(binaryPath, resolveClientVersion());
     this.setupEventForwarding(this.manager);
+    computerUseGrants.on('change', this.grantListener);
   }
 
   private setupEventForwarding(
@@ -415,6 +456,22 @@ export class CodexAdapter implements ProviderAdapter {
         },
       };
       this.emit({ type: 'message', threadId, message });
+      const action = classifyComputerUseAction({
+        toolName,
+        app: getString(toolInput.app),
+        title: getString(toolInput.__aegisDisplayTitle) || getString(toolInput.title),
+      });
+      if (action) {
+        this.emitComputerUseLive(threadId, {
+          toolUseId: toolId,
+          label: formatComputerUseLabel(action, 'pending'),
+          app: action.app,
+          tool: action.tool,
+          mutating: action.mutating,
+          media: null,
+          hasFreshMedia: false,
+        });
+      }
     });
 
     on('tool_result', ({ threadId, params }) => {
@@ -440,6 +497,21 @@ export class CodexAdapter implements ProviderAdapter {
         });
       }
 
+      const persisted = persistComputerUseMedia({
+        userDataDir: resolveComputerUseUserDataDir(),
+        sessionId: threadId,
+        payload: rawContent,
+      });
+      const content =
+        persisted.text ||
+        (typeof rawContent === 'string' && !rawContent.includes('data:image/')
+          ? rawContent
+          : persisted.mediaRefs.length > 0
+            ? ''
+            : typeof rawContent === 'string'
+              ? rawContent
+              : JSON.stringify(rawContent ?? ''));
+
       const message: StreamMessage = {
         type: 'user',
         uuid: uuidv4(),
@@ -448,13 +520,25 @@ export class CodexAdapter implements ProviderAdapter {
             {
               type: 'tool_result',
               tool_use_id: toolUseId,
-              content: typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent ?? ''),
+              content,
               is_error: isError,
+              ...(persisted.mediaRefs.length > 0 ? { mediaRefs: persisted.mediaRefs } : {}),
             },
           ],
         },
       };
       this.emit({ type: 'message', threadId, message });
+      if (persisted.mediaRefs[0]) {
+        this.emitComputerUseLive(threadId, {
+          toolUseId: toolUseId || '',
+          label: 'Looked at the screen',
+          app: null,
+          tool: null,
+          mutating: false,
+          media: persisted.mediaRefs[0],
+          hasFreshMedia: true,
+        });
+      }
     });
 
     // 0.144.3 delivers every turn terminal via `turn/completed` with
@@ -581,11 +665,12 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'permission_dismissed', threadId, requestId });
     });
 
-    on('fast_mode_unavailable', ({ threadId, model }) => {
-      this.emitLocalNotice(
-        threadId,
-        `Fast mode is not available for model ${model}; running on the default service tier.`
-      );
+    on('fast_mode_unavailable', ({ model }) => {
+      if (isDev()) {
+        console.log('[Codex] Fast mode has no resolvable service tier; continuing on the default tier', {
+          model,
+        });
+      }
     });
 
     on('model_catalog_updated', ({ models }) => {
@@ -633,6 +718,38 @@ export class CodexAdapter implements ProviderAdapter {
     // fail-closed) — the event carries the resolved Aegis threadId. No
     // re-inference here (P0-7).
     on('approval_request', ({ requestId, method, threadId, params }) => {
+      const elicitation = parseMcpToolApprovalElicitation(method, params);
+      if (elicitation) {
+        const app = elicitation.canonicalApp;
+        if (elicitation.deniedTarget || isDeniedComputerUseTarget(app)) {
+          void this.respondToRequest(threadId, requestId, {
+            behavior: 'deny',
+            message: 'Aegis blocked Computer Use from targeting the Aegis app itself.',
+          });
+          return;
+        }
+        const manager = this.runtimeManagers.get(threadId);
+        const matchedGrant = computerUseGrants.match({
+          threadId,
+          generation: manager?.getGeneration() ?? 0,
+          elicitation,
+        });
+        if (matchedGrant) {
+          this.emitComputerUseAudit(threadId, 'used', matchedGrant.key, elicitation);
+          void this.respondToRequest(threadId, requestId, { behavior: 'allow', scope: 'once' });
+          return;
+        }
+        this.pendingComputerUseApprovals.set(requestId, elicitation);
+        this.emit({
+          type: 'permission_request',
+          threadId,
+          requestId,
+          toolName: elicitation.toolName || 'Computer Use',
+          input: this.buildComputerUsePermissionInput(elicitation),
+        });
+        return;
+      }
+
       const { toolName, input } = this.buildCodexApprovalInput(method, params);
 
       if (
@@ -1166,6 +1283,7 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   private async replaceRuntimeManager(threadId: string): Promise<CodexAppServerManager> {
+    computerUseGrants.revokeThread(threadId, 'runtime-replaced');
     const previous = this.runtimeManagers.get(threadId);
     if (previous) {
       await this.retireRuntimeManager(threadId, previous);
@@ -1409,6 +1527,7 @@ export class CodexAdapter implements ProviderAdapter {
     // Dismiss approval cards while this manager still owns event routing, but
     // suppress stop_settled because quiet dispose must not satisfy a new
     // runner's interrupt gate.
+    computerUseGrants.revokeThread(threadId, 'disposed');
     manager.disposeSessionResources(threadId);
     void this.retireRuntimeManager(threadId, manager).catch((error) => {
       console.warn('[CodexAdapter] failed to dispose thread runtime:', threadId, error);
@@ -1506,6 +1625,7 @@ export class CodexAdapter implements ProviderAdapter {
     if (this.stopAllInFlight) return this.stopAllInFlight;
     this.stopAllRequested = true;
     const shutdown = this.enqueueExclusiveShutdown(async () => {
+      computerUseGrants.revokeAll('stop-all');
       await this.stopRuntimeProcesses();
       for (const threadId of this.streamingText.keys()) {
         this.clearStreamingState(threadId);
@@ -1549,12 +1669,35 @@ export class CodexAdapter implements ProviderAdapter {
     requestId: string,
     decision: PermissionResult
   ): Promise<void> {
+    const pending = this.pendingComputerUseApprovals.get(requestId);
+    this.pendingComputerUseApprovals.delete(requestId);
+    let nextDecision = decision;
+    if (
+      decision.behavior === 'allow' &&
+      decision.computerUseGrant === 'until-revoked' &&
+      pending
+    ) {
+      const manager = this.runtimeManagers.get(threadId);
+      const grant = computerUseGrants.createFromElicitation({
+        threadId,
+        generation: manager?.getGeneration() ?? 0,
+        elicitation: pending,
+      });
+      if (grant) {
+        this.emitComputerUseAudit(threadId, 'granted', grant.key, pending);
+      }
+      nextDecision = { behavior: 'allow', scope: 'once' };
+    }
     // threadId asserts the decision comes from the owning session (P0-7).
     await this.runtimeManagerForThread(threadId).respondToApproval(
       requestId,
-      decision,
+      nextDecision,
       threadId
     );
+  }
+
+  revokeComputerUseGrants(threadId: string, grantKey?: string): void {
+    computerUseGrants.revoke(threadId, grantKey);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1646,6 +1789,73 @@ export class CodexAdapter implements ProviderAdapter {
         canAllowForSession: this.canApproveForSession(p, approvalKind),
       },
     };
+  }
+
+  private buildComputerUsePermissionInput(
+    elicitation: NonNullable<ReturnType<typeof parseMcpToolApprovalElicitation>>
+  ): ComputerUsePermissionInput {
+    const code =
+      typeof elicitation.toolParams.code === 'string' ? elicitation.toolParams.code : null;
+    const app = typeof elicitation.toolParams.app === 'string' ? elicitation.toolParams.app : null;
+    const paramLines =
+      elicitation.toolParamsDisplay.length > 0
+        ? elicitation.toolParamsDisplay.map((item) => ({
+            label: item.displayName,
+            value: typeof item.value === 'string' ? item.value : JSON.stringify(item.value),
+          }))
+        : Object.entries(elicitation.toolParams)
+            .filter(([key]) => key !== 'title')
+            .map(([label, value]) => ({
+              label,
+              value: typeof value === 'string' ? value : JSON.stringify(value),
+            }));
+    const mutating = Boolean(elicitation.action?.mutating || elicitation.isNodeRepl);
+    return {
+      kind: 'computer-use',
+      question: elicitation.message,
+      title: elicitation.toolTitle || elicitation.message,
+      server: elicitation.server,
+      toolName: elicitation.toolName || 'Computer Use',
+      toolTitle: elicitation.toolTitle,
+      app,
+      mutating,
+      code,
+      params: elicitation.toolParams,
+      paramLines,
+      canAllowForSession: !mutating && elicitation.persistOptions.includes('session'),
+      canAllowUntilRevoked: elicitation.grantEligible,
+    };
+  }
+
+  private emitComputerUseLive(
+    threadId: string,
+    frame: Omit<ComputerUseLiveFrame, 'threadId' | 'at'>
+  ): void {
+    this.emit({
+      type: 'computer_use_live',
+      threadId,
+      frame: { ...frame, threadId, at: Date.now() },
+    });
+  }
+
+  private emitComputerUseAudit(
+    threadId: string,
+    reason: string,
+    grantKey: string,
+    elicitation: McpToolApprovalElicitation
+  ): void {
+    if (isDev()) {
+      console.log('[CodexAdapter] computer-use grant', {
+        threadId,
+        reason,
+        grantKey,
+        tool: elicitation.toolName,
+        app: elicitation.canonicalApp,
+        providerThreadId: elicitation.providerThreadId,
+        turnId: elicitation.turnId,
+        toolCallId: elicitation.toolCallId,
+      });
+    }
   }
 
   private extractApprovalCommand(params: Record<string, unknown>): string {
@@ -1742,6 +1952,7 @@ export class CodexAdapter implements ProviderAdapter {
     }
 
     await this.enqueueExclusiveShutdown(async () => {
+      computerUseGrants.revokeAll('auth-recovery');
       await this.stopRuntimeProcesses();
       for (const threadId of this.streamingText.keys()) {
         this.clearStreamingState(threadId);
@@ -1900,6 +2111,8 @@ export class CodexAdapter implements ProviderAdapter {
     }
     if (title) {
       toolInput.__aegisDisplayTitle = title;
+    } else if (typeof toolInput.title === 'string' && toolInput.title.trim()) {
+      toolInput.__aegisDisplayTitle = toolInput.title.trim();
     }
 
     // Codex `mcpToolCall` items carry the identity in `server` + `tool`, not
@@ -1927,6 +2140,20 @@ export class CodexAdapter implements ProviderAdapter {
       normalizeCodexToolName(rawName) ||
       inferCodexToolNameFromFields({ command, filePath, title }) ||
       'unknown';
+
+    const action = classifyComputerUseAction({
+      toolName,
+      server: mcpServer,
+      tool: mcpTool,
+      app: getString(toolInput.app),
+      title: getString(toolInput.title) || getString(toolInput.__aegisDisplayTitle),
+    });
+    if (action) {
+      toolInput.__aegisComputerUse = action;
+      if (!getString(toolInput.__aegisDisplayTitle)) {
+        toolInput.__aegisDisplayTitle = formatComputerUseLabel(action, 'pending');
+      }
+    }
 
     // Use Codex's own id so tool_result's `toolUseId` can find this entry.
     const codexId = getFirstString(

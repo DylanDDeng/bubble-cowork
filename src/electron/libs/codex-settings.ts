@@ -7,6 +7,7 @@ import type {
   CodexReasoningEffort,
   CodexReasoningLevelOption,
 } from '../../shared/types';
+import { resolveFastTier } from '../../shared/codex-fast-tier';
 import {
   expandCodexModelFamilies,
   seedLabelForCodexModel,
@@ -24,9 +25,9 @@ const CODEX_MODELS_CACHE_PATH = join(homedir(), '.codex', 'models_cache.json');
 const runtimeModelCatalog = new Map<string, { supportsFastMode: boolean; fastTierName?: string }>();
 
 /**
- * Ingest a `model_catalog_updated` push. Fast eligibility: exactly one
- * non-default serviceTier (provisional heuristic — the protocol carries no
- * speed semantics on tiers, so we surface the tier name for transparency).
+ * Ingest a `model_catalog_updated` push. Fast eligibility follows
+ * `resolveFastTier`: a labeled Fast/priority tier, otherwise the unique
+ * non-default service tier.
  */
 export function setCodexRuntimeModelCatalog(models: unknown[]): void {
   runtimeModelCatalog.clear();
@@ -43,18 +44,23 @@ export function setCodexRuntimeModelCatalog(models: unknown[]): void {
       (typeof entry.id === 'string' && entry.id) ||
       '';
     if (!slug) continue;
-    const tiers = Array.isArray(entry.serviceTiers) ? entry.serviceTiers : [];
+    const tiers = (Array.isArray(entry.serviceTiers) ? entry.serviceTiers : [])
+      .map((tier) => {
+        if (!tier || typeof tier !== 'object') return null;
+        const id = (tier as { id?: unknown }).id;
+        if (typeof id !== 'string' || !id.trim()) return null;
+        const name = (tier as { name?: unknown }).name;
+        return {
+          id,
+          ...(typeof name === 'string' ? { name } : {}),
+        };
+      })
+      .filter((tier): tier is { id: string; name?: string } => Boolean(tier));
     const defaultTier = typeof entry.defaultServiceTier === 'string' ? entry.defaultServiceTier : null;
-    const nonDefault = tiers.filter(
-      (tier): tier is { id: string; name?: string } =>
-        !!tier && typeof tier === 'object' && typeof (tier as { id?: unknown }).id === 'string' &&
-        (tier as { id: string }).id !== defaultTier
-    );
+    const fastTier = resolveFastTier({ serviceTiers: tiers, defaultServiceTier: defaultTier });
     runtimeModelCatalog.set(slug, {
-      supportsFastMode: nonDefault.length === 1,
-      ...(nonDefault.length === 1 && typeof nonDefault[0].name === 'string'
-        ? { fastTierName: nonDefault[0].name }
-        : {}),
+      supportsFastMode: Boolean(fastTier),
+      ...(fastTier && typeof fastTier.name === 'string' ? { fastTierName: fastTier.name } : {}),
     });
   }
 }

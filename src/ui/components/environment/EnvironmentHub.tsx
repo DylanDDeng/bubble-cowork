@@ -17,6 +17,7 @@ import type { EnvironmentEditorLauncher } from '../../../shared/types';
 import type { ActiveEnvironmentContext } from './useActiveEnvironmentContext';
 import type { GitEnvironmentState } from './useGitEnvironment';
 import { EnvironmentGitActionsSection } from './EnvironmentGitActionsSection';
+import { EnvironmentComputerUseSection } from './EnvironmentComputerUseSection';
 import { useAppStore } from '../../store/useAppStore';
 import { deriveSubagentSummaries } from '../../utils/subagent-registry';
 import { SubagentAvatar } from '../SubagentAvatar';
@@ -375,6 +376,8 @@ export function EnvironmentHub({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const overview = git.overview;
+  const previewSessionId = useAppStore((s) => s.computerUsePreviewSessionId);
+  const previewOpen = Boolean(context.sessionId) && previewSessionId === context.sessionId;
 
   useEffect(() => {
     if (!open) return;
@@ -523,6 +526,11 @@ export function EnvironmentHub({
                     onClick={() => void copyPath(context.effectiveCwd)}
                   />
                 </section>
+                <EnvironmentComputerUseSection
+                  session={context.session}
+                  sessionId={context.sessionId}
+                  previewOpen={previewOpen}
+                />
                 <EnvironmentSubagentSection onNavigate={() => setOpen(false)} />
               </>
             )}

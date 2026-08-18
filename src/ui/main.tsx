@@ -1,7 +1,9 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { ComputerUsePreviewApp } from './components/ComputerUsePreviewApp';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { isComputerUsePreviewHash } from '../shared/computer-use';
 import './index.css';
 
 window.addEventListener('unhandledrejection', (event) => {
@@ -43,7 +45,7 @@ function GlobalErrorFallback() {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary fallback={<GlobalErrorFallback />}>
-      <App />
+      {isComputerUsePreviewHash(window.location.hash) ? <ComputerUsePreviewApp /> : <App />}
     </ErrorBoundary>
   </StrictMode>
 );

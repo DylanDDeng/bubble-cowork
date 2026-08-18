@@ -33,6 +33,19 @@ import {
 import { isSameClaudeModelSelection, normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfigWithCatalog, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
+import { resolveComputerUseArtifact } from './libs/codex-computer-use';
+import { computerUseGrants } from './libs/codex-computer-use-grants';
+import {
+  attachComputerUsePreviewHost,
+  closeComputerUsePreviewWindow,
+  forgetComputerUseSession,
+  getComputerUsePreviewSnapshot,
+  openComputerUsePreviewWindow,
+  rememberComputerUseGrants,
+  rememberComputerUseLive,
+  setComputerUsePreviewParked,
+  stopComputerUsePreviewIfSession,
+} from './libs/computer-use-preview-window';
 import {
   getDelegateMirrorTarget,
   hasActiveDelegationForParent,
@@ -4017,6 +4030,7 @@ interface OpenWithApp {
   iconDataUrl: string | null;
 }
 
+const computerUseAppIconByQuery = new Map<string, string | null>();
 // App icons are stable per bundle path; cache the data URLs so repeated
 // dropdown opens don't re-decode .icns files.
 const openWithIconCache = new Map<string, string | null>();
@@ -4581,6 +4595,71 @@ function getDarwinAppPath(appName: string): string | null {
   return candidates.find((appPath) => existsSync(appPath)) ?? null;
 }
 
+function isSafeComputerUseAppQuery(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 80) return false;
+  if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.includes('\0') || trimmed.includes('\n')) {
+    return false;
+  }
+  return true;
+}
+
+function looksLikeBundleId(value: string): boolean {
+  return value.includes('.') && !value.endsWith('.app');
+}
+
+async function resolveDarwinApplicationPath(appQuery: string): Promise<string | null> {
+  if (process.platform !== 'darwin' || !isSafeComputerUseAppQuery(appQuery)) return null;
+  if (!looksLikeBundleId(appQuery)) {
+    const known = getDarwinAppPath(appQuery);
+    if (known) return known;
+  }
+
+  const script = `
+    ObjC.import('AppKit');
+    function run(argv) {
+      const query = argv[0];
+      const ws = $.NSWorkspace.sharedWorkspace;
+      try {
+        const url = ws.URLForApplicationWithBundleIdentifier(query);
+        if (url && !url.isNil()) return ObjC.unwrap(url.path);
+      } catch (e) {}
+      try {
+        const path = ws.fullPathForApplication(query);
+        if (path && !path.isNil()) return ObjC.unwrap(path);
+      } catch (e) {}
+      return '';
+    }
+  `;
+  try {
+    const { stdout } = await execFileAsync(
+      'osascript',
+      ['-l', 'JavaScript', '-e', script, appQuery],
+      { timeout: 4000 }
+    );
+    const resolved = stdout.trim();
+    if (resolved && resolved.endsWith('.app') && existsSync(resolved)) return resolved;
+  } catch {
+    // Fall through.
+  }
+  return null;
+}
+
+async function readComputerUseAppIconDataUrl(appQuery: string): Promise<string | null> {
+  const key = appQuery.trim();
+  if (!key) return null;
+  if (computerUseAppIconByQuery.has(key)) return computerUseAppIconByQuery.get(key) ?? null;
+  const appPath = await resolveDarwinApplicationPath(key);
+  if (!appPath) {
+    computerUseAppIconByQuery.set(key, null);
+    return null;
+  }
+  await extractAppIconDataUrls([appPath]);
+  const dataUrl = openWithIconCache.get(appPath) ?? null;
+  computerUseAppIconByQuery.set(key, dataUrl);
+  return dataUrl;
+}
+
 async function getNativeIconDataUrl(appPath: string | null): Promise<string | undefined> {
   if (!appPath || process.platform !== 'darwin') return undefined;
 
@@ -4704,6 +4783,14 @@ async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: 
 export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
   sessions.initialize();
+  attachComputerUsePreviewHost(mainWindow);
+  computerUseGrants.on('change', ({ threadId, grants, reason }) => {
+    rememberComputerUseGrants(threadId, grants);
+    broadcast(mainWindow, {
+      type: 'computerUse.grants',
+      payload: { sessionId: threadId, grants, reason },
+    });
+  });
 
   // 加载 Claude 配置
   loadClaudeSettings();
@@ -6537,6 +6624,39 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   // RPC: 读取图片预览（data URL）
+  ipcMainHandle('read-computer-use-artifact', async (_event, sessionId: string, sha256: string) => {
+    const artifact = resolveComputerUseArtifact(app.getPath('userData'), sessionId, sha256);
+    if (!artifact) return null;
+    return `data:${artifact.mimeType};base64,${artifact.bytes.toString('base64')}`;
+  });
+
+  ipcMainHandle('read-computer-use-app-icon', async (_event, appQuery: string) => {
+    return readComputerUseAppIconDataUrl(typeof appQuery === 'string' ? appQuery : '');
+  });
+
+  ipcMainHandle('open-computer-use-preview', async (_event, input: import('../shared/computer-use').ComputerUsePreviewOpenInput) => {
+    return openComputerUsePreviewWindow(input);
+  });
+
+  ipcMainHandle('close-computer-use-preview', async () => {
+    closeComputerUsePreviewWindow();
+    return { ok: true, open: false };
+  });
+
+  ipcMainHandle('get-computer-use-preview-state', async () => {
+    return getComputerUsePreviewSnapshot();
+  });
+
+  ipcMainHandle('set-computer-use-preview-parked', async (_event, sha256: string | null) => {
+    setComputerUsePreviewParked(sha256);
+    return getComputerUsePreviewSnapshot();
+  });
+
+  ipcMainHandle('stop-computer-use', async (_event, sessionId: string) => {
+    stopComputerUseSession(mainWindow, sessionId);
+    return { ok: true };
+  });
+
   ipcMainHandle('read-attachment-preview', async (_event, filePath: string) => {
     const spec = getAttachmentSpec(filePath);
     if (!spec || spec.kind !== 'image') {
@@ -8508,6 +8628,14 @@ async function handleClientEvent(
 
     case 'permission.response':
       handlePermissionResponse(event.payload);
+      break;
+
+    case 'computerUse.revoke':
+      computerUseGrants.revoke(event.payload.sessionId, event.payload.grantKey);
+      break;
+
+    case 'computerUse.stop':
+      stopComputerUseSession(mainWindow, event.payload.sessionId);
       break;
 
     case 'mcp.get-config':
@@ -10723,6 +10851,23 @@ function startRunner(
         payload: { sessionId: dismissSessionId, toolUseId },
       });
     },
+    onComputerUseLive: (frame) => {
+      if (userStoppedRunnerHandles.has(handle) && runnerHandles.get(session.id)?.handle !== handle) {
+        return;
+      }
+      rememberComputerUseLive(session.id, frame);
+      broadcast(mainWindow, {
+        type: 'computerUse.live',
+        payload: { sessionId: session.id, frame },
+      });
+    },
+    onComputerUseGrants: (grants, reason) => {
+      rememberComputerUseGrants(session.id, grants);
+      broadcast(mainWindow, {
+        type: 'computerUse.grants',
+        payload: { sessionId: session.id, grants, reason },
+      });
+    },
     onToolOutputDelta: (toolUseId, delta) => {
       // Same stale-runner guard as onMessage: a stopped/replaced runner must
       // not paint live output over the replacement run's cards.
@@ -11164,7 +11309,23 @@ function resolveStopFallback(mainWindow: BrowserWindow, sessionId: string, entry
 /** How long to wait for an interrupted turn's result before hard-aborting. */
 const STOP_INTERRUPT_FALLBACK_MS = 8_000;
 
+function finishComputerUseUi(mainWindow: BrowserWindow, sessionId: string): void {
+  // Clear live + detached in one renderer update before closing the child
+  // window. Closing the preview first emits computerUse.preview(open:false)
+  // while live is still set, which docks the HUD back into the chat.
+  broadcast(mainWindow, {
+    type: 'computerUse.stopped',
+    payload: { sessionId },
+  });
+  stopComputerUsePreviewIfSession(sessionId);
+}
+
+function stopComputerUseSession(mainWindow: BrowserWindow, sessionId: string): void {
+  handleSessionStop(mainWindow, sessionId);
+}
+
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
+  finishComputerUseUi(mainWindow, sessionId);
   finishBrowserUseTurn(browserManager, sessionId);
   // Stop-cascade: stopping the parent also stops every delegated agent
   // running under it (their runners are separate entries keyed by their
@@ -11392,6 +11553,7 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
   }
 
   // 广播删除事件（幂等）
+  forgetComputerUseSession(sessionId);
   broadcast(mainWindow, {
     type: 'session.deleted',
     payload: { sessionId },

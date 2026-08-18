@@ -56,6 +56,13 @@ import {
   updateThemePack,
 } from '../theme/themes';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import {
+  appendComputerUseLiveFrame,
+  hydrateComputerUseFramesFromMessages,
+  mergeComputerUseLiveFrame,
+  mergeHydratedComputerUseFrames,
+  shouldAcceptComputerUseLive,
+} from '../../shared/computer-use';
 import { getMessageContentBlocks } from '../utils/message-content';
 import { loadPreferredProvider } from '../utils/provider';
 import {
@@ -513,6 +520,9 @@ function freshSessionViewFromInfo(info: import('../../shared/types').SessionInfo
     hasMoreHistory: false,
     loadingMoreHistory: false,
     permissionRequests: [],
+    computerUseLive: null,
+    computerUseFrames: [],
+    computerUseGrants: [],
     streaming: createEmptyStreamingState(),
     updatedAt: info.updatedAt,
   };
@@ -678,6 +688,17 @@ function sanitizeHistoryMessages(messages: StreamMessage[]): StreamMessage[] {
   return messages.filter((message) => message.type !== 'stream_event');
 }
 
+function framesFromComputerUseHistory(
+  sessionId: string,
+  current: import('../../shared/computer-use').ComputerUseLiveFrame[] | null | undefined,
+  messages: StreamMessage[]
+): import('../../shared/computer-use').ComputerUseLiveFrame[] {
+  return mergeHydratedComputerUseFrames(
+    current,
+    hydrateComputerUseFramesFromMessages({ sessionId, messages })
+  );
+}
+
 function extractLatestClaudeModelUsage(
   messages: StreamMessage[],
   preferredModel?: string | null
@@ -823,17 +844,23 @@ export const useAppStore = create<Store>()(
               const current = state.sessions[sessionId];
               if (!current) return state;
               const sanitizedMessages = sanitizeHistoryMessages(payload.messages);
+              const nextMessages = [...sanitizedMessages, ...current.messages];
               return {
                 sessions: {
                   ...state.sessions,
                   [sessionId]: {
                     ...current,
-                    messages: [...sanitizedMessages, ...current.messages],
+                    messages: nextMessages,
                     historyCursor: payload.cursor ?? null,
                     hasMoreHistory: payload.hasMore === true,
                     loadingMoreHistory: false,
+                    computerUseFrames: framesFromComputerUseHistory(
+                      sessionId,
+                      current.computerUseFrames,
+                      nextMessages
+                    ),
                     latestClaudeModelUsage:
-                      extractLatestClaudeModelUsage([...sanitizedMessages, ...current.messages], current.model),
+                      extractLatestClaudeModelUsage(nextMessages, current.model),
                   },
                 },
               };
@@ -926,6 +953,7 @@ export const useAppStore = create<Store>()(
       skinImage: null,
       skinImageData: null,
       skinOpacity: DEFAULT_SKIN_OPACITY,
+      computerUsePreviewSessionId: null,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -1033,6 +1061,66 @@ export const useAppStore = create<Store>()(
               ...state.sessions,
               [event.payload.sessionId]: { ...session, permissionRequests: remaining },
             },
+          };
+        });
+        break;
+
+      case 'computerUse.live':
+        set((state) => {
+          const session = state.sessions[event.payload.sessionId];
+          if (!session || !shouldAcceptComputerUseLive(session.status)) return state;
+          const frame = event.payload.frame;
+          const previous = session.computerUseFrames || [];
+          return {
+            ...state,
+            sessions: {
+              ...state.sessions,
+              [event.payload.sessionId]: {
+                ...session,
+                computerUseLive: mergeComputerUseLiveFrame(session.computerUseLive || null, frame),
+                computerUseFrames: appendComputerUseLiveFrame(previous, frame),
+              },
+            },
+          };
+        });
+        break;
+
+      case 'computerUse.grants':
+        set((state) => {
+          const session = state.sessions[event.payload.sessionId];
+          if (!session) return state;
+          return {
+            ...state,
+            sessions: {
+              ...state.sessions,
+              [event.payload.sessionId]: { ...session, computerUseGrants: event.payload.grants },
+            },
+          };
+        });
+        break;
+
+      case 'computerUse.preview':
+        set({
+          computerUsePreviewSessionId: event.payload.open ? event.payload.sessionId : null,
+        });
+        break;
+
+      case 'computerUse.stopped':
+        set((state) => {
+          const session = state.sessions[event.payload.sessionId];
+          if (!session && state.computerUsePreviewSessionId !== event.payload.sessionId) return state;
+          return {
+            ...state,
+            computerUsePreviewSessionId:
+              state.computerUsePreviewSessionId === event.payload.sessionId
+                ? null
+                : state.computerUsePreviewSessionId,
+            sessions: session
+              ? {
+                  ...state.sessions,
+                  [event.payload.sessionId]: { ...session, computerUseLive: null },
+                }
+              : state.sessions,
           };
         });
         break;
@@ -2699,6 +2787,9 @@ function handleSessionList(
       hydrationError: existing?.hydrationError ?? false,
       hydrationAttempts: existing?.hydrationAttempts ?? 0,
       permissionRequests: existing?.permissionRequests || [],
+      computerUseLive: existing?.computerUseLive ?? null,
+      computerUseFrames: existing?.computerUseFrames || [],
+      computerUseGrants: existing?.computerUseGrants || [],
       streaming: existing?.streaming || createEmptyStreamingState(),
       runtimeNotice: existing?.runtimeNotice,
       updatedAt: session.updatedAt,
@@ -2848,7 +2939,19 @@ function handleSessionStatus(
               : session.runtimeNotice;
 
     // 更新现有会话
+    if (
+      !shouldAcceptComputerUseLive(status) &&
+      state.computerUsePreviewSessionId === sessionId &&
+      typeof window !== 'undefined' &&
+      window.electron?.closeComputerUsePreview
+    ) {
+      void window.electron.closeComputerUsePreview();
+    }
     set({
+      computerUsePreviewSessionId:
+        !shouldAcceptComputerUseLive(status) && state.computerUsePreviewSessionId === sessionId
+          ? null
+          : state.computerUsePreviewSessionId,
       sessions: {
         ...state.sessions,
         [sessionId]: {
@@ -2862,6 +2965,9 @@ function handleSessionStatus(
             status === 'running' && session.status !== 'running'
               ? null
               : session.activeCodexTurnId ?? null,
+          // The live HUD is only for an in-flight turn. Screenshot history
+          // stays in computerUseFrames / Environment after the turn settles.
+          computerUseLive: shouldAcceptComputerUseLive(status) ? session.computerUseLive : null,
           title: title || session.title,
           scope: scope || session.scope || 'project',
           agentId:
@@ -3074,6 +3180,11 @@ function handleSessionHistory(
           hydrationError: false,
           hydrationAttempts: 0,
           streaming: createEmptyStreamingState(),
+          computerUseFrames: framesFromComputerUseHistory(
+            sessionId,
+            session.computerUseFrames,
+            sanitizedMessages
+          ),
         },
       },
     };

@@ -1,4 +1,9 @@
 import type { CanonicalToolKind, ToolStatus } from '../types';
+import {
+  classifyComputerUseAction,
+  formatComputerUseLabel,
+  parseMcpToolName,
+} from '../../shared/computer-use';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -220,6 +225,12 @@ function firstNonFlagToken(args: string): string | null {
 }
 
 function describeBashCommand(command: string, status: ToolStatus): ReadableToolDisplay {
+  if (/computer-use\/(?:skills\/)?computer-use\/SKILL\.md|skills\/computer-use\/SKILL\.md/.test(command)) {
+    return {
+      verb: pickVerb(['Reading', 'Read'], status),
+      target: 'Computer Use skill',
+    };
+  }
   const inner = unwrapShellCommand(command);
   // Strip the suffix after pipes / chains so the verb describes the leading
   // command rather than the full pipeline.
@@ -386,6 +397,17 @@ export function deriveReadableToolDisplay(
     return { verb: pickVerb(DEFAULT_VERB, status), target: summary ? truncate(summary, 60) : 'question' };
   }
 
+  const action = classifyComputerUseAction({
+    toolName: name,
+    app: getStringField(input, 'app'),
+    title: getProviderDisplayTitle(input),
+  });
+  if (action) {
+    const mappedStatus =
+      status === 'error' ? 'error' : status === 'interrupted' ? 'interrupted' : status === 'success' ? 'success' : 'pending';
+    return { verb: '', target: formatComputerUseLabel(action, mappedStatus) };
+  }
+
   // MCP-style names like "mcp__server__tool" — show just the tool segment.
   if (name.startsWith('mcp__')) {
     const parts = name.split('__');
@@ -480,6 +502,13 @@ export function classifyToolUse(toolName: string, input: unknown): CanonicalTool
     toolName.endsWith('__remember_recent')
   ) {
     return 'memory';
+  }
+  if (classifyComputerUseAction({ toolName, app: getStringField(input, 'app'), title: getProviderDisplayTitle(input) })) {
+    return 'computer_use';
+  }
+  const parsed = parseMcpToolName(toolName);
+  if (parsed && classifyComputerUseAction({ server: parsed.server, tool: parsed.tool, toolName })) {
+    return 'computer_use';
   }
   if (toolName.startsWith('mcp__')) return 'mcp_tool_call';
   return 'unknown';

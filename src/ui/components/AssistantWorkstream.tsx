@@ -33,6 +33,7 @@ import {
   type UnifiedDiffHunk,
 } from '../utils/unified-diff';
 import { DiffHunkView } from './UnifiedDiffView';
+import { ComputerUseAppIcon } from './ComputerUseAppIcon';
 import { TodoProgressCard } from './TodoProgressCard';
 import { DiffStatLabel } from './DiffStatLabel';
 import { useTurnDiffContext } from './TurnDiffContext';
@@ -245,7 +246,11 @@ function StageRow({
   }, [stage.defaultExpanded]);
 
   const hasErrorFallback = stage.status === 'error' && stage.entries.some(hasRawEntryDetail);
-  const canExpand = stage.files.length > 0 || stage.commands.length > 0 || hasErrorFallback;
+  const canExpand =
+    stage.files.length > 0 ||
+    stage.commands.length > 0 ||
+    hasErrorFallback ||
+    (stage.kind === 'computer_use' && stage.entries.some(hasComputerUseStageDetail));
   const isPending = stage.status === 'pending';
   const isError = stage.status === 'error';
   const titleClass = isError
@@ -291,6 +296,9 @@ function StageKindIcon({ stage }: { stage: WorkstreamStage }) {
   if (stage.kind === 'edit') return <FileDiff className={className} />;
   if (stage.kind === 'command') return <SquareTerminal className={className} />;
   if (stage.kind === 'approval') return <ShieldAlert className={className} />;
+  if (stage.kind === 'computer_use') {
+    return <ComputerUseAppIcon app={stage.computerUseApp} className={className} />;
+  }
   if (stage.kind === 'error') return <CircleX className={className} />;
   return <FolderSearch className={className} />;
 }
@@ -349,6 +357,7 @@ function StageDetails({
         <StageFilesDetail stage={stage} onOpenDiff={onOpenDiff} />
       ) : null}
       {stage.commands.length > 0 ? <StageCommandsDetail commands={stage.commands} /> : null}
+      {stage.kind === 'computer_use' ? <StageComputerUseDetail entries={stage.entries} /> : null}
       {showErrorFallback ? (
         <StageErrorFallback entries={stage.entries} />
       ) : stage.status === 'error' ? (
@@ -360,6 +369,67 @@ function StageDetails({
 
 // Command failures already show their output in StageCommandsDetail, so the
 // failure notes only cover the remaining failed entries (e.g. a rejected Edit).
+function hasComputerUseStageDetail(entry: WorkstreamEntry): boolean {
+  if (entry.type !== 'tool' && entry.type !== 'task' && entry.type !== 'memory') return false;
+  return hasEntryDetail(entry);
+}
+
+function StageComputerUseDetail({ entries }: { entries: WorkstreamEntry[] }) {
+  const tools = entries.filter(
+    (entry): entry is Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }> =>
+      entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory'
+  );
+  if (tools.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {tools.map((entry) => (
+        <ToolEntryDetail key={entry.id} entry={entry} />
+      ))}
+    </div>
+  );
+}
+
+function ComputerUseScreenshots({ refs }: { refs: NonNullable<ToolResultBlock['mediaRefs']> }) {
+  const [previews, setPreviews] = useState<Record<string, string | null>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      refs.map(async (ref) => {
+        try {
+          const dataUrl = await window.electron.readComputerUseArtifact(ref.sessionId, ref.sha256);
+          return [ref.sha256, dataUrl] as const;
+        } catch {
+          return [ref.sha256, null] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setPreviews(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [refs]);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {refs.map((ref) => (
+        <div
+          key={ref.sha256}
+          className="overflow-hidden rounded border border-[var(--border)]/50 bg-[var(--bg-secondary)]"
+        >
+          {previews[ref.sha256] ? (
+            <img src={previews[ref.sha256] || ''} alt="Computer use screenshot" className="max-h-40 max-w-full" />
+          ) : (
+            <div className="px-2 py-1 text-[11px] text-[var(--text-muted)]">Screenshot saved</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function StageFailureNotes({ entries }: { entries: WorkstreamEntry[] }) {
   const failed = entries.filter(isFailedNonCommandEntry);
   if (failed.length === 0) return null;
@@ -1075,6 +1145,9 @@ function ToolEntryDetail({
 
   return (
     <div className="my-1 space-y-2 text-[12px]">
+      {entry.result?.mediaRefs && entry.result.mediaRefs.length > 0 ? (
+        <ComputerUseScreenshots refs={entry.result.mediaRefs} />
+      ) : null}
       {hasArgs ? (
         <CollapsibleSection
           label="Arguments"

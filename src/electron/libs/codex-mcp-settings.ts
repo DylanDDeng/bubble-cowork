@@ -3,6 +3,12 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import type { McpServerConfig } from './claude-settings';
+import {
+  buildComputerUseMcpOverrideArgs,
+  resolveComputerUseClientPath,
+  type ComputerUseSpawnPolicy,
+} from './codex-computer-use';
+import { NODE_REPL_SERVER_NAME } from '../../shared/computer-use';
 
 // Aegis owns a private Codex MCP catalog. The user's ~/.codex/config.toml is
 // read exactly once to seed that catalog and is never written. At runtime the
@@ -370,7 +376,9 @@ function formatDottedSegment(value: string): string {
  * auth/session/config behavior while ensuring the MCP editor, Browser Use, and
  * delegate server never write ~/.codex/config.toml.
  */
-export function buildCodexMcpConfigOverrideArgs(): string[] {
+export function buildCodexMcpConfigOverrideArgs(options?: {
+  computerUsePolicy?: ComputerUseSpawnPolicy;
+}): string[] {
   const text = readText();
   const sections = findMcpSections(splitLines(text));
   const args = ['-c', 'mcp_servers={}'];
@@ -425,6 +433,14 @@ export function buildCodexMcpConfigOverrideArgs(): string[] {
       pushOverride(key, value);
     }
   }
+
+  args.push(
+    ...buildComputerUseMcpOverrideArgs({
+      clientPath: resolveComputerUseClientPath(),
+      policy: options?.computerUsePolicy ?? 'mutating',
+      hasNodeRepl: privateNames.has(NODE_REPL_SERVER_NAME),
+    })
+  );
 
   return args;
 }

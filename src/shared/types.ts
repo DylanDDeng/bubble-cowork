@@ -1,3 +1,5 @@
+import type { ComputerUseGrantView, ComputerUseLiveFrame, ComputerUseMediaRef } from './computer-use';
+
 // 共享类型定义（可导出）
 
 // ===== 文件夹配置 =====
@@ -824,6 +826,8 @@ export type ClientEvent =
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.togglePin'; payload: { sessionId: string } }
   | { type: 'permission.response'; payload: PermissionResponsePayload }
+  | { type: 'computerUse.revoke'; payload: { sessionId: string; grantKey?: string } }
+  | { type: 'computerUse.stop'; payload: { sessionId: string } }
   // MCP 事件
   | { type: 'mcp.get-config'; payload?: { projectPath?: string } }
   | { type: 'mcp.save-config'; payload: {
@@ -878,6 +882,10 @@ export type ServerEvent =
   // The provider resolved/abandoned a pending permission request (process
   // death, stop, server-side resolution) — the card must be dropped.
   | { type: 'permission.dismissed'; payload: { sessionId: string; toolUseId: string } }
+  | { type: 'computerUse.live'; payload: { sessionId: string; frame: ComputerUseLiveFrame } }
+  | { type: 'computerUse.grants'; payload: { sessionId: string; grants: ComputerUseGrantView[]; reason: string } }
+  | { type: 'computerUse.preview'; payload: { sessionId: string; open: boolean } }
+  | { type: 'computerUse.stopped'; payload: { sessionId: string } }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
   // Codex app-server pushed a fresh authoritative model catalog — renderers
   // should refetch codex model config (fast-mode eligibility may change).
@@ -1395,6 +1403,8 @@ export interface PermissionResult {
   updatedInput?: Record<string, unknown>;
   message?: string;
   scope?: 'once' | 'session';
+  /** Aegis-only Computer Use grant. Never mapped to Codex persist. */
+  computerUseGrant?: 'until-revoked';
 }
 
 // AskUserQuestion 输入结构
@@ -1460,12 +1470,29 @@ export interface BrowserNavigationPermissionInput {
   url: string;
 }
 
+export interface ComputerUsePermissionInput {
+  kind: 'computer-use';
+  question: string;
+  title: string;
+  server: string | null;
+  toolName: string;
+  toolTitle: string | null;
+  app: string | null;
+  mutating: boolean;
+  code: string | null;
+  params: Record<string, unknown>;
+  paramLines: Array<{ label: string; value: string }>;
+  canAllowForSession: boolean;
+  canAllowUntilRevoked: boolean;
+}
+
 export type PermissionRequestInput =
   | AskUserQuestionInput
   | ExternalFilePermissionInput
   | CodexApprovalPermissionInput
   | AcpPermissionInput
-  | BrowserNavigationPermissionInput;
+  | BrowserNavigationPermissionInput
+  | ComputerUsePermissionInput;
 
 // StreamMessage 类型（SDK 消息或内部消息）
 export type StreamMessageBase = {
@@ -1639,7 +1666,7 @@ export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'thinking'; thinking: string; signature?: string; durationMs?: number }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; mediaRefs?: ComputerUseMediaRef[] }
   | { type: 'memory_citations'; citations: MemoryCitation[] };
 
 export interface MemoryCitation {
@@ -1667,6 +1694,7 @@ export type CanonicalToolKind =
   | 'memory'
   | 'image_view'
   | 'approval'
+  | 'computer_use'
   | 'unknown';
 
 export interface StreamEvent {

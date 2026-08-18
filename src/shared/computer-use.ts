@@ -1,0 +1,580 @@
+export const AEGIS_COMPUTER_USE_SERVER_NAME = 'aegis-computer-use';
+export const CODEX_COMPUTER_USE_SERVER_NAME = 'computer-use';
+export const NODE_REPL_SERVER_NAME = 'node_repl';
+
+export const COMPUTER_USE_READ_ONLY_TOOLS = ['list_apps', 'get_app_state'] as const;
+export const COMPUTER_USE_MUTATING_TOOLS = [
+  'click',
+  'perform_secondary_action',
+  'set_value',
+  'select_text',
+  'scroll',
+  'drag',
+  'press_key',
+  'type_text',
+] as const;
+export const COMPUTER_USE_TOOLS = [
+  ...COMPUTER_USE_READ_ONLY_TOOLS,
+  ...COMPUTER_USE_MUTATING_TOOLS,
+] as const;
+
+export type ComputerUseActionKind =
+  | (typeof COMPUTER_USE_TOOLS)[number]
+  | 'script'
+  | 'unknown';
+
+export interface ComputerUseMediaRef {
+  sessionId: string;
+  sha256: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface ComputerUseGrantView {
+  key: string;
+  threadId: string;
+  providerThreadId: string | null;
+  generation: number;
+  server: string;
+  tool: string;
+  app: string;
+  maxRisk: number;
+  createdAt: number;
+}
+
+export interface ComputerUseLiveFrame {
+  threadId: string;
+  toolUseId: string;
+  label: string;
+  app: string | null;
+  tool: string | null;
+  mutating: boolean;
+  media: ComputerUseMediaRef | null;
+  hasFreshMedia: boolean;
+  at: number;
+}
+
+export const COMPUTER_USE_FRAME_LIMIT = 12;
+export const COMPUTER_USE_PREVIEW_HASH = 'computer-use-preview';
+
+export interface ComputerUsePreviewSnapshot {
+  sessionId: string;
+  parkedSha256: string | null;
+  live: ComputerUseLiveFrame | null;
+  frames: ComputerUseLiveFrame[];
+  grants: ComputerUseGrantView[];
+}
+
+export interface ComputerUsePreviewOpenInput {
+  sessionId: string;
+  parkedSha256?: string | null;
+  live?: ComputerUseLiveFrame | null;
+  frames?: ComputerUseLiveFrame[];
+  grants?: ComputerUseGrantView[];
+}
+
+export function computerUsePreviewWindowPolicy() {
+  return {
+    alwaysOnTop: false as const,
+    fullscreenable: false as const,
+    modal: false as const,
+    type: null,
+    visibleOnAllWorkspaces: false as const,
+    hash: COMPUTER_USE_PREVIEW_HASH,
+    hasParent: true as const,
+  };
+}
+
+export function isComputerUsePreviewHash(hash: string): boolean {
+  return hash.replace(/^#\/?/, '') === COMPUTER_USE_PREVIEW_HASH;
+}
+
+export function isComputerUseArtifactSha256(value: string | null | undefined): boolean {
+  return /^[a-f0-9]{64}$/i.test((value || '').trim());
+}
+
+export function appendComputerUseLiveFrame(
+  previous: ComputerUseLiveFrame[],
+  frame: ComputerUseLiveFrame
+): ComputerUseLiveFrame[] {
+  if (!frame.hasFreshMedia) return previous;
+  return [...previous.filter((item) => item.media?.sha256 !== frame.media?.sha256), frame].slice(
+    -COMPUTER_USE_FRAME_LIMIT
+  );
+}
+
+export function mergeComputerUseLiveFrame(
+  current: ComputerUseLiveFrame | null,
+  frame: ComputerUseLiveFrame
+): ComputerUseLiveFrame {
+  if (frame.hasFreshMedia) return frame;
+  if (!current) return frame;
+  return {
+    ...current,
+    label: frame.label,
+    app: frame.app,
+    tool: frame.tool,
+    mutating: frame.mutating,
+    at: frame.at,
+    hasFreshMedia: false,
+  };
+}
+
+export function canonicalizeComputerUseApp(app: string | null | undefined): string | null {
+  const raw = (app || '').trim();
+  return raw || null;
+}
+
+/** Localized / informal names Codex and Sky use in titles and JS payloads. */
+const COMPUTER_USE_APP_DISPLAY_NAMES: Record<string, string> = {
+  notes: 'Notes',
+  备忘录: 'Notes',
+  safari: 'Safari',
+  chrome: 'Google Chrome',
+  'google chrome': 'Google Chrome',
+  finder: 'Finder',
+  terminal: 'Terminal',
+  mail: 'Mail',
+  邮件: 'Mail',
+  calendar: 'Calendar',
+  日历: 'Calendar',
+  messages: 'Messages',
+  信息: 'Messages',
+  photos: 'Photos',
+  照片: 'Photos',
+  preview: 'Preview',
+  预览: 'Preview',
+  music: 'Music',
+  音乐: 'Music',
+  maps: 'Maps',
+  地图: 'Maps',
+  reminders: 'Reminders',
+  提醒事项: 'Reminders',
+  'system settings': 'System Settings',
+  系统设置: 'System Settings',
+  textedit: 'TextEdit',
+  'text edit': 'TextEdit',
+  文本编辑: 'TextEdit',
+};
+
+function firstComputerUseString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+export function displayNameForComputerUseApp(app: string | null | undefined): string | null {
+  const raw = (app || '').trim();
+  if (!raw) return null;
+  return COMPUTER_USE_APP_DISPLAY_NAMES[raw.toLowerCase()] || COMPUTER_USE_APP_DISPLAY_NAMES[raw] || raw;
+}
+
+function extractAppFromSkyCode(code: string): string | null {
+  const match = code.match(/\b(?:app|bundleId|bundle_id)\s*:\s*["']([^"']+)["']/i);
+  return match?.[1] ? displayNameForComputerUseApp(match[1]) : null;
+}
+
+function extractAppFromTitle(title: string): string | null {
+  const aliases = Object.entries(COMPUTER_USE_APP_DISPLAY_NAMES).sort((left, right) => right[0].length - left[0].length);
+  for (const [alias, name] of aliases) {
+    if (/^[\u0000-\u007f]+$/.test(alias)) {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`, 'i').test(title)) return name;
+    } else if (title.includes(alias)) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the target macOS app for a Computer Use tool call.
+ * `node_repl` payloads often omit `input.app` and only mention it in JS (`app:"Notes"`)
+ * or a localized title (备忘录).
+ */
+export function extractComputerUseAppName(input: Record<string, unknown> | null | undefined): string | null {
+  const record = input && typeof input === 'object' ? input : {};
+  const nested = record.__aegisComputerUse;
+  const nestedRecord =
+    nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? (nested as Record<string, unknown>)
+      : {};
+
+  const direct = displayNameForComputerUseApp(
+    firstComputerUseString(
+      record.app,
+      record.application,
+      record.bundleId,
+      record.bundle_id,
+      nestedRecord.app
+    )
+  );
+  if (direct) return direct;
+
+  const code = firstComputerUseString(record.code);
+  if (code) {
+    const fromCode = extractAppFromSkyCode(code);
+    if (fromCode) return fromCode;
+  }
+
+  const title = firstComputerUseString(record.title, record.__aegisDisplayTitle, nestedRecord.title);
+  if (title) {
+    const fromTitle = extractAppFromTitle(title);
+    if (fromTitle) return fromTitle;
+  }
+
+  return null;
+}
+
+export function computerUseRiskRank(risk: string | null | undefined): number {
+  const value = (risk || '').trim().toLowerCase();
+  if (value === 'critical' || value === 'high') return 3;
+  if (value === 'medium' || value === 'moderate') return 2;
+  if (value === 'low') return 1;
+  return 0;
+}
+
+export function formatComputerUseGrantLabel(tool: string, app: string): string {
+  return `Allow ${tool} in ${app} until revoked`;
+}
+
+export function shouldAcceptComputerUseLive(status: string | null | undefined): boolean {
+  return status === 'running';
+}
+
+export function environmentHasComputerUseSection(input: {
+  frames?: Array<{ media?: ComputerUseMediaRef | null }> | null;
+  grants?: unknown[] | null;
+}): boolean {
+  const frames = input.frames || [];
+  const grants = input.grants || [];
+  return frames.some((frame) => Boolean(frame.media)) || grants.length > 0;
+}
+
+export function computerUseScreenshotExtension(mimeType: string | null | undefined): 'png' | 'jpg' {
+  const mime = (mimeType || '').toLowerCase();
+  if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+  return 'png';
+}
+
+export function formatComputerUseScreenshotFileName(input: {
+  app?: string | null;
+  mimeType?: string | null;
+  index: number;
+}): string {
+  const ext = computerUseScreenshotExtension(input.mimeType);
+  const raw = displayNameForComputerUseApp(input.app) || 'screenshot';
+  const stem = raw.replace(/[^\w\u4e00-\u9fff.-]+/g, '-').replace(/^-+|-+$/g, '') || 'screenshot';
+  const index = Number.isFinite(input.index) && input.index > 0 ? Math.floor(input.index) : 1;
+  return `${stem}-${index}.${ext}`;
+}
+
+type HydrateComputerUseMessage = {
+  type?: unknown;
+  createdAt?: unknown;
+  message?: { content?: unknown } | null;
+};
+
+function readComputerUseMediaRef(value: unknown, fallbackSessionId: string): ComputerUseMediaRef | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const sha256 = typeof record.sha256 === 'string' ? record.sha256 : '';
+  if (!isComputerUseArtifactSha256(sha256)) return null;
+  return {
+    sessionId:
+      typeof record.sessionId === 'string' && record.sessionId.trim()
+        ? record.sessionId
+        : fallbackSessionId,
+    sha256,
+    mimeType: typeof record.mimeType === 'string' && record.mimeType.trim() ? record.mimeType : 'image/png',
+    sizeBytes: typeof record.sizeBytes === 'number' && Number.isFinite(record.sizeBytes) ? record.sizeBytes : 0,
+  };
+}
+
+/**
+ * Rebuild Environment filmstrip frames from persisted tool_result mediaRefs.
+ * Does not restore the live HUD or grants.
+ */
+export function hydrateComputerUseFramesFromMessages(input: {
+  sessionId: string;
+  messages: HydrateComputerUseMessage[];
+}): ComputerUseLiveFrame[] {
+  const toolUses = new Map<string, { name: string; input: Record<string, unknown> }>();
+  const frames: ComputerUseLiveFrame[] = [];
+  const seen = new Set<string>();
+
+  for (const [index, message] of input.messages.entries()) {
+    const content = message?.message && typeof message.message === 'object' ? message.message.content : undefined;
+    const blocks = Array.isArray(content) ? content : [];
+    const at = typeof message.createdAt === 'number' ? message.createdAt : index;
+
+    for (const block of blocks) {
+      if (!block || typeof block !== 'object' || Array.isArray(block)) continue;
+      const record = block as Record<string, unknown>;
+      if (record.type === 'tool_use' && typeof record.id === 'string' && record.id) {
+        toolUses.set(record.id, {
+          name: typeof record.name === 'string' ? record.name : '',
+          input:
+            record.input && typeof record.input === 'object' && !Array.isArray(record.input)
+              ? (record.input as Record<string, unknown>)
+              : {},
+        });
+      }
+
+      const mediaRefs = Array.isArray(record.mediaRefs) ? record.mediaRefs : [];
+      if (mediaRefs.length === 0) continue;
+      const toolUseId = typeof record.tool_use_id === 'string' ? record.tool_use_id : '';
+      const tool = toolUses.get(toolUseId);
+      const app = extractComputerUseAppName(tool?.input ?? null);
+      const title =
+        (typeof tool?.input.__aegisDisplayTitle === 'string' && tool.input.__aegisDisplayTitle.trim()) ||
+        (typeof tool?.input.title === 'string' && tool.input.title.trim()) ||
+        null;
+      const parsed = tool?.name ? parseMcpToolName(tool.name) : null;
+
+      for (const rawRef of mediaRefs) {
+        const media = readComputerUseMediaRef(rawRef, input.sessionId);
+        if (!media) continue;
+        const key = media.sha256.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        frames.push({
+          threadId: input.sessionId,
+          toolUseId,
+          label: title || (app ? `Looked at ${app}` : 'Looked at the screen'),
+          app,
+          tool: parsed?.tool || null,
+          mutating: false,
+          media,
+          hasFreshMedia: true,
+          at,
+        });
+      }
+    }
+  }
+
+  return frames.slice(-COMPUTER_USE_FRAME_LIMIT);
+}
+
+export function mergeHydratedComputerUseFrames(
+  current: ComputerUseLiveFrame[] | null | undefined,
+  hydrated: ComputerUseLiveFrame[]
+): ComputerUseLiveFrame[] {
+  const bySha = new Map<string, ComputerUseLiveFrame>();
+  for (const frame of hydrated) {
+    const sha = frame.media?.sha256?.toLowerCase();
+    if (!sha) continue;
+    bySha.set(sha, frame);
+  }
+  for (const frame of current || []) {
+    const sha = frame.media?.sha256?.toLowerCase();
+    if (!sha) continue;
+    bySha.set(sha, frame);
+  }
+  return [...bySha.values()].sort((left, right) => left.at - right.at).slice(-COMPUTER_USE_FRAME_LIMIT);
+}
+
+export interface ComputerUseAction {
+  kind: ComputerUseActionKind;
+  mutating: boolean;
+  app: string | null;
+  title: string | null;
+  server: string | null;
+  tool: string | null;
+}
+
+export const AEGIS_COMPUTER_USE_DENIED_APP_IDS = [
+  'com.aegis.desktop',
+  'com.github.Electron',
+] as const;
+
+const AEGIS_DENIED_APP_NAMES = new Set(['aegis', 'electron', 'aegis dev']);
+
+export function isComputerUseMutatingTool(tool: string | null | undefined): boolean {
+  const normalized = (tool || '').trim().toLowerCase();
+  return (COMPUTER_USE_MUTATING_TOOLS as readonly string[]).includes(normalized);
+}
+
+export function isComputerUseReadOnlyTool(tool: string | null | undefined): boolean {
+  const normalized = (tool || '').trim().toLowerCase();
+  return (COMPUTER_USE_READ_ONLY_TOOLS as readonly string[]).includes(normalized);
+}
+
+export function parseMcpToolName(
+  toolName: string
+): { server: string; tool: string } | null {
+  const match = /^mcp__([^_].*)__([^_].*)$/.exec(toolName);
+  if (!match) return null;
+  return { server: match[1], tool: match[2] };
+}
+
+export function isComputerUseServerName(server: string | null | undefined): boolean {
+  const normalized = (server || '').trim().toLowerCase();
+  return (
+    normalized === AEGIS_COMPUTER_USE_SERVER_NAME ||
+    normalized === CODEX_COMPUTER_USE_SERVER_NAME
+  );
+}
+
+export function isNodeReplServerName(server: string | null | undefined): boolean {
+  return (server || '').trim().toLowerCase() === NODE_REPL_SERVER_NAME;
+}
+
+export function isDeniedComputerUseTarget(app: string | null | undefined): boolean {
+  const raw = (app || '').trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  if (AEGIS_COMPUTER_USE_DENIED_APP_IDS.some((id) => id.toLowerCase() === lower)) {
+    return true;
+  }
+  if (AEGIS_DENIED_APP_NAMES.has(lower)) return true;
+  if (lower.includes('com.aegis.') || lower.endsWith('.aegis.desktop')) return true;
+  return false;
+}
+
+export function classifyComputerUseAction(input: {
+  toolName?: string | null;
+  server?: string | null;
+  tool?: string | null;
+  app?: string | null;
+  title?: string | null;
+}): ComputerUseAction | null {
+  const parsed = input.toolName ? parseMcpToolName(input.toolName) : null;
+  const server = input.server || parsed?.server || null;
+  const tool = input.tool || parsed?.tool || null;
+  if (!isComputerUseServerName(server) && !isNodeReplServerName(server)) {
+    if (tool && isComputerUseServerName(input.toolName)) {
+      // fall through for bare computer-use tool names
+    } else if (!tool || !isComputerUseActionKind(tool)) {
+      return null;
+    }
+  }
+
+  if (isNodeReplServerName(server) && (tool === 'js' || tool == null)) {
+    return {
+      kind: 'script',
+      mutating: true,
+      app: input.app || null,
+      title: input.title || null,
+      server,
+      tool: tool || 'js',
+    };
+  }
+
+  const kind = isComputerUseActionKind(tool) ? tool : 'unknown';
+  return {
+    kind,
+    mutating: kind === 'unknown' ? true : isComputerUseMutatingTool(kind),
+    app: input.app || null,
+    title: input.title || null,
+    server,
+    tool,
+  };
+}
+
+export function isComputerUseActionKind(value: string | null | undefined): value is ComputerUseActionKind {
+  const normalized = (value || '').trim();
+  return (
+    (COMPUTER_USE_TOOLS as readonly string[]).includes(normalized) ||
+    normalized === 'script' ||
+    normalized === 'unknown'
+  );
+}
+
+export function formatComputerUseLabel(
+  action: ComputerUseAction,
+  status: 'pending' | 'success' | 'error' | 'interrupted' = 'pending'
+): string {
+  if (action.title && action.title.trim()) {
+    return action.title.trim();
+  }
+
+  const app = action.app?.trim() || null;
+  const done = status === 'success';
+  const failed = status === 'error';
+  const interrupted = status === 'interrupted';
+  const prefix = failed ? 'Failed to ' : interrupted ? 'Interrupted ' : done ? '' : '';
+  const progressive = !done && !failed && !interrupted;
+
+  switch (action.kind) {
+    case 'list_apps':
+      return progressive ? 'Listing apps' : `${prefix}${done ? 'Listed apps' : 'list apps'}`;
+    case 'get_app_state':
+      return app
+        ? progressive
+          ? `Looking at ${app}`
+          : `${prefix}${done ? `Looked at ${app}` : `look at ${app}`}`
+        : progressive
+          ? 'Looking at the screen'
+          : `${prefix}${done ? 'Looked at the screen' : 'look at the screen'}`;
+    case 'click':
+      return app
+        ? progressive
+          ? `Clicking in ${app}`
+          : `${prefix}${done ? `Clicked in ${app}` : `click in ${app}`}`
+        : progressive
+          ? 'Clicking'
+          : `${prefix}${done ? 'Clicked' : 'click'}`;
+    case 'type_text':
+      return app
+        ? progressive
+          ? `Typing in ${app}`
+          : `${prefix}${done ? `Typed in ${app}` : `type in ${app}`}`
+        : progressive
+          ? 'Typing'
+          : `${prefix}${done ? 'Typed' : 'type'}`;
+    case 'press_key':
+      return app
+        ? progressive
+          ? `Pressing a key in ${app}`
+          : `${prefix}${done ? `Pressed a key in ${app}` : `press a key in ${app}`}`
+        : progressive
+          ? 'Pressing a key'
+          : `${prefix}${done ? 'Pressed a key' : 'press a key'}`;
+    case 'set_value':
+      return app
+        ? progressive
+          ? `Setting a value in ${app}`
+          : `${prefix}${done ? `Set a value in ${app}` : `set a value in ${app}`}`
+        : progressive
+          ? 'Setting a value'
+          : `${prefix}${done ? 'Set a value' : 'set a value'}`;
+    case 'scroll':
+      return app
+        ? progressive
+          ? `Scrolling in ${app}`
+          : `${prefix}${done ? `Scrolled in ${app}` : `scroll in ${app}`}`
+        : progressive
+          ? 'Scrolling'
+          : `${prefix}${done ? 'Scrolled' : 'scroll'}`;
+    case 'drag':
+      return app
+        ? progressive
+          ? `Dragging in ${app}`
+          : `${prefix}${done ? `Dragged in ${app}` : `drag in ${app}`}`
+        : progressive
+          ? 'Dragging'
+          : `${prefix}${done ? 'Dragged' : 'drag'}`;
+    case 'select_text':
+      return app
+        ? progressive
+          ? `Selecting text in ${app}`
+          : `${prefix}${done ? `Selected text in ${app}` : `select text in ${app}`}`
+        : progressive
+          ? 'Selecting text'
+          : `${prefix}${done ? 'Selected text' : 'select text'}`;
+    case 'perform_secondary_action':
+      return app
+        ? progressive
+          ? `Acting in ${app}`
+          : `${prefix}${done ? `Acted in ${app}` : `act in ${app}`}`
+        : progressive
+          ? 'Performing an action'
+          : `${prefix}${done ? 'Performed an action' : 'perform an action'}`;
+    case 'script':
+      return progressive ? 'Running a computer-use script' : `${prefix}${done ? 'Ran a computer-use script' : 'run a computer-use script'}`;
+    default:
+      return progressive ? 'Using the computer' : `${prefix}${done ? 'Used the computer' : 'use the computer'}`;
+  }
+}

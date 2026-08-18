@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
-import { promises as fsPromises } from 'fs';
+import { existsSync, promises as fsPromises, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, resolve } from 'path';
 import * as readline from 'readline';
@@ -30,7 +30,22 @@ import type {
   McpServerStatus,
 } from '../../../shared/types';
 import { isDev } from '../../util';
+import { resolveFastTier } from '../../../shared/codex-fast-tier';
 import { buildCodexMcpConfigOverrideArgs } from '../codex-mcp-settings';
+import {
+  COMPUTER_USE_DENIED_TARGET_MESSAGE,
+  COMPUTER_USE_LEASE_MESSAGE,
+  computerUseLease,
+  resolveComputerUseSpawnPolicy,
+  type ComputerUseSpawnPolicy,
+} from '../codex-computer-use';
+import { computerUseGrants } from '../codex-computer-use-grants';
+import {
+  buildMcpElicitationResponse,
+  isMcpElicitationMethod,
+  parseMcpToolApprovalElicitation,
+} from '../codex-computer-use-elicitation';
+import { isComputerUseMutatingTool, isDeniedComputerUseTarget } from '../../../shared/computer-use';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -167,17 +182,54 @@ export interface CodexModelCatalogEntry {
   defaultReasoningEffort: string | null;
 }
 
-/**
- * Resolve the service tier a "fast mode" toggle maps to: exactly one
- * non-default tier → that tier; zero or multiple → null (fast unavailable).
- * Provisional heuristic — `ModelServiceTier` carries no speed semantics in
- * the 0.144.3 protocol, so surface the resolved tier's name in logs/UI.
- */
-export function resolveFastTier(
-  entry: Pick<CodexModelCatalogEntry, 'serviceTiers' | 'defaultServiceTier'>
-): CodexModelServiceTier | null {
-  const nonDefault = entry.serviceTiers.filter((tier) => tier.id !== entry.defaultServiceTier);
-  return nonDefault.length === 1 ? nonDefault[0] : null;
+export { resolveFastTier };
+
+function readCachedCodexFastTier(slug: string): CodexModelServiceTier | null {
+  const trimmed = slug.trim();
+  if (!trimmed || trimmed === '(default)') return null;
+  try {
+    const cachePath = join(homedir(), '.codex', 'models_cache.json');
+    if (!existsSync(cachePath)) return null;
+    const parsed = JSON.parse(readFileSync(cachePath, 'utf8')) as {
+      models?: Array<{
+        slug?: unknown;
+        service_tiers?: unknown;
+        serviceTiers?: unknown;
+        default_service_tier?: unknown;
+        defaultServiceTier?: unknown;
+      }>;
+    };
+    const match = (parsed.models || []).find((entry) => entry.slug === trimmed);
+    if (!match) return null;
+    const rawTiers = Array.isArray(match.service_tiers)
+      ? match.service_tiers
+      : Array.isArray(match.serviceTiers)
+        ? match.serviceTiers
+        : [];
+    const serviceTiers = rawTiers
+      .map((tier) => {
+        if (!tier || typeof tier !== 'object') return null;
+        const id = (tier as { id?: unknown }).id;
+        if (typeof id !== 'string' || !id.trim()) return null;
+        const name = (tier as { name?: unknown }).name;
+        const description = (tier as { description?: unknown }).description;
+        return {
+          id,
+          name: typeof name === 'string' && name.trim() ? name : id,
+          description: typeof description === 'string' ? description : '',
+        };
+      })
+      .filter((tier): tier is CodexModelServiceTier => Boolean(tier));
+    const defaultServiceTier =
+      typeof match.default_service_tier === 'string'
+        ? match.default_service_tier
+        : typeof match.defaultServiceTier === 'string'
+          ? match.defaultServiceTier
+          : null;
+    return resolveFastTier({ serviceTiers, defaultServiceTier });
+  } catch {
+    return null;
+  }
 }
 
 interface CodexRunOptions {
@@ -283,6 +335,7 @@ export class CodexAppServerManager extends EventEmitter {
   // answered with an error instead (codex then fails auth normally).
   private static readonly AUTH_REFRESH_REPLAY_WINDOW_MS = 30_000;
   private lastAuthRefreshAnswer: { accessToken: string; at: number } | null = null;
+  private computerUsePolicy: ComputerUseSpawnPolicy = 'mutating';
 
   constructor(
     private readonly binaryPath = 'codex',
@@ -301,6 +354,10 @@ export class CodexAppServerManager extends EventEmitter {
     return this.child?.pid ?? null;
   }
 
+  getGeneration(): number {
+    return this.generation;
+  }
+
   private async doSpawn(cwd: string): Promise<void> {
     if (this.child) {
       return;
@@ -309,7 +366,10 @@ export class CodexAppServerManager extends EventEmitter {
     this.generation += 1;
     const gen = this.generation;
 
-    const child = spawn(this.binaryPath, ['app-server', ...buildCodexMcpConfigOverrideArgs()], {
+    const child = spawn(
+      this.binaryPath,
+      ['app-server', ...buildCodexMcpConfigOverrideArgs({ computerUsePolicy: this.computerUsePolicy })],
+      {
       cwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -578,7 +638,13 @@ export class CodexAppServerManager extends EventEmitter {
     // The JSON-RPC ids of these approvals can never be answered now; tell the
     // UI to drop the cards instead of leaving them pointing at dead requests.
     for (const [requestId, approval] of pendingApprovals) {
+      computerUseLease.releaseThread(approval.threadId);
+      computerUseGrants.revokeThread(approval.threadId, 'runtime-gone');
       this.emit('approval_dismissed', { requestId, threadId: approval.threadId });
+    }
+    for (const session of this.sessions.values()) {
+      computerUseLease.releaseThread(session.threadId);
+      computerUseGrants.revokeThread(session.threadId, 'runtime-gone');
     }
 
     if (this.rl) {
@@ -840,7 +906,7 @@ export class CodexAppServerManager extends EventEmitter {
         const id = this.readString(obj, 'id') || this.readString(obj, 'model');
         const model = this.readString(obj, 'model') || id;
         if (!id || !model) continue;
-        const tiers = (this.readArray(obj, 'serviceTiers') ?? [])
+        const tiers = (this.readArray(obj, 'serviceTiers') ?? this.readArray(obj, 'service_tiers') ?? [])
           .map((tier) => {
             const tierObj = this.asObject(tier);
             const tierId = this.readString(tierObj, 'id');
@@ -855,10 +921,11 @@ export class CodexAppServerManager extends EventEmitter {
         models.push({
           id,
           model,
-          displayName: this.readString(obj, 'displayName') || model,
+          displayName: this.readString(obj, 'displayName') || this.readString(obj, 'display_name') || model,
           hidden: obj.hidden === true,
           serviceTiers: tiers,
-          defaultServiceTier: this.readString(obj, 'defaultServiceTier'),
+          defaultServiceTier:
+            this.readString(obj, 'defaultServiceTier') || this.readString(obj, 'default_service_tier'),
           supportedReasoningEfforts: (this.readArray(obj, 'supportedReasoningEfforts') ?? [])
             .map((effort) => {
               const effortObj = this.asObject(effort);
@@ -907,6 +974,12 @@ export class CodexAppServerManager extends EventEmitter {
       if (isDev()) {
         console.log('[Codex AppServer] model/list failed while resolving fast tier', error);
       }
+    }
+
+    const key = model?.trim() || '(default)';
+    if (!tier) {
+      const cached = readCachedCodexFastTier(key);
+      if (cached) tier = cached;
     }
 
     if (!tier) {
@@ -959,6 +1032,10 @@ export class CodexAppServerManager extends EventEmitter {
     generation: number;
     resumeFallback?: { reason: string };
   }> {
+    this.computerUsePolicy = this.resolveComputerUsePolicy(
+      options.codexPermissionMode,
+      options.codexExecutionMode
+    );
     await this.ensureSpawned(cwd);
 
     let response: Record<string, unknown>;
@@ -1136,6 +1213,13 @@ export class CodexAppServerManager extends EventEmitter {
     session.model = options.model || session.model;
     session.codexExecutionMode = options.codexExecutionMode || session.codexExecutionMode;
     session.codexPermissionMode = options.codexPermissionMode || session.codexPermissionMode;
+    const nextPolicy = this.resolveComputerUsePolicy(
+      session.codexPermissionMode,
+      session.codexExecutionMode
+    );
+    if (nextPolicy === 'read-only') {
+      computerUseGrants.revokeThread(threadId, 'mode-exit');
+    }
     session.codexReasoningEffort = options.codexReasoningEffort || session.codexReasoningEffort;
     session.codexFastMode = options.codexFastMode ?? session.codexFastMode;
 
@@ -1433,6 +1517,16 @@ export class CodexAppServerManager extends EventEmitter {
     });
   }
 
+  private resolveComputerUsePolicy(
+    mode: CodexPermissionMode | undefined,
+    executionMode: CodexExecutionMode | undefined
+  ): ComputerUseSpawnPolicy {
+    return resolveComputerUseSpawnPolicy({
+      permissionMode: this.normalizeCodexPermissionMode(mode),
+      executionMode: this.normalizeCodexExecutionMode(executionMode),
+    });
+  }
+
   private normalizeCodexPermissionMode(
     mode: CodexPermissionMode | undefined
   ): CodexPermissionMode {
@@ -1601,10 +1695,15 @@ export class CodexAppServerManager extends EventEmitter {
     });
 
     this.pendingApprovals.delete(requestId);
+    if (result.behavior !== 'allow') {
+      computerUseLease.release(pending.threadId, String(pending.jsonRpcId));
+    }
   }
 
   /** Decline + dismiss every pending approval owned by the given session. */
   private declineApprovalsForThread(threadId: string): void {
+    computerUseLease.releaseThread(threadId);
+    computerUseGrants.revokeThread(threadId, 'stop');
     for (const [requestId, pending] of this.pendingApprovals) {
       if (pending.threadId !== threadId) continue;
       this.writeMessage({
@@ -1661,17 +1760,21 @@ export class CodexAppServerManager extends EventEmitter {
       };
     }
 
-    // MCP elicitation: decline/cancel responses carry no content.
-    if (lower.includes('elicitation')) {
+    // MCP elicitation: round-trip persist metadata when the protocol offers it.
+    // Prompt/Writes modes on Codex's side ignore remembered approvals, so Aegis
+    // only sends persist when the parsed elicitation actually advertised it.
+    if (isMcpElicitationMethod(lower) || lower.includes('elicitation')) {
+      const parsed = parseMcpToolApprovalElicitation(pending.method, pending.params);
       if (result.behavior !== 'allow') {
-        return { action: 'decline', content: null, _meta: null };
+        return buildMcpElicitationResponse({ allow: false });
       }
-      const updatedInput = this.asObject(result.updatedInput);
-      return {
-        action: 'accept',
-        content: updatedInput ?? {},
-        _meta: null,
-      };
+      const persist =
+        result.computerUseGrant === 'until-revoked' || result.scope !== 'session'
+          ? null
+          : parsed?.persistOptions.includes('session')
+            ? 'session'
+            : null;
+      return buildMcpElicitationResponse({ allow: true, persist });
     }
 
     return {
@@ -1902,7 +2005,10 @@ export class CodexAppServerManager extends EventEmitter {
       method.includes('requestpermission') ||
       method.includes('confirm');
     const isUserInput = method.includes('requestuserinput') || method.includes('askuser');
-    const isElicitation = method.includes('elicitation');
+    const elicitation = isMcpElicitationMethod(method) || method.includes('elicitation')
+      ? parseMcpToolApprovalElicitation(request.method, request.params)
+      : null;
+    const isElicitation = elicitation !== null || method.includes('elicitation');
 
     if (isApproval || isUserInput || isElicitation) {
       // Fail-closed routing (P0-7): resolve the owner by exact provider
@@ -1932,6 +2038,65 @@ export class CodexAppServerManager extends EventEmitter {
         return;
       }
 
+      if (method.includes('elicitation') && !elicitation) {
+        console.warn('[Codex AppServer] declining unparseable elicitation', request.method);
+        this.writeMessage({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: buildMcpElicitationResponse({ allow: false }),
+        });
+        return;
+      }
+
+      if (elicitation?.deniedTarget) {
+        console.warn('[Codex AppServer]', COMPUTER_USE_DENIED_TARGET_MESSAGE);
+        this.writeMessage({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: buildMcpElicitationResponse({ allow: false }),
+        });
+        return;
+      }
+
+      const mutating = Boolean(
+        elicitation?.action?.mutating ||
+          (elicitation?.toolName && isComputerUseMutatingTool(elicitation.toolName)) ||
+          elicitation?.isNodeRepl
+      );
+      const ownerSession = this.sessions.get(threadId);
+      const livePolicy = this.resolveComputerUsePolicy(
+        ownerSession?.codexPermissionMode,
+        ownerSession?.codexExecutionMode
+      );
+      if (mutating && elicitation && livePolicy === 'read-only') {
+        this.writeMessage({
+          jsonrpc: '2.0',
+          id: request.id,
+          result: buildMcpElicitationResponse({ allow: false }),
+        });
+        return;
+      }
+      if (mutating && elicitation) {
+        const app = elicitation.canonicalApp || this.readString(elicitation.toolParams, 'app');
+        if (isDeniedComputerUseTarget(app)) {
+          this.writeMessage({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: buildMcpElicitationResponse({ allow: false }),
+          });
+          return;
+        }
+        if (!computerUseLease.tryAcquire(threadId, String(request.id))) {
+          console.warn('[Codex AppServer]', COMPUTER_USE_LEASE_MESSAGE);
+          this.writeMessage({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: buildMcpElicitationResponse({ allow: false }),
+          });
+          return;
+        }
+      }
+
       const requestId = uuidv4();
       this.pendingApprovals.set(requestId, {
         jsonRpcId: request.id,
@@ -1940,7 +2105,7 @@ export class CodexAppServerManager extends EventEmitter {
         params: request.params,
       });
 
-      this.emit(isApproval ? 'approval_request' : 'user_input_request', {
+      this.emit(isApproval || isElicitation ? 'approval_request' : 'user_input_request', {
         requestId,
         jsonRpcId: request.id,
         method: request.method,
@@ -2066,6 +2231,7 @@ export class CodexAppServerManager extends EventEmitter {
             session.status = 'ready';
             session.activeTurnId = undefined;
           }
+          computerUseLease.releaseThread(threadId);
           this.emit('turn_completed', {
             threadId,
             turnId: this.readString(turn, 'id'),

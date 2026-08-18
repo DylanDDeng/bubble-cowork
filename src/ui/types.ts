@@ -37,6 +37,7 @@ export type {
   AcpPermissionInput,
   AcpPermissionOption,
   CodexApprovalPermissionInput,
+  ComputerUsePermissionInput,
   ExternalFilePermissionInput,
   PermissionRequestInput,
   ContentBlock,
@@ -324,6 +325,9 @@ export interface SessionView {
   hydrationError?: boolean;
   hydrationAttempts?: number;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
+  computerUseLive?: import('../shared/computer-use').ComputerUseLiveFrame | null;
+  computerUseFrames?: import('../shared/computer-use').ComputerUseLiveFrame[];
+  computerUseGrants?: import('../shared/computer-use').ComputerUseGrantView[];
   /**
    * Live stdout/stderr tails keyed by tool_use id, streamed while a tool is
    * still running. Transient: never hydrated from history, cleared when the
@@ -451,6 +455,7 @@ export interface AppState {
   skinImage: string | null;
   skinImageData: string | null;
   skinOpacity: number;
+  computerUsePreviewSessionId: string | null;
 }
 
 // Store Actions

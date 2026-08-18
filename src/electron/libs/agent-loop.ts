@@ -92,6 +92,14 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         options.onToolOutputDelta?.(event.toolUseId, event.delta);
         break;
       }
+      case 'computer_use_live': {
+        options.onComputerUseLive?.(event.frame);
+        break;
+      }
+      case 'computer_use_grants': {
+        options.onComputerUseGrants?.(event.grants, event.reason);
+        break;
+      }
       case 'system_init': {
         const initMessage: import('../../shared/types').StreamMessage = {
           type: 'system',

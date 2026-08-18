@@ -1,3 +1,4 @@
+import { extractComputerUseAppName } from '../../shared/computer-use';
 import type { ChangeOperation, ChangeRecord, ChangeRecordState } from './change-records';
 import {
   getToolInputFilePath,
@@ -15,6 +16,7 @@ export type WorkstreamStageKind =
   | 'memory'
   | 'web'
   | 'todo'
+  | 'computer_use'
   | 'other';
 
 export type WorkstreamStageStatus =
@@ -58,6 +60,8 @@ export interface WorkstreamStage {
   addedLines: number;
   removedLines: number;
   defaultExpanded: boolean;
+  /** macOS app shown beside Computer Use rows (Notes, Safari, …). */
+  computerUseApp?: string | null;
 }
 
 export interface SummarizeWorkstreamEntriesOptions {
@@ -137,6 +141,8 @@ function classifyStageKind(entry: WorkstreamEntry): WorkstreamStageKind | null {
       return 'approval';
     case 'todo_update':
       return 'todo';
+    case 'computer_use':
+      return 'computer_use';
     default:
       return 'other';
   }
@@ -399,6 +405,15 @@ function buildGenericTitle(
       return `Searched the web ${plural(entries.length, 'time')}`;
     case 'todo':
       return `Updated todo list ${plural(entries.length, 'time')}`;
+    case 'computer_use': {
+      const summaries = entries
+        .map((entry) => ('summary' in entry ? entry.summary : ''))
+        .filter((summary): summary is string => Boolean(summary && summary.trim()));
+      if (summaries.length === 1) return summaries[0];
+      return status === 'pending'
+        ? 'Using the computer'
+        : `Used the computer ${plural(entries.length, 'time')}`;
+    }
     default:
       return `${plural(entries.length, 'step')}`;
   }
@@ -441,6 +456,7 @@ function makeStage(
     addedLines,
     removedLines,
     defaultExpanded: status === 'error' || status === 'waiting',
+    computerUseApp: kind === 'computer_use' ? extractComputerUseAppName(getToolInputRecord(firstEntry)) : null,
   };
 }
 
@@ -457,6 +473,7 @@ function shouldMergeStageEntries(
 ): boolean {
   if (!currentKind || currentKind !== nextKind) return false;
   if (nextKind === 'approval' || nextKind === 'error' || nextKind === 'other') return false;
+  if (nextKind === 'computer_use') return false;
   if (nextKind === 'task') {
     // Only Tasks fanned out by the same assistant message actually ran in
     // parallel. Sequential Tasks (each launched after the previous resolved)
@@ -519,6 +536,8 @@ export function formatWorkstreamStageSummary(stages: WorkstreamStage[]): string 
   let exploredFiles = new Set<string>();
   let exploreCount = 0;
 
+  let computerUseCount = 0;
+
   for (const stage of stages) {
     if (stage.kind === 'edit') {
       for (const file of stage.files) editedFiles.add(file.filePath);
@@ -527,11 +546,14 @@ export function formatWorkstreamStageSummary(stages: WorkstreamStage[]): string 
     } else if (stage.kind === 'explore') {
       for (const file of stage.files) exploredFiles.add(file.filePath);
       if (stage.files.length === 0) exploreCount += stage.entries.length;
+    } else if (stage.kind === 'computer_use') {
+      computerUseCount += stage.entries.length;
     }
   }
 
   if (editedFiles.size > 0) parts.push(`edited ${plural(editedFiles.size, 'file')}`);
   if (commandCount > 0) parts.push(`ran ${plural(commandCount, 'command')}`);
+  if (computerUseCount > 0) parts.push(`used the computer ${plural(computerUseCount, 'time')}`);
   if (exploredFiles.size > 0) {
     parts.push(`explored ${plural(exploredFiles.size, 'file')}`);
   } else if (exploreCount > 0) {
