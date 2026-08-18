@@ -2939,7 +2939,19 @@ function handleSessionStatus(
               : session.runtimeNotice;
 
     // 更新现有会话
+    if (
+      !shouldAcceptComputerUseLive(status) &&
+      state.computerUsePreviewSessionId === sessionId &&
+      typeof window !== 'undefined' &&
+      window.electron?.closeComputerUsePreview
+    ) {
+      void window.electron.closeComputerUsePreview();
+    }
     set({
+      computerUsePreviewSessionId:
+        !shouldAcceptComputerUseLive(status) && state.computerUsePreviewSessionId === sessionId
+          ? null
+          : state.computerUsePreviewSessionId,
       sessions: {
         ...state.sessions,
         [sessionId]: {
@@ -2953,9 +2965,9 @@ function handleSessionStatus(
             status === 'running' && session.status !== 'running'
               ? null
               : session.activeCodexTurnId ?? null,
-          // Keep the last live frame after the turn settles so the in-app
-          // HUD stays until Stop / dismiss. Incoming frames are still gated
-          // by shouldAcceptComputerUseLive(status === 'running').
+          // The live HUD is only for an in-flight turn. Screenshot history
+          // stays in computerUseFrames / Environment after the turn settles.
+          computerUseLive: shouldAcceptComputerUseLive(status) ? session.computerUseLive : null,
           title: title || session.title,
           scope: scope || session.scope || 'project',
           agentId:

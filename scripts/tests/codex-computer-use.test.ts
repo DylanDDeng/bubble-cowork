@@ -560,14 +560,15 @@ function testPreviewSourceWiring() {
   assert.equal(env.includes('ComputerUseSelectedFrame'), false);
 
   const store = readFileSync(join(root, 'src/ui/store/useAppStore.ts'), 'utf8');
-  assert.equal(
-    store.includes("computerUseLive: status === 'running' ? session.computerUseLive : null"),
-    false,
-    'turn completion must not wipe the live HUD'
+  assert.match(
+    store,
+    /computerUseLive: shouldAcceptComputerUseLive\(status\) \? session\.computerUseLive : null/,
+    'turn completion must hide the live HUD'
   );
   assert.match(store, /computerUseFrames: existing\?\.computerUseFrames/);
   assert.match(store, /hydrateComputerUseFramesFromMessages/);
   assert.match(store, /framesFromComputerUseHistory/);
+  assert.match(store, /closeComputerUsePreview/);
 
   const ipc = readFileSync(join(root, 'src/electron/ipc-handlers.ts'), 'utf8');
   const finish = ipc.slice(ipc.indexOf('function finishComputerUseUi'));
