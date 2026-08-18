@@ -44,4 +44,20 @@ assert.ok(
   'EnvironmentHub: the card must not be position:fixed to the viewport'
 );
 
+// 4. Computer Use screenshots live as a section inside this card, not a
+//    right-utility filmstrip. Preview loads go through the opaque artifact IPC.
+assert.ok(
+  hub.includes('EnvironmentComputerUseSection'),
+  'EnvironmentHub: must mount a Computer Use screenshot section'
+);
+const filmstrip = read('src/ui/components/environment/EnvironmentComputerUseSection.tsx');
+assert.ok(
+  filmstrip.includes('readComputerUseArtifact'),
+  'EnvironmentComputerUseSection: must load screenshots via opaque artifact IPC'
+);
+assert.ok(
+  !filmstrip.includes('.path') && !filmstrip.includes('readAttachmentPreview'),
+  'EnvironmentComputerUseSection: must not take arbitrary screenshot paths'
+);
+
 console.log('environment-hub-anchor: all checks passed');

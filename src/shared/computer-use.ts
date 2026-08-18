@@ -71,6 +71,15 @@ export function formatComputerUseGrantLabel(tool: string, app: string): string {
   return `Allow ${tool} in ${app} until revoked`;
 }
 
+export function environmentHasComputerUseSection(input: {
+  frames?: Array<{ media?: ComputerUseMediaRef | null }> | null;
+  grants?: unknown[] | null;
+}): boolean {
+  const frames = input.frames || [];
+  const grants = input.grants || [];
+  return frames.some((frame) => Boolean(frame.media)) || grants.length > 0;
+}
+
 export interface ComputerUseAction {
   kind: ComputerUseActionKind;
   mutating: boolean;

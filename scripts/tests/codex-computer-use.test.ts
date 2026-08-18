@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   classifyComputerUseAction,
+  environmentHasComputerUseSection,
   formatComputerUseGrantLabel,
   formatComputerUseLabel,
   isDeniedComputerUseTarget,
@@ -282,10 +283,34 @@ function testGrants() {
   assert.equal(registry.match({ threadId: 't1', generation: 1, elicitation: clickFinder! }), null);
 }
 
+function testEnvironmentFilmstripVisibility() {
+  assert.equal(environmentHasComputerUseSection({ frames: [], grants: [] }), false);
+  assert.equal(environmentHasComputerUseSection({ frames: [{ media: null }], grants: [] }), false);
+  assert.equal(
+    environmentHasComputerUseSection({
+      frames: [
+        {
+          media: { sessionId: 's1', sha256: 'abc', mimeType: 'image/png', sizeBytes: 12 },
+        },
+      ],
+      grants: [],
+    }),
+    true
+  );
+  assert.equal(
+    environmentHasComputerUseSection({
+      frames: [],
+      grants: [{ key: 'g1' }],
+    }),
+    true
+  );
+}
+
 testClassification();
 testElicitationParser();
 testOverridesAndLease();
 testMediaSidecar();
 testWorkstreamStage();
 testGrants();
+testEnvironmentFilmstripVisibility();
 console.log('codex computer-use unit tests passed');
