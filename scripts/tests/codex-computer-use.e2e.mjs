@@ -35,7 +35,14 @@ const computerUseMod = require(
   path.join(projectRoot, 'dist-electron/electron/libs/codex-computer-use.js')
 );
 const { buildCodexMcpConfigOverrideArgs } = settingsMod.default ?? settingsMod;
-const { resolveComputerUseClientPath } = computerUseMod.default ?? computerUseMod;
+const computerUse = computerUseMod.default ?? computerUseMod;
+const {
+  resolveComputerUseClientPath,
+  persistComputerUseMedia,
+  resolveComputerUseArtifact,
+  hydrateComputerUseFramesFromMessages,
+  environmentHasComputerUseSection,
+} = computerUse;
 const elicitationMod = require(
   path.join(projectRoot, 'dist-electron/electron/libs/codex-computer-use-elicitation.js')
 );
@@ -69,6 +76,74 @@ const { ComputerUseGrantRegistry } = grantsMod.default ?? grantsMod;
   );
   assert.equal(registry.match({ threadId: 't-e2e', generation: 1, elicitation: typeText }), null);
   console.log('codex computer-use grant e2e passed');
+}
+
+{
+  const jpeg = Buffer.from(
+    '/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBIVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolGxUVITEhJSkrLi4uFx8zODMtNygtLisBCgoKDg0OGxAQGy0lHyUtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAbAAACAwEBAQAAAAAAAAAAAAADBAECBQYAB//EABQBAQAAAAAAAAAAAAAAAAAAAAD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAhEAACAgICAwEBAAAAAAAAAAABAgADEQQSITEFQ Rig/9oACAEBAAE/AN7n/9k=',
+    'base64'
+  );
+  const sessionId = 'e2e-hydrate-session';
+  const persisted = persistComputerUseMedia({
+    userDataDir: testRoot,
+    sessionId,
+    payload: [
+      { type: 'text', text: 'Notes window' },
+      { type: 'input_image', image_url: `data:image/jpeg;base64,${jpeg.toString('base64')}` },
+    ],
+  });
+  assert.equal(persisted.mediaRefs.length, 1);
+  const resolved = resolveComputerUseArtifact(testRoot, sessionId, persisted.mediaRefs[0].sha256);
+  assert.ok(resolved, 'persisted screenshot must round-trip from disk');
+
+  const frames = hydrateComputerUseFramesFromMessages({
+    sessionId,
+    messages: [
+      {
+        type: 'assistant',
+        createdAt: 1,
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'u1',
+              name: 'mcp__aegis-computer-use__get_app_state',
+              input: { app: 'Notes' },
+            },
+          ],
+        },
+      },
+      {
+        type: 'user',
+        createdAt: 2,
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'u1',
+              content: persisted.text,
+              mediaRefs: persisted.mediaRefs,
+            },
+          ],
+        },
+      },
+    ],
+  });
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0]?.app, 'Notes');
+  assert.equal(frames[0]?.media?.sha256, persisted.mediaRefs[0].sha256);
+  assert.equal(environmentHasComputerUseSection({ frames, grants: [] }), true);
+  const rebuiltWithoutCopy = { computerUseFrames: [] };
+  const preservedAcrossSessionList = { computerUseFrames: frames };
+  assert.equal(
+    environmentHasComputerUseSection({ frames: rebuiltWithoutCopy.computerUseFrames, grants: [] }),
+    false
+  );
+  assert.equal(
+    environmentHasComputerUseSection({ frames: preservedAcrossSessionList.computerUseFrames, grants: [] }),
+    true
+  );
+  console.log('codex computer-use hydrate e2e passed');
 }
 
 const clientPath = resolveComputerUseClientPath(realHome);

@@ -252,6 +252,111 @@ export function environmentHasComputerUseSection(input: {
   return frames.some((frame) => Boolean(frame.media)) || grants.length > 0;
 }
 
+type HydrateComputerUseMessage = {
+  type?: unknown;
+  createdAt?: unknown;
+  message?: { content?: unknown } | null;
+};
+
+function readComputerUseMediaRef(value: unknown, fallbackSessionId: string): ComputerUseMediaRef | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const sha256 = typeof record.sha256 === 'string' ? record.sha256 : '';
+  if (!isComputerUseArtifactSha256(sha256)) return null;
+  return {
+    sessionId:
+      typeof record.sessionId === 'string' && record.sessionId.trim()
+        ? record.sessionId
+        : fallbackSessionId,
+    sha256,
+    mimeType: typeof record.mimeType === 'string' && record.mimeType.trim() ? record.mimeType : 'image/png',
+    sizeBytes: typeof record.sizeBytes === 'number' && Number.isFinite(record.sizeBytes) ? record.sizeBytes : 0,
+  };
+}
+
+/**
+ * Rebuild Environment filmstrip frames from persisted tool_result mediaRefs.
+ * Does not restore the live HUD or grants.
+ */
+export function hydrateComputerUseFramesFromMessages(input: {
+  sessionId: string;
+  messages: HydrateComputerUseMessage[];
+}): ComputerUseLiveFrame[] {
+  const toolUses = new Map<string, { name: string; input: Record<string, unknown> }>();
+  const frames: ComputerUseLiveFrame[] = [];
+  const seen = new Set<string>();
+
+  for (const [index, message] of input.messages.entries()) {
+    const content = message?.message && typeof message.message === 'object' ? message.message.content : undefined;
+    const blocks = Array.isArray(content) ? content : [];
+    const at = typeof message.createdAt === 'number' ? message.createdAt : index;
+
+    for (const block of blocks) {
+      if (!block || typeof block !== 'object' || Array.isArray(block)) continue;
+      const record = block as Record<string, unknown>;
+      if (record.type === 'tool_use' && typeof record.id === 'string' && record.id) {
+        toolUses.set(record.id, {
+          name: typeof record.name === 'string' ? record.name : '',
+          input:
+            record.input && typeof record.input === 'object' && !Array.isArray(record.input)
+              ? (record.input as Record<string, unknown>)
+              : {},
+        });
+      }
+
+      const mediaRefs = Array.isArray(record.mediaRefs) ? record.mediaRefs : [];
+      if (mediaRefs.length === 0) continue;
+      const toolUseId = typeof record.tool_use_id === 'string' ? record.tool_use_id : '';
+      const tool = toolUses.get(toolUseId);
+      const app = extractComputerUseAppName(tool?.input ?? null);
+      const title =
+        (typeof tool?.input.__aegisDisplayTitle === 'string' && tool.input.__aegisDisplayTitle.trim()) ||
+        (typeof tool?.input.title === 'string' && tool.input.title.trim()) ||
+        null;
+      const parsed = tool?.name ? parseMcpToolName(tool.name) : null;
+
+      for (const rawRef of mediaRefs) {
+        const media = readComputerUseMediaRef(rawRef, input.sessionId);
+        if (!media) continue;
+        const key = media.sha256.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        frames.push({
+          threadId: input.sessionId,
+          toolUseId,
+          label: title || (app ? `Looked at ${app}` : 'Looked at the screen'),
+          app,
+          tool: parsed?.tool || null,
+          mutating: false,
+          media,
+          hasFreshMedia: true,
+          at,
+        });
+      }
+    }
+  }
+
+  return frames.slice(-COMPUTER_USE_FRAME_LIMIT);
+}
+
+export function mergeHydratedComputerUseFrames(
+  current: ComputerUseLiveFrame[] | null | undefined,
+  hydrated: ComputerUseLiveFrame[]
+): ComputerUseLiveFrame[] {
+  const bySha = new Map<string, ComputerUseLiveFrame>();
+  for (const frame of hydrated) {
+    const sha = frame.media?.sha256?.toLowerCase();
+    if (!sha) continue;
+    bySha.set(sha, frame);
+  }
+  for (const frame of current || []) {
+    const sha = frame.media?.sha256?.toLowerCase();
+    if (!sha) continue;
+    bySha.set(sha, frame);
+  }
+  return [...bySha.values()].sort((left, right) => left.at - right.at).slice(-COMPUTER_USE_FRAME_LIMIT);
+}
+
 export interface ComputerUseAction {
   kind: ComputerUseActionKind;
   mutating: boolean;

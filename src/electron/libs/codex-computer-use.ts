@@ -11,6 +11,12 @@ import {
   type ComputerUseMediaRef,
 } from '../../shared/computer-use';
 
+export {
+  environmentHasComputerUseSection,
+  hydrateComputerUseFramesFromMessages,
+  mergeHydratedComputerUseFrames,
+} from '../../shared/computer-use';
+
 export type ComputerUseSpawnPolicy = 'read-only' | 'mutating';
 
 /**

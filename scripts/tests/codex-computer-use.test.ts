@@ -10,9 +10,11 @@ import {
   extractComputerUseAppName,
   formatComputerUseGrantLabel,
   formatComputerUseLabel,
+  hydrateComputerUseFramesFromMessages,
   isComputerUsePreviewHash,
   isDeniedComputerUseTarget,
   mergeComputerUseLiveFrame,
+  mergeHydratedComputerUseFrames,
   parseMcpToolName,
   shouldAcceptComputerUseLive,
 } from '../../src/shared/computer-use';
@@ -369,6 +371,82 @@ function testGrants() {
   assert.equal(registry.match({ threadId: 't1', generation: 1, elicitation: clickFinder! }), null);
 }
 
+function testHydrateFramesFromHistory() {
+  const shaA = 'a'.repeat(64);
+  const shaB = 'b'.repeat(64);
+  const messages = [
+    {
+      type: 'assistant',
+      createdAt: 10,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'u1',
+            name: 'mcp__aegis-computer-use__get_app_state',
+            input: { app: 'Notes' },
+          },
+        ],
+      },
+    },
+    {
+      type: 'user',
+      createdAt: 11,
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'u1',
+            content: 'ok',
+            mediaRefs: [
+              { sessionId: 'session-1', sha256: shaA, mimeType: 'image/png', sizeBytes: 12 },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      type: 'user',
+      createdAt: 12,
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'u1',
+            content: 'ok',
+            mediaRefs: [
+              { sessionId: 'session-1', sha256: shaB, mimeType: 'image/png', sizeBytes: 14 },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+
+  const hydrated = hydrateComputerUseFramesFromMessages({ sessionId: 'session-1', messages });
+  assert.equal(hydrated.length, 2);
+  assert.equal(hydrated[0]?.media?.sha256, shaA);
+  assert.equal(hydrated[1]?.media?.sha256, shaB);
+  assert.equal(hydrated[0]?.app, 'Notes');
+  assert.equal(environmentHasComputerUseSection({ frames: hydrated, grants: [] }), true);
+
+  const live = {
+    threadId: 'session-1',
+    toolUseId: 'live',
+    label: 'Clicking in Notes',
+    app: 'Notes',
+    tool: 'click',
+    mutating: true,
+    media: { sessionId: 'session-1', sha256: shaB, mimeType: 'image/png', sizeBytes: 14 },
+    hasFreshMedia: true,
+    at: 99,
+  };
+  const merged = mergeHydratedComputerUseFrames([live], hydrated);
+  assert.equal(merged.length, 2);
+  assert.equal(merged.find((frame) => frame.media?.sha256 === shaB)?.label, 'Clicking in Notes');
+  assert.equal(environmentHasComputerUseSection({ frames: [], grants: [] }), false);
+}
+
 function testEnvironmentFilmstripVisibility() {
   assert.equal(environmentHasComputerUseSection({ frames: [], grants: [] }), false);
   assert.equal(environmentHasComputerUseSection({ frames: [{ media: null }], grants: [] }), false);
@@ -476,6 +554,9 @@ function testPreviewSourceWiring() {
     false,
     'turn completion must not wipe the live HUD'
   );
+  assert.match(store, /computerUseFrames: existing\?\.computerUseFrames/);
+  assert.match(store, /hydrateComputerUseFramesFromMessages/);
+  assert.match(store, /framesFromComputerUseHistory/);
 
   const ipc = readFileSync(join(root, 'src/electron/ipc-handlers.ts'), 'utf8');
   const finish = ipc.slice(ipc.indexOf('function finishComputerUseUi'));
@@ -499,6 +580,7 @@ testOverridesAndLease();
 testMediaSidecar();
 testWorkstreamStage();
 testGrants();
+testHydrateFramesFromHistory();
 testEnvironmentFilmstripVisibility();
 testLiveFrameMerge();
 testPreviewWindowPolicy();

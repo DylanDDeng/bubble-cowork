@@ -58,7 +58,9 @@ import {
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import {
   appendComputerUseLiveFrame,
+  hydrateComputerUseFramesFromMessages,
   mergeComputerUseLiveFrame,
+  mergeHydratedComputerUseFrames,
   shouldAcceptComputerUseLive,
 } from '../../shared/computer-use';
 import { getMessageContentBlocks } from '../utils/message-content';
@@ -686,6 +688,17 @@ function sanitizeHistoryMessages(messages: StreamMessage[]): StreamMessage[] {
   return messages.filter((message) => message.type !== 'stream_event');
 }
 
+function framesFromComputerUseHistory(
+  sessionId: string,
+  current: import('../../shared/computer-use').ComputerUseLiveFrame[] | null | undefined,
+  messages: StreamMessage[]
+): import('../../shared/computer-use').ComputerUseLiveFrame[] {
+  return mergeHydratedComputerUseFrames(
+    current,
+    hydrateComputerUseFramesFromMessages({ sessionId, messages })
+  );
+}
+
 function extractLatestClaudeModelUsage(
   messages: StreamMessage[],
   preferredModel?: string | null
@@ -831,17 +844,23 @@ export const useAppStore = create<Store>()(
               const current = state.sessions[sessionId];
               if (!current) return state;
               const sanitizedMessages = sanitizeHistoryMessages(payload.messages);
+              const nextMessages = [...sanitizedMessages, ...current.messages];
               return {
                 sessions: {
                   ...state.sessions,
                   [sessionId]: {
                     ...current,
-                    messages: [...sanitizedMessages, ...current.messages],
+                    messages: nextMessages,
                     historyCursor: payload.cursor ?? null,
                     hasMoreHistory: payload.hasMore === true,
                     loadingMoreHistory: false,
+                    computerUseFrames: framesFromComputerUseHistory(
+                      sessionId,
+                      current.computerUseFrames,
+                      nextMessages
+                    ),
                     latestClaudeModelUsage:
-                      extractLatestClaudeModelUsage([...sanitizedMessages, ...current.messages], current.model),
+                      extractLatestClaudeModelUsage(nextMessages, current.model),
                   },
                 },
               };
@@ -2768,6 +2787,9 @@ function handleSessionList(
       hydrationError: existing?.hydrationError ?? false,
       hydrationAttempts: existing?.hydrationAttempts ?? 0,
       permissionRequests: existing?.permissionRequests || [],
+      computerUseLive: existing?.computerUseLive ?? null,
+      computerUseFrames: existing?.computerUseFrames || [],
+      computerUseGrants: existing?.computerUseGrants || [],
       streaming: existing?.streaming || createEmptyStreamingState(),
       runtimeNotice: existing?.runtimeNotice,
       updatedAt: session.updatedAt,
@@ -3146,6 +3168,11 @@ function handleSessionHistory(
           hydrationError: false,
           hydrationAttempts: 0,
           streaming: createEmptyStreamingState(),
+          computerUseFrames: framesFromComputerUseHistory(
+            sessionId,
+            session.computerUseFrames,
+            sanitizedMessages
+          ),
         },
       },
     };
