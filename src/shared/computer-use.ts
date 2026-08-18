@@ -252,6 +252,24 @@ export function environmentHasComputerUseSection(input: {
   return frames.some((frame) => Boolean(frame.media)) || grants.length > 0;
 }
 
+export function computerUseScreenshotExtension(mimeType: string | null | undefined): 'png' | 'jpg' {
+  const mime = (mimeType || '').toLowerCase();
+  if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+  return 'png';
+}
+
+export function formatComputerUseScreenshotFileName(input: {
+  app?: string | null;
+  mimeType?: string | null;
+  index: number;
+}): string {
+  const ext = computerUseScreenshotExtension(input.mimeType);
+  const raw = displayNameForComputerUseApp(input.app) || 'screenshot';
+  const stem = raw.replace(/[^\w\u4e00-\u9fff.-]+/g, '-').replace(/^-+|-+$/g, '') || 'screenshot';
+  const index = Number.isFinite(input.index) && input.index > 0 ? Math.floor(input.index) : 1;
+  return `${stem}-${index}.${ext}`;
+}
+
 type HydrateComputerUseMessage = {
   type?: unknown;
   createdAt?: unknown;

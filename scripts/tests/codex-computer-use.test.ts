@@ -10,6 +10,7 @@ import {
   extractComputerUseAppName,
   formatComputerUseGrantLabel,
   formatComputerUseLabel,
+  formatComputerUseScreenshotFileName,
   hydrateComputerUseFramesFromMessages,
   isComputerUsePreviewHash,
   isDeniedComputerUseTarget,
@@ -468,6 +469,14 @@ function testEnvironmentFilmstripVisibility() {
     }),
     true
   );
+  assert.equal(
+    formatComputerUseScreenshotFileName({ app: 'Notes', mimeType: 'image/png', index: 1 }),
+    'Notes-1.png'
+  );
+  assert.equal(
+    formatComputerUseScreenshotFileName({ app: '备忘录', mimeType: 'image/jpeg', index: 2 }),
+    'Notes-2.jpg'
+  );
 }
 
 function testLiveFrameMerge() {
@@ -546,7 +555,9 @@ function testPreviewSourceWiring() {
   const env = readFileSync(join(root, 'src/ui/components/environment/EnvironmentComputerUseSection.tsx'), 'utf8');
   assert.match(env, /Pop out/);
   assert.match(env, /openComputerUsePreview/);
-  assert.match(env, /readComputerUseArtifact|ComputerUseFilmstrip/);
+  assert.match(env, /formatComputerUseScreenshotFileName/);
+  assert.equal(env.includes('ComputerUseFilmstrip'), false);
+  assert.equal(env.includes('ComputerUseSelectedFrame'), false);
 
   const store = readFileSync(join(root, 'src/ui/store/useAppStore.ts'), 'utf8');
   assert.equal(
