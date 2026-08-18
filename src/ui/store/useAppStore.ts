@@ -2931,7 +2931,9 @@ function handleSessionStatus(
             status === 'running' && session.status !== 'running'
               ? null
               : session.activeCodexTurnId ?? null,
-          computerUseLive: status === 'running' ? session.computerUseLive : null,
+          // Keep the last live frame after the turn settles so the in-app
+          // HUD stays until Stop / dismiss. Incoming frames are still gated
+          // by shouldAcceptComputerUseLive(status === 'running').
           title: title || session.title,
           scope: scope || session.scope || 'project',
           agentId:

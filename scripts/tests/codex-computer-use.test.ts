@@ -401,6 +401,19 @@ function testPreviewSourceWiring() {
   assert.match(env, /Pop out/);
   assert.match(env, /openComputerUsePreview/);
   assert.match(env, /readComputerUseArtifact|ComputerUseFilmstrip/);
+
+  const store = readFileSync(join(root, 'src/ui/store/useAppStore.ts'), 'utf8');
+  assert.equal(
+    store.includes("computerUseLive: status === 'running' ? session.computerUseLive : null"),
+    false,
+    'turn completion must not wipe the live HUD'
+  );
+
+  const ipc = readFileSync(join(root, 'src/electron/ipc-handlers.ts'), 'utf8');
+  const finish = ipc.slice(ipc.indexOf('function finishComputerUseUi'));
+  const stoppedAt = finish.indexOf("type: 'computerUse.stopped'");
+  const closeAt = finish.indexOf('stopComputerUsePreviewIfSession');
+  assert.ok(stoppedAt >= 0 && closeAt >= 0 && stoppedAt < closeAt, 'Stop must hide HUD before closing the preview window');
 }
 
 testClassification();

@@ -11240,11 +11240,14 @@ function resolveStopFallback(mainWindow: BrowserWindow, sessionId: string, entry
 const STOP_INTERRUPT_FALLBACK_MS = 8_000;
 
 function finishComputerUseUi(mainWindow: BrowserWindow, sessionId: string): void {
-  stopComputerUsePreviewIfSession(sessionId);
+  // Clear live + detached in one renderer update before closing the child
+  // window. Closing the preview first emits computerUse.preview(open:false)
+  // while live is still set, which docks the HUD back into the chat.
   broadcast(mainWindow, {
     type: 'computerUse.stopped',
     payload: { sessionId },
   });
+  stopComputerUsePreviewIfSession(sessionId);
 }
 
 function stopComputerUseSession(mainWindow: BrowserWindow, sessionId: string): void {
