@@ -322,8 +322,33 @@ async function testServiceTier() {
   assert.equal(unavailable.length, 1, 'fast-unavailable notice must fire once per session+model');
   ok('no non-default tier → field omitted + single notice');
 
-  // resolveFastTier unit: 0 / 1 / N branches
+  seedSession(manager, 'sol', 'p-sol', { model: 'gpt-5.6-sol' });
+  manager.modelCatalog = {
+    generation: 1,
+    models: [
+      ...manager.modelCatalog.models,
+      {
+        id: 'gpt-5.6-sol', model: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', hidden: false,
+        serviceTiers: [{ id: 'priority', name: 'Fast', description: '1.5x speed, increased usage' }],
+        defaultServiceTier: 'priority',
+        supportedReasoningEfforts: [], defaultReasoningEffort: null,
+      },
+    ],
+  };
+  await manager.sendTurn('sol', 'x', undefined, undefined, undefined, {
+    model: 'gpt-5.6-sol',
+    codexFastMode: true,
+  });
+  const solTurn = outbound.filter((m) => m.method === 'turn/start').at(-1);
+  assert.equal(solTurn.params.serviceTier, 'priority', 'sol Fast toggle must send priority even when it is the default tier');
+  ok('gpt-5.6-sol Fast → serviceTier priority');
+
+  // resolveFastTier unit: unlabeled default-only stays null; labeled Fast/priority maps even when default
   assert.equal(resolveFastTier({ serviceTiers: [{ id: 'a', name: 'A', description: '' }], defaultServiceTier: 'a' }), null);
+  assert.equal(
+    resolveFastTier({ serviceTiers: [{ id: 'priority', name: 'Fast', description: '' }], defaultServiceTier: 'priority' })?.id,
+    'priority'
+  );
   assert.equal(
     resolveFastTier({ serviceTiers: [{ id: 'a', name: 'A', description: '' }, { id: 'b', name: 'B', description: '' }], defaultServiceTier: 'a' })?.id,
     'b'
@@ -339,7 +364,7 @@ async function testServiceTier() {
     }),
     null
   );
-  ok('resolveFastTier 0/1/N branches');
+  ok('resolveFastTier unlabeled/named-fast/unique-non-default/ambiguous');
 
   // thread/start never carries serviceTier
   const { manager: m2, outbound: out2, responders: r2 } = createCapturingManager();
@@ -349,6 +374,14 @@ async function testServiceTier() {
   assert.ok(threadStart);
   assert.ok(!('serviceTier' in threadStart.params), 'thread/start must not carry serviceTier');
   ok('thread/start never carries serviceTier');
+
+  const adapterSource = readFileSync(join(__dirname, '../src/electron/libs/provider/codex-adapter.ts'), 'utf8');
+  assert.equal(
+    adapterSource.includes('Fast mode is not available for model'),
+    false,
+    'Fast unavailability must not be injected as assistant chat text'
+  );
+  ok('adapter does not surface Fast unavailability in the transcript');
 }
 
 // ── P0-4: MCP status parse + routing ──────────────────────────────────────

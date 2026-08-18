@@ -665,11 +665,12 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'permission_dismissed', threadId, requestId });
     });
 
-    on('fast_mode_unavailable', ({ threadId, model }) => {
-      this.emitLocalNotice(
-        threadId,
-        `Fast mode is not available for model ${model}; running on the default service tier.`
-      );
+    on('fast_mode_unavailable', ({ model }) => {
+      if (isDev()) {
+        console.log('[Codex] Fast mode has no resolvable service tier; continuing on the default tier', {
+          model,
+        });
+      }
     });
 
     on('model_catalog_updated', ({ models }) => {

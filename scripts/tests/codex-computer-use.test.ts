@@ -20,6 +20,7 @@ import {
   ComputerUseLease,
   persistComputerUseMedia,
   resolveComputerUseArtifact,
+  resolveComputerUseSpawnPolicy,
 } from '../../src/electron/libs/codex-computer-use';
 import { ComputerUseGrantRegistry } from '../../src/electron/libs/codex-computer-use-grants';
 import {
@@ -141,6 +142,18 @@ function testElicitationParser() {
 }
 
 function testOverridesAndLease() {
+  assert.equal(resolveComputerUseSpawnPolicy({ permissionMode: 'defaultPermissions' }), 'mutating');
+  assert.equal(resolveComputerUseSpawnPolicy({ permissionMode: 'auto' }), 'mutating');
+  assert.equal(resolveComputerUseSpawnPolicy({ permissionMode: 'fullAccess' }), 'mutating');
+  assert.equal(
+    resolveComputerUseSpawnPolicy({ permissionMode: 'fullAccess', executionMode: 'execute' }),
+    'mutating'
+  );
+  assert.equal(
+    resolveComputerUseSpawnPolicy({ permissionMode: 'fullAccess', executionMode: 'plan' }),
+    'read-only'
+  );
+
   const readOnly = buildComputerUseMcpOverrideArgs({
     clientPath: '/tmp/SkyComputerUseClient',
     policy: 'read-only',

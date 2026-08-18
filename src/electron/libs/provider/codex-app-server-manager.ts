@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
-import { promises as fsPromises } from 'fs';
+import { existsSync, promises as fsPromises, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, resolve } from 'path';
 import * as readline from 'readline';
@@ -30,11 +30,13 @@ import type {
   McpServerStatus,
 } from '../../../shared/types';
 import { isDev } from '../../util';
+import { resolveFastTier } from '../../../shared/codex-fast-tier';
 import { buildCodexMcpConfigOverrideArgs } from '../codex-mcp-settings';
 import {
   COMPUTER_USE_DENIED_TARGET_MESSAGE,
   COMPUTER_USE_LEASE_MESSAGE,
   computerUseLease,
+  resolveComputerUseSpawnPolicy,
   type ComputerUseSpawnPolicy,
 } from '../codex-computer-use';
 import { computerUseGrants } from '../codex-computer-use-grants';
@@ -180,17 +182,54 @@ export interface CodexModelCatalogEntry {
   defaultReasoningEffort: string | null;
 }
 
-/**
- * Resolve the service tier a "fast mode" toggle maps to: exactly one
- * non-default tier → that tier; zero or multiple → null (fast unavailable).
- * Provisional heuristic — `ModelServiceTier` carries no speed semantics in
- * the 0.144.3 protocol, so surface the resolved tier's name in logs/UI.
- */
-export function resolveFastTier(
-  entry: Pick<CodexModelCatalogEntry, 'serviceTiers' | 'defaultServiceTier'>
-): CodexModelServiceTier | null {
-  const nonDefault = entry.serviceTiers.filter((tier) => tier.id !== entry.defaultServiceTier);
-  return nonDefault.length === 1 ? nonDefault[0] : null;
+export { resolveFastTier };
+
+function readCachedCodexFastTier(slug: string): CodexModelServiceTier | null {
+  const trimmed = slug.trim();
+  if (!trimmed || trimmed === '(default)') return null;
+  try {
+    const cachePath = join(homedir(), '.codex', 'models_cache.json');
+    if (!existsSync(cachePath)) return null;
+    const parsed = JSON.parse(readFileSync(cachePath, 'utf8')) as {
+      models?: Array<{
+        slug?: unknown;
+        service_tiers?: unknown;
+        serviceTiers?: unknown;
+        default_service_tier?: unknown;
+        defaultServiceTier?: unknown;
+      }>;
+    };
+    const match = (parsed.models || []).find((entry) => entry.slug === trimmed);
+    if (!match) return null;
+    const rawTiers = Array.isArray(match.service_tiers)
+      ? match.service_tiers
+      : Array.isArray(match.serviceTiers)
+        ? match.serviceTiers
+        : [];
+    const serviceTiers = rawTiers
+      .map((tier) => {
+        if (!tier || typeof tier !== 'object') return null;
+        const id = (tier as { id?: unknown }).id;
+        if (typeof id !== 'string' || !id.trim()) return null;
+        const name = (tier as { name?: unknown }).name;
+        const description = (tier as { description?: unknown }).description;
+        return {
+          id,
+          name: typeof name === 'string' && name.trim() ? name : id,
+          description: typeof description === 'string' ? description : '',
+        };
+      })
+      .filter((tier): tier is CodexModelServiceTier => Boolean(tier));
+    const defaultServiceTier =
+      typeof match.default_service_tier === 'string'
+        ? match.default_service_tier
+        : typeof match.defaultServiceTier === 'string'
+          ? match.defaultServiceTier
+          : null;
+    return resolveFastTier({ serviceTiers, defaultServiceTier });
+  } catch {
+    return null;
+  }
 }
 
 interface CodexRunOptions {
@@ -296,7 +335,7 @@ export class CodexAppServerManager extends EventEmitter {
   // answered with an error instead (codex then fails auth normally).
   private static readonly AUTH_REFRESH_REPLAY_WINDOW_MS = 30_000;
   private lastAuthRefreshAnswer: { accessToken: string; at: number } | null = null;
-  private computerUsePolicy: ComputerUseSpawnPolicy = 'read-only';
+  private computerUsePolicy: ComputerUseSpawnPolicy = 'mutating';
 
   constructor(
     private readonly binaryPath = 'codex',
@@ -867,7 +906,7 @@ export class CodexAppServerManager extends EventEmitter {
         const id = this.readString(obj, 'id') || this.readString(obj, 'model');
         const model = this.readString(obj, 'model') || id;
         if (!id || !model) continue;
-        const tiers = (this.readArray(obj, 'serviceTiers') ?? [])
+        const tiers = (this.readArray(obj, 'serviceTiers') ?? this.readArray(obj, 'service_tiers') ?? [])
           .map((tier) => {
             const tierObj = this.asObject(tier);
             const tierId = this.readString(tierObj, 'id');
@@ -882,10 +921,11 @@ export class CodexAppServerManager extends EventEmitter {
         models.push({
           id,
           model,
-          displayName: this.readString(obj, 'displayName') || model,
+          displayName: this.readString(obj, 'displayName') || this.readString(obj, 'display_name') || model,
           hidden: obj.hidden === true,
           serviceTiers: tiers,
-          defaultServiceTier: this.readString(obj, 'defaultServiceTier'),
+          defaultServiceTier:
+            this.readString(obj, 'defaultServiceTier') || this.readString(obj, 'default_service_tier'),
           supportedReasoningEfforts: (this.readArray(obj, 'supportedReasoningEfforts') ?? [])
             .map((effort) => {
               const effortObj = this.asObject(effort);
@@ -934,6 +974,12 @@ export class CodexAppServerManager extends EventEmitter {
       if (isDev()) {
         console.log('[Codex AppServer] model/list failed while resolving fast tier', error);
       }
+    }
+
+    const key = model?.trim() || '(default)';
+    if (!tier) {
+      const cached = readCachedCodexFastTier(key);
+      if (cached) tier = cached;
     }
 
     if (!tier) {
@@ -1475,9 +1521,10 @@ export class CodexAppServerManager extends EventEmitter {
     mode: CodexPermissionMode | undefined,
     executionMode: CodexExecutionMode | undefined
   ): ComputerUseSpawnPolicy {
-    if (this.normalizeCodexExecutionMode(executionMode) === 'plan') return 'read-only';
-    if (this.normalizeCodexPermissionMode(mode) === 'defaultPermissions') return 'mutating';
-    return 'read-only';
+    return resolveComputerUseSpawnPolicy({
+      permissionMode: this.normalizeCodexPermissionMode(mode),
+      executionMode: this.normalizeCodexExecutionMode(executionMode),
+    });
   }
 
   private normalizeCodexPermissionMode(

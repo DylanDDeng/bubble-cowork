@@ -13,6 +13,18 @@ import {
 
 export type ComputerUseSpawnPolicy = 'read-only' | 'mutating';
 
+/**
+ * Computer Use click/type tools stay available in Default, Auto, and Full
+ * Access. Plan mode is the only read-only exception — it is an execution
+ * mode that must not operate the desktop.
+ */
+export function resolveComputerUseSpawnPolicy(input: {
+  permissionMode?: string | null;
+  executionMode?: string | null;
+}): ComputerUseSpawnPolicy {
+  return input.executionMode === 'plan' ? 'read-only' : 'mutating';
+}
+
 const CLIENT_RELATIVE_PATH =
   'Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient';
 

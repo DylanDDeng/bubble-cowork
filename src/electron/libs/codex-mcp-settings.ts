@@ -437,7 +437,7 @@ export function buildCodexMcpConfigOverrideArgs(options?: {
   args.push(
     ...buildComputerUseMcpOverrideArgs({
       clientPath: resolveComputerUseClientPath(),
-      policy: options?.computerUsePolicy ?? 'read-only',
+      policy: options?.computerUsePolicy ?? 'mutating',
       hasNodeRepl: privateNames.has(NODE_REPL_SERVER_NAME),
     })
   );
