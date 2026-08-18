@@ -803,6 +803,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-computer-use-artifact', sessionId, sha256);
   },
 
+  readComputerUseAppIcon: (app: string) => {
+    return ipcRenderer.invoke('read-computer-use-app-icon', app);
+  },
+
   openComputerUsePreview: (input: unknown) => {
     return ipcRenderer.invoke('open-computer-use-preview', input);
   },

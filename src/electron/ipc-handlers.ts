@@ -4030,6 +4030,7 @@ interface OpenWithApp {
   iconDataUrl: string | null;
 }
 
+const computerUseAppIconByQuery = new Map<string, string | null>();
 // App icons are stable per bundle path; cache the data URLs so repeated
 // dropdown opens don't re-decode .icns files.
 const openWithIconCache = new Map<string, string | null>();
@@ -4592,6 +4593,71 @@ function getDarwinAppPath(appName: string): string | null {
     `/System/Applications/Utilities/${appName}.app`,
   ];
   return candidates.find((appPath) => existsSync(appPath)) ?? null;
+}
+
+function isSafeComputerUseAppQuery(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 80) return false;
+  if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.includes('\0') || trimmed.includes('\n')) {
+    return false;
+  }
+  return true;
+}
+
+function looksLikeBundleId(value: string): boolean {
+  return value.includes('.') && !value.endsWith('.app');
+}
+
+async function resolveDarwinApplicationPath(appQuery: string): Promise<string | null> {
+  if (process.platform !== 'darwin' || !isSafeComputerUseAppQuery(appQuery)) return null;
+  if (!looksLikeBundleId(appQuery)) {
+    const known = getDarwinAppPath(appQuery);
+    if (known) return known;
+  }
+
+  const script = `
+    ObjC.import('AppKit');
+    function run(argv) {
+      const query = argv[0];
+      const ws = $.NSWorkspace.sharedWorkspace;
+      try {
+        const url = ws.URLForApplicationWithBundleIdentifier(query);
+        if (url && !url.isNil()) return ObjC.unwrap(url.path);
+      } catch (e) {}
+      try {
+        const path = ws.fullPathForApplication(query);
+        if (path && !path.isNil()) return ObjC.unwrap(path);
+      } catch (e) {}
+      return '';
+    }
+  `;
+  try {
+    const { stdout } = await execFileAsync(
+      'osascript',
+      ['-l', 'JavaScript', '-e', script, appQuery],
+      { timeout: 4000 }
+    );
+    const resolved = stdout.trim();
+    if (resolved && resolved.endsWith('.app') && existsSync(resolved)) return resolved;
+  } catch {
+    // Fall through.
+  }
+  return null;
+}
+
+async function readComputerUseAppIconDataUrl(appQuery: string): Promise<string | null> {
+  const key = appQuery.trim();
+  if (!key) return null;
+  if (computerUseAppIconByQuery.has(key)) return computerUseAppIconByQuery.get(key) ?? null;
+  const appPath = await resolveDarwinApplicationPath(key);
+  if (!appPath) {
+    computerUseAppIconByQuery.set(key, null);
+    return null;
+  }
+  await extractAppIconDataUrls([appPath]);
+  const dataUrl = openWithIconCache.get(appPath) ?? null;
+  computerUseAppIconByQuery.set(key, dataUrl);
+  return dataUrl;
 }
 
 async function getNativeIconDataUrl(appPath: string | null): Promise<string | undefined> {
@@ -6562,6 +6628,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     const artifact = resolveComputerUseArtifact(app.getPath('userData'), sessionId, sha256);
     if (!artifact) return null;
     return `data:${artifact.mimeType};base64,${artifact.bytes.toString('base64')}`;
+  });
+
+  ipcMainHandle('read-computer-use-app-icon', async (_event, appQuery: string) => {
+    return readComputerUseAppIconDataUrl(typeof appQuery === 'string' ? appQuery : '');
   });
 
   ipcMainHandle('open-computer-use-preview', async (_event, input: import('../shared/computer-use').ComputerUsePreviewOpenInput) => {

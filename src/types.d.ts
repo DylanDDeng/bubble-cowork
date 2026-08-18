@@ -315,6 +315,7 @@ declare global {
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
     readComputerUseArtifact: (sessionId: string, sha256: string) => Promise<string | null>;
+    readComputerUseAppIcon: (app: string) => Promise<string | null>;
     openComputerUsePreview: (
       input: import('./shared/computer-use').ComputerUsePreviewOpenInput
     ) => Promise<{ ok: boolean; open: boolean; sessionId: string; message?: string }>;

@@ -7,7 +7,6 @@ import {
   FileDiff,
   FolderSearch,
   LoaderCircle,
-  Monitor,
   ShieldAlert,
   SquareTerminal,
   Workflow,
@@ -34,6 +33,7 @@ import {
   type UnifiedDiffHunk,
 } from '../utils/unified-diff';
 import { DiffHunkView } from './UnifiedDiffView';
+import { ComputerUseAppIcon } from './ComputerUseAppIcon';
 import { TodoProgressCard } from './TodoProgressCard';
 import { DiffStatLabel } from './DiffStatLabel';
 import { useTurnDiffContext } from './TurnDiffContext';
@@ -296,7 +296,9 @@ function StageKindIcon({ stage }: { stage: WorkstreamStage }) {
   if (stage.kind === 'edit') return <FileDiff className={className} />;
   if (stage.kind === 'command') return <SquareTerminal className={className} />;
   if (stage.kind === 'approval') return <ShieldAlert className={className} />;
-  if (stage.kind === 'computer_use') return <Monitor className={className} />;
+  if (stage.kind === 'computer_use') {
+    return <ComputerUseAppIcon app={stage.computerUseApp} className={className} />;
+  }
   if (stage.kind === 'error') return <CircleX className={className} />;
   return <FolderSearch className={className} />;
 }

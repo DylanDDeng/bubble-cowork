@@ -125,6 +125,108 @@ export function canonicalizeComputerUseApp(app: string | null | undefined): stri
   return raw || null;
 }
 
+/** Localized / informal names Codex and Sky use in titles and JS payloads. */
+const COMPUTER_USE_APP_DISPLAY_NAMES: Record<string, string> = {
+  notes: 'Notes',
+  备忘录: 'Notes',
+  safari: 'Safari',
+  chrome: 'Google Chrome',
+  'google chrome': 'Google Chrome',
+  finder: 'Finder',
+  terminal: 'Terminal',
+  mail: 'Mail',
+  邮件: 'Mail',
+  calendar: 'Calendar',
+  日历: 'Calendar',
+  messages: 'Messages',
+  信息: 'Messages',
+  photos: 'Photos',
+  照片: 'Photos',
+  preview: 'Preview',
+  预览: 'Preview',
+  music: 'Music',
+  音乐: 'Music',
+  maps: 'Maps',
+  地图: 'Maps',
+  reminders: 'Reminders',
+  提醒事项: 'Reminders',
+  'system settings': 'System Settings',
+  系统设置: 'System Settings',
+  textedit: 'TextEdit',
+  'text edit': 'TextEdit',
+  文本编辑: 'TextEdit',
+};
+
+function firstComputerUseString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+export function displayNameForComputerUseApp(app: string | null | undefined): string | null {
+  const raw = (app || '').trim();
+  if (!raw) return null;
+  return COMPUTER_USE_APP_DISPLAY_NAMES[raw.toLowerCase()] || COMPUTER_USE_APP_DISPLAY_NAMES[raw] || raw;
+}
+
+function extractAppFromSkyCode(code: string): string | null {
+  const match = code.match(/\b(?:app|bundleId|bundle_id)\s*:\s*["']([^"']+)["']/i);
+  return match?.[1] ? displayNameForComputerUseApp(match[1]) : null;
+}
+
+function extractAppFromTitle(title: string): string | null {
+  const aliases = Object.entries(COMPUTER_USE_APP_DISPLAY_NAMES).sort((left, right) => right[0].length - left[0].length);
+  for (const [alias, name] of aliases) {
+    if (/^[\u0000-\u007f]+$/.test(alias)) {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`, 'i').test(title)) return name;
+    } else if (title.includes(alias)) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the target macOS app for a Computer Use tool call.
+ * `node_repl` payloads often omit `input.app` and only mention it in JS (`app:"Notes"`)
+ * or a localized title (备忘录).
+ */
+export function extractComputerUseAppName(input: Record<string, unknown> | null | undefined): string | null {
+  const record = input && typeof input === 'object' ? input : {};
+  const nested = record.__aegisComputerUse;
+  const nestedRecord =
+    nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? (nested as Record<string, unknown>)
+      : {};
+
+  const direct = displayNameForComputerUseApp(
+    firstComputerUseString(
+      record.app,
+      record.application,
+      record.bundleId,
+      record.bundle_id,
+      nestedRecord.app
+    )
+  );
+  if (direct) return direct;
+
+  const code = firstComputerUseString(record.code);
+  if (code) {
+    const fromCode = extractAppFromSkyCode(code);
+    if (fromCode) return fromCode;
+  }
+
+  const title = firstComputerUseString(record.title, record.__aegisDisplayTitle, nestedRecord.title);
+  if (title) {
+    const fromTitle = extractAppFromTitle(title);
+    if (fromTitle) return fromTitle;
+  }
+
+  return null;
+}
+
 export function computerUseRiskRank(risk: string | null | undefined): number {
   const value = (risk || '').trim().toLowerCase();
   if (value === 'critical' || value === 'high') return 3;

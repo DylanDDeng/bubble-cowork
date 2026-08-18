@@ -1,3 +1,4 @@
+import { extractComputerUseAppName } from '../../shared/computer-use';
 import type { ChangeOperation, ChangeRecord, ChangeRecordState } from './change-records';
 import {
   getToolInputFilePath,
@@ -59,6 +60,8 @@ export interface WorkstreamStage {
   addedLines: number;
   removedLines: number;
   defaultExpanded: boolean;
+  /** macOS app shown beside Computer Use rows (Notes, Safari, …). */
+  computerUseApp?: string | null;
 }
 
 export interface SummarizeWorkstreamEntriesOptions {
@@ -453,6 +456,7 @@ function makeStage(
     addedLines,
     removedLines,
     defaultExpanded: status === 'error' || status === 'waiting',
+    computerUseApp: kind === 'computer_use' ? extractComputerUseAppName(getToolInputRecord(firstEntry)) : null,
   };
 }
 

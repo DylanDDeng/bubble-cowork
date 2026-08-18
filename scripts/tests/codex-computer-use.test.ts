@@ -7,6 +7,7 @@ import {
   classifyComputerUseAction,
   computerUsePreviewWindowPolicy,
   environmentHasComputerUseSection,
+  extractComputerUseAppName,
   formatComputerUseGrantLabel,
   formatComputerUseLabel,
   isComputerUsePreviewHash,
@@ -75,6 +76,23 @@ function testClassification() {
   );
   assert.equal(isDeniedComputerUseTarget('com.aegis.desktop'), true);
   assert.equal(isDeniedComputerUseTarget('Finder'), false);
+
+  assert.equal(extractComputerUseAppName({ app: 'Finder' }), 'Finder');
+  assert.equal(
+    extractComputerUseAppName({
+      code: 'await sky.click({app:"Notes", id:"AXTextArea"});',
+      title: '点击备忘录',
+    }),
+    'Notes'
+  );
+  assert.equal(extractComputerUseAppName({ title: '点击备忘录' }), 'Notes');
+  assert.equal(
+    extractComputerUseAppName({
+      __aegisComputerUse: { app: 'Safari', kind: 'click' },
+    }),
+    'Safari'
+  );
+  assert.equal(extractComputerUseAppName({ title: 'email the team' }), null);
 }
 
 function testElicitationParser() {
@@ -254,6 +272,7 @@ function testWorkstreamStage() {
   assert.equal(stages[0]?.kind, 'computer_use');
   assert.equal(stages[0]?.defaultExpanded, false);
   assert.equal(stages[0]?.title, 'Clicking in Finder');
+  assert.equal(stages[0]?.computerUseApp, 'Finder');
 
   const grouped = summarizeWorkstreamEntries([
     entries[0],
@@ -268,6 +287,28 @@ function testWorkstreamStage() {
   assert.equal(grouped.length, 2, 'each Computer Use action should be its own stage row');
   assert.equal(grouped[0]?.title, 'Clicking in Finder');
   assert.equal(grouped[1]?.title, 'Typing in Notes');
+
+  const nodeRepl = summarizeWorkstreamEntries([
+    {
+      id: 'cu-js',
+      type: 'tool',
+      toolName: 'mcp__node_repl__js',
+      kind: 'computer_use',
+      summary: '点击备忘录',
+      status: 'success',
+      block: {
+        type: 'tool_use',
+        id: 'cu-js',
+        name: 'mcp__node_repl__js',
+        input: {
+          code: 'await sky.type_text({app:"Notes", text:"hello"});',
+          title: '点击备忘录',
+        },
+      },
+      result: { type: 'tool_result', tool_use_id: 'cu-js', content: 'ok' },
+    },
+  ]);
+  assert.equal(nodeRepl[0]?.computerUseApp, 'Notes');
 }
 
 function testGrants() {
@@ -441,6 +482,15 @@ function testPreviewSourceWiring() {
   const stoppedAt = finish.indexOf("type: 'computerUse.stopped'");
   const closeAt = finish.indexOf('stopComputerUsePreviewIfSession');
   assert.ok(stoppedAt >= 0 && closeAt >= 0 && stoppedAt < closeAt, 'Stop must hide HUD before closing the preview window');
+  assert.match(ipc, /read-computer-use-app-icon/);
+
+  const workstream = readFileSync(join(root, 'src/ui/components/AssistantWorkstream.tsx'), 'utf8');
+  assert.match(workstream, /ComputerUseAppIcon/);
+  assert.equal(
+    /kind === 'computer_use'\) return <Monitor/.test(workstream),
+    false,
+    'Computer Use rows should use the target app icon, not a generic monitor'
+  );
 }
 
 testClassification();
