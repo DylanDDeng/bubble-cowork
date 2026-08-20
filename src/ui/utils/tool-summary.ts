@@ -372,7 +372,7 @@ export function deriveReadableToolDisplay(
     return { verb: pickVerb(TOOL_VERBS.WebSearch, status), target: query ? truncate(query, 60) : 'query' };
   }
 
-  if (name === 'Task' || name === 'task' || name === 'spawn_agent' || name === 'run_workflow') {
+  if (name === 'Task' || name === 'task' || name === 'subagent' || name === 'spawn_agent' || name === 'run_workflow') {
     const desc =
       getStringField(input, 'description') ||
       getStringField(input, 'subagent_type') ||
@@ -469,7 +469,7 @@ export function classifyToolUse(toolName: string, input: unknown): CanonicalTool
   // in this runtime; both carry a subagent_type input. Recognize either name,
   // or any tool that declares a subagent_type, so every runtime's subagent
   // runs render as a subagent board (not a generic tool row).
-  if (normalized === 'task' || normalized === 'agent') return 'subagent';
+  if (normalized === 'task' || normalized === 'agent' || normalized === 'subagent') return 'subagent';
   if (getStringField(input, 'subagent_type')) return 'subagent';
   // Bubble's spawn surface: spawn_agent (one child) and run_workflow (a
   // schema'd multi-agent pipeline) both nest their children the same way.

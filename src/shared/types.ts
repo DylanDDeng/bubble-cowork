@@ -109,8 +109,8 @@ export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high'
 export type DeepseekPermissionMode = 'workspace-write' | 'danger-full-access';
 /** DeepSeek Harness agent composition, matching the official Web UI presets. */
 export type DeepseekAgentPreset = 'standard' | 'code' | 'minimal' | 'cordis';
-/** DeepSeek Harness reasoning policy; forwarded to the runtime profile. */
-export type DeepseekReasoningEffort = 'off' | 'high' | 'max';
+/** DeepSeek Harness reasoning policy; forwarded as DSH_REASONING_EFFORT. */
+export type DeepseekReasoningEffort = 'off' | 'low' | 'high' | 'max';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
 // Mirrors Bubble SDK's PermissionMode union (runTurn({ mode })).
 export type BubblePermissionMode = 'default' | 'plan' | 'bypassPermissions';

@@ -655,7 +655,7 @@ function normalizeDeepseekPermissionMode(
 function normalizeDeepseekReasoningEffort(
   value?: string | null
 ): import('../shared/types').DeepseekReasoningEffort | undefined {
-  return value === 'off' || value === 'high' || value === 'max' ? value : undefined;
+  return value === 'off' || value === 'low' || value === 'high' || value === 'max' ? value : undefined;
 }
 
 function normalizeGrokReasoningEffort(

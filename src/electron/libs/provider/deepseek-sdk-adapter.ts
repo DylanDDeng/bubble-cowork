@@ -24,6 +24,16 @@ import { setBrowserUseSessionFullAccess } from '../browser-use-consent';
 import { browserManager } from '../../browserManager';
 import { normalizeDeepseekAgentPreset } from '../../../shared/deepseek-agent-preset';
 import {
+  createDeepseekSubagentRuntime,
+  isDeepseekSubagentToolName,
+  namespaceDeepseekToolId,
+  registerDeepseekChildHint,
+  registerDeepseekSpawn,
+  registerDeepseekStarted,
+  spawnFromToolInput,
+  type DeepseekSubagentRuntime,
+} from './deepseek-subagent-trace';
+import {
   loadDeepseekSdk,
   type DshContentBlock,
   type DshHarness,
@@ -63,9 +73,9 @@ import type {
  * and results, per-request usage and context window — which this adapter maps
  * onto the same stream shapes the Grok adapter emits.
  *
- * Contract notes (pre-release wire, pinned 0.1.0-rc.6):
+ * Contract notes (pre-release wire, pinned 0.1.0-rc.8):
  * - No mid-turn cancel on the wire: stop = close the runtime (EOF → SIGTERM →
- *   SIGKILL ladder inside the SDK client). The rc.6 JSON-RPC server omits its
+ *   SIGKILL ladder inside the SDK client). The JSON-RPC server still omits its
  *   core agents.resume() path, so the Aegis runtime bin installs a narrow
  *   create-or-resume shim before boot. Same-cwd restarts restore the complete
  *   persisted DSH log; missing or wrong-cwd logs fail loudly instead of
@@ -74,6 +84,10 @@ import type {
  *   approval policy `never`); no permission_request events are ever emitted.
  * - Model, sandbox mode and reasoning effort are fixed per spawned runtime
  *   (initialize + env); a switch respawns via the ipc config-drift path.
+ * - Child-session traces nest under the spawning `subagent` tool_use via
+ *   parentToolUseId. Pairing is fail-closed (unique spawn only) because the
+ *   SDK started payload has no parentToolCallId. Background delegation is
+ *   disabled in the profile for this mapping.
  */
 
 interface TurnState {
@@ -82,7 +96,7 @@ interface TurnState {
   currentThinking?: { blockIndex: number };
   currentText?: { blockIndex: number };
   usage: { input: number; output: number; cacheRead: number; reasoning: number };
-  /** rc.6 emits the same sample as a usage chunk and committed message. */
+  /** The SDK emits the same sample as a usage chunk and committed message. */
   usageByStep: Map<string, { input: number; output: number; cacheRead: number; reasoning: number }>;
   endReason?: { kind: string; message?: string };
   startedAt: number;
@@ -109,6 +123,20 @@ interface ActiveDeepseekSession {
   disposeRuntimeConfig: () => void;
   contextWindow?: number;
   turn?: TurnState;
+  /** Child-session → spawning tool_use attribution for nested traces. */
+  subagent: DeepseekSubagentRuntime;
+  /** Child session.event frames held until a unique parent tool_use exists. */
+  subagentBuffers: Map<string, DshHarnessNotification[]>;
+  /** Same-step tool_use blocks coalesced onto one assistant uuid. */
+  toolBatches: Map<
+    string,
+    {
+      uuid: string;
+      blocks: Array<{ type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }>;
+      createdAt: number;
+      parentToolUseId: string | null;
+    }
+  >;
   /** True while a primary run() owns the activity — steers enqueue instead. */
   turnInFlight?: boolean;
   /** Set by stopSession/disposeSession so a rejected in-flight run stays silent. */
@@ -151,7 +179,7 @@ function normalizeDeepseekPermissionMode(value: unknown): DeepseekPermissionMode
 }
 
 function normalizeDeepseekReasoningEffort(value: unknown): DeepseekReasoningEffort {
-  return value === 'off' || value === 'high' ? value : 'max';
+  return value === 'off' || value === 'low' || value === 'high' || value === 'max' ? value : 'max';
 }
 
 /**
@@ -185,7 +213,27 @@ function buildPromptBlocks(prompt: string, attachments?: Attachment[]): DshConte
   return blocks;
 }
 
-/** Concatenate the text leaves of a tool-result content tree. */
+function extractUserMessageText(data: Record<string, unknown>): string {
+  const message = getRecord(data.message) || data;
+  const parts: string[] = [];
+  for (const block of getArray(message.content)) {
+    const record = getRecord(block);
+    if (record && typeof record.text === 'string' && record.text.trim()) {
+      parts.push(record.text.trim());
+    }
+  }
+  return parts.join('\n');
+}
+
+function parseToolCallInput(rawArguments: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(rawArguments || '{}') as unknown;
+    return getRecord(parsed) || {};
+  } catch {
+    return { arguments: rawArguments };
+  }
+}
+
 function extractToolResultText(content: unknown): string {
   const parts: string[] = [];
   const walk = (value: unknown): void => {
@@ -273,6 +321,9 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       session,
       subscription,
       disposeRuntimeConfig,
+      subagent: createDeepseekSubagentRuntime(),
+      subagentBuffers: new Map(),
+      toolBatches: new Map(),
     };
     // Never orphan a previous session for the same thread — an undisposed
     // predecessor would leak its runtime subprocess.
@@ -459,6 +510,9 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     }
     // No wire-level cancel exists: closing the runtime IS the interrupt
     // (shutdown request, then EOF → SIGTERM → SIGKILL inside the client).
+    // Do not synthesize interrupted tool_result blocks for open subagent
+    // calls — the workstream freezes unresolved tools once the session
+    // is no longer running.
     try {
       await active.harness.close();
     } catch {
@@ -618,6 +672,19 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
 
   // ── Notification routing ───────────────────────────────────────────────────
 
+  private ensureSubagentState(active: ActiveDeepseekSession): DeepseekSubagentRuntime {
+    if (!active.subagent) {
+      active.subagent = createDeepseekSubagentRuntime();
+    }
+    if (!active.subagentBuffers) {
+      active.subagentBuffers = new Map();
+    }
+    if (!active.toolBatches) {
+      active.toolBatches = new Map();
+    }
+    return active.subagent;
+  }
+
   private handleNotification(
     active: ActiveDeepseekSession,
     notification: DshHarnessNotification
@@ -625,37 +692,127 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     if (this.sessions.get(active.threadId) !== active) {
       return;
     }
+    this.ensureSubagentState(active);
+    if (notification.method === 'subagent.started') {
+      this.handleSubagentStarted(active, notification.params);
+      return;
+    }
     if (notification.method !== 'session.event') {
       return;
     }
-    // Descendant (subagent) sessions stream here too; only the root session
-    // renders into the thread. The subagent's own tool/call row already
-    // surfaces the delegation.
-    if (getString(notification.params.sessionId) !== active.providerSessionId) {
+
+    const sessionId = getString(notification.params.sessionId);
+    const parentToolUseId = active.subagent.parents.get(sessionId) || null;
+    const isRoot = sessionId === active.providerSessionId;
+    if (!isRoot && !parentToolUseId) {
+      this.bufferUnboundChildEvent(active, sessionId, notification);
+      this.absorbChildBindingHints(active, sessionId, notification);
+      const boundId = active.subagent.parents.get(sessionId);
+      if (!boundId) return;
+      this.flushSubagentBuffer(active, sessionId);
       return;
     }
+
+    this.dispatchSessionEvent(active, sessionId, notification, parentToolUseId);
+  }
+
+  private handleSubagentStarted(
+    active: ActiveDeepseekSession,
+    params: Record<string, unknown>
+  ): void {
+    const parentSessionId = getString(params.parentSessionId);
+    const childSessionId = getString(params.childSessionId);
+    const boundId = registerDeepseekStarted(active.subagent, parentSessionId, childSessionId);
+    if (boundId) {
+      this.flushSubagentBuffer(active, childSessionId);
+    }
+  }
+
+  private bufferUnboundChildEvent(
+    active: ActiveDeepseekSession,
+    sessionId: string,
+    notification: DshHarnessNotification
+  ): void {
+    if (!sessionId) return;
+    const buffer = active.subagentBuffers.get(sessionId) ?? [];
+    buffer.push(notification);
+    active.subagentBuffers.set(sessionId, buffer);
+  }
+
+  private absorbChildBindingHints(
+    active: ActiveDeepseekSession,
+    sessionId: string,
+    notification: DshHarnessNotification
+  ): void {
+    const event = getRecord(notification.params.event) as DshSessionEvent | null;
+    if (!event) return;
+    const data = getRecord(event.data) || {};
+    if (event.type === 'subagent/descriptor') {
+      registerDeepseekChildHint(active.subagent, sessionId, { label: getString(data.label) });
+      return;
+    }
+    if (event.type === 'user/message') {
+      registerDeepseekChildHint(active.subagent, sessionId, {
+        prompt: extractUserMessageText(data),
+      });
+    }
+  }
+
+  private flushSubagentBuffer(active: ActiveDeepseekSession, childSessionId: string): void {
+    const buffered = active.subagentBuffers.get(childSessionId);
+    if (!buffered?.length) return;
+    active.subagentBuffers.delete(childSessionId);
+    const parentToolUseId = active.subagent.parents.get(childSessionId) || null;
+    for (const notification of buffered) {
+      this.dispatchSessionEvent(active, childSessionId, notification, parentToolUseId);
+    }
+  }
+
+  private dispatchSessionEvent(
+    active: ActiveDeepseekSession,
+    sessionId: string,
+    notification: DshHarnessNotification,
+    parentToolUseId: string | null
+  ): void {
     const event = getRecord(notification.params.event) as DshSessionEvent | null;
     if (!event || typeof event.type !== 'string') {
       return;
     }
     const data = getRecord(event.data) || {};
+    const createdAt = getNumber(event.time) || Date.now();
+    const isRoot = !parentToolUseId;
+
+    if (!isRoot && event.type === 'subagent/descriptor') {
+      registerDeepseekChildHint(active.subagent, sessionId, { label: getString(data.label) });
+      return;
+    }
+    if (!isRoot && event.type === 'user/message') {
+      registerDeepseekChildHint(active.subagent, sessionId, {
+        prompt: extractUserMessageText(data),
+      });
+      return;
+    }
+
     switch (event.type) {
       case 'assistant/chunk':
-        this.handleAssistantChunk(active, data);
+        if (isRoot) this.handleAssistantChunk(active, data);
         break;
       case 'assistant/message':
-        this.handleAssistantMessage(active, data);
+        this.handleAssistantMessage(active, data, parentToolUseId, createdAt);
         break;
       case 'tool/call':
-        this.handleToolCall(active, data);
+        this.handleToolCall(active, sessionId, data, parentToolUseId, createdAt);
         break;
       case 'tool/result':
-        this.handleToolResult(active, data);
+        this.handleToolResult(active, sessionId, data, parentToolUseId, createdAt);
         break;
       case 'request/context':
-        active.contextWindow = getNumber(data.contextWindow) || active.contextWindow;
+        if (isRoot) {
+          active.contextWindow = getNumber(data.contextWindow) || active.contextWindow;
+        }
         break;
       case 'turn/end': {
+        if (!isRoot) break;
         const reason = getRecord(data.reason);
         const error = getRecord(reason?.error);
         if (active.turn && reason) {
@@ -667,7 +824,6 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
         break;
       }
       default:
-        // step/*, session/title, agent/inbox/*, user/message: no render.
         break;
     }
   }
@@ -736,11 +892,15 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
 
   private handleAssistantMessage(
     active: ActiveDeepseekSession,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
+    parentToolUseId: string | null,
+    createdAt: number
   ): void {
     const message = getRecord(data.message);
     if (!message) return;
-    this.setUsageSample(active, data, getRecord(data.usage));
+    if (!parentToolUseId) {
+      this.setUsageSample(active, data, getRecord(data.usage));
+    }
 
     const content: Array<{ type: 'thinking'; thinking: string } | { type: 'text'; text: string }> = [];
     for (const block of getArray(message.content)) {
@@ -755,9 +915,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     }
     if (content.length === 0) return;
 
-    // A committed message closes the streaming buffers: the next delta opens
-    // a fresh block so it never appends onto committed content.
-    if (active.turn) {
+    if (!parentToolUseId && active.turn) {
       active.turn.currentThinking = undefined;
       active.turn.currentText = undefined;
     }
@@ -766,50 +924,106 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     const streamMessage: StreamMessage = {
       type: 'assistant',
       uuid,
-      createdAt: Date.now(),
+      createdAt,
+      ...(parentToolUseId ? { parentToolUseId } : {}),
       message: { content },
     };
     this.emit({ type: 'message', threadId: active.threadId, message: streamMessage });
   }
 
-  private handleToolCall(active: ActiveDeepseekSession, data: Record<string, unknown>): void {
-    const callId = getString(data.callId);
-    if (!callId) return;
+  private handleToolCall(
+    active: ActiveDeepseekSession,
+    sessionId: string,
+    data: Record<string, unknown>,
+    parentToolUseId: string | null,
+    createdAt: number
+  ): void {
+    const rawCallId = getString(data.callId);
+    if (!rawCallId || !sessionId) return;
     const name = getString(data.name) || 'Tool';
-    let parsedInput: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(getString(data.arguments) || '{}') as unknown;
-      parsedInput = getRecord(parsed) || {};
-    } catch {
-      parsedInput = { arguments: getString(data.arguments) };
+    const parsedInput = parseToolCallInput(getString(data.arguments));
+    const displayId = namespaceDeepseekToolId(sessionId, rawCallId);
+
+    if (isDeepseekSubagentToolName(name)) {
+      const boundId = registerDeepseekSpawn(
+        active.subagent,
+        spawnFromToolInput(sessionId, rawCallId, parsedInput)
+      );
+      if (boundId) {
+        const childId = [...active.subagent.parents.entries()].find(
+          ([, toolId]) => toolId === boundId
+        )?.[0];
+        if (childId) this.flushSubagentBuffer(active, childId);
+      }
     }
-    const message: StreamMessage = {
-      type: 'assistant',
-      uuid: `deepseek-tool-use:${active.threadId}:${callId}`,
-      createdAt: Date.now(),
+
+    const turn = getNumber(data.turn);
+    const step = getNumber(data.step);
+    const batchKey = `${sessionId}:${turn}:${step}`;
+    const existing = active.toolBatches.get(batchKey);
+    const block = { type: 'tool_use' as const, id: displayId, name, input: parsedInput };
+    if (existing && existing.parentToolUseId === parentToolUseId) {
+      existing.blocks.push(block);
+      this.emit({
+        type: 'message',
+        threadId: active.threadId,
+        message: {
+          type: 'assistant',
+          uuid: existing.uuid,
+          createdAt: existing.createdAt,
+          ...(parentToolUseId ? { parentToolUseId } : {}),
+          message: { content: existing.blocks },
+        },
+      });
+      return;
+    }
+
+    const uuid = `deepseek-tools:${active.threadId}:${batchKey}`;
+    const blocks = [block];
+    active.toolBatches.set(batchKey, {
+      uuid,
+      blocks,
+      createdAt,
+      parentToolUseId,
+    });
+    this.emit({
+      type: 'message',
+      threadId: active.threadId,
       message: {
-        content: [{ type: 'tool_use', id: callId, name, input: parsedInput }],
+        type: 'assistant',
+        uuid,
+        createdAt,
+        ...(parentToolUseId ? { parentToolUseId } : {}),
+        message: { content: blocks },
       },
-    };
-    this.emit({ type: 'message', threadId: active.threadId, message });
+    });
   }
 
-  private handleToolResult(active: ActiveDeepseekSession, data: Record<string, unknown>): void {
+  private handleToolResult(
+    active: ActiveDeepseekSession,
+    sessionId: string,
+    data: Record<string, unknown>,
+    parentToolUseId: string | null,
+    createdAt: number
+  ): void {
     const message = getRecord(data.message);
     const source = getRecord(message?.source);
-    const callId = getString(source?.callId);
-    if (!callId) return;
+    const rawCallId = getString(source?.callId);
+    if (!rawCallId || !sessionId) return;
+    const displayId = namespaceDeepseekToolId(sessionId, rawCallId);
     const blocks = getArray(message?.content);
     const isError = blocks.some((block) => getRecord(block)?.isError === true);
     const text = extractToolResultText(blocks) || 'Done';
     const streamMessage: StreamMessage = {
       type: 'assistant',
-      uuid: `deepseek-tool-result:${active.threadId}:${callId}:${uuidv4()}`,
+      uuid: `deepseek-tool-result:${active.threadId}:${displayId}:${uuidv4()}`,
+      createdAt,
+      ...(parentToolUseId ? { parentToolUseId } : {}),
       message: {
         content: [
           {
             type: 'tool_result',
-            tool_use_id: callId,
+            tool_use_id: displayId,
             content: text,
             is_error: isError,
           },

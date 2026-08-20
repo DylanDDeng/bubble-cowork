@@ -7,12 +7,14 @@ export const DEFAULT_DEEPSEEK_REASONING_EFFORT: DeepseekReasoningEffort = 'max';
 
 export const DEEPSEEK_REASONING_EFFORT_OPTIONS: ReadonlyArray<DeepseekReasoningEffort> = [
   'off',
+  'low',
   'high',
   'max',
 ];
 
 export const DEEPSEEK_REASONING_EFFORT_LABELS: Record<DeepseekReasoningEffort, string> = {
   off: 'Off',
+  low: 'Low',
   high: 'High',
   max: 'Max',
 };
@@ -20,7 +22,7 @@ export const DEEPSEEK_REASONING_EFFORT_LABELS: Record<DeepseekReasoningEffort, s
 export function normalizeDeepseekReasoningEffort(
   value: unknown
 ): DeepseekReasoningEffort | null {
-  return value === 'off' || value === 'high' || value === 'max' ? value : null;
+  return value === 'off' || value === 'low' || value === 'high' || value === 'max' ? value : null;
 }
 
 export function loadPreferredDeepseekReasoningEffort(): DeepseekReasoningEffort {

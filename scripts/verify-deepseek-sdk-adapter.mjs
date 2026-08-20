@@ -25,7 +25,7 @@ const profilePkg = JSON.parse(read('dev-fixtures/deepseek-harness/package.json')
 assert.ok(
   profilePkg.dependencies?.['@deepseek-ai/dsh-sdk-jsonrpc-server'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-llm-deepseek'] &&
-    profilePkg.dependencies?.['@deepseek-ai/dsh-mcp-client'] === '0.1.0-rc.6' &&
+    profilePkg.dependencies?.['@deepseek-ai/dsh-mcp-client'] === '0.1.0-rc.8' &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-bash-sandbox'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-fs-sandbox'],
   'deepseek-harness profile must compose the SDK server, DeepSeek/MCP adapters and sandboxed tool stack'
@@ -198,11 +198,16 @@ assert.ok(
   'adapter must stream reasoning and text deltas from assistant/chunk events'
 );
 assert.ok(
-  adapter.includes("'tool/call'") &&
-    adapter.includes("'tool/result'") &&
-    adapter.includes("type: 'tool_use'") &&
-    adapter.includes("type: 'tool_result'"),
-  'adapter must render tool calls and results from session events'
+  adapter.includes('registerDeepseekStarted') &&
+    adapter.includes('parentToolUseId') &&
+    adapter.includes('namespaceDeepseekToolId') &&
+    adapter.includes("'subagent.started'") &&
+    adapter.includes('flushSubagentBuffer'),
+  'adapter must nest child-session traces under a uniquely bound subagent tool_use'
+);
+assert.ok(
+  /enableRunInBackground:\s*false/.test(cordisYml),
+  'profile must disable background subagent delegation until the SDK exposes a parentToolCallId'
 );
 assert.ok(
   adapter.includes("'request/context'") &&
@@ -215,7 +220,7 @@ assert.ok(
     adapter.includes('turn.usageByStep.get(key)') &&
     adapter.includes('estimateDeepseekUsageCost') &&
     !adapter.includes('turn.usage.output + turn.usage.reasoning'),
-  'adapter must de-duplicate rc.6 usage samples, estimate cost, and not double-count reasoning'
+  'adapter must de-duplicate duplicated usage samples, estimate cost, and not double-count reasoning'
 );
 assert.ok(
   adapter.includes("type: 'result'") &&
@@ -226,7 +231,8 @@ assert.ok(
 assert.ok(
   adapter.includes('harness.close()') &&
     adapter.includes('active.closed = true') &&
-    adapter.includes('ELECTRON_RUN_AS_NODE'),
+    adapter.includes('ELECTRON_RUN_AS_NODE') &&
+    adapter.includes('Do not synthesize interrupted tool_result'),
   'adapter must interrupt by closing the runtime (no wire cancel) and launch the bin as plain node'
 );
 assert.ok(
@@ -262,7 +268,7 @@ assert.ok(
     sharedTypes.includes("'deepseek_local'") &&
     sharedTypes.includes('DeepseekPermissionMode') &&
     sharedTypes.includes("DeepseekAgentPreset = 'standard' | 'code' | 'minimal' | 'cordis'") &&
-    sharedTypes.includes("DeepseekReasoningEffort = 'off' | 'high' | 'max'"),
+    sharedTypes.includes("DeepseekReasoningEffort = 'off' | 'low' | 'high' | 'max'"),
   'provider/shared types must include DeepSeek identity, presets, permissions and reasoning tiers'
 );
 assert.ok(
@@ -348,7 +354,7 @@ assert.ok(
   assert.equal(estimateDeepseekUsageCost('unknown-model', usage), 0);
 }
 
-// rc.6 publishes the same per-step usage on the streaming usage chunk and
+// The SDK publishes the same per-step usage on the streaming usage chunk and
 // the committed assistant message. Exercise the adapter's last-wins fold so
 // Settings and billing receive one sample, not two.
 {
@@ -398,6 +404,154 @@ assert.ok(
     reasoning_output_tokens: 7,
   });
   assert.ok(resultEvent.message.total_cost_usd > 0, 'known DeepSeek models must emit a positive cost');
+}
+
+{
+  const { DeepseekSdkAdapter } = require('../dist-electron/electron/libs/provider/deepseek-sdk-adapter.js');
+  const adapterInstance = new DeepseekSdkAdapter();
+  const emitted = [];
+  adapterInstance.events.on('event', (event) => emitted.push(event));
+  const active = {
+    threadId: 'thread-subagent',
+    providerSessionId: 'root-session',
+    status: 'running',
+    cwd: '/tmp',
+    model: 'deepseek-v4-flash',
+    permissionMode: 'workspace-write',
+    reasoningEffort: 'max',
+    harness: {},
+    subscription: { close() {} },
+    session: { id: 'root-session' },
+  };
+  adapterInstance.sessions.set(active.threadId, active);
+  const notify = (method, params) => adapterInstance.handleNotification(active, { method, params });
+  const sessionEvent = (sessionId, type, data, time = 1_000) =>
+    notify('session.event', { sessionId, event: { type, time, data } });
+
+  sessionEvent('root-session', 'tool/call', {
+    turn: 1,
+    step: 1,
+    callId: 'spawn-1',
+    name: 'subagent',
+    arguments: JSON.stringify({ description: 'Explore', prompt: 'list files' }),
+  });
+  sessionEvent('child-1', 'assistant/chunk', {
+    chunk: { type: 'text-delta', text: 'partial-nested' },
+  }, 1_050);
+  sessionEvent('child-1', 'assistant/message', {
+    message: { id: 'child-msg', content: [{ type: 'text', text: 'Looking around.' }] },
+  }, 1_100);
+  notify('subagent.started', { parentSessionId: 'root-session', childSessionId: 'child-1' });
+  sessionEvent('child-1', 'tool/call', {
+    turn: 1,
+    step: 1,
+    callId: 'read-1',
+    name: 'read',
+    arguments: JSON.stringify({ path: 'README.md' }),
+  }, 1_200);
+  sessionEvent('child-1', 'tool/result', {
+    message: {
+      source: { callId: 'read-1' },
+      content: [{ type: 'text', text: '# Hello' }],
+    },
+  }, 1_300);
+  sessionEvent('root-session', 'tool/result', {
+    message: {
+      source: { callId: 'spawn-1' },
+      content: [{ type: 'text', text: 'Found one file.' }],
+    },
+  }, 1_400);
+
+  const messages = emitted
+    .filter((event) => event.type === 'message')
+    .map((event) => event.message);
+  const spawn = messages.find((message) =>
+    message.message?.content?.some((block) => block.type === 'tool_use' && block.name === 'subagent')
+  );
+  assert.equal(spawn?.message.content[0].id, 'root-session:spawn-1');
+  const nestedText = messages.find((message) => message.parentToolUseId === 'root-session:spawn-1' && message.message?.content?.[0]?.type === 'text');
+  assert.equal(nestedText?.message.content[0].text, 'Looking around.');
+  const nestedTool = messages.find((message) =>
+    message.parentToolUseId === 'root-session:spawn-1' &&
+    message.message?.content?.some((block) => block.type === 'tool_use')
+  );
+  assert.equal(nestedTool?.message.content[0].id, 'child-1:read-1');
+  const nestedResult = messages.find((message) =>
+    message.parentToolUseId === 'root-session:spawn-1' &&
+    message.message?.content?.some((block) => block.type === 'tool_result')
+  );
+  assert.equal(nestedResult?.message.content[0].tool_use_id, 'child-1:read-1');
+  const spawnResult = messages.find((message) =>
+    !message.parentToolUseId &&
+    message.message?.content?.some((block) => block.type === 'tool_result')
+  );
+  assert.equal(spawnResult?.message.content[0].content, 'Found one file.');
+  assert.equal(spawnResult?.message.content[0].tool_use_id, 'root-session:spawn-1');
+  assert.equal(
+    messages.filter((message) => message.type === 'stream_event').length,
+    0,
+    'P0 nested traces are committed messages only — child assistant/chunk must not emit live deltas'
+  );
+}
+
+{
+  const { DeepseekSdkAdapter } = require('../dist-electron/electron/libs/provider/deepseek-sdk-adapter.js');
+  const adapterInstance = new DeepseekSdkAdapter();
+  const emitted = [];
+  adapterInstance.events.on('event', (event) => emitted.push(event));
+  const active = {
+    threadId: 'thread-parallel',
+    providerSessionId: 'root-session',
+    status: 'running',
+    cwd: '/tmp',
+    model: 'deepseek-v4-flash',
+    permissionMode: 'workspace-write',
+    reasoningEffort: 'max',
+    harness: {},
+    subscription: { close() {} },
+    session: { id: 'root-session' },
+  };
+  adapterInstance.sessions.set(active.threadId, active);
+  const notify = (method, params) => adapterInstance.handleNotification(active, { method, params });
+  const sessionEvent = (sessionId, type, data) =>
+    notify('session.event', { sessionId, event: { type, time: 1_000, data } });
+
+  sessionEvent('root-session', 'tool/call', {
+    turn: 2,
+    step: 1,
+    callId: 'spawn-a',
+    name: 'subagent',
+    arguments: JSON.stringify({ description: 'Explore', prompt: 'find todos' }),
+  });
+  sessionEvent('root-session', 'tool/call', {
+    turn: 2,
+    step: 1,
+    callId: 'spawn-b',
+    name: 'subagent',
+    arguments: JSON.stringify({ description: 'Test', prompt: 'add coverage' }),
+  });
+  notify('subagent.started', { parentSessionId: 'root-session', childSessionId: 'child-a' });
+  notify('subagent.started', { parentSessionId: 'root-session', childSessionId: 'child-b' });
+  sessionEvent('child-b', 'subagent/descriptor', { label: 'Test' });
+  sessionEvent('child-a', 'subagent/descriptor', { label: 'Explore' });
+  sessionEvent('child-a', 'assistant/message', {
+    message: { id: 'a-msg', content: [{ type: 'text', text: 'todos found' }] },
+  });
+  sessionEvent('child-b', 'assistant/message', {
+    message: { id: 'b-msg', content: [{ type: 'text', text: 'tests added' }] },
+  });
+
+  const messages = emitted
+    .filter((event) => event.type === 'message')
+    .map((event) => event.message);
+  const spawnMessage = messages.find((message) =>
+    message.message?.content?.some((block) => block.type === 'tool_use' && block.name === 'subagent')
+  );
+  assert.equal(spawnMessage?.message.content.length, 2, 'same-step subagent calls share one assistant message');
+  const explore = messages.find((message) => message.message?.content?.[0]?.text === 'todos found');
+  const tests = messages.find((message) => message.message?.content?.[0]?.text === 'tests added');
+  assert.equal(explore?.parentToolUseId, 'root-session:spawn-a');
+  assert.equal(tests?.parentToolUseId, 'root-session:spawn-b');
 }
 
 const ipc = read('src/electron/ipc-handlers.ts');
@@ -556,6 +710,7 @@ const composerControls = read('src/ui/components/ComposerAgentControls.tsx');
 const reasoningUtil = read('src/ui/utils/deepseek-reasoning.ts');
 assert.ok(
   reasoningUtil.includes("'off'") &&
+    reasoningUtil.includes("'low'") &&
     reasoningUtil.includes("'high'") &&
     reasoningUtil.includes("'max'") &&
     reasoningUtil.includes("DEFAULT_DEEPSEEK_REASONING_EFFORT: DeepseekReasoningEffort = 'max'") &&
@@ -565,7 +720,7 @@ assert.ok(
     composerControls.includes('DEEPSEEK_REASONING_EFFORT_OPTIONS') &&
     promptInput.includes('agentSelection.deepseekReasoningEffort') &&
     newSession.includes('agentSelection.deepseekReasoningEffort'),
-  'composer must offer off/high/max and send the persisted DeepSeek reasoning preference'
+  'composer must offer off/low/high/max and send the persisted DeepSeek reasoning preference'
 );
 assert.ok(
   adapter.includes('normalizeDeepseekReasoningEffort') &&

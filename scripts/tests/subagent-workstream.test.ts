@@ -415,6 +415,46 @@ assert.equal(
   );
 }
 
+{
+  const harnessAssistant = {
+    type: 'assistant',
+    uuid: 'main-dsh',
+    createdAt: 9_500,
+    message: {
+      content: [
+        {
+          type: 'tool_use' as const,
+          id: 'root-session:spawn-1',
+          name: 'subagent',
+          input: { description: 'Explore', prompt: 'list files' },
+        },
+      ],
+    },
+  } as StreamMessage & { type: 'assistant' };
+  const nestedChild = {
+    type: 'assistant',
+    uuid: 'dsh-child',
+    parentToolUseId: 'root-session:spawn-1',
+    createdAt: 9_600,
+    message: { content: [{ type: 'text', text: 'Found README.md' }] },
+  } as StreamMessage & { type: 'assistant' };
+  const model = createBatchWorkstreamModel({
+    messages: [harnessAssistant],
+    toolStatusMap: new Map<string, ToolStatus>([['root-session:spawn-1', 'pending']]),
+    toolResultsMap: new Map<string, ToolResultBlock>(),
+    isSessionRunning: true,
+    subagentMessagesByParent: groupSubagentMessagesByParent([nestedChild]),
+  });
+  const entry = model.entries.find((item) => item.id === 'root-session:spawn-1');
+  assert.ok(entry && entry.type === 'task', 'DeepSeek subagent tool_use becomes a task lane');
+  assert.equal(entry && entry.type === 'task' ? entry.subagent?.description : null, 'Explore');
+  assert.equal(
+    entry && entry.type === 'task' ? entry.subagent?.entries.length : 0,
+    1,
+    'nested child text lands in the same Task trace Claude/Codex use'
+  );
+}
+
 // ── Nested Tasks carry their own trace for the recursive lane renderer ──────
 
 {

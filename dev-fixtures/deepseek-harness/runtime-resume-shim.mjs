@@ -21,7 +21,7 @@ function agentOptions(server) {
 
 /**
  * Open one SDK session with the same create-or-resume policy as the Harness
- * Web host. The rc.6 JSON-RPC server only checks its process-local map and
+ * Web host. The JSON-RPC server only checks its process-local map and
  * always calls agents.create() after a restart; this shim checks the durable
  * store first and uses agents.resume() when the requested identity exists.
  */
@@ -65,7 +65,7 @@ export async function openSessionWithNativeResume({
   return record;
 }
 
-/** Patch the exported rc.6 server class before Cordis boots its plugin. */
+/** Patch the exported JSON-RPC server class before Cordis boots its plugin. */
 export function installDeepseekSdkResumeShim({ HarnessSdkJsonRpcServer, SessionId }) {
   const prototype = HarnessSdkJsonRpcServer.prototype;
   if (prototype[PATCH_MARKER]) return;
