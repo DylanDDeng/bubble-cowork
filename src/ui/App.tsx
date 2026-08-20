@@ -468,6 +468,10 @@ export function App() {
   }, [connected]);
 
   useEffect(() => {
+    setRightPanelLauncherOpen(false);
+  }, [activeSessionId]);
+
+  useEffect(() => {
     void gitEnvironment.refresh();
   }, [
     environmentContext.contextKey,
@@ -1073,8 +1077,10 @@ export function App() {
           />
           {fileUtilityTabs.map((tabId) => (
             <ProjectTreePanel
-              key={tabId}
+              key={`${activeSessionId ?? 'new'}:${tabId}`}
               embedded
+              sessionId={activeSessionId}
+              utilityTabId={tabId}
               collapsed={activeRightUtilityTab !== tabId}
               activeTab="files"
               onClose={() => closeRightUtilityTab(tabId)}
@@ -1090,6 +1096,7 @@ export function App() {
           ))}
           {rightUtilityTabs.includes('review') ? (
             <AegisDiffPanel
+              key={`${activeSessionId ?? 'new'}:review`}
               collapsed={activeRightUtilityTab !== 'review'}
               cwd={activeSession?.cwd || projectCwd || null}
               session={activeSession}
@@ -1100,7 +1107,7 @@ export function App() {
           ) : null}
           {browserUtilityTabs.map((tabId) => (
             <BrowserPanel
-              key={tabId}
+              key={`${activeSessionId ?? 'new'}:${tabId}`}
               embedded
               sessionId={activeSessionId}
               browserSessionId={getBrowserUtilitySessionId(activeSessionId, tabId)}
@@ -1114,6 +1121,7 @@ export function App() {
             />
           ))}
           <RightTerminalPanel
+            key={`${activeSessionId ?? 'new'}:terminal`}
             embedded
             collapsed={activeUtilityPanel !== 'terminal'}
             width={rightUtilityPanelWidth}
@@ -1124,7 +1132,7 @@ export function App() {
           />
           {subagentUtilityTabs.map((tabId) => (
             <SubagentPanel
-              key={tabId}
+              key={`${activeSessionId ?? 'new'}:${tabId}`}
               collapsed={activeRightUtilityTab !== tabId}
               sessionId={activeSessionId}
               subagentId={getProjectUtilitySubagentId(tabId) ?? ''}
@@ -1137,7 +1145,7 @@ export function App() {
               // it swaps for the real tab or drops itself on failure.
               return (
                 <div
-                  key={tabId}
+                  key={`${activeSessionId ?? 'new'}:${tabId}`}
                   className={
                     visible
                       ? 'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col items-center justify-center gap-3'
@@ -1152,7 +1160,7 @@ export function App() {
             const sideChatSessionId = getProjectUtilitySideChatSessionId(tabId);
             return (
               <div
-                key={tabId}
+                key={`${activeSessionId ?? 'new'}:${tabId}`}
                 className={
                   visible
                     ? 'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col'

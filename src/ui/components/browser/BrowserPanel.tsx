@@ -321,6 +321,14 @@ export function BrowserPanel({
     });
   }, [browserSessionId, collapsed]);
 
+  useEffect(() => {
+    return () => {
+      window.electron.browser.hide({ sessionId: browserSessionId }).catch(() => {
+        // non-fatal: session switch unmounts this panel; keep the page suspended.
+      });
+    };
+  }, [browserSessionId]);
+
   // ===== Context menu -> send selection to chat =====
   useEffect(() => {
     const api = window.electron.browser;

@@ -23,7 +23,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from './ui/context-menu';
-import type { ProjectFileOpenRequest, ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
+import type { ProjectFileOpenRequest, ProjectTreeNode, ProjectUtilityPanelKind, ProjectUtilityPanelTarget } from '../types';
 import {
   isSameProjectTreeRoot,
   selectVisibleProjectTree,
@@ -34,6 +34,7 @@ import {
   selectProjectFileRevealTarget,
   type ProjectFileRevealTarget,
 } from '../utils/project-file-navigation';
+import { rightPanelSessionKey } from '../utils/session-right-panel';
 
 type ProjectPanelTab = 'files';
 type ViewMode = 'view' | 'code' | 'split';
@@ -665,6 +666,8 @@ export function ProjectTreePanel({
   onToggleFullscreen,
   topInset = 0,
   embedded = false,
+  sessionId = null,
+  utilityTabId = 'files',
 }: {
   collapsed?: boolean;
   activeTab: ProjectPanelTab;
@@ -679,6 +682,8 @@ export function ProjectTreePanel({
   onToggleFullscreen?: () => void;
   topInset?: number;
   embedded?: boolean;
+  sessionId?: string | null;
+  utilityTabId?: ProjectUtilityPanelTarget;
 }) {
   const panelMeta = PANEL_DIMENSIONS[activeTab];
   const PanelTitleIcon = Files;
@@ -696,6 +701,7 @@ export function ProjectTreePanel({
     projectTreeCwd,
     setProjectTree,
   } = useAppStore();
+  const syncSessionFileTabs = useAppStore((state) => state.syncSessionFileTabs);
   const [loading, setLoading] = useState(false);
   const [projectTreeError, setProjectTreeError] = useState<string | null>(null);
   const prevCwdRef = useRef<string | null>(null);
@@ -860,10 +866,18 @@ export function ProjectTreePanel({
   const [projectDropHoverId, setProjectDropHoverId] = useState<string | null>(null);
   const [movingProjectEntryPath, setMovingProjectEntryPath] = useState<string | null>(null);
 
-  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const panelSessionId = sessionId ?? activeSessionId;
+  const activeSession = (panelSessionId ? sessions[panelSessionId] : null)
+    ?? (activeSessionId ? sessions[activeSessionId] : null);
   const activeCwd = activeSession?.cwd || null;
   const workspaceCwd = activeCwd || projectCwd || null;
   const cwd = navigationCwd || workspaceCwd || null;
+  const prevTreeResetCwdRef = useRef<string | null>(cwd);
+  const restoredFileStateRef = useRef(
+    useAppStore.getState().rightPanelBySessionId[rightPanelSessionKey(panelSessionId)]
+      ?.fileTabsByUtilityTab[utilityTabId] ?? null
+  );
+  const [fileTabsHydrated, setFileTabsHydrated] = useState(false);
 
   const applyPanelTree = useCallback((root: string, tree: ProjectTreeNode | null) => {
     setPanelTree(tree);
@@ -1274,31 +1288,16 @@ export function ProjectTreePanel({
   }, [expandedPaths, filteredTree]);
 
   useEffect(() => {
-    // An atomic transcript-link request already owns the initial selection.
-    // Do not blank it while switching the Files panel to that workspace root.
+    // Session-scoped Files panels keep their own open files. Changing cwd
+    // only resets tree chrome (expansion / filter), not the editor tabs —
+    // those are persisted per session and restored on mount.
     if (openRequest && openRequest.cwd === cwd) return;
+    if (prevTreeResetCwdRef.current === cwd) return;
+    prevTreeResetCwdRef.current = cwd;
     setExpandedPaths(new Set());
     setTreeFilter('');
     initRootRef.current = null;
-    setSelectedFilePath(null);
-    setSelectedFileCwd(null);
-    setSelectedPreview(null);
-    updateOpenFileTabs(() => []);
-    setViewMode('view');
-    setMdxRevealTarget(null);
-    setFileRevealTarget(null);
-    setPreviewLoading(false);
-    setDraftTextSynced('');
-    setSaveStateSynced('idle');
-    setSaveErrorSynced(null);
-    setProjectTreeError(null);
-    setPptxSlideIndex(0);
-    setCreateDraft(null);
-    setDraggedProjectEntry(null);
-    draggedProjectEntryRef.current = null;
-    setProjectDropHoverId(null);
-    setMovingProjectEntryPath(null);
-  }, [cwd, setDraftTextSynced, setSaveStateSynced, updateOpenFileTabs]);
+  }, [cwd, openRequest]);
 
   useEffect(() => {
     setPanelWidth((current) =>
@@ -1887,6 +1886,9 @@ export function ProjectTreePanel({
     setSaveStateSynced,
   ]);
 
+  const selectExternalFilePathRef = useRef(selectExternalFilePath);
+  selectExternalFilePathRef.current = selectExternalFilePath;
+
   useEffect(() => {
     if (!openRequest) return;
     let cancelled = false;
@@ -1903,6 +1905,69 @@ export function ProjectTreePanel({
       cancelled = true;
     };
   }, [openRequest?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const restored = restoredFileStateRef.current;
+    const files = restored?.files ?? [];
+    const active = restored?.activeFile ?? null;
+    if (files.length === 0 && !active) {
+      setFileTabsHydrated(true);
+      return;
+    }
+
+    const ordered = [...files];
+    if (
+      active &&
+      !ordered.some((file) => file.filePath === active.filePath && file.cwd === active.cwd)
+    ) {
+      ordered.push(active);
+    }
+    const activeIndex = active
+      ? ordered.findIndex((file) => file.filePath === active.filePath && file.cwd === active.cwd)
+      : ordered.length - 1;
+    const sequence =
+      activeIndex >= 0
+        ? [...ordered.filter((_, index) => index !== activeIndex), ordered[activeIndex]]
+        : ordered;
+
+    void (async () => {
+      for (const file of sequence) {
+        if (cancelled) return;
+        await selectExternalFilePathRef.current(file.filePath, { cwd: file.cwd });
+        if (file.viewMode) setViewMode(file.viewMode);
+      }
+      if (!cancelled) setFileTabsHydrated(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!fileTabsHydrated) return;
+    syncSessionFileTabs(panelSessionId, utilityTabId, {
+      files: openFileTabs.map((tab) => ({
+        cwd: tab.cwd,
+        filePath: tab.filePath,
+        name: tab.name,
+        viewMode: tab.viewMode,
+      })),
+      activeFile:
+        selectedFileCwd && selectedFilePath
+          ? { cwd: selectedFileCwd, filePath: selectedFilePath }
+          : null,
+    });
+  }, [
+    fileTabsHydrated,
+    openFileTabs,
+    panelSessionId,
+    selectedFileCwd,
+    selectedFilePath,
+    syncSessionFileTabs,
+    utilityTabId,
+  ]);
 
   const closePreview = useCallback(() => {
     setSelectedFilePath(null);

@@ -267,6 +267,44 @@ export type ReviewDiffSelectionInput = Omit<ReviewDiffSelection, 'requestedAt'> 
   requestedAt?: number;
 };
 
+/** One open file inside a session's Files utility tab. Content is reloaded on restore. */
+export type SessionRightPanelFileTab = {
+  cwd: string;
+  filePath: string;
+  name?: string;
+  viewMode?: 'view' | 'code' | 'split';
+};
+
+export type SessionRightPanelFileState = {
+  files: SessionRightPanelFileTab[];
+  activeFile: { cwd: string; filePath: string } | null;
+};
+
+/**
+ * Per-session right-panel snapshot. Live `rightUtilityTabs` is the working
+ * copy for the active session; this map is what makes two sessions in the
+ * same cwd keep independent Files/Browser/etc. layouts.
+ */
+export type SessionRightPanelSnapshot = {
+  tabs: ProjectUtilityPanelTarget[];
+  activeTab: ProjectUtilityPanelTarget | null;
+  hidden: boolean;
+  fullscreen: 'browser' | 'files' | 'review' | null;
+  fileTabsByUtilityTab: Record<string, SessionRightPanelFileState>;
+  reviewDiffSelection: ReviewDiffSelection | null;
+};
+
+export type SessionRightPanelLiveFields = {
+  rightUtilityTabs: ProjectUtilityPanelTarget[];
+  activeRightUtilityTab: ProjectUtilityPanelTarget | null;
+  rightUtilityPanelHidden: boolean;
+  rightPanelFullscreen: 'browser' | 'files' | 'review' | null;
+  projectTreeCollapsed: boolean;
+  projectPanelView: ProjectPanelView;
+  browserPanelOpen: boolean;
+  reviewDiffSelection: ReviewDiffSelection | null;
+};
+
 // UI 会话视图状态
 export interface SessionView {
   id: string;
@@ -383,6 +421,8 @@ export interface AppState {
   rightUtilityTabs: ProjectUtilityPanelTarget[];
   activeRightUtilityTab: ProjectUtilityPanelTarget | null;
   rightUtilityPanelHidden: boolean;
+  /** Source of truth for each session's right panel. Live tab fields above are the active session's working copy. */
+  rightPanelBySessionId: Record<string, SessionRightPanelSnapshot>;
   /** Codex-style side chats: ephemeral forked conversations keyed by session id. Never persisted. */
   sideChats: Record<string, SideChatEntry>;
   /**
@@ -555,6 +595,12 @@ export interface AppActions {
   noteSideChatUserTurn: (sessionId: string) => void;
   closeRightUtilityPanels: () => void;
   showRightUtilityPanels: () => void;
+  /** Persist the open files inside one Files utility tab for a specific session. */
+  syncSessionFileTabs: (
+    sessionId: string | null,
+    utilityTabId: ProjectUtilityPanelTarget,
+    fileState: SessionRightPanelFileState
+  ) => void;
   setTerminalDrawerOpen: (open: boolean) => void;
   setTerminalDrawerHeight: (height: number) => void;
   setBrowserPanelOpen: (open: boolean) => void;

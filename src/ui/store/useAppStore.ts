@@ -25,6 +25,7 @@ import type {
   ProjectFileOpenInput,
   ReviewDiffSelection,
   ReviewDiffSelectionInput,
+  SessionRightPanelFileState,
   SessionView,
   ServerEvent,
   SessionInfo,
@@ -82,6 +83,20 @@ import {
   resolveRightUtilityTabOpen,
   resolveRightUtilityTabOpenPreservingActive,
 } from '../utils/right-utility-tabs';
+import {
+  captureLiveRightPanel,
+  emptyRightPanelSnapshot,
+  liveFieldsFromRightPanel,
+  liveRightPanelEquals,
+  migrateRightPanelSessionId,
+  parseRightPanelBySessionId,
+  persistRightPanelBySessionId,
+  pruneRightPanelBySessionId,
+  rightPanelSessionKey,
+  sanitizeRightPanelSnapshot,
+  switchSessionRightPanel,
+  withFileTabsForUtilityTab,
+} from '../utils/session-right-panel';
 
 // P1: renderer-side coalescing of streaming text/thinking deltas. Lives at
 // module scope (one per renderer); the emitter is bound inside
@@ -116,6 +131,23 @@ type SetState = (
 ) => void;
 const runtimeNoticeClearTimers = new Map<string, number>();
 let projectFileOpenRequestCounter = 0;
+
+function pickLiveRightPanel(state: Pick<
+  Store,
+  | 'rightUtilityTabs'
+  | 'activeRightUtilityTab'
+  | 'rightUtilityPanelHidden'
+  | 'rightPanelFullscreen'
+  | 'reviewDiffSelection'
+>) {
+  return {
+    rightUtilityTabs: state.rightUtilityTabs,
+    activeRightUtilityTab: state.activeRightUtilityTab,
+    rightUtilityPanelHidden: state.rightUtilityPanelHidden,
+    rightPanelFullscreen: state.rightPanelFullscreen,
+    reviewDiffSelection: state.reviewDiffSelection,
+  };
+}
 
 function normalizeReviewDiffSelection(selection: ReviewDiffSelectionInput): ReviewDiffSelection {
   return {
@@ -891,6 +923,15 @@ export const useAppStore = create<Store>()(
       rightUtilityTabs: initialRightUtilityTab ? [initialRightUtilityTab] : [],
       activeRightUtilityTab: initialRightUtilityTab,
       rightUtilityPanelHidden: false,
+      rightPanelBySessionId: initialRightUtilityTab
+        ? {
+            [rightPanelSessionKey(initialUiResumeState?.activeSessionId ?? null)]: {
+              ...emptyRightPanelSnapshot(),
+              tabs: [initialRightUtilityTab],
+              activeTab: initialRightUtilityTab,
+            },
+          }
+        : {},
       // Ephemeral by design: side chats never survive a reload — the forked
       // sessions are hidden from the sidebar and die with their tabs.
       sideChats: {},
@@ -2075,6 +2116,24 @@ export const useAppStore = create<Store>()(
     persistUiResumeStateSnapshot(get());
   },
 
+  syncSessionFileTabs: (sessionId, utilityTabId, fileState) => {
+    set((state) => {
+      const live =
+        rightPanelSessionKey(sessionId) === rightPanelSessionKey(state.activeSessionId)
+          ? pickLiveRightPanel(state)
+          : undefined;
+      return {
+        rightPanelBySessionId: withFileTabsForUtilityTab(
+          state.rightPanelBySessionId,
+          sessionId,
+          utilityTabId,
+          fileState,
+          live
+        ),
+      };
+    });
+  },
+
   setTerminalDrawerOpen: (terminalDrawerOpen) => {
     set({ terminalDrawerOpen });
     persistUiResumeStateSnapshot(get());
@@ -2257,6 +2316,14 @@ export const useAppStore = create<Store>()(
       activeChannelByProject: {
         ...state.activeChannelByProject,
         [getProjectChannelKey(draftProjectCwd)]: normalizeWorkspaceChannelId(draftChannelId),
+      },
+      rightPanelBySessionId: {
+        ...state.rightPanelBySessionId,
+        [draft.id]: captureLiveRightPanel(
+          pickLiveRightPanel(state),
+          state.rightPanelBySessionId,
+          state.activeSessionId
+        ),
       },
       ...layoutPatch(
         tree.placeSession(state.workspaceLayout, tree.getActiveLeaf(state.workspaceLayout).id, draft.id)
@@ -2526,6 +2593,14 @@ export const useAppStore = create<Store>()(
         sidebarWidthVersion: state.sidebarWidthVersion,
         projectTreeCollapsed: state.projectTreeCollapsed,
         projectPanelView: state.projectPanelView,
+        rightPanelBySessionId: persistRightPanelBySessionId({
+          ...state.rightPanelBySessionId,
+          [rightPanelSessionKey(state.activeSessionId)]: captureLiveRightPanel(
+            pickLiveRightPanel(state),
+            state.rightPanelBySessionId,
+            state.activeSessionId
+          ),
+        }),
         terminalDrawerOpen: state.terminalDrawerOpen,
         terminalDrawerHeight: state.terminalDrawerHeight,
         theme: state.theme,
@@ -2559,6 +2634,7 @@ export const useAppStore = create<Store>()(
           sidebarWidthVersion?: number;
           projectTreeCollapsed?: boolean;
           projectPanelView?: import('../types').ProjectPanelView;
+          rightPanelBySessionId?: unknown;
           terminalDrawerOpen?: boolean;
           terminalDrawerHeight?: number;
           theme?: Theme;
@@ -2612,6 +2688,11 @@ export const useAppStore = create<Store>()(
             ? persisted.activeWorkspace
             : 'chat';
         const sidebarView = persisted?.chatSidebarView === 'skills' ? 'skills' : 'threads';
+        const rightPanelBySessionId = parseRightPanelBySessionId(persisted?.rightPanelBySessionId);
+        const restoredActivePanel = rightPanelBySessionId[rightPanelSessionKey(currentState.activeSessionId)];
+        const restoredLive = restoredActivePanel
+          ? liveFieldsFromRightPanel(sanitizeRightPanelSnapshot(restoredActivePanel))
+          : null;
 
         return {
           ...currentState,
@@ -2641,11 +2722,17 @@ export const useAppStore = create<Store>()(
             currentState.sidebarWidth
           ),
           sidebarWidthVersion: SIDEBAR_WIDTH_VERSION,
-          projectTreeCollapsed: persisted?.projectTreeCollapsed ?? currentState.projectTreeCollapsed,
-          projectPanelView: normalizeProjectPanelView(
-            (persisted?.projectPanelView as import('../types').ProjectPanelView | 'git' | undefined) ||
-              currentState.projectPanelView
-          ),
+          ...(restoredLive ?? {
+            projectTreeCollapsed: persisted?.projectTreeCollapsed ?? currentState.projectTreeCollapsed,
+            projectPanelView: normalizeProjectPanelView(
+              (persisted?.projectPanelView as import('../types').ProjectPanelView | 'git' | undefined) ||
+                currentState.projectPanelView
+            ),
+          }),
+          rightPanelBySessionId:
+            Object.keys(rightPanelBySessionId).length > 0
+              ? rightPanelBySessionId
+              : currentState.rightPanelBySessionId,
           terminalDrawerOpen: persisted?.terminalDrawerOpen ?? currentState.terminalDrawerOpen,
           terminalDrawerHeight: sanitizeTerminalDrawerHeight(
             persisted?.terminalDrawerHeight,
@@ -2662,6 +2749,67 @@ export const useAppStore = create<Store>()(
     }
   )
 );
+
+useAppStore.subscribe((state, prev) => {
+  if (state.activeSessionId !== prev.activeSessionId) {
+    const patch = switchSessionRightPanel({
+      prevSessionId: prev.activeSessionId,
+      nextSessionId: state.activeSessionId,
+      live: pickLiveRightPanel(state),
+      rightPanelBySessionId: state.rightPanelBySessionId,
+      sessions: state.sessions,
+    });
+    const liveUnchanged = liveRightPanelEquals(state, patch);
+    if (liveUnchanged && patch.rightPanelBySessionId === state.rightPanelBySessionId) {
+      return;
+    }
+    useAppStore.setState(
+      liveUnchanged ? { rightPanelBySessionId: patch.rightPanelBySessionId } : patch
+    );
+    return;
+  }
+
+  if (
+    liveRightPanelEquals(state, prev) &&
+    state.reviewDiffSelection === prev.reviewDiffSelection
+  ) {
+    return;
+  }
+
+  const key = rightPanelSessionKey(state.activeSessionId);
+  const snapshot = captureLiveRightPanel(
+    pickLiveRightPanel(state),
+    state.rightPanelBySessionId,
+    state.activeSessionId
+  );
+  const existing = state.rightPanelBySessionId[key];
+  if (
+    existing &&
+    liveRightPanelEquals(
+      {
+        rightUtilityTabs: existing.tabs,
+        activeRightUtilityTab: existing.activeTab,
+        rightUtilityPanelHidden: existing.hidden,
+        rightPanelFullscreen: existing.fullscreen,
+      },
+      {
+        rightUtilityTabs: snapshot.tabs,
+        activeRightUtilityTab: snapshot.activeTab,
+        rightUtilityPanelHidden: snapshot.hidden,
+        rightPanelFullscreen: snapshot.fullscreen,
+      }
+    ) &&
+    existing.reviewDiffSelection === snapshot.reviewDiffSelection
+  ) {
+    return;
+  }
+  useAppStore.setState({
+    rightPanelBySessionId: {
+      ...state.rightPanelBySessionId,
+      [key]: snapshot,
+    },
+  });
+});
 
 // 皮肤壁纸只持久化文件名;启动时按文件名把 data URL 读回内存。
 if (typeof window !== 'undefined' && typeof window.electron?.readSkinImage === 'function') {
@@ -2845,6 +2993,10 @@ function handleSessionList(
     activeSessionId: keepNewSessionOpen ? null : tree.activeSessionId(layout),
     showNewSession,
     sessionsLoaded: true,
+    rightPanelBySessionId: pruneRightPanelBySessionId(
+      get().rightPanelBySessionId,
+      Object.keys(sessionsMap)
+    ),
   });
 }
 
@@ -3133,6 +3285,26 @@ function handleSessionStatus(
       layout = tree.placeSession(layout, tree.getActiveLeaf(layout).id, sessionId);
     }
 
+    let rightPanelBySessionId = state.rightPanelBySessionId;
+    if (pendingDraftSessionId) {
+      const seeded =
+        state.activeSessionId === pendingDraftSessionId
+          ? {
+              ...state.rightPanelBySessionId,
+              [pendingDraftSessionId]: captureLiveRightPanel(
+                pickLiveRightPanel(state),
+                state.rightPanelBySessionId,
+                pendingDraftSessionId
+              ),
+            }
+          : state.rightPanelBySessionId;
+      rightPanelBySessionId = migrateRightPanelSessionId(
+        seeded,
+        pendingDraftSessionId,
+        sessionId
+      );
+    }
+
     set({
       sessions: sessionsAfter,
       activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, newSession),
@@ -3141,6 +3313,7 @@ function handleSessionStatus(
       showNewSession: false,
       pendingStart: false,
       pendingDraftSessionId: null,
+      rightPanelBySessionId,
     });
   }
 }
@@ -3215,6 +3388,10 @@ function handleSessionDeleted(
     sessions: rest,
     ...layoutPatch(layout),
     showNewSession: Object.keys(rest).length === 0,
+    rightPanelBySessionId: pruneRightPanelBySessionId(
+      state.rightPanelBySessionId,
+      Object.keys(rest)
+    ),
   });
 }
 
