@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Image, Trash2 } from '../icons';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Image, Trash2, Globe } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
@@ -21,6 +21,12 @@ const SETTINGS_TABS = {
     title: 'Workspace Preferences',
     description: 'Adjust appearance and core workspace behavior.',
     icon: <SettingsIcon className="w-4 h-4" />,
+  },
+  browser: {
+    label: 'Browser',
+    title: 'Browser',
+    description: 'Manage the built-in browser. Import Chrome login cookies and control which sites agents may visit.',
+    icon: <Globe className="w-4 h-4" />,
   },
   mcp: {
     label: 'MCP Servers',
@@ -162,10 +168,14 @@ export function Settings() {
               updateStatus={updateStatus}
             />
           )}
+          {resolvedActiveSettingsTab === 'browser' && (
+            <div className="space-y-5">
+              <BrowserUseSettings />
+            </div>
+          )}
           {resolvedActiveSettingsTab === 'mcp' && (
             <div className="space-y-5">
               <McpSettingsContent />
-              <BrowserUseSettings />
             </div>
           )}
           {resolvedActiveSettingsTab === 'providers' && (

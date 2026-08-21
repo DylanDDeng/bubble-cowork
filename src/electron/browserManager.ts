@@ -30,10 +30,11 @@ import type {
   BrowserTabState,
   SessionBrowserState,
 } from '../shared/browser-types';
+import { BROWSER_SESSION_PARTITION } from '../shared/browser-types';
 import { normalizeExternalUrl } from './util';
 
 const ABOUT_BLANK_URL = 'about:blank';
-const BROWSER_SESSION_PARTITION = 'persist:coworker-browser';
+export { BROWSER_SESSION_PARTITION };
 const BROWSER_SESSION_SUSPEND_DELAY_MS = 30_000;
 const BROWSER_ERROR_ABORTED = -3;
 const SEARCH_URL_PREFIX = 'https://www.google.com/search?q=';

@@ -75,6 +75,13 @@ import {
   setBrowserUseEnabled,
   isBrowserUseEnabled,
 } from './libs/browser-use-permissions';
+import {
+  clearImportedChromeCookies,
+  getChromeCookieImportStatus,
+  importChromeCookies,
+  listChromeCookieDomains,
+  listChromeCookieProfilesWithRunning,
+} from './libs/chrome-cookie-import';
 import { saveQoderMcpServers, getQoderMcpServers } from './libs/qoder-mcp-settings';
 import {
   getOpencodeMcpServers,
@@ -5103,6 +5110,33 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
     setBrowserUseDefaultPolicy(policy);
     return getBrowserUsePermissionSettings();
+  });
+
+  ipcMainHandle('list-chrome-cookie-profiles', async () => {
+    return listChromeCookieProfilesWithRunning();
+  });
+
+  ipcMainHandle('list-chrome-cookie-domains', async (_event, profilePath: string) => {
+    if (typeof profilePath !== 'string' || !profilePath.trim()) {
+      throw new Error('Select a Chrome profile first.');
+    }
+    return listChromeCookieDomains(profilePath);
+  });
+
+  ipcMainHandle('import-chrome-cookies', async (_event, request: { profilePath?: string; domains?: string[] }) => {
+    if (!request || typeof request.profilePath !== 'string') {
+      throw new Error('Select a Chrome profile first.');
+    }
+    const domains = Array.isArray(request.domains) ? request.domains.filter((item) => typeof item === 'string') : [];
+    return importChromeCookies({ profilePath: request.profilePath, domains });
+  });
+
+  ipcMainHandle('get-chrome-cookie-import-status', async () => {
+    return getChromeCookieImportStatus();
+  });
+
+  ipcMainHandle('clear-imported-chrome-cookies', async () => {
+    return clearImportedChromeCookies();
   });
 
   ipcMainHandle('get-notification-settings', async () => getNotificationSettings());

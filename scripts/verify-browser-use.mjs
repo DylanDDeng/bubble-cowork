@@ -185,6 +185,11 @@ assert.ok(
   read('src/ui/components/settings/BrowserUseSettings.tsx').includes('Block browsing'),
   'settings page exposes the Codex-parity policy labels'
 );
+assert.ok(
+  read('src/ui/components/settings/Settings.tsx').includes("label: 'Browser'") &&
+    read('src/ui/components/settings/Settings.tsx').includes("=== 'browser'"),
+  'browser settings live on a dedicated Settings tab, not under MCP'
+);
 
 // ── Phase 4: visible agent activity ────────────────────────────────
 assert.ok(
@@ -273,6 +278,37 @@ assert.ok(
     ipc.includes('flushDeepseekRunners();') &&
     ipc.includes('delete incoming[BROWSER_USE_SERVER_NAME]'),
   'deepseek browser-use scoped descriptor, reserved-name guard and runtime refresh are wired'
+);
+
+const cookieImport = read('src/electron/libs/chrome-cookie-import.ts');
+assert.ok(
+  cookieImport.includes('BROWSER_SESSION_PARTITION') &&
+    read('src/shared/browser-types.ts').includes("persist:coworker-browser"),
+  'import writes into the shared session browser partition'
+);
+assert.ok(cookieImport.includes('reloadCoworkerBrowserViews'), 'imported cookies reload existing built-in browser tabs');
+assert.ok(cookieImport.includes('import_failed'), 'unknown errors are not labeled as decrypt_failed');
+assert.ok(cookieImport.includes('isGoogleChromeProcessName'), 'Chrome process detection is centralized');
+assert.ok(cookieImport.includes('skippedPartitioned'), 'CHIPS cookies are skipped rather than imported as global cookies');
+assert.ok(cookieImport.includes('v20_unsupported'), 'v20/App-Bound cookies abort the import');
+assert.ok(cookieImport.includes('pinBrowserUseOriginsAsk'), 'imported origins are pinned to ask');
+assert.ok(cookieImport.includes('originsForImportedHosts'), 'imported hosts pin both http and https origins');
+assert.ok(cookieImport.includes('previous?.domains'), 're-import unions previously imported domains for clear');
+assert.ok(
+  !cookieImport.includes('host.endsWith(`.${domain}`)'),
+  'selected sites match exact hosts rather than importing subdomains'
+);
+assert.ok(
+  permsSrc.includes('pinBrowserUseOriginsAsk'),
+  'permission helper pins imported origins so default allow cannot cover them'
+);
+assert.ok(
+  permsSrc.includes('hostname.endsWith(`.${pinnedHost}`)'),
+  'explicit ask on an imported apex covers subdomains of the same scheme'
+);
+assert.ok(
+  read('src/ui/components/settings/BrowserUseSettings.tsx').includes('skippedInvalid'),
+  'import toast reports skippedInvalid cookies'
 );
 
 console.log('browser-use phase 6 wiring checks passed');

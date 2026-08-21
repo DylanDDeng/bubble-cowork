@@ -29,6 +29,8 @@ export interface SessionBrowserState {
   agentActive: boolean;
 }
 
+export const BROWSER_SESSION_PARTITION = 'persist:coworker-browser';
+
 export interface BrowserPanelBounds {
   x: number;
   y: number;

@@ -240,6 +240,78 @@ export interface BrowserUsePermissionSettings {
   origins: Record<string, BrowserUseOriginPolicy>;
 }
 
+/** Chrome cookie import into the built-in persist:coworker-browser partition. */
+export type ChromeCookieImportErrorCode =
+  | 'unsupported_platform'
+  | 'chrome_running'
+  | 'profile_not_found'
+  | 'no_cookies_db'
+  | 'v20_unsupported'
+  | 'keychain_denied'
+  | 'keychain_missing'
+  | 'app_data_denied'
+  | 'no_domains_selected'
+  | 'decrypt_failed'
+  | 'write_failed'
+  | 'import_failed';
+
+export interface ChromeCookieProfile {
+  directoryName: string;
+  profileName: string;
+  profilePath: string;
+  gaiaName?: string;
+  userName?: string;
+  hasCookies: boolean;
+}
+
+export interface ChromeCookieDomain {
+  host: string;
+  cookieCount: number;
+}
+
+export interface ChromeCookieImportCounts {
+  discovered: number;
+  imported: number;
+  skippedExpired: number;
+  skippedPartitioned: number;
+  skippedInvalid: number;
+  failed: number;
+}
+
+export interface ChromeCookieProfilesResult {
+  platformSupported: boolean;
+  chromeRunning: boolean;
+  profiles: ChromeCookieProfile[];
+  errorCode?: ChromeCookieImportErrorCode;
+  errorMessage?: string;
+}
+
+export interface ChromeCookieDomainsResult {
+  domains: ChromeCookieDomain[];
+  errorCode?: ChromeCookieImportErrorCode;
+  errorMessage?: string;
+}
+
+export interface ChromeCookieImportRequest {
+  profilePath: string;
+  domains: string[];
+}
+
+export interface ChromeCookieImportResult {
+  ok: boolean;
+  errorCode?: ChromeCookieImportErrorCode;
+  errorMessage?: string;
+  cookies?: ChromeCookieImportCounts;
+  importedHosts?: string[];
+}
+
+export interface ChromeCookieImportStatus {
+  importedAt: number | null;
+  profileName: string | null;
+  domains: string[];
+  cookieCount: number;
+}
+
 export interface PiModelConfig {
   defaultModel: string | null;
   options: string[];

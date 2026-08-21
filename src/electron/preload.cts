@@ -685,6 +685,26 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('set-browser-use-default-policy', policy);
   },
 
+  listChromeCookieProfiles: () => {
+    return ipcRenderer.invoke('list-chrome-cookie-profiles');
+  },
+
+  listChromeCookieDomains: (profilePath: string) => {
+    return ipcRenderer.invoke('list-chrome-cookie-domains', profilePath);
+  },
+
+  importChromeCookies: (request: { profilePath: string; domains: string[] }) => {
+    return ipcRenderer.invoke('import-chrome-cookies', request);
+  },
+
+  getChromeCookieImportStatus: () => {
+    return ipcRenderer.invoke('get-chrome-cookie-import-status');
+  },
+
+  clearImportedChromeCookies: () => {
+    return ipcRenderer.invoke('clear-imported-chrome-cookies');
+  },
+
   getQoderModelConfig: () => {
     return ipcRenderer.invoke('get-qoder-model-config');
   },

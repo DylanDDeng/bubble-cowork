@@ -244,6 +244,13 @@ declare global {
     setBrowserUseDefaultPolicy: (
       policy: 'allow' | 'block' | 'ask'
     ) => Promise<BrowserUsePermissionSettings>;
+    listChromeCookieProfiles: () => Promise<import('./shared/types').ChromeCookieProfilesResult>;
+    listChromeCookieDomains: (profilePath: string) => Promise<import('./shared/types').ChromeCookieDomainsResult>;
+    importChromeCookies: (
+      request: import('./shared/types').ChromeCookieImportRequest
+    ) => Promise<import('./shared/types').ChromeCookieImportResult>;
+    getChromeCookieImportStatus: () => Promise<import('./shared/types').ChromeCookieImportStatus>;
+    clearImportedChromeCookies: () => Promise<{ ok: boolean; removed: number; errorMessage?: string }>;
     getPiModelConfig: () => Promise<PiModelConfig>;
     getBubbleModelConfig: () => Promise<BubbleModelConfig>;
     getBubbleProvidersConfig: () => Promise<BubbleProvidersConfig>;

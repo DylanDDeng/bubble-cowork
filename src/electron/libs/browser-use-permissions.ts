@@ -103,12 +103,54 @@ export function setBrowserUseEnabled(enabled: boolean): void {
  * (fail toward asking, never toward silent navigation).
  */
 export function resolveBrowserUsePolicy(url: string): BrowserUseOriginPolicy {
-  let origin: string;
+  let parsed: URL;
   try {
-    origin = normalizeOrigin(new URL(url).origin);
+    parsed = new URL(url);
   } catch {
     return 'ask';
   }
+  const origin = normalizeOrigin(parsed.origin);
   const settings = getBrowserUsePermissionSettings();
-  return settings.origins[origin] ?? settings.defaultPolicy;
+  const exact = settings.origins[origin];
+  if (exact) return exact;
+
+  // Imported domain cookies apply to subdomains. An explicit `ask` on an
+  // ancestor origin of the same scheme must win over defaultPolicy=allow.
+  const hostname = parsed.hostname.toLowerCase();
+  for (const [pinned, policy] of Object.entries(settings.origins)) {
+    if (policy !== 'ask') continue;
+    let pinnedUrl: URL;
+    try {
+      pinnedUrl = new URL(pinned);
+    } catch {
+      continue;
+    }
+    if (pinnedUrl.protocol !== parsed.protocol) continue;
+    const pinnedHost = pinnedUrl.hostname.toLowerCase();
+    if (!pinnedHost) continue;
+    if (hostname === pinnedHost || hostname.endsWith(`.${pinnedHost}`)) return 'ask';
+  }
+  return settings.defaultPolicy;
+}
+
+/**
+ * Imported Chrome cookies must not inherit a global `allow`. Pin missing
+ * origins to `ask` so defaultPolicy=allow cannot silently authorize them.
+ * Existing explicit allow/block/ask rules are left untouched.
+ */
+export function pinBrowserUseOriginsAsk(origins: string[]): void {
+  const settings = getBrowserUsePermissionSettings();
+  let changed = false;
+  for (const raw of origins) {
+    let origin: string;
+    try {
+      origin = normalizeOrigin(new URL(raw).origin);
+    } catch {
+      continue;
+    }
+    if (settings.origins[origin]) continue;
+    settings.origins[origin] = 'ask';
+    changed = true;
+  }
+  if (changed) saveBrowserUsePermissionSettings(settings);
 }
