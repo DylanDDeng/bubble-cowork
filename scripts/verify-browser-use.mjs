@@ -310,5 +310,14 @@ assert.ok(
   read('src/ui/components/settings/BrowserUseSettings.tsx').includes('skippedInvalid'),
   'import toast reports skippedInvalid cookies'
 );
+assert.ok(
+  read('src/ui/components/settings/BrowserUseSettings.tsx').includes('function ChromeMark') &&
+    read('src/ui/components/settings/BrowserUseSettings.tsx').includes('Cookies'),
+  'import dialog shows a Chrome mark and a Cookies toggle'
+);
+assert.ok(
+  !read('src/ui/components/settings/BrowserUseSettings.tsx').includes('Select all'),
+  'import dialog does not list individual cookie sites'
+);
 
 console.log('browser-use phase 6 wiring checks passed');

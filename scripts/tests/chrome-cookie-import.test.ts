@@ -381,6 +381,23 @@ async function run(): Promise<void> {
     assert.equal(resolveBrowserUsePolicy('http://api.github.com/'), 'ask');
     assert.equal(resolveBrowserUsePolicy('https://other.example/'), 'allow');
 
+    const allStore = createMemoryCookieStore();
+    const importedAll = await importChromeCookies(
+      { profilePath: mixedProfile },
+      {
+        platform: 'darwin',
+        chromeUserDataDir: root,
+        isChromeRunning: async () => false,
+        readSafeStoragePassword: async () => PASSWORD,
+        cookieStore: allStore,
+        importStatePath: join(root, 'import-all-state.json'),
+      }
+    );
+    assert.equal(importedAll.ok, true);
+    assert.equal(importedAll.cookies?.imported, 4);
+    assert.equal(importedAll.cookies?.skippedPartitioned, 1);
+    assert.equal(allStore.records.size, 4);
+
     const googleImport = await importChromeCookies(
       { profilePath: mixedProfile, domains: ['google.com'] },
       {

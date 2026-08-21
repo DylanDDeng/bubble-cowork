@@ -558,10 +558,8 @@ export async function importChromeCookies(
       errorMessage: 'Chrome cookie import is available on macOS. Windows Chrome uses App-Bound Encryption and cannot be imported.',
     };
   }
-  const domains = [...new Set(request.domains.map((domain) => stripLeadingDot(domain).trim()).filter(Boolean))];
-  if (domains.length === 0) {
-    return { ok: false, errorCode: 'no_domains_selected', errorMessage: 'Select at least one site to import.' };
-  }
+  const domains = [...new Set((request.domains ?? []).map((domain) => stripLeadingDot(domain).trim()).filter(Boolean))];
+  const importAll = domains.length === 0;
   if (!existsSync(request.profilePath) || !isPathInside(deps.chromeUserDataDir, request.profilePath)) {
     return { ok: false, errorCode: 'profile_not_found', errorMessage: 'That Chrome profile is no longer available.' };
   }
@@ -573,10 +571,14 @@ export async function importChromeCookies(
       let dbVersion = 0;
       try {
         dbVersion = readCookieDbVersion(db);
-        rows = readCookieRows(db).filter((row) => chromeHostMatchesAllowlist(row.host_key, domains));
+        const allRows = readCookieRows(db);
+        rows = importAll ? allRows : allRows.filter((row) => chromeHostMatchesAllowlist(row.host_key, domains));
       } finally {
         db.close();
       }
+      const cleanupHosts = importAll
+        ? uniqueHosts(rows.map((row) => stripLeadingDot(row.host_key)))
+        : domains;
 
       if (rows.some((row) => encryptedValuePrefix(asBuffer(row.encrypted_value)) === 'v20')) {
         return {
@@ -671,7 +673,7 @@ export async function importChromeCookies(
       }
 
       if (counts.failed === 0) {
-        await removeCookiesForDomains(cookieStore, domains, keepKeys);
+        await removeCookiesForDomains(cookieStore, cleanupHosts, keepKeys);
       }
       await cookieStore.flushStore();
 
@@ -682,7 +684,7 @@ export async function importChromeCookies(
           importedAt: nowMs,
           profilePath: request.profilePath,
           profileName: basename(request.profilePath),
-          domains: uniqueHosts([...(previous?.domains ?? []), ...domains]),
+          domains: uniqueHosts([...(previous?.domains ?? []), ...cleanupHosts]),
           hosts: uniqueHosts([...(previous?.hosts ?? []), ...importedHosts]),
           cookieCount: counts.imported,
         });

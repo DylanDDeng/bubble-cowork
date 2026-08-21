@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import * as Dialog from '@/ui/components/ui/dialog';
-import { Globe, Plus, X } from '../icons';
+import { ChevronDown, Cookie, Globe, Plus, X } from '../icons';
 import type {
   BrowserUsePermissionSettings,
-  ChromeCookieDomain,
   ChromeCookieImportCounts,
   ChromeCookieImportStatus,
   ChromeCookieProfile,
@@ -240,25 +239,96 @@ export function BrowserUseSettings() {
 }
 
 function profileLabel(profile: ChromeCookieProfile): string {
-  return `Google Chrome ${profile.profileName}${profile.userName ? ` · ${profile.userName}` : ''}${
-    profile.hasCookies ? '' : ' (no cookies)'
-  }`;
+  return `Google Chrome ${profile.profileName}${profile.userName ? ` · ${profile.userName}` : ''}`;
+}
+
+function ChromeMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden>
+      <circle cx="24" cy="24" r="20" fill="#FBBC05" />
+      <path fill="#EA4335" d="M24 24L6.679 14A20 20 0 0 1 41.321 14Z" />
+      <path fill="#34A853" d="M24 24L41.321 14A20 20 0 0 1 24 44Z" />
+      <circle cx="24" cy="24" r="11" fill="#fff" />
+      <circle cx="24" cy="24" r="8" fill="#4285F4" />
+    </svg>
+  );
+}
+
+function ChromeProfilePicker({
+  profiles,
+  profilePath,
+  disabled,
+  onChange,
+}: {
+  profiles: ChromeCookieProfile[];
+  profilePath: string;
+  disabled?: boolean;
+  onChange: (profilePath: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = profiles.find((profile) => profile.profilePath === profilePath);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled || profiles.length === 0}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5 text-left text-[13px] text-[var(--text-primary)] outline-none disabled:opacity-50"
+      >
+        <ChromeMark className="h-5 w-5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">
+          {selected ? profileLabel(selected) : profiles.length === 0 ? 'No Chrome profiles found' : 'Select a Chrome profile'}
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+      </button>
+      {open && profiles.length > 0 ? (
+        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+          {profiles.map((profile) => (
+            <button
+              key={profile.profilePath}
+              type="button"
+              onClick={() => {
+                onChange(profile.profilePath);
+                setOpen(false);
+              }}
+              className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-tertiary)] ${
+                profile.profilePath === profilePath ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'
+              }`}
+            >
+              <ChromeMark className="h-5 w-5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {profileLabel(profile)}
+                {profile.hasCookies ? '' : ' (no cookies)'}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ChromeCookieImportSettings() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importCookies, setImportCookies] = useState(true);
   const [profiles, setProfiles] = useState<ChromeCookieProfile[]>([]);
   const [platformSupported, setPlatformSupported] = useState(true);
   const [chromeRunning, setChromeRunning] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [profilePath, setProfilePath] = useState('');
-  const [domains, setDomains] = useState<ChromeCookieDomain[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<ChromeCookieImportStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const [loadingDomains, setLoadingDomains] = useState(false);
-  const importedHosts = useMemo(() => new Set(status?.domains ?? []), [status?.domains]);
-  const selectedProfile = profiles.find((profile) => profile.profilePath === profilePath);
 
   const refreshProfiles = useCallback(async () => {
     const listed = await window.electron.listChromeCookieProfiles();
@@ -283,56 +353,24 @@ function ChromeCookieImportSettings() {
     };
   }, [refreshProfiles]);
 
-  useEffect(() => {
-    if (!dialogOpen || !profilePath) {
-      return;
-    }
-    let cancelled = false;
-    setLoadingDomains(true);
-    window.electron
-      .listChromeCookieDomains(profilePath)
-      .then((result) => {
-        if (cancelled) return;
-        setDomains(result.domains);
-        setSelected(new Set(result.domains.map((domain) => domain.host)));
-        if (result.errorMessage) toast.error(result.errorMessage);
-      })
-      .catch((error) => {
-        if (!cancelled) toast.error(error instanceof Error ? error.message : 'Failed to list Chrome sites.');
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingDomains(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [dialogOpen, profilePath]);
-
   const openImportDialog = useCallback(() => {
+    setImportCookies(true);
     setDialogOpen(true);
     void refreshProfiles();
   }, [refreshProfiles]);
 
-  const toggleDomain = useCallback((host: string) => {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(host)) next.delete(host);
-      else next.add(host);
-      return next;
-    });
-  }, []);
-
   const importSelected = useCallback(async () => {
-    if (!profilePath || selected.size === 0) {
-      toast.error('Select at least one site to import.');
+    if (!importCookies) {
+      toast.error('Turn on Cookies to import login data.');
+      return;
+    }
+    if (!profilePath) {
+      toast.error('Select a Chrome profile first.');
       return;
     }
     setBusy(true);
     try {
-      const result = await window.electron.importChromeCookies({
-        profilePath,
-        domains: [...selected],
-      });
+      const result = await window.electron.importChromeCookies({ profilePath });
       if (!result.ok) {
         if (result.errorCode === 'chrome_running') setChromeRunning(true);
         const counts = result.cookies;
@@ -358,7 +396,7 @@ function ChromeCookieImportSettings() {
     } finally {
       setBusy(false);
     }
-  }, [profilePath, refreshProfiles, selected]);
+  }, [importCookies, profilePath, refreshProfiles]);
 
   const clearImported = useCallback(async () => {
     setBusy(true);
@@ -377,8 +415,7 @@ function ChromeCookieImportSettings() {
     }
   }, []);
 
-  const canImport =
-    platformSupported && !busy && !loadingDomains && selected.size > 0 && Boolean(profilePath);
+  const canImport = platformSupported && importCookies && !busy && Boolean(profilePath);
 
   return (
     <>
@@ -435,87 +472,54 @@ function ChromeCookieImportSettings() {
       <Dialog.Root open={dialogOpen} onOpenChange={setDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[86vh] w-[min(440px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-            <div className="flex min-h-0 flex-1 flex-col px-5 pt-5">
-              <Dialog.Title className="text-[16px] font-semibold text-[var(--text-primary)]">
-                Import from browser
-              </Dialog.Title>
-              <Dialog.Description className="mt-1 text-[13px] leading-5 text-[var(--text-muted)]">
-                Select Chrome cookies to copy into the built-in browser. They are not removed from Chrome.
-              </Dialog.Description>
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] w-[min(440px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+            <div className="px-5 pt-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Dialog.Title className="text-[16px] font-semibold text-[var(--text-primary)]">
+                    Import from browser
+                  </Dialog.Title>
+                  <Dialog.Description className="mt-1 text-[13px] leading-5 text-[var(--text-muted)]">
+                    Select cookies to copy into the built-in browser.
+                  </Dialog.Description>
+                </div>
+                <Dialog.Close
+                  disabled={busy}
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </Dialog.Close>
+              </div>
 
               <label className="mt-4 block text-[12px] font-medium text-[var(--text-muted)]">From</label>
-              <select
-                value={profilePath}
-                onChange={(event) => setProfilePath(event.target.value)}
-                disabled={busy || profiles.length === 0}
-                className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5 text-[13px] text-[var(--text-primary)] outline-none disabled:opacity-50"
-              >
-                {profiles.length === 0 ? <option value="">No Chrome profiles found</option> : null}
-                {profiles.map((profile) => (
-                  <option key={profile.profilePath} value={profile.profilePath}>
-                    {profileLabel(profile)}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1.5">
+                <ChromeProfilePicker
+                  profiles={profiles}
+                  profilePath={profilePath}
+                  disabled={busy}
+                  onChange={setProfilePath}
+                />
+              </div>
 
               {listError ? <p className="mt-2 text-[12px] leading-5 text-[var(--text-muted)]">{listError}</p> : null}
               <p className="mt-2 text-[12px] leading-5 text-[var(--text-muted)]">
                 {chromeRunning
-                  ? `Keep ${selectedProfile?.profileName ? `Google Chrome (${selectedProfile.profileName})` : 'Google Chrome'} open and logged in. Quitting Chrome first drops Google session cookies.`
-                  : 'Chrome is not running. Persistent cookies can still import; Google session login may be missing until you import while Chrome is logged in.'}
+                  ? 'Keep Chrome open and signed in. Quitting drops session cookies.'
+                  : 'Open Chrome and sign in first if you need Google session cookies.'}
               </p>
 
-              <div className="mt-3 min-h-0 flex-1 overflow-hidden">
-                {loadingDomains ? (
-                  <div className="py-2 text-[12px] text-[var(--text-muted)]">Loading sites…</div>
-                ) : domains.length === 0 ? (
-                  <div className="py-2 text-[12px] text-[var(--text-muted)]">No cookie sites in this profile.</div>
-                ) : (
-                  <>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <span className="text-[12px] font-medium text-[var(--text-muted)]">Sites</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => setSelected(new Set(domains.map((domain) => domain.host)))}
-                          className="text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                        >
-                          Select all
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => setSelected(new Set())}
-                          className="text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    </div>
-                    <div className="max-h-40 overflow-auto rounded-xl border border-[var(--border)]">
-                      {domains.map((domain) => (
-                        <label
-                          key={domain.host}
-                          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selected.has(domain.host)}
-                            onChange={() => toggleDomain(domain.host)}
-                            disabled={busy}
-                          />
-                          <span className="min-w-0 flex-1 truncate">{domain.host}</span>
-                          {importedHosts.has(domain.host) ? (
-                            <span className="shrink-0 text-[11px] text-[var(--text-muted)]">Imported</span>
-                          ) : null}
-                          <span className="text-[var(--text-muted)]">{domain.cookieCount}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </>
-                )}
+              <div className="mt-4 overflow-hidden rounded-xl border border-[var(--border)]">
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  <Cookie className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+                  <span className="min-w-0 flex-1 text-[13px] text-[var(--text-primary)]">Cookies</span>
+                  <SettingsToggle
+                    checked={importCookies}
+                    onChange={setImportCookies}
+                    disabled={busy}
+                    ariaLabel="Import cookies"
+                  />
+                </div>
               </div>
             </div>
 

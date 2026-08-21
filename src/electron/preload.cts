@@ -693,7 +693,7 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('list-chrome-cookie-domains', profilePath);
   },
 
-  importChromeCookies: (request: { profilePath: string; domains: string[] }) => {
+  importChromeCookies: (request: { profilePath: string; domains?: string[] }) => {
     return ipcRenderer.invoke('import-chrome-cookies', request);
   },
 

@@ -294,7 +294,8 @@ export interface ChromeCookieDomainsResult {
 
 export interface ChromeCookieImportRequest {
   profilePath: string;
-  domains: string[];
+  /** Empty or omitted imports every host in the Chrome profile. */
+  domains?: string[];
 }
 
 export interface ChromeCookieImportResult {
