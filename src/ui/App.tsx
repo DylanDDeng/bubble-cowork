@@ -48,6 +48,7 @@ import {
 import { FileTypeIcon } from './components/FileTypeIcon';
 import { AegisDiffPanel } from './components/AegisDiffPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
+import { BrowserNativeOverlayContext } from './components/browser/browser-native-overlay';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
 import { SubagentPanel } from './components/SubagentPanel';
@@ -1302,6 +1303,8 @@ function RightUtilityWorkspace({
     return () => window.cancelAnimationFrame(raf);
   }, [instantReveal]);
 
+  const [nativeOverlayOpen, setNativeOverlayOpen] = useState(false);
+
   const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
     if (fullscreen) return;
     event.preventDefault();
@@ -1337,6 +1340,7 @@ function RightUtilityWorkspace({
   }, [isResizing, onWidthChange]);
 
   return (
+    <BrowserNativeOverlayContext.Provider value={nativeOverlayOpen}>
     <motion.div
       data-right-utility-workspace
       data-active-panel={activePanel ?? 'none'}
@@ -1382,6 +1386,7 @@ function RightUtilityWorkspace({
           onOpenTab={onOpenTab}
           onTogglePanel={onTogglePanel}
           onToggleFullscreen={onToggleFullscreen}
+          onNativeOverlayChange={setNativeOverlayOpen}
         />
 
         <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -1389,6 +1394,7 @@ function RightUtilityWorkspace({
         </div>
       </div>
     </motion.div>
+    </BrowserNativeOverlayContext.Provider>
   );
 }
 
@@ -1461,6 +1467,7 @@ function RightUtilityTabStrip({
   onOpenTab,
   onTogglePanel,
   onToggleFullscreen,
+  onNativeOverlayChange,
 }: {
   tabs: ProjectUtilityTabDescriptor[];
   activeTab: ProjectUtilityPanelTarget | null;
@@ -1473,6 +1480,7 @@ function RightUtilityTabStrip({
   onOpenTab: (target: ProjectUtilityPanelKind, options?: { newTab?: boolean }) => void;
   onTogglePanel: () => void;
   onToggleFullscreen: (() => void) | null;
+  onNativeOverlayChange: (open: boolean) => void;
 }) {
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const items = [
@@ -1579,7 +1587,7 @@ function RightUtilityTabStrip({
             </div>
           );
         })}
-        <DropdownMenu.Root>
+        <DropdownMenu.Root onOpenChange={onNativeOverlayChange}>
           <DropdownMenu.Trigger asChild>
             <button
               type="button"

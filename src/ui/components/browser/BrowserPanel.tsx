@@ -18,6 +18,7 @@
 
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -55,6 +56,7 @@ import {
   resolveBrowserAddressSync,
   resolveBrowserChromeStatus,
 } from './BrowserPanel.logic';
+import { BrowserNativeOverlayContext } from './browser-native-overlay';
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 1200;
@@ -127,6 +129,8 @@ export function BrowserPanel({
   embedded = false,
 }: BrowserPanelProps) {
   const browserSessionId = browserSessionIdProp ?? sessionId ?? '__standalone-browser__';
+  const overlayOpen = useContext(BrowserNativeOverlayContext);
+  const nativeViewHidden = collapsed || overlayOpen;
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
   const createDraftSession = useAppStore((s) => s.createDraftSession);
   // Target chat session for "send to chat" actions; create a draft if browsing
@@ -314,12 +318,12 @@ export function BrowserPanel({
   }, [browserSessionId, collapsed, recordHistoryEntry, upsertSessionState]);
 
   // Pane is hidden but we keep the state alive; tell main to detach.
-  useEffect(() => {
-    if (!collapsed) return;
+  useLayoutEffect(() => {
+    if (!nativeViewHidden) return;
     window.electron.browser.hide({ sessionId: browserSessionId }).catch(() => {
       // non-fatal
     });
-  }, [browserSessionId, collapsed]);
+  }, [browserSessionId, nativeViewHidden]);
 
   useEffect(() => {
     return () => {
@@ -390,7 +394,7 @@ export function BrowserPanel({
   const rafRef = useRef<number | null>(null);
 
   const pushBounds = useCallback(() => {
-    if (collapsed) return;
+    if (nativeViewHidden) return;
     const el = viewportRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -405,14 +409,14 @@ export function BrowserPanel({
         },
       })
       .catch(() => {});
-  }, [browserSessionId, collapsed]);
+  }, [browserSessionId, nativeViewHidden]);
 
   useLayoutEffect(() => {
     pushBounds();
-  }, [pushBounds, width, collapsed]);
+  }, [pushBounds, width, nativeViewHidden]);
 
   useEffect(() => {
-    if (collapsed) return;
+    if (nativeViewHidden) return;
     const el = viewportRef.current;
     if (!el) return;
     const observer = new ResizeObserver(() => {
@@ -430,11 +434,11 @@ export function BrowserPanel({
       window.removeEventListener('resize', onWindowResize);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [collapsed, pushBounds]);
+  }, [nativeViewHidden, pushBounds]);
 
   // When the animation transitions, push bounds repeatedly for a short burst.
   useEffect(() => {
-    if (collapsed) return;
+    if (nativeViewHidden) return;
     let frames = 0;
     let stopped = false;
     const loop = () => {
@@ -449,7 +453,7 @@ export function BrowserPanel({
     return () => {
       stopped = true;
     };
-  }, [collapsed, width, pushBounds]);
+  }, [nativeViewHidden, width, pushBounds]);
 
   // ===== 操作封装 =====
   const handleNavigate = useCallback(

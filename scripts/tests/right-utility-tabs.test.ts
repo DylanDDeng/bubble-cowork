@@ -37,6 +37,31 @@ async function main() {
     /scrollIntoView\(\{ block: 'nearest', inline: 'nearest' \}\)/,
     'a newly active utility tab must be scrolled into view'
   );
+  assert.match(
+    appSource,
+    /onOpenChange=\{onNativeOverlayChange\}/,
+    'the plus menu must suspend the native browser view while open'
+  );
+  assert.match(
+    appSource,
+    /BrowserNativeOverlayContext\.Provider/,
+    'right utility chrome must publish overlay state to BrowserPanel'
+  );
+
+  const panelSource = await readFile(
+    new URL('../../src/ui/components/browser/BrowserPanel.tsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(
+    panelSource,
+    /nativeViewHidden = collapsed \|\| overlayOpen/,
+    'BrowserPanel must hide the WebContentsView while the plus menu is open'
+  );
+  assert.match(
+    panelSource,
+    /useLayoutEffect\(\(\) => \{\s*if \(!nativeViewHidden\) return/,
+    'collapsing a browser tab must detach the native view before the next paint'
+  );
 
   console.log('right-utility-tabs tests passed');
 }
