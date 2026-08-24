@@ -25,7 +25,7 @@ const SETTINGS_TABS = {
   browser: {
     label: 'Browser',
     title: 'Browser',
-    description: 'Manage the built-in browser. Import Chrome login cookies and control which sites agents may visit.',
+    description: 'Manage the built-in browser. Import Chrome login cookies and turn agent browsing on or off.',
     icon: <Globe className="w-4 h-4" />,
   },
   mcp: {

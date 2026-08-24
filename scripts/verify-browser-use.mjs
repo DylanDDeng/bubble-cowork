@@ -182,8 +182,10 @@ assert.ok(
   'settings IPC for the permissions page'
 );
 assert.ok(
-  read('src/ui/components/settings/BrowserUseSettings.tsx').includes('Block browsing'),
-  'settings page exposes the Codex-parity policy labels'
+  read('src/ui/components/settings/BrowserUseSettings.tsx').includes('Enable Browser Use') &&
+    !read('src/ui/components/settings/BrowserUseSettings.tsx').includes('Add rule') &&
+    !read('src/ui/components/settings/BrowserUseSettings.tsx').includes('Default for all sites'),
+  'settings page exposes a Browser Use enable toggle without a per-site list'
 );
 assert.ok(
   read('src/ui/components/settings/Settings.tsx').includes("label: 'Browser'") &&
