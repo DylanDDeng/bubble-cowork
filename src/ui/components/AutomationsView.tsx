@@ -15,6 +15,7 @@ import {
   X,
 } from './icons';
 import { SidebarHeaderTrigger } from './Sidebar';
+import { SessionHistoryButtons } from './SessionHistoryButtons';
 import { useAppStore } from '../store/useAppStore';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
@@ -369,7 +370,12 @@ export function AutomationsView() {
     <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
       <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0 bg-[var(--bg-primary)]`}>
         <div className="flex h-full items-center px-3">
-          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+          {sidebarCollapsed ? (
+            <>
+              <SidebarHeaderTrigger className="ml-[72px]" />
+              <SessionHistoryButtons />
+            </>
+          ) : null}
         </div>
       </div>
 

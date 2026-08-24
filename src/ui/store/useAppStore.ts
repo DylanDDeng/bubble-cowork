@@ -45,6 +45,7 @@ import type {
   SessionTeamMode,
   McpServerStatus,
 } from '../types';
+import { pushSessionHistory, stepSessionHistory } from '../utils/session-history';
 import {
   DEFAULT_THEME_STATE,
   DEFAULT_UI_FONT_FAMILY,
@@ -129,6 +130,38 @@ type Store = AppState & AppActions;
 type SetState = (
   partial: Store | Partial<Store> | ((state: Store) => Store | Partial<Store>)
 ) => void;
+let sessionHistoryMute = 0;
+
+function isSessionHistoryEntryVisitable(state: Pick<Store, 'sessions'>, entry: string | null): boolean {
+  return entry === null || Boolean(state.sessions[entry]);
+}
+
+function navigateSessionHistory(direction: -1 | 1, get: () => Store, set: SetState) {
+  const state = get();
+  const moved = stepSessionHistory(
+    state.sessionHistoryStack,
+    state.sessionHistoryIndex,
+    direction,
+    (entry) => isSessionHistoryEntryVisitable(state, entry)
+  );
+  if (!moved) return;
+
+  sessionHistoryMute += 1;
+  try {
+    set({
+      sessionHistoryStack: moved.stack,
+      sessionHistoryIndex: moved.index,
+    });
+    if (moved.entry) {
+      get().setActiveSession(moved.entry);
+    } else {
+      get().setShowNewSession(true);
+    }
+  } finally {
+    sessionHistoryMute -= 1;
+  }
+}
+
 const runtimeNoticeClearTimers = new Map<string, number>();
 let projectFileOpenRequestCounter = 0;
 
@@ -800,6 +833,8 @@ export const useAppStore = create<Store>()(
       chatSplitRatio: initialLegacyPaneFields.chatSplitRatio,
       showNewSession: initialUiResumeState?.showNewSession ?? true,
       newSessionKey: 0,
+      sessionHistoryStack: [initialUiResumeState?.activeSessionId ?? null],
+      sessionHistoryIndex: 0,
       sidebarCollapsed: false,
       sidebarPeek: false,
       sidebarActivityView: false,
@@ -1357,6 +1392,9 @@ export const useAppStore = create<Store>()(
       scheduleRuntimeNoticeClear(sessionId, set);
     }
   },
+
+  goSessionHistoryBack: () => navigateSessionHistory(-1, get, set),
+  goSessionHistoryForward: () => navigateSessionHistory(1, get, set),
 
   setActiveWorkspace: (activeWorkspace) =>
     set((state) => {
@@ -2760,12 +2798,37 @@ useAppStore.subscribe((state, prev) => {
       sessions: state.sessions,
     });
     const liveUnchanged = liveRightPanelEquals(state, patch);
-    if (liveUnchanged && patch.rightPanelBySessionId === state.rightPanelBySessionId) {
+    const rightPanelUnchanged =
+      liveUnchanged && patch.rightPanelBySessionId === state.rightPanelBySessionId;
+    const history =
+      sessionHistoryMute === 0
+        ? pushSessionHistory(
+            state.sessionHistoryStack,
+            state.sessionHistoryIndex,
+            state.activeSessionId
+          )
+        : null;
+    const historyChanged =
+      Boolean(history) &&
+      (history!.stack !== state.sessionHistoryStack || history!.index !== state.sessionHistoryIndex);
+
+    if (rightPanelUnchanged && !historyChanged) {
       return;
     }
-    useAppStore.setState(
-      liveUnchanged ? { rightPanelBySessionId: patch.rightPanelBySessionId } : patch
-    );
+
+    useAppStore.setState({
+      ...(rightPanelUnchanged
+        ? {}
+        : liveUnchanged
+          ? { rightPanelBySessionId: patch.rightPanelBySessionId }
+          : patch),
+      ...(historyChanged
+        ? {
+            sessionHistoryStack: history!.stack,
+            sessionHistoryIndex: history!.index,
+          }
+        : {}),
+    });
     return;
   }
 

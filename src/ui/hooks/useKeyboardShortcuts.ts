@@ -22,6 +22,9 @@ export function useKeyboardShortcuts() {
     sidebarCollapsed,
     setSidebarCollapsed,
     toggleSidebarActivityView,
+    showSettings,
+    goSessionHistoryBack,
+    goSessionHistoryForward,
   } = useAppStore();
 
   useEffect(() => {
@@ -39,6 +42,24 @@ export function useKeyboardShortcuts() {
       if (isMod && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         setSidebarCollapsed(!sidebarCollapsed);
+        return;
+      }
+
+      // Cmd/Ctrl + [: 回到上一个看过的会话。非美式键盘上 e.key 不稳定，用 code。
+      if (isMod && !e.shiftKey && !e.altKey && e.code === 'BracketLeft') {
+        if (!showSettings) {
+          e.preventDefault();
+          goSessionHistoryBack();
+        }
+        return;
+      }
+
+      // Cmd/Ctrl + ]: 前进到下一个会话。
+      if (isMod && !e.shiftKey && !e.altKey && e.code === 'BracketRight') {
+        if (!showSettings) {
+          e.preventDefault();
+          goSessionHistoryForward();
+        }
         return;
       }
 
@@ -83,6 +104,9 @@ export function useKeyboardShortcuts() {
     sidebarCollapsed,
     setSidebarCollapsed,
     toggleSidebarActivityView,
+    showSettings,
+    goSessionHistoryBack,
+    goSessionHistoryForward,
   ]);
 
   return { sidebarSearchRef };

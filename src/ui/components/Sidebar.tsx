@@ -29,6 +29,7 @@ import { FolderTreeView } from './FolderTreeView';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { getMessageContentBlocks } from '../utils/message-content';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from '../utils/sidebar-width';
+import { SessionHistoryButtons } from './SessionHistoryButtons';
 
 const SIDEBAR_TRIGGER_CLASS =
   'no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] active:scale-95';
@@ -621,6 +622,7 @@ export function Sidebar() {
                 collapsed={sidebarCollapsed}
                 onClick={toggleSidebarCollapsed}
               />
+              <SessionHistoryButtons />
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col">

@@ -38,6 +38,7 @@ import { AutomationsView } from './components/AutomationsView';
 import { PullRequestsView } from './components/PullRequestsView';
 import { NewSessionView } from './components/NewSessionView';
 import { LogoShimmer } from './components/LogoShimmer';
+import { SessionHistoryButtons } from './components/SessionHistoryButtons';
 import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
@@ -945,7 +946,12 @@ export function App() {
         <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
           <div className="h-12 drag-region flex-shrink-0 bg-[var(--bg-primary)]">
             <div className="flex h-full items-center px-3">
-              {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+              {sidebarCollapsed ? (
+                <>
+                  <SidebarHeaderTrigger className="ml-[72px]" />
+                  <SessionHistoryButtons />
+                </>
+              ) : null}
             </div>
           </div>
           <main className="min-w-0 flex-1 overflow-y-auto">
@@ -966,8 +972,17 @@ export function App() {
           <div className="relative h-12 drag-region flex-shrink-0 bg-[var(--chat-pane-surface)]">
             <div className="flex h-full items-center justify-between px-3">
               <div className="flex min-w-0 items-center gap-2">
-                <div className="ml-[72px] flex h-7 w-7 shrink-0 items-center justify-center">
-                  {sidebarCollapsed ? <SidebarHeaderTrigger /> : null}
+                <div
+                  className={`ml-[72px] flex h-7 shrink-0 items-center ${
+                    sidebarCollapsed ? '' : 'w-7 justify-center'
+                  }`}
+                >
+                  {sidebarCollapsed ? (
+                    <>
+                      <SidebarHeaderTrigger />
+                      <SessionHistoryButtons />
+                    </>
+                  ) : null}
                 </div>
                 <span
                   className={`truncate text-[12px] font-medium text-[var(--text-primary)] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${

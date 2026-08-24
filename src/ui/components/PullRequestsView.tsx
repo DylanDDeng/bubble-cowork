@@ -35,6 +35,7 @@ import {
 } from './ui/dropdown-menu';
 import { FileDiff, Virtualizer } from '@pierre/diffs/react';
 import { SidebarHeaderTrigger } from './Sidebar';
+import { SessionHistoryButtons } from './SessionHistoryButtons';
 import { DiffStatLabel } from './DiffStatLabel';
 import { ExpandAllGlyph, SplitDiffGlyph } from './diff-glyphs';
 import { FileTypeIcon } from './FileTypeIcon';
@@ -555,7 +556,12 @@ export function PullRequestsView() {
 >
           <div className="h-12 drag-region flex-shrink-0">
             <div className="flex h-full items-center gap-2 px-4">
-              {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+              {sidebarCollapsed ? (
+                <>
+                  <SidebarHeaderTrigger className="ml-[72px]" />
+                  <SessionHistoryButtons />
+                </>
+              ) : null}
               <div className="flex items-center gap-1" role="tablist" aria-label="Pull request filters">
                 {ROLE_TABS.map((entry) => (
                   <button
