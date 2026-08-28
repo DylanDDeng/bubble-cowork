@@ -2250,7 +2250,7 @@ export function ChatPane({
           </div>
 
           {session.readOnly ? null : (
-            <div className="px-8 pb-4">
+            <div className="aegis-chat-composer px-8 pb-4">
               {sessionId ? (
                 <ComputerUseGrantBadge sessionId={sessionId} grants={session?.computerUseGrants || []} />
               ) : null}

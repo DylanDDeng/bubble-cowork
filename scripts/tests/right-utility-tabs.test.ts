@@ -1,8 +1,25 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolveRightUtilityTabOpen } from '../../src/ui/utils/right-utility-tabs';
+import { resolveDockedRightPanelWidth } from '../../src/ui/utils/right-panel-width';
 
 async function main() {
+  assert.equal(
+    resolveDockedRightPanelWidth(820, 560),
+    324,
+    'a desktop-sized panel must remain docked at the right of the minimum window'
+  );
+  assert.equal(
+    resolveDockedRightPanelWidth(820, 692),
+    401,
+    'compact windows must preserve a visible conversation pane'
+  );
+  assert.equal(
+    resolveDockedRightPanelWidth(820, 1600),
+    820,
+    'wide windows must preserve the saved panel width'
+  );
+
   const first = resolveRightUtilityTabOpen([], 'files', { newTab: true });
   assert.equal(first.tabs.length, 1);
   assert.equal(first.activeTab, first.tabs[0]);

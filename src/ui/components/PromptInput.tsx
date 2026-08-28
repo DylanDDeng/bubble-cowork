@@ -1561,8 +1561,8 @@ export function PromptInput({
             autoFocus={false}
           />
 
-          <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
-            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
+          <div className="aegis-composer-toolbar flex items-end justify-between gap-2 px-2.5 pb-2">
+            <div className="aegis-composer-leading-controls flex min-w-0 flex-1 items-center gap-1 overflow-visible">
               <button
                 type="button"
                 onClick={() => {

@@ -3318,7 +3318,41 @@ button.aegis-mdx-metadata-key:hover {
 /* Small screens */
 @media (max-width: 768px) {
   .message-container {
-    padding: 0 1rem;
+    padding: 0;
+  }
+
+  .aegis-chat-composer,
+  .aegis-new-thread-landing {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* A manually collapsed sidebar should leave a calm, fully usable chat at
+   compact desktop widths. Keep the desktop information hierarchy, but release
+   non-essential chrome and reclaim the outer gutters before controls collide. */
+@media (max-width: 640px) {
+  .aegis-header-editor-actions {
+    display: none;
+  }
+
+  .aegis-new-thread-landing h1 {
+    margin-bottom: 1.5rem;
+    font-size: 24px;
+  }
+
+  .aegis-composer-toolbar {
+    gap: 0.25rem;
+  }
+
+  .aegis-composer-leading-controls {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .aegis-composer-leading-controls::-webkit-scrollbar {
+    display: none;
   }
 }
 

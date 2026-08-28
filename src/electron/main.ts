@@ -580,7 +580,7 @@ function createWindow(): void {
     y: windowState.y,
     width: windowState.width,
     height: windowState.height,
-    minWidth: 800,
+    minWidth: 560,
     minHeight: 600,
     title: 'Aegis',
     titleBarStyle: 'hidden',

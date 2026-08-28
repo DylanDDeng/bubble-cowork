@@ -81,6 +81,7 @@ import { resolveCodexModel } from './utils/codex-model';
 import { startQueueAutoFlush } from './lib/queue-auto-flush';
 import * as DialogPrimitive from '@/ui/components/ui/dialog';
 import { isSideChatPendingTab } from './utils/right-utility-tabs';
+import { resolveDockedRightPanelWidth } from './utils/right-panel-width';
 import {
   deriveTurnPhase,
   hasRunningToolInMessages,
@@ -204,6 +205,10 @@ export function App() {
   // Session id of a side chat pending destructive-close confirmation.
   const [sideChatCloseRequest, setSideChatCloseRequest] = useState<string | null>(null);
   const [rightUtilityPanelWidth, setRightUtilityPanelWidthState] = useState(getDefaultRightUtilityPanelWidth);
+  const skinHostRef = useRef<HTMLDivElement>(null);
+  const [skinHostWidth, setSkinHostWidth] = useState(() =>
+    typeof window === 'undefined' ? RIGHT_UTILITY_PANEL_DEFAULT_WIDTH : window.innerWidth
+  );
   const [activeProjectFileTabs, setActiveProjectFileTabs] = useState<
     Record<string, { filePath: string; name: string } | null>
   >({});
@@ -553,6 +558,25 @@ export function App() {
     setRightUtilityPanelWidthState(nextWidth);
     window.localStorage.setItem(RIGHT_UTILITY_PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
   }, []);
+
+  useEffect(() => {
+    const skinHost = skinHostRef.current;
+    if (!skinHost) return;
+
+    const updateWidth = () => {
+      const nextWidth = Math.round(skinHost.getBoundingClientRect().width);
+      setSkinHostWidth((currentWidth) => currentWidth === nextWidth ? currentWidth : nextWidth);
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(skinHost);
+    return () => observer.disconnect();
+  }, []);
+
+  const renderedRightUtilityPanelWidth = rightPanelFullscreen
+    ? rightUtilityPanelWidth
+    : resolveDockedRightPanelWidth(rightUtilityPanelWidth, skinHostWidth);
 
   const activeUtilityPanel = useMemo(() => {
     if (rightPanelLauncherOpen) return 'launcher' as const;
@@ -911,6 +935,7 @@ export function App() {
       {/* Shared chat surface: the wallpaper lives here so it spans both the
           conversation and the utility workspace (including fullscreen). */}
       <div
+        ref={skinHostRef}
         className={`aegis-skin-host relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--bg-primary)] ${
           chatSurfaceVisible ? 'rounded-l-[12px]' : ''
         } ${skinVisible ? 'aegis-skin-host--active' : ''}`}
@@ -993,7 +1018,9 @@ export function App() {
                 </span>
               </div>
               <div className="flex items-center justify-end gap-1 pr-10">
-                <EnvironmentEditorPicker context={environmentContext} />
+                <div className="aegis-header-editor-actions">
+                  <EnvironmentEditorPicker context={environmentContext} />
+                </div>
                 <EnvironmentHub
                   context={environmentContext}
                   git={gitEnvironment}
@@ -1060,8 +1087,9 @@ export function App() {
             (activeUtilityPanel !== 'launcher' ? activeUtilityPanel : null)
           }
           browserAvailable={true}
-          width={rightUtilityPanelWidth}
+          width={renderedRightUtilityPanelWidth}
           onWidthChange={setRightUtilityPanelWidth}
+          resizable={renderedRightUtilityPanelWidth === rightUtilityPanelWidth}
           fullscreen={rightPanelFullscreen !== null}
           windowControlsInset={rightPanelFullscreen !== null && sidebarCollapsed}
           onSelectTab={selectRightUtilityTab}
@@ -1104,7 +1132,7 @@ export function App() {
               onOpenUtilityTab={openRightUtilityTab}
               openRequest={pendingProjectFileOpen?.tabId === tabId ? pendingProjectFileOpen : null}
               onOpenRequestConsumed={clearPendingProjectFileOpen}
-              sharedPanelWidth={rightUtilityPanelWidth}
+              sharedPanelWidth={renderedRightUtilityPanelWidth}
               onSharedPanelWidthChange={setRightUtilityPanelWidth}
               isFullscreen={rightPanelFullscreen === 'files' && activeRightUtilityTab === tabId}
               onToggleFullscreen={toggleFilesPanelFullscreen}
@@ -1128,7 +1156,7 @@ export function App() {
               sessionId={activeSessionId}
               browserSessionId={getBrowserUtilitySessionId(activeSessionId, tabId)}
               collapsed={activeUtilityPanel !== 'browser' || activeRightUtilityTab !== tabId}
-              width={rightUtilityPanelWidth}
+              width={renderedRightUtilityPanelWidth}
               onWidthChange={setRightUtilityPanelWidth}
               isFullscreen={rightPanelFullscreen === 'browser'}
               onToggleFullscreen={() =>
@@ -1140,7 +1168,7 @@ export function App() {
             key={`${activeSessionId ?? 'new'}:terminal`}
             embedded
             collapsed={activeUtilityPanel !== 'terminal'}
-            width={rightUtilityPanelWidth}
+            width={renderedRightUtilityPanelWidth}
             onWidthChange={setRightUtilityPanelWidth}
             onClose={() => closeRightUtilityTab('terminal')}
             sessionId={activeSessionId}
@@ -1264,6 +1292,7 @@ function RightUtilityWorkspace({
   activeTab,
   browserAvailable,
   width,
+  resizable,
   fullscreen,
   windowControlsInset,
   onWidthChange,
@@ -1286,6 +1315,7 @@ function RightUtilityWorkspace({
   activeTab: ProjectUtilityPanelTarget | null;
   browserAvailable: boolean;
   width: number;
+  resizable: boolean;
   fullscreen: boolean;
   windowControlsInset: boolean;
   onWidthChange: (width: number) => void;
@@ -1321,7 +1351,7 @@ function RightUtilityWorkspace({
   const [nativeOverlayOpen, setNativeOverlayOpen] = useState(false);
 
   const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (fullscreen) return;
+    if (fullscreen || !resizable) return;
     event.preventDefault();
     resizingRef.current = true;
     startXRef.current = event.clientX;
@@ -1376,7 +1406,7 @@ function RightUtilityWorkspace({
           : { type: 'tween', duration: 0.24, ease: [0.32, 0.72, 0, 1] }
       }
     >
-      {!fullscreen && !hidden ? (
+      {!fullscreen && !hidden && resizable ? (
         <div
           className="group absolute bottom-0 left-0 top-0 z-20 w-3 -translate-x-1/2 cursor-col-resize no-drag"
           onMouseDown={handleResizeStart}
