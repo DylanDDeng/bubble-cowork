@@ -63,22 +63,22 @@ expectIncludes(turnCard, 'getTurnDiffLabel(summary)', 'turn change card must use
 
 expectMatches(
   app,
-  /<RightUtilityWorkspace[\s\S]*width=\{rightUtilityPanelWidth\}[\s\S]*<AegisDiffPanel/,
+  /<RightUtilityWorkspace[\s\S]*width=\{renderedRightUtilityPanelWidth\}[\s\S]*<AegisDiffPanel/,
   'review panel must stay inside the shared right utility workspace'
 );
 expectMatches(
   app,
-  /<ProjectTreePanel[\s\S]*sharedPanelWidth=\{rightUtilityPanelWidth\}/,
+  /<ProjectTreePanel[\s\S]*sharedPanelWidth=\{renderedRightUtilityPanelWidth\}/,
   'files panel must use the shared right panel width'
 );
 expectMatches(
   app,
-  /<BrowserPanel[\s\S]*width=\{rightUtilityPanelWidth\}/,
+  /<BrowserPanel[\s\S]*width=\{renderedRightUtilityPanelWidth\}/,
   'browser panel must use the shared right panel width'
 );
 expectMatches(
   app,
-  /<RightTerminalPanel[\s\S]*width=\{rightUtilityPanelWidth\}/,
+  /<RightTerminalPanel[\s\S]*width=\{renderedRightUtilityPanelWidth\}/,
   'terminal panel must use the shared right panel width'
 );
 
