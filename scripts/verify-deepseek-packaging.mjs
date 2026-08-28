@@ -58,6 +58,10 @@ assert.equal(
   'packaging must install the pinned DeepSeek runtime dependencies'
 );
 assert.ok(
+  rootPackage.scripts?.pretest?.includes('prepare:deepseek-runtime'),
+  'the test suite must prepare DeepSeek runtime inputs on a clean checkout'
+);
+assert.ok(
   rootPackage.scripts?.['prebuild:electron']?.includes('prepare:deepseek-runtime') &&
     rootPackage.scripts?.['prebuild:electron']?.includes('verify:deepseek-packaging'),
   'every npm-driven Electron package must prepare and verify the DeepSeek runtime first'

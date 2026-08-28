@@ -665,6 +665,173 @@ async function testApprovalRouting() {
   }
 }
 
+async function testImageGeneration() {
+  console.log('Image generation lifecycle');
+
+  {
+    const { adapter, manager, events, notify } = createCapturingAdapter();
+    seedSession(manager, 't1', 'p1', { status: 'running' });
+    adapter.sessions.set('t1', { threadId: 't1', providerThreadId: 'p1', status: 'running' });
+
+    const started = {
+      threadId: 'p1',
+      item: {
+        type: 'imageGeneration',
+        id: 'img-1',
+        status: 'inProgress',
+        revisedPrompt: 'a small red fox',
+        result: '',
+        failure: null,
+      },
+    };
+    notify('item/started', started);
+    notify('item/started', started);
+    await sleep(5);
+
+    let imageMessages = events.filter(
+      (event) =>
+        event.type === 'message' &&
+        (event.message.uuid || '').startsWith('codex-imagegen-')
+    );
+    assert.equal(imageMessages.length, 1, 'duplicate started notification must be ignored');
+    const pendingBlock = imageMessages[0].message.message.content[0];
+    assert.equal(pendingBlock.type, 'tool_use');
+    assert.equal(pendingBlock.id, 'img-1');
+    assert.equal(pendingBlock.name, 'image_gen');
+    assert.equal(pendingBlock.input.prompt, 'a small red fox');
+
+    const completed = {
+      threadId: 'p1',
+      item: {
+        ...started.item,
+        status: 'completed',
+        revisedPrompt: 'a detailed small red fox',
+        savedPath: '/tmp/aegis-generated-red-fox.png',
+      },
+    };
+    notify('item/completed', completed);
+    notify('item/completed', completed);
+    await sleep(5);
+
+    imageMessages = events.filter(
+      (event) =>
+        event.type === 'message' &&
+        (event.message.uuid || '').startsWith('codex-imagegen-')
+    );
+    assert.equal(imageMessages.length, 3, 'completion must emit one tool update and one result');
+    const updatedUse = imageMessages[1].message;
+    assert.equal(updatedUse.uuid, 'codex-imagegen-tool-use:t1:img-1');
+    assert.equal(updatedUse.message.content[0].input.prompt, 'a detailed small red fox');
+    assert.deepEqual(updatedUse.message.content[0].input.__aegisGeneratedMedia, [
+      {
+        path: '/tmp/aegis-generated-red-fox.png',
+        kind: 'image',
+        prompt: 'a detailed small red fox',
+      },
+    ]);
+    const result = imageMessages[2].message;
+    assert.equal(result.uuid, 'codex-imagegen-tool-result:t1:img-1');
+    assert.equal(result.message.content[0].tool_use_id, 'img-1');
+    assert.equal(result.message.content[0].is_error, false);
+    assert.equal(result.message.content[0].content, '/tmp/aegis-generated-red-fox.png');
+    ok('imageGeneration started/completed → stable image_gen tool lifecycle + media path');
+  }
+
+  {
+    const { adapter, manager, events, notify } = createCapturingAdapter();
+    seedSession(manager, 't1', 'p1', { status: 'running' });
+    adapter.sessions.set('t1', { threadId: 't1', providerThreadId: 'p1', status: 'running' });
+    notify('item/completed', {
+      threadId: 'p1',
+      item: {
+        type: 'imageGeneration',
+        id: 'img-limit',
+        status: 'failed',
+        revisedPrompt: 'a city at night',
+        result: '',
+        failure: {
+          type: 'usageLimitExceeded',
+          limitId: 'image_generation',
+          resetsAt: 2_000_000_000,
+        },
+      },
+    });
+    await sleep(5);
+    const result = events
+      .filter((event) => event.type === 'message')
+      .map((event) => event.message)
+      .find((message) => message.uuid === 'codex-imagegen-tool-result:t1:img-limit');
+    assert.equal(result.message.content[0].is_error, true);
+    assert.match(result.message.content[0].content, /usage limit exceeded/i);
+    assert.match(result.message.content[0].content, /image_generation/);
+    assert.match(result.message.content[0].content, /Resets at/);
+    ok('imageGeneration usage limit → readable failed tool result');
+  }
+
+  {
+    const fallbackRoot = mkdtempSync(join(tmpdir(), 'codex-imagegen-fallback-'));
+    const previousUserData = process.env.AEGIS_USER_DATA_DIR;
+    process.env.AEGIS_USER_DATA_DIR = fallbackRoot;
+    try {
+      const { adapter, manager, events, notify } = createCapturingAdapter();
+      seedSession(manager, 't1', 'p1', { status: 'running' });
+      adapter.sessions.set('t1', { threadId: 't1', providerThreadId: 'p1', status: 'running' });
+      notify('item/completed', {
+        threadId: 'p1',
+        item: {
+          type: 'imageGeneration',
+          id: 'img-base64',
+          status: 'completed',
+          revisedPrompt: 'fallback image',
+          result: Buffer.from('89504e470d0a1a0a', 'hex').toString('base64'),
+          failure: null,
+        },
+      });
+      await sleep(5);
+      const result = events
+        .filter((event) => event.type === 'message')
+        .map((event) => event.message)
+        .find((message) => message.uuid === 'codex-imagegen-tool-result:t1:img-base64');
+      assert.equal(result.message.content[0].is_error, false);
+      assert.equal(existsSync(result.message.content[0].content), true);
+      assert.ok(
+        !events.some((event) => JSON.stringify(event).includes('iVBORw0KGgo=')),
+        'base64 payload must not enter transcript events'
+      );
+      ok('missing savedPath → PNG persisted locally without embedding base64 in history');
+    } finally {
+      if (previousUserData === undefined) delete process.env.AEGIS_USER_DATA_DIR;
+      else process.env.AEGIS_USER_DATA_DIR = previousUserData;
+      rmSync(fallbackRoot, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const { adapter, manager, events, notify } = createCapturingAdapter();
+    seedSession(manager, 't1', 'p1', { status: 'running' });
+    adapter.sessions.set('t1', { threadId: 't1', providerThreadId: 'p1', status: 'running' });
+    notify('item/completed', {
+      threadId: 'p1',
+      item: {
+        type: 'imageGeneration',
+        id: 'img-missing',
+        status: 'completed',
+        revisedPrompt: null,
+        result: '',
+        failure: null,
+      },
+    });
+    await sleep(5);
+    const result = events
+      .filter((event) => event.type === 'message')
+      .map((event) => event.message)
+      .find((message) => message.uuid === 'codex-imagegen-tool-result:t1:img-missing');
+    assert.equal(result.message.content[0].is_error, true);
+    assert.match(result.message.content[0].content, /no saved image/i);
+    ok('completed item without savedPath/result → explicit error');
+  }
+}
+
 // ── P0-8/P0-9: process lifecycle with the real fake binary ────────────────
 async function testProcessLifecycle() {
   console.log('P0-8/P0-9 process lifecycle (fake binary)');
@@ -1623,6 +1790,7 @@ async function main() {
   await testResume();
   await testTwoPhaseStop();
   await testApprovalRouting();
+  await testImageGeneration();
   await testComputerUseGrants();
   await testProcessLifecycle();
   await testSlashCommands();

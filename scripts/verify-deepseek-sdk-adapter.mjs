@@ -130,39 +130,49 @@ assert.ok(
 const deepseekMcp = require(
   path.join(root, 'dist-electron', 'electron', 'libs', 'deepseek-mcp-settings.js')
 );
-const generatedMcp = deepseekMcp.createDeepseekMcpRuntimeConfig(
-  path.join(root, 'dev-fixtures', 'deepseek-harness'),
-  '/workspace',
-  {
-    'local tools': {
-      type: 'stdio',
-      command: 'node',
-      args: ['server.mjs'],
-      env: { TOKEN: 'probe' },
-    },
-    remote: {
-      type: 'http',
-      url: 'http://127.0.0.1:9876/mcp',
-      headers: { Authorization: 'Bearer probe' },
-    },
-    disabled: { type: 'stdio', command: 'false', enabled: false },
-  }
-);
+const generatedMcpProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-dsh-mcp-profile-'));
 try {
-  const generated = fs.readFileSync(generatedMcp.configPath, 'utf8');
-  assert.ok(
-    generated.includes("name: \"@deepseek-ai/dsh-mcp-client\"") &&
-      generated.includes('transport: stdio') &&
-      generated.includes('transport: streamable-http') &&
-      generated.includes('local_tools_') &&
-      generated.includes("=== 'minimal'") &&
-      !generated.includes('command: \"false\"'),
-    'runtime config must bridge enabled stdio/http servers and preserve Minimal isolation'
+  fs.mkdirSync(
+    path.join(generatedMcpProfile, 'node_modules', '@deepseek-ai', 'dsh-mcp-client'),
+    { recursive: true }
   );
+  fs.writeFileSync(path.join(generatedMcpProfile, 'cordis.yml'), cordisYml);
+  const generatedMcp = deepseekMcp.createDeepseekMcpRuntimeConfig(
+    generatedMcpProfile,
+    '/workspace',
+    {
+      'local tools': {
+        type: 'stdio',
+        command: 'node',
+        args: ['server.mjs'],
+        env: { TOKEN: 'probe' },
+      },
+      remote: {
+        type: 'http',
+        url: 'http://127.0.0.1:9876/mcp',
+        headers: { Authorization: 'Bearer probe' },
+      },
+      disabled: { type: 'stdio', command: 'false', enabled: false },
+    }
+  );
+  try {
+    const generated = fs.readFileSync(generatedMcp.configPath, 'utf8');
+    assert.ok(
+      generated.includes("name: \"@deepseek-ai/dsh-mcp-client\"") &&
+        generated.includes('transport: stdio') &&
+        generated.includes('transport: streamable-http') &&
+        generated.includes('local_tools_') &&
+        generated.includes("=== 'minimal'") &&
+        !generated.includes('command: \"false\"'),
+      'runtime config must bridge enabled stdio/http servers and preserve Minimal isolation'
+    );
+  } finally {
+    const generatedPath = generatedMcp.configPath;
+    generatedMcp.dispose();
+    assert.equal(fs.existsSync(generatedPath), false, 'generated MCP config must be disposable');
+  }
 } finally {
-  const generatedPath = generatedMcp.configPath;
-  generatedMcp.dispose();
-  assert.equal(fs.existsSync(generatedPath), false, 'generated MCP config must be disposable');
+  fs.rmSync(generatedMcpProfile, { recursive: true, force: true });
 }
 
 const mcpSettingsSource = read('src/ui/components/settings/McpSettings.tsx');

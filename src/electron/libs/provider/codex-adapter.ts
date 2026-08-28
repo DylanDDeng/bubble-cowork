@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events';
+import { createHash } from 'crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   ProviderAdapter,
@@ -34,6 +36,7 @@ import {
 } from '../../../shared/computer-use';
 import { homedir } from 'os';
 import { join } from 'path';
+import { withGeneratedMediaInput } from '../../../shared/generated-media';
 import type {
   CodexApprovalKind,
   CodexApprovalPermissionInput,
@@ -88,6 +91,56 @@ function resolveComputerUseUserDataDir(): string {
     // Tests and non-electron hosts fall back to the home directory.
   }
   return join(homedir(), '.aegis');
+}
+
+function persistCodexGeneratedImage(input: {
+  userDataDir: string;
+  result: string;
+}): string | null {
+  const encoded = input.result.replace(/\s+/g, '');
+  if (!encoded || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return null;
+
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(encoded, 'base64');
+  } catch {
+    return null;
+  }
+  const pngSignature = '89504e470d0a1a0a';
+  if (bytes.length < 8 || bytes.subarray(0, 8).toString('hex') !== pngSignature) {
+    return null;
+  }
+
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const root = join(input.userDataDir, 'codex-imagegen');
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const filePath = join(root, `${sha256}.png`);
+  if (!existsSync(filePath)) {
+    writeFileSync(filePath, bytes, { mode: 0o600 });
+  }
+  return filePath;
+}
+
+function formatImageGenerationResetTime(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+  const milliseconds = value < 10_000_000_000 ? value * 1000 : value;
+  const date = new Date(milliseconds);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+}
+
+function formatImageGenerationFailure(failure: Record<string, unknown> | null): string {
+  if (failure?.type === 'usageLimitExceeded') {
+    const limitId = getString(failure.limitId);
+    const resetTime = formatImageGenerationResetTime(failure.resetsAt);
+    return [
+      'Image generation usage limit exceeded',
+      limitId ? `(${limitId})` : '',
+      resetTime ? `Resets at ${resetTime}.` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  return 'Image generation failed.';
 }
 
 function getFirstString(...values: unknown[]): string {
@@ -294,6 +347,10 @@ export class CodexAdapter implements ProviderAdapter {
   private emittedToolCalls = new Map<string, Set<string>>();
   private emittedToolResults = new Map<string, Set<string>>();
   private pendingToolCallIds = new Map<string, string[]>();
+  private imageGenerationItems = new Map<
+    string,
+    Map<string, { createdAt: number; prompt: string; completed: boolean }>
+  >();
   private permissionResolvers = new Map<
     string,
     { resolve: (result: PermissionResult) => void }
@@ -541,6 +598,14 @@ export class CodexAdapter implements ProviderAdapter {
       }
     });
 
+    on('image_generation', ({ threadId, phase, item }) => {
+      this.handleImageGeneration(
+        threadId,
+        phase === 'completed' ? 'completed' : 'started',
+        isObject(item) ? item : {}
+      );
+    });
+
     // 0.144.3 delivers every turn terminal via `turn/completed` with
     // turn.status ∈ completed | interrupted | failed (there is no
     // `turn/aborted` notification). Failed turns must surface as errors —
@@ -644,6 +709,7 @@ export class CodexAdapter implements ProviderAdapter {
         this.lastStartInput.delete(aegisThreadId);
         this.lastKnownContextTokens.delete(aegisThreadId);
         this.reportedErrorTurnKeys.delete(aegisThreadId);
+        this.imageGenerationItems.delete(aegisThreadId);
         cleaned = true;
       }
       this.emit({
@@ -692,6 +758,7 @@ export class CodexAdapter implements ProviderAdapter {
         });
         this.runtimeManagers.delete(threadId);
         this.sessions.delete(threadId);
+        this.imageGenerationItems.delete(threadId);
         this.releaseThreadLifecycleEpochIfIdle(threadId);
       }
     });
@@ -706,6 +773,7 @@ export class CodexAdapter implements ProviderAdapter {
         this.emit({ type: 'error', threadId, error });
         this.runtimeManagers.delete(threadId);
         this.sessions.delete(threadId);
+        this.imageGenerationItems.delete(threadId);
         this.releaseThreadLifecycleEpochIfIdle(threadId);
       }
     });
@@ -802,6 +870,7 @@ export class CodexAdapter implements ProviderAdapter {
       if (typeof turnId !== 'string' || !turnId) {
         return;
       }
+      this.imageGenerationItems.delete(threadId);
       const message: StreamMessage = {
         type: 'turn_started',
         uuid: `codex-turn:${threadId}:${turnId}`,
@@ -1104,6 +1173,104 @@ export class CodexAdapter implements ProviderAdapter {
     this.emittedToolCalls.delete(threadId);
     this.emittedToolResults.delete(threadId);
     this.pendingToolCallIds.delete(threadId);
+  }
+
+  private handleImageGeneration(
+    threadId: string,
+    phase: 'started' | 'completed',
+    item: Record<string, unknown>
+  ): void {
+    const itemId = getString(item.id);
+    if (!itemId) return;
+
+    let items = this.imageGenerationItems.get(threadId);
+    if (!items) {
+      items = new Map();
+      this.imageGenerationItems.set(threadId, items);
+    }
+    const existing = items.get(itemId);
+    if (phase === 'started' && existing) return;
+    if (phase === 'completed' && existing?.completed) return;
+
+    const revisedPrompt = getString(item.revisedPrompt);
+    const state = existing ?? {
+      createdAt: Date.now(),
+      prompt: revisedPrompt,
+      completed: false,
+    };
+    if (revisedPrompt) state.prompt = revisedPrompt;
+    items.set(itemId, state);
+
+    const emitToolUse = (input: Record<string, unknown>) => {
+      this.emit({
+        type: 'message',
+        threadId,
+        message: {
+          type: 'assistant',
+          uuid: `codex-imagegen-tool-use:${threadId}:${itemId}`,
+          createdAt: state.createdAt,
+          message: {
+            content: [{ type: 'tool_use', id: itemId, name: 'image_gen', input }],
+          },
+        },
+      });
+    };
+
+    if (!existing) {
+      emitToolUse({ prompt: state.prompt });
+    }
+    if (phase === 'started') return;
+
+    state.completed = true;
+    const failure = getRecord(item.failure);
+    const failed = getString(item.status).toLowerCase() === 'failed' || Boolean(failure);
+    let savedPath = getFirstString(item.savedPath, item.saved_path);
+    if (!failed && !savedPath) {
+      const result = getString(item.result);
+      if (result) {
+        savedPath = persistCodexGeneratedImage({
+          userDataDir: resolveComputerUseUserDataDir(),
+          result,
+        }) ?? '';
+      }
+    }
+
+    let content: string;
+    let isError = failed;
+    if (failed) {
+      content = formatImageGenerationFailure(failure);
+    } else if (!savedPath) {
+      isError = true;
+      content = 'Image generation completed, but no saved image was available.';
+    } else {
+      emitToolUse(
+        withGeneratedMediaInput(
+          { prompt: state.prompt },
+          [{ path: savedPath, kind: 'image', toolUseId: itemId, prompt: state.prompt }]
+        )
+      );
+      content = savedPath;
+    }
+
+    this.emit({
+      type: 'message',
+      threadId,
+      message: {
+        type: 'user',
+        uuid: `codex-imagegen-tool-result:${threadId}:${itemId}`,
+        createdAt: Date.now(),
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: itemId,
+              content,
+              is_error: isError,
+            },
+          ],
+        },
+      },
+    });
   }
 
   // ── ProviderAdapter Implementation ───────────────────────────────────────
@@ -1537,6 +1704,7 @@ export class CodexAdapter implements ProviderAdapter {
     this.lastKnownContextTokens.delete(threadId);
     this.pendingManualCompacts.delete(threadId);
     this.reportedErrorTurnKeys.delete(threadId);
+    this.imageGenerationItems.delete(threadId);
     this.releaseThreadLifecycleEpochIfIdle(threadId);
     return true;
   }
@@ -1635,6 +1803,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.lastStartInput.clear();
       this.lastKnownContextTokens.clear();
       this.pendingManualCompacts.clear();
+      this.imageGenerationItems.clear();
       this.threadLifecycleTails.clear();
       this.activeLifecycleOperations.clear();
       this.threadLifecycleEpochs.clear();
@@ -1962,6 +2131,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.emittedToolCalls.clear();
       this.emittedToolResults.clear();
       this.pendingToolCallIds.clear();
+      this.imageGenerationItems.clear();
       this.permissionResolvers.clear();
       this.threadLifecycleTails.clear();
       this.activeLifecycleOperations.clear();
