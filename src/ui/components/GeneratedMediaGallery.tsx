@@ -90,27 +90,24 @@ export function GeneratedMediaGallery({
             key={item.path}
             type="button"
             onClick={() => openItem(item)}
-            className="group relative max-w-[320px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] text-left transition-colors hover:border-[var(--text-muted)]"
+            className="group relative max-w-[320px] overflow-hidden rounded-[14px] text-left transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)]"
             title={item.prompt || name}
           >
             {preview?.kind === 'image' ? (
-              <img src={preview.src} alt={name} className="max-h-[280px] max-w-full object-contain" />
+              <img src={preview.src} alt={name} className="block max-h-[280px] max-w-full object-contain" />
             ) : preview?.kind === 'video' ? (
               <video
                 src={preview.src}
-                className="max-h-[280px] max-w-full"
+                className="block max-h-[280px] max-w-full"
                 controls
                 playsInline
                 onClick={(event) => event.stopPropagation()}
               />
             ) : (
-              <div className="px-3 py-8 text-[12px] text-[var(--text-muted)]">
+              <div className="rounded-[14px] bg-[var(--bg-secondary)] px-3 py-8 text-[12px] text-[var(--text-muted)]">
                 {item.kind === 'video' ? 'Generated video' : 'Generated image'}
               </div>
             )}
-            <span className="block truncate px-2.5 py-1.5 text-[11px] text-[var(--text-muted)]">
-              {name}
-            </span>
           </button>
         );
       })}
@@ -135,5 +132,4 @@ export function openGeneratedMediaInFilesPanel(
     external: !isUnderRoot(cwd, path),
   });
 }
-
 

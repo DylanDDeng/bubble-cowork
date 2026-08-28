@@ -2419,6 +2419,10 @@ export class CodexAppServerManager extends EventEmitter {
             this.emit('tool_result', { threadId, params: item });
             break;
           }
+          case 'imageGeneration': {
+            this.emit('image_generation', { threadId, phase: 'started', item });
+            break;
+          }
         }
         break;
       }
@@ -2455,6 +2459,10 @@ export class CodexAppServerManager extends EventEmitter {
           }
           case 'contextCompaction': {
             this.emitContextCompacted(threadId);
+            break;
+          }
+          case 'imageGeneration': {
+            this.emit('image_generation', { threadId, phase: 'completed', item });
             break;
           }
         }
@@ -3161,7 +3169,14 @@ export class CodexAppServerManager extends EventEmitter {
 
   private normalizeItemType(
     item: Record<string, unknown>
-  ): 'agentMessage' | 'toolCall' | 'toolResult' | 'plan' | 'contextCompaction' | null {
+  ):
+    | 'agentMessage'
+    | 'toolCall'
+    | 'toolResult'
+    | 'plan'
+    | 'contextCompaction'
+    | 'imageGeneration'
+    | null {
     const raw =
       this.readString(item, 'type') ||
       this.readString(item, 'itemType') ||
@@ -3183,6 +3198,10 @@ export class CodexAppServerManager extends EventEmitter {
 
     if (normalized === 'contextcompaction' || normalized === 'compaction') {
       return 'contextCompaction';
+    }
+
+    if (normalized === 'imagegeneration') {
+      return 'imageGeneration';
     }
 
     if (
