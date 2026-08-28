@@ -18,7 +18,6 @@
 
 import {
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -56,7 +55,7 @@ import {
   resolveBrowserAddressSync,
   resolveBrowserChromeStatus,
 } from './BrowserPanel.logic';
-import { BrowserNativeOverlayContext } from './browser-native-overlay';
+import { useBrowserNativeOverlay } from './browser-native-overlay';
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 1200;
@@ -129,7 +128,7 @@ export function BrowserPanel({
   embedded = false,
 }: BrowserPanelProps) {
   const browserSessionId = browserSessionIdProp ?? sessionId ?? '__standalone-browser__';
-  const overlayOpen = useContext(BrowserNativeOverlayContext);
+  const overlayOpen = useBrowserNativeOverlay();
   const nativeViewHidden = collapsed || overlayOpen;
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
   const createDraftSession = useAppStore((s) => s.createDraftSession);

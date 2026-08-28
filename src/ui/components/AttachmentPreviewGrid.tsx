@@ -9,6 +9,7 @@ import {
   DialogPortal,
   DialogTitle,
 } from './ui/dialog';
+import { useBrowserNativeOverlayRegistration } from './browser/browser-native-overlay';
 
 export function AttachmentPreviewGrid({ attachments }: { attachments: Attachment[] }) {
   const imageAttachments = useMemo(
@@ -53,13 +54,15 @@ export function AttachmentPreviewGrid({ attachments }: { attachments: Attachment
     };
   }, [imageAttachments, previews]);
 
-  if (imageAttachments.length === 0) {
-    return null;
-  }
-
   const selectedAttachment = imageAttachments.find((a) => a.id === selectedAttachmentId) ?? null;
   const selectedPreview = selectedAttachment ? previews[selectedAttachment.id] : null;
   const selectedName = selectedAttachment?.name || selectedAttachment?.path.split('/').pop() || 'Image attachment';
+  const lightboxOpen = Boolean(selectedAttachment && selectedPreview);
+  useBrowserNativeOverlayRegistration(lightboxOpen);
+
+  if (imageAttachments.length === 0) {
+    return null;
+  }
 
   const handleDownload = async () => {
     if (!selectedAttachment || !selectedPreview) return;
@@ -124,7 +127,7 @@ export function AttachmentPreviewGrid({ attachments }: { attachments: Attachment
       </div>
 
       <Dialog
-        open={Boolean(selectedAttachment && selectedPreview)}
+        open={lightboxOpen}
         onOpenChange={(open) => {
           if (!open) setSelectedAttachmentId(null);
         }}

@@ -61,8 +61,13 @@ async function main() {
   );
   assert.match(
     appSource,
-    /BrowserNativeOverlayContext\.Provider/,
-    'right utility chrome must publish overlay state to BrowserPanel'
+    /useBrowserNativeOverlayRegistration\(nativeOverlayOpen\)/,
+    'the plus menu must register with the shared native-view overlay manager'
+  );
+  assert.match(
+    appSource,
+    /BrowserNativeOverlayContext\.Provider value=\{browserNativeOverlayContextValue\}/,
+    'app-level overlays must publish shared native-view visibility to BrowserPanel'
   );
 
   const panelSource = await readFile(
@@ -72,12 +77,22 @@ async function main() {
   assert.match(
     panelSource,
     /nativeViewHidden = collapsed \|\| overlayOpen/,
-    'BrowserPanel must hide the WebContentsView while the plus menu is open'
+    'BrowserPanel must hide the WebContentsView while an HTML overlay is open'
   );
   assert.match(
     panelSource,
     /useLayoutEffect\(\(\) => \{\s*if \(!nativeViewHidden\) return/,
     'collapsing a browser tab must detach the native view before the next paint'
+  );
+
+  const attachmentPreviewSource = await readFile(
+    new URL('../../src/ui/components/AttachmentPreviewGrid.tsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(
+    attachmentPreviewSource,
+    /useBrowserNativeOverlayRegistration\(lightboxOpen\)/,
+    'the attachment lightbox must hide the native browser view while open'
   );
 
   console.log('right-utility-tabs tests passed');

@@ -49,7 +49,10 @@ import {
 import { FileTypeIcon } from './components/FileTypeIcon';
 import { AegisDiffPanel } from './components/AegisDiffPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
-import { BrowserNativeOverlayContext } from './components/browser/browser-native-overlay';
+import {
+  BrowserNativeOverlayContext,
+  useBrowserNativeOverlayRegistration,
+} from './components/browser/browser-native-overlay';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
 import { SubagentPanel } from './components/SubagentPanel';
@@ -205,6 +208,9 @@ export function App() {
   // Session id of a side chat pending destructive-close confirmation.
   const [sideChatCloseRequest, setSideChatCloseRequest] = useState<string | null>(null);
   const [rightUtilityPanelWidth, setRightUtilityPanelWidthState] = useState(getDefaultRightUtilityPanelWidth);
+  const [browserNativeOverlaySources, setBrowserNativeOverlaySources] = useState<Set<string>>(
+    () => new Set()
+  );
   const skinHostRef = useRef<HTMLDivElement>(null);
   const [skinHostWidth, setSkinHostWidth] = useState(() =>
     typeof window === 'undefined' ? RIGHT_UTILITY_PANEL_DEFAULT_WIDTH : window.innerWidth
@@ -558,6 +564,27 @@ export function App() {
     setRightUtilityPanelWidthState(nextWidth);
     window.localStorage.setItem(RIGHT_UTILITY_PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
   }, []);
+
+  const setBrowserNativeOverlayOpen = useCallback((sourceId: string, open: boolean) => {
+    setBrowserNativeOverlaySources((currentSources) => {
+      if (currentSources.has(sourceId) === open) return currentSources;
+      const nextSources = new Set(currentSources);
+      if (open) {
+        nextSources.add(sourceId);
+      } else {
+        nextSources.delete(sourceId);
+      }
+      return nextSources;
+    });
+  }, []);
+
+  const browserNativeOverlayContextValue = useMemo(
+    () => ({
+      hidden: browserNativeOverlaySources.size > 0,
+      setOverlayOpen: setBrowserNativeOverlayOpen,
+    }),
+    [browserNativeOverlaySources, setBrowserNativeOverlayOpen]
+  );
 
   useEffect(() => {
     const skinHost = skinHostRef.current;
@@ -924,6 +951,7 @@ export function App() {
   }
 
   return (
+    <BrowserNativeOverlayContext.Provider value={browserNativeOverlayContextValue}>
     <div
       className={`aegis-window-shell flex h-full min-h-0 ${
         windowShellRounded ? 'aegis-window-shell--rounded' : ''
@@ -1272,6 +1300,7 @@ export function App() {
       />
 
     </div>
+    </BrowserNativeOverlayContext.Provider>
   );
 }
 
@@ -1349,6 +1378,7 @@ function RightUtilityWorkspace({
   }, [instantReveal]);
 
   const [nativeOverlayOpen, setNativeOverlayOpen] = useState(false);
+  useBrowserNativeOverlayRegistration(nativeOverlayOpen);
 
   const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
     if (fullscreen || !resizable) return;
@@ -1385,7 +1415,6 @@ function RightUtilityWorkspace({
   }, [isResizing, onWidthChange]);
 
   return (
-    <BrowserNativeOverlayContext.Provider value={nativeOverlayOpen}>
     <motion.div
       data-right-utility-workspace
       data-active-panel={activePanel ?? 'none'}
@@ -1439,7 +1468,6 @@ function RightUtilityWorkspace({
         </div>
       </div>
     </motion.div>
-    </BrowserNativeOverlayContext.Provider>
   );
 }
 
