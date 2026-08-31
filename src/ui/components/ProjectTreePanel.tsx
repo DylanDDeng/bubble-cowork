@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, Search, X, Maximize2, Minimize2, File, Files, FileAddIcon, FolderAddIcon } from './icons';
+import { FolderClosed, FolderOpen, Folders, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, Search, X, Maximize2, Minimize2, File, Files, FileAddIcon, FolderAddIcon } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -9,6 +9,7 @@ import TextFileReader from './TextFileReader';
 import { FileTypeIcon } from './FileTypeIcon';
 import { CsvPreview, XlsxPreview } from './SpreadsheetPreview';
 import { ProjectMdxPreview, ProjectMdxProperties, parseMdxDocument } from './ProjectMdxPreview';
+import { ProjectMarkdownPreview } from './ProjectMarkdownPreview';
 import { ProjectTextEditor, type ProjectTextEditorHandle } from './ProjectTextEditor';
 import { IconButton } from './ui/icon-button';
 import {
@@ -762,9 +763,9 @@ export function ProjectTreePanel({
       ? normalizedSharedPanelWidth
       : panelWidth;
   const useEmbeddedFilesGrid = embedded && activeTab === 'files';
-  // Embedded files view: the tree rail can be tucked away from the preview
-  // header's Files button. With no file selected the rail is the only surface,
-  // so the collapsed state is ignored until a preview exists.
+  // Embedded files view: the tree rail can be tucked away from the shared
+  // path bar whether or not a file is selected. Keep the rail mounted at zero
+  // width so its filter, scroll position, and expanded directories survive.
   const [filesRailCollapsed, setFilesRailCollapsed] = useState(
     () => window.localStorage.getItem('cowork.projectFilesRailCollapsed') === '1'
   );
@@ -775,11 +776,12 @@ export function ProjectTreePanel({
       return next;
     });
   }, []);
-  const filesRailHidden = useEmbeddedFilesGrid && filesRailCollapsed && !!selectedFilePath;
+  const filesRailHidden = useEmbeddedFilesGrid && filesRailCollapsed;
   const projectRailWidth = Math.min(maxRailWidth, Math.max(minRailWidth, panelWidth));
   const projectPreviewViewportWidth = Math.max(
     minPreviewWidth,
-    (normalizedSharedPanelWidth ?? projectRailWidth + previewPanelWidth) - projectRailWidth
+    (normalizedSharedPanelWidth ?? projectRailWidth + previewPanelWidth) -
+      (filesRailHidden ? 0 : projectRailWidth)
   );
   // Every disk content we have loaded, saved, or applied for the open file.
   // The watcher only treats an event as a genuine external change when its
@@ -2815,6 +2817,7 @@ export function ProjectTreePanel({
         ) : null}
         {useEmbeddedFilesGrid && !selectedFilePath ? (
           <div
+            data-testid="files-empty-preview"
             className="flex min-h-0 min-w-0 flex-col items-center justify-center border-r border-[var(--tree-item-border)] bg-[var(--bg-primary)] px-8 text-center"
             style={{ gridColumn: 1, gridRow: '2 / span 2' }}
           >
@@ -2833,7 +2836,7 @@ export function ProjectTreePanel({
           </div>
         ) : null}
         <div
-          className="pl-4 pr-2 pt-2 pb-2"
+          data-testid={useEmbeddedFilesGrid ? 'files-tree-rail-header' : undefined}
           style={
             useEmbeddedFilesGrid
               ? {
@@ -2848,41 +2851,43 @@ export function ProjectTreePanel({
               : undefined
           }
         >
-          <div className="flex items-center justify-between gap-2">
-            <div
-              className="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--text-muted)]"
-              title={panelMeta.title}
-              role="img"
-              aria-label={`${panelMeta.title} panel`}
-            >
-              <PanelTitleIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          <div className="pb-2 pl-4 pr-2 pt-2">
+            <div className="flex items-center justify-between gap-2">
+              <div
+                className="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--text-muted)]"
+                title={panelMeta.title}
+                role="img"
+                aria-label={`${panelMeta.title} panel`}
+              >
+                <PanelTitleIcon className="h-3.5 w-3.5" aria-hidden="true" />
+              </div>
+              <div className="flex items-center gap-0.5">
+                {activeTab === 'files' && (
+                  <>
+                  <IconButton
+                    label="New file"
+                    size="sm"
+                    onClick={() => startCreateEntry(getDefaultCreateParent(), 'file')}
+                    disabled={!canUseProjectTree}
+                  >
+                    <CreateEntryIcon kind="file" />
+                  </IconButton>
+                  <IconButton
+                    label="New folder"
+                    size="sm"
+                    onClick={() => startCreateEntry(getDefaultCreateParent(), 'folder')}
+                    disabled={!canUseProjectTree}
+                  >
+                    <CreateEntryIcon kind="folder" />
+                  </IconButton>
+                  </>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-0.5">
-              {activeTab === 'files' && (
-                <>
-                <IconButton
-                  label="New file"
-                  size="sm"
-                  onClick={() => startCreateEntry(getDefaultCreateParent(), 'file')}
-                  disabled={!canUseProjectTree}
-                >
-                  <CreateEntryIcon kind="file" />
-                </IconButton>
-                <IconButton
-                  label="New folder"
-                  size="sm"
-                  onClick={() => startCreateEntry(getDefaultCreateParent(), 'folder')}
-                  disabled={!canUseProjectTree}
-                >
-                  <CreateEntryIcon kind="folder" />
-                </IconButton>
-                </>
-              )}
-            </div>
+            {!cwd && (
+              <div className="mt-1 text-xs text-[var(--text-muted)]">No folder selected</div>
+            )}
           </div>
-          {!cwd && (
-            <div className="text-xs text-[var(--text-muted)] mt-1">No folder selected</div>
-          )}
         </div>
 
         <div
@@ -3125,26 +3130,35 @@ export function ProjectTreePanel({
           ) : null}
         </ContextMenuAtPoint>
 
-        {useEmbeddedFilesGrid && showFilePreviewSurface && selectedFilePath ? (
+        {useEmbeddedFilesGrid ? (
           // Full-width header row: breadcrumb on the left, rail toggle at the
           // window's right edge, with a divider line running across both the
-          // preview and the tree columns (reference-app layout). The utility
-          // panel's own tab already names the open file, so editable
-          // markdown/text previews get this breadcrumb too instead of a
-          // second tab strip.
+          // preview and the tree columns (reference-app layout). It stays
+          // visible in the empty state so the tree can always be collapsed or
+          // restored without opening a file first.
           <div
+            data-testid="files-path-bar"
             className="drag-region flex items-center justify-between gap-2 border-b border-[var(--tree-item-border)] bg-[var(--bg-primary)] py-1.5 pl-3 pr-2"
             style={{ gridColumn: '1 / span 2', gridRow: 1 }}
           >
-            <PreviewBreadcrumb
-              cwd={selectedFileCwd || cwd}
-              filePath={selectedFilePath}
-              fileName={
-                selectedPreview?.name ||
-                selectedFilePath.split('/').pop() ||
-                selectedFilePath
-              }
-            />
+            {selectedFilePath ? (
+              <PreviewBreadcrumb
+                cwd={selectedFileCwd || cwd}
+                filePath={selectedFilePath}
+                fileName={
+                  selectedPreview?.name ||
+                  selectedFilePath.split('/').pop() ||
+                  selectedFilePath
+                }
+              />
+            ) : (
+              <span
+                className="truncate text-[13px] font-medium leading-[22px] text-[var(--text-primary)]"
+                title={cwd || '/'}
+              >
+                /
+              </span>
+            )}
             <div className="no-drag flex flex-shrink-0 items-center gap-1">
               {isEditableMarkdownFile && (
                 <button
@@ -3156,7 +3170,9 @@ export function ProjectTreePanel({
                   {viewMode === 'code' ? 'View preview' : 'View source'}
                 </button>
               )}
-              <OpenWithButton cwd={selectedFileCwd || cwd} filePath={selectedFilePath} />
+              {selectedFilePath ? (
+                <OpenWithButton cwd={selectedFileCwd || cwd} filePath={selectedFilePath} />
+              ) : null}
               {isMdxFilePreview && (
                 <ViewModeToggle
                   value={viewMode}
@@ -3172,13 +3188,15 @@ export function ProjectTreePanel({
                   }
                 />
               )}
-              <span className="mx-0.5 h-4 w-px bg-[var(--border)]" aria-hidden="true" />
               <IconButton
+                data-testid="files-tree-toggle"
                 onClick={toggleFilesRail}
                 tooltip={filesRailCollapsed ? 'Show file tree' : 'Hide file tree'}
                 label={filesRailCollapsed ? 'Show file tree' : 'Hide file tree'}
+                aria-pressed={!filesRailCollapsed}
+                className={!filesRailCollapsed ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : undefined}
               >
-                <FolderClosed className="w-4 h-4" />
+                <Folders className="h-4 w-4" />
               </IconButton>
             </div>
           </div>
@@ -3512,18 +3530,10 @@ export function ProjectTreePanel({
                         )}
                       </div>
                     ) : (
-                      <MDContent
-                        content={draftText}
-                        allowHtml={false}
-                        className="project-markdown-preview"
-                      />
+                      <ProjectMarkdownPreview key={selectedFilePath} content={draftText} />
                     )
                   ) : (
-                    <MDContent
-                      content={selectedPreview.text}
-                      allowHtml={false}
-                      className="project-markdown-preview"
-                    />
+                    <ProjectMarkdownPreview key={selectedPreview.path} content={selectedPreview.text} />
                   )
                 )}
 

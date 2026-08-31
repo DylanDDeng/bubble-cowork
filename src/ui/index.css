@@ -1477,6 +1477,127 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
   margin-bottom: 0;
 }
 
+.aegis-markdown-document-preview {
+  min-height: 100%;
+}
+
+.aegis-markdown-metadata-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 26px;
+  border: 1px solid color-mix(in srgb, var(--border) 52%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-tertiary) 72%, var(--bg-primary));
+  padding: 12px 14px 10px;
+}
+
+.aegis-markdown-metadata-card.is-invalid {
+  border-color: color-mix(in srgb, var(--warning, #c77700) 36%, var(--border));
+}
+
+.aegis-markdown-metadata-title {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.aegis-markdown-metadata-grid {
+  display: grid;
+  gap: 5px;
+}
+
+.aegis-markdown-metadata-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 138px) minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  min-height: 20px;
+}
+
+.aegis-markdown-metadata-key,
+.aegis-markdown-metadata-value {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.aegis-markdown-metadata-key {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aegis-markdown-metadata-value {
+  color: color-mix(in srgb, var(--text-primary) 88%, var(--text-secondary));
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.aegis-markdown-metadata-value.kind-boolean,
+.aegis-markdown-metadata-value.kind-null,
+.aegis-markdown-metadata-value.kind-number {
+  color: color-mix(in srgb, var(--text-secondary) 92%, var(--text-primary));
+}
+
+.aegis-markdown-metadata-toggle {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 20px;
+  padding: 0;
+}
+
+.aegis-markdown-metadata-toggle:hover {
+  color: var(--text-primary);
+}
+
+.aegis-markdown-metadata-error {
+  display: grid;
+  gap: 8px;
+  color: color-mix(in srgb, var(--warning, #c77700) 84%, var(--text-primary));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.aegis-markdown-metadata-error pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+
+.aegis-markdown-preview-body.markdown-content {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+@media (max-width: 640px) {
+  .aegis-markdown-metadata-row {
+    grid-template-columns: minmax(72px, 96px) minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+
 .project-markdown-preview h1,
 .project-markdown-preview h2,
 .project-markdown-preview h3,
