@@ -20,7 +20,9 @@ const firstSource = Array.from(
 ).join('\n');
 const secondSource = Array.from(
   { length: 120 },
-  (_, index) => `SECOND_FILE_LINE_${String(index + 1).padStart(3, '0')}`
+  (_, index) => index === 0
+    ? `SECOND_FILE_LINE_001 ${'wrapped markdown content '.repeat(24)}`
+    : `SECOND_FILE_LINE_${String(index + 1).padStart(3, '0')}`
 ).join('\n');
 
 function runElectron(mainPath, env) {
@@ -93,6 +95,12 @@ function Harness() {
         const targetLine = document.querySelectorAll('.highlighted-code-line')[89] || null;
         const editorNode = document.querySelector('.cm-editor');
         const editor = editorNode ? EditorView.findFromDOM(editorNode) : null;
+        const firstEditorLine = document.querySelector('.cm-content .cm-line');
+        const firstGutterLine = Array.from(
+          document.querySelectorAll('.cm-lineNumbers .cm-gutterElement')
+        ).find((node) => node.textContent === '1') || null;
+        const firstEditorLineRect = firstEditorLine?.getBoundingClientRect() || null;
+        const firstGutterLineRect = firstGutterLine?.getBoundingClientRect() || null;
         const targetRect = targetLine?.getBoundingClientRect() || null;
         const viewportRect = viewport?.getBoundingClientRect() || null;
         return {
@@ -118,6 +126,12 @@ function Harness() {
           selectionFrom: editor?.state.selection.main.from ?? null,
           selectionTo: editor?.state.selection.main.to ?? null,
           editorFocused: Boolean(editor?.hasFocus),
+          firstLineGutterTopDelta: firstEditorLineRect && firstGutterLineRect
+            ? firstGutterLineRect.top - firstEditorLineRect.top
+            : null,
+          firstLineGutterHeightDelta: firstEditorLineRect && firstGutterLineRect
+            ? firstGutterLineRect.height - firstEditorLineRect.height
+            : null,
         };
       },
     };
@@ -138,6 +152,8 @@ function Harness() {
             value={secondSource}
             fileName="Second.md"
             scrollTarget={activeTarget}
+            markdownSourceStyle
+            className="aegis-markdown-source-editor"
           />
         )}
       </div>
@@ -258,6 +274,14 @@ async function main() {
     assert.equal(result.switched.selectionFrom, 0, 'switching files must not move the caret');
     assert.equal(result.switched.selectionTo, 0, 'switching files must not create a selection');
     assert.equal(result.switched.editorFocused, false, 'switching files must not focus the editor');
+    assert.ok(
+      Math.abs(result.switched.firstLineGutterTopDelta) <= 0.5,
+      `Markdown source line 1 must align with gutter 1 (delta: ${result.switched.firstLineGutterTopDelta}px)`
+    );
+    assert.ok(
+      Math.abs(result.switched.firstLineGutterHeightDelta) <= 0.5,
+      `Markdown source line 1 and gutter 1 must have equal heights (delta: ${result.switched.firstLineGutterHeightDelta}px)`
+    );
 
     console.log('project file reveal Electron regression passed');
   } finally {

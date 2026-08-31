@@ -1824,7 +1824,7 @@ button.md-inline-file-code:hover .md-inline-file-code-label {
 }
 
 .aegis-markdown-source-editor .cm-gutters {
-  padding-top: 8px;
+  /* CodeMirror already offsets gutter rows by .cm-content's document padding. */
   color: color-mix(in srgb, var(--text-muted) 84%, transparent);
 }
 
