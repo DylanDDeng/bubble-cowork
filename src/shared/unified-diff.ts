@@ -245,19 +245,105 @@ export function formatUnifiedDiffHunks(hunks: UnifiedDiffHunk[]): string {
 export function extractUnifiedDiffFilePath(diffContent: string): string | null {
   const normalized = normalizeText(diffContent);
 
+  const decodeQuotedPath = (value: string): string => {
+    const content = value.slice(1, -1);
+    const bytes: number[] = [];
+    const encoder = new TextEncoder();
+    const appendText = (text: string) => bytes.push(...encoder.encode(text));
+    const escapes: Record<string, string> = {
+      a: '\x07',
+      b: '\b',
+      t: '\t',
+      n: '\n',
+      v: '\v',
+      f: '\f',
+      r: '\r',
+      '"': '"',
+      '\\': '\\',
+    };
+
+    let cursor = 0;
+    while (cursor < content.length) {
+      const slash = content.indexOf('\\', cursor);
+      if (slash < 0) {
+        appendText(content.slice(cursor));
+        break;
+      }
+      appendText(content.slice(cursor, slash));
+
+      const escaped = content[slash + 1];
+      if (escaped === undefined) {
+        appendText('\\');
+        break;
+      }
+
+      if (/[0-7]/.test(escaped)) {
+        const octal = content.slice(slash + 1).match(/^[0-7]{1,3}/)?.[0] || escaped;
+        bytes.push(Number.parseInt(octal, 8));
+        cursor = slash + 1 + octal.length;
+        continue;
+      }
+
+      appendText(escapes[escaped] ?? escaped);
+      cursor = slash + 2;
+    }
+
+    return new TextDecoder().decode(Uint8Array.from(bytes));
+  };
+
+  const normalizeCandidate = (
+    value: string | undefined,
+    stripGitPrefix = false
+  ): string | null => {
+    if (!value) return null;
+    const withoutTimestamp = value.split('\t', 1)[0]?.trim() || '';
+    let unquoted = withoutTimestamp;
+    if (withoutTimestamp.startsWith('"') && withoutTimestamp.endsWith('"')) {
+      unquoted = decodeQuotedPath(withoutTimestamp);
+    } else {
+      unquoted = withoutTimestamp.replace(/^["']+|["']+$/g, '');
+    }
+    unquoted = unquoted.trim();
+    if (!unquoted || unquoted === '/dev/null') return null;
+    return stripGitPrefix ? unquoted.replace(/^[ab]\//, '') : unquoted;
+  };
+
   const indexMatch = normalized.match(/^Index:\s+(.+)$/m);
-  if (indexMatch?.[1]?.trim()) {
-    return indexMatch[1].trim();
+  const indexPath = normalizeCandidate(indexMatch?.[1]);
+  if (indexPath) {
+    return indexPath;
   }
 
   const plusMatch = normalized.match(/^\+\+\+\s+(.+)$/m);
-  if (plusMatch?.[1]?.trim() && plusMatch[1].trim() !== '/dev/null') {
-    return plusMatch[1].replace(/^b\//, '').trim();
+  const plusPath = normalizeCandidate(plusMatch?.[1], true);
+  if (plusPath) {
+    return plusPath;
   }
 
   const minusMatch = normalized.match(/^---\s+(.+)$/m);
-  if (minusMatch?.[1]?.trim() && minusMatch[1].trim() !== '/dev/null') {
-    return minusMatch[1].replace(/^a\//, '').trim();
+  const minusPath = normalizeCandidate(minusMatch?.[1], true);
+  if (minusPath) {
+    return minusPath;
+  }
+
+  const renameToMatch = normalized.match(/^rename to\s+(.+)$/m);
+  const renameToPath = normalizeCandidate(renameToMatch?.[1]);
+  if (renameToPath) {
+    return renameToPath;
+  }
+
+  const renameFromMatch = normalized.match(/^rename from\s+(.+)$/m);
+  const renameFromPath = normalizeCandidate(renameFromMatch?.[1]);
+  if (renameFromPath) {
+    return renameFromPath;
+  }
+
+  const diffHeaderMatch = normalized.match(
+    /^diff --git\s+(?:"(?:[^"\\]|\\.)*"|\S+)\s+("(?:[^"\\]|\\.)*"|\S+)$/m
+  );
+  const diffHeaderPath = normalizeCandidate(diffHeaderMatch?.[1], true);
+  if (diffHeaderPath) {
+    return diffHeaderPath;
   }
 
   return null;

@@ -1,5 +1,9 @@
 import type { StreamMessage } from '../types';
-import { extractToolChangeRecords, type ChangeRecord } from './change-records';
+import {
+  extractGitPatchChangeRecords,
+  extractToolChangeRecords,
+  type ChangeRecord,
+} from './change-records';
 
 export interface TurnChangeSummary {
   turnIndex: number;
@@ -74,23 +78,33 @@ export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeCon
     // a turn with changes — unless the patch is explained by subagent
     // records, in which case the subagent's card owns the display.
     let gitPatch: string | null = null;
+    let gitPatchTruncated = false;
     for (const msg of slice) {
       if (msg.type === 'system' && msg.subtype === 'turn_changes' && msg.turnChanges.patch.trim()) {
         gitPatch = msg.turnChanges.patch;
+        gitPatchTruncated = msg.turnChanges.truncated;
       }
     }
 
     const hasSubagentRecords = records.length > mainRecords.length;
-    if (merged.length > 0 || mainRecords.length > 0 || (gitPatch && !hasSubagentRecords)) {
+    const patchRecords = gitPatch && !gitPatchTruncated && !hasSubagentRecords
+      ? extractGitPatchChangeRecords(gitPatch)
+      : [];
+    // A completed turn's Git tree snapshot is the source of truth. Tool
+    // records remain useful while a turn is running and for non-git sessions,
+    // but they can miss apply_patch/exec_command edits or infer false paths
+    // from shell syntax such as >/dev/null.
+    const finalRecords = patchRecords.length > 0 ? patchRecords : merged;
+    if (finalRecords.length > 0 || mainRecords.length > 0 || (gitPatch && !hasSubagentRecords)) {
       turns.push({
         turnIndex: pendingTurnIndex,
         firstMessageIndex: turnStart,
         lastMessageIndex: endExclusive - 1,
-        records: merged,
+        records: finalRecords,
         gitPatch,
-        totalFiles: merged.length,
-        totalAdded: merged.reduce((sum, r) => sum + r.addedLines, 0),
-        totalRemoved: merged.reduce((sum, r) => sum + r.removedLines, 0),
+        totalFiles: finalRecords.length,
+        totalAdded: finalRecords.reduce((sum, r) => sum + r.addedLines, 0),
+        totalRemoved: finalRecords.reduce((sum, r) => sum + r.removedLines, 0),
       });
     }
     pendingTurnIndex += 1;

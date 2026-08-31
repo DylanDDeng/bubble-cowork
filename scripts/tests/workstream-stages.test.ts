@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { extractUnifiedDiffFilePath } from '../../src/shared/unified-diff';
 import { buildTurnChangeContext } from '../../src/ui/utils/turn-change-records';
 import {
   formatWorkstreamStageSummary,
@@ -169,6 +170,310 @@ assert.equal(
   normalizedToolContext.changeRecordsByToolUseId.get('mcp-edit-1')?.[0]?.filePath,
   'src/mcp.ts',
   'normalized MCP tool blocks should produce file change records'
+);
+
+const authoritativePatch = `diff --git a/src/changed.ts b/src/changed.ts
+index 1111111..2222222 100644
+--- a/src/changed.ts
++++ b/src/changed.ts
+@@ -1 +1 @@
+-export const value = 1;
++export const value = 2;
+diff --git a/src/created.ts b/src/created.ts
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/src/created.ts
+@@ -0,0 +1 @@
++export const created = true;
+diff --git a/src/deleted.ts b/src/deleted.ts
+deleted file mode 100644
+index 4444444..0000000
+--- a/src/deleted.ts
++++ /dev/null
+@@ -1 +0,0 @@
+-export const deleted = true;
+`;
+
+const patchBackedContext = buildTurnChangeContext([
+  { type: 'user_prompt', prompt: 'apply a multi-file patch' },
+  {
+    type: 'assistant',
+    uuid: 'assistant-patch',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'false-redirection',
+          name: 'Bash',
+          input: { command: 'sed -n "1,20p" README.md >/dev/null"' },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'false-redirection',
+          content: '{"output": ""}',
+        },
+      ],
+    },
+  },
+  {
+    type: 'system',
+    subtype: 'turn_changes',
+    uuid: 'turn-patch',
+    session_id: 'session-patch',
+    turnChanges: { patch: authoritativePatch, truncated: false },
+  },
+]);
+
+assert.equal(patchBackedContext.turns.length, 1);
+assert.equal(
+  patchBackedContext.turns[0].totalFiles,
+  3,
+  'completed turn cards must count paths from the Git snapshot'
+);
+assert.deepEqual(
+  patchBackedContext.turns[0].records.map((record) => [record.filePath, record.status]),
+  [
+    ['src/changed.ts', 'M'],
+    ['src/created.ts', 'A'],
+    ['src/deleted.ts', 'D'],
+  ],
+  'Git snapshot records must preserve real paths and create/delete status'
+);
+assert.equal(
+  patchBackedContext.turns[0].records.some((record) => record.filePath.includes('/dev/null')),
+  false,
+  '/dev/null sentinels and quoted shell redirections must never appear as files'
+);
+assert.equal(
+  patchBackedContext.changeRecordsByToolUseId.has('false-redirection'),
+  false,
+  'shell redirections to a quoted /dev/null sentinel must not create tool change records'
+);
+
+const truncatedPatchContext = buildTurnChangeContext([
+  { type: 'user_prompt', prompt: 'change more files than the patch snapshot can hold' },
+  {
+    type: 'assistant',
+    uuid: 'assistant-truncated-patch',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'truncated-edit-a',
+          name: 'Edit',
+          input: {
+            file_path: 'src/complete-a.ts',
+            old_string: 'a',
+            new_string: 'A',
+          },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'truncated-edit-a',
+          content: '{"output": "ok"}',
+        },
+        {
+          type: 'tool_use',
+          id: 'truncated-edit-b',
+          name: 'Edit',
+          input: {
+            file_path: 'src/complete-b.ts',
+            old_string: 'b',
+            new_string: 'B',
+          },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'truncated-edit-b',
+          content: '{"output": "ok"}',
+        },
+      ],
+    },
+  },
+  {
+    type: 'system',
+    subtype: 'turn_changes',
+    uuid: 'turn-truncated-patch',
+    session_id: 'session-truncated-patch',
+    turnChanges: {
+      patch: authoritativePatch.split('diff --git a/src/created.ts')[0],
+      truncated: true,
+    },
+  },
+]);
+
+assert.deepEqual(
+  truncatedPatchContext.turns[0].records.map((record) => record.filePath),
+  ['src/complete-a.ts', 'src/complete-b.ts'],
+  'a truncated Git snapshot must fall back to the complete tool record list'
+);
+
+const quotedPathPatch = `diff --git "a/scripts/run me.sh" "b/scripts/run moved.sh"
+similarity index 100%
+rename from scripts/run me.sh
+rename to scripts/run moved.sh
+diff --git "a/scripts/keep mode.sh" "b/scripts/keep mode.sh"
+old mode 100644
+new mode 100755
+`;
+const quotedPathContext = buildTurnChangeContext([
+  { type: 'user_prompt', prompt: 'rename a script and update another script mode' },
+  {
+    type: 'system',
+    subtype: 'turn_changes',
+    uuid: 'turn-quoted-path',
+    session_id: 'session-quoted-path',
+    turnChanges: { patch: quotedPathPatch, truncated: false },
+  },
+]);
+
+assert.deepEqual(
+  quotedPathContext.turns[0].records.map((record) => [record.filePath, record.status]),
+  [
+    ['scripts/run moved.sh', 'R'],
+    ['scripts/keep mode.sh', 'M'],
+  ],
+  'pure renames and quoted mode-only paths must be recovered from Git headers'
+);
+
+const octalQuotedPathContext = buildTurnChangeContext([
+  { type: 'user_prompt', prompt: 'change a non-ASCII file' },
+  {
+    type: 'system',
+    subtype: 'turn_changes',
+    uuid: 'turn-octal-path',
+    session_id: 'session-octal-path',
+    turnChanges: {
+      patch: 'diff --git "a/src/und\\303\\244rst.ts" "b/src/und\\303\\244rst.ts"\nold mode 100644\nnew mode 100755\n',
+      truncated: false,
+    },
+  },
+]);
+
+assert.equal(
+  octalQuotedPathContext.turns[0].records[0]?.filePath,
+  'src/undärst.ts',
+  'Git octal escapes in quoted non-ASCII paths must decode as UTF-8 bytes'
+);
+assert.equal(
+  extractUnifiedDiffFilePath('Index: a/actual-prefix.ts\n==================================================================='),
+  'a/actual-prefix.ts',
+  'Index paths must not lose a real leading a/ directory'
+);
+
+const alternateToolContext = buildTurnChangeContext([
+  { type: 'user_prompt', prompt: 'change files with Codex tools' },
+  {
+    type: 'assistant',
+    uuid: 'assistant-alternate-tools',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'apply-patch-1',
+          name: 'apply_patch',
+          input: {
+            changes: {
+              'src/applied.ts': {
+                type: 'create',
+                content: 'export const applied = true;',
+              },
+            },
+          },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'apply-patch-1',
+          content: '{"output": "ok"}',
+        },
+        {
+          type: 'tool_use',
+          id: 'exec-command-1',
+          name: 'exec_command',
+          input: { cmd: 'touch src/executed.ts' },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'exec-command-1',
+          content: '{"output": "ok"}',
+        },
+      ],
+    },
+  },
+]);
+
+assert.deepEqual(
+  alternateToolContext.turns[0].records.map((record) => record.filePath),
+  ['src/applied.ts', 'src/executed.ts'],
+  'apply_patch and exec_command must produce fallback file records'
+);
+
+const subagentOwnedContext = buildTurnChangeContext([
+  { type: 'user_prompt', prompt: 'change a main-agent and subagent file' },
+  {
+    type: 'assistant',
+    uuid: 'assistant-main-owner',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'main-owner-edit',
+          name: 'Edit',
+          input: {
+            file_path: 'src/main-owned.ts',
+            old_string: 'before',
+            new_string: 'after',
+          },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'main-owner-edit',
+          content: '{"output": "ok"}',
+        },
+      ],
+    },
+  },
+  {
+    type: 'assistant',
+    uuid: 'assistant-subagent-owner',
+    parentToolUseId: 'subagent-task-1',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'subagent-owner-edit',
+          name: 'Edit',
+          input: {
+            file_path: 'src/subagent-owned.ts',
+            old_string: 'before',
+            new_string: 'after',
+          },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'subagent-owner-edit',
+          content: '{"output": "ok"}',
+        },
+      ],
+    },
+  },
+  {
+    type: 'system',
+    subtype: 'turn_changes',
+    uuid: 'turn-mixed-ownership',
+    session_id: 'session-mixed-ownership',
+    turnChanges: {
+      patch: authoritativePatch.replaceAll('src/changed.ts', 'src/subagent-owned.ts'),
+      truncated: false,
+    },
+  },
+]);
+
+assert.deepEqual(
+  subagentOwnedContext.turns[0].records.map((record) => record.filePath),
+  ['src/main-owned.ts'],
+  'a main turn card must not absorb subagent-owned files from the Git snapshot'
 );
 
 const editStages = summarizeWorkstreamEntries(

@@ -4,7 +4,11 @@ import {
   normalizeToolResultBlock,
   normalizeToolUseBlock,
 } from './message-content';
-import { createUnifiedDiffHunks, formatUnifiedDiffHunks } from './unified-diff';
+import {
+  createUnifiedDiffHunks,
+  extractUnifiedDiffFilePath,
+  formatUnifiedDiffHunks,
+} from './unified-diff';
 
 export type GitChangeEntry = {
   filePath: string;
@@ -149,10 +153,16 @@ function normalizeUnifiedDiff(filePath: string, unifiedDiff: string): string {
 }
 
 function normalizeToolOperation(name: string): ChangeOperation | null {
-  const normalized = name.trim().toLowerCase();
+  const normalized = name.trim().toLowerCase().split(/[:./]/).pop() || '';
   if (normalized === 'bash') return 'bash';
+  if (normalized === 'exec_command') return 'bash';
   if (normalized === 'write') return 'write';
-  if (normalized === 'edit' || normalized === 'multiedit' || normalized === 'notebookedit') return 'edit';
+  if (
+    normalized === 'edit' ||
+    normalized === 'multiedit' ||
+    normalized === 'notebookedit' ||
+    normalized === 'apply_patch'
+  ) return 'edit';
   if (normalized === 'delete') return 'delete';
   return null;
 }
@@ -237,7 +247,7 @@ function tokenizeShell(command: string): string[] {
 
 function cleanCommandPath(token: string | undefined): string | null {
   if (!token) return null;
-  const trimmed = token.trim();
+  const trimmed = token.trim().replace(/^["']+|["']+$/g, '').trim();
   if (!trimmed) return null;
   if (trimmed === '/dev/null') return null;
   if (/^\d+>$/.test(trimmed)) return null;
@@ -426,22 +436,7 @@ function extractPathFromTaggedOutput(output: string): string | null {
 }
 
 function extractPathFromDiff(diffContent: string): string | null {
-  const indexMatch = diffContent.match(/^Index:\s+(.+)$/m);
-  if (indexMatch?.[1]?.trim()) {
-    return indexMatch[1].trim();
-  }
-
-  const plusMatch = diffContent.match(/^\+\+\+\s+(.+)$/m);
-  if (plusMatch?.[1]?.trim()) {
-    return plusMatch[1].replace(/^b\//, '').trim();
-  }
-
-  const minusMatch = diffContent.match(/^---\s+(.+)$/m);
-  if (minusMatch?.[1]?.trim() && minusMatch[1].trim() !== '/dev/null') {
-    return minusMatch[1].replace(/^a\//, '').trim();
-  }
-
-  return null;
+  return extractUnifiedDiffFilePath(diffContent);
 }
 
 function getToolResultFilePath(result: ToolResultBlock | undefined): string | null {
@@ -722,6 +717,75 @@ export function extractToolChangeRecords(messages: StreamMessage[]): ChangeRecor
         order += nextRecords.length;
       }
     }
+  }
+
+  return records;
+}
+
+function splitGitPatchByFile(patch: string): string[] {
+  const normalized = patch.replace(/\r\n?/g, '\n');
+  const starts = Array.from(normalized.matchAll(/^diff --git\s+/gm), (match) => match.index);
+  if (starts.length === 0) return [];
+
+  return starts.map((start, index) => {
+    const end = starts[index + 1] ?? normalized.length;
+    return normalized.slice(start, end).trim();
+  });
+}
+
+function gitPatchStatus(filePatch: string): string {
+  if (
+    /^new file mode\s+/m.test(filePatch) ||
+    /^---\s+["']?\/dev\/null["']?\s*$/m.test(filePatch)
+  ) {
+    return 'A';
+  }
+  if (
+    /^deleted file mode\s+/m.test(filePatch) ||
+    /^\+\+\+\s+["']?\/dev\/null["']?\s*$/m.test(filePatch)
+  ) {
+    return 'D';
+  }
+  if (/^rename (?:from|to)\s+/m.test(filePatch)) {
+    return 'R';
+  }
+  return 'M';
+}
+
+/**
+ * Convert the runner's completed-turn Git snapshot into the records shown by
+ * the chat change card. Unlike tool inference, this is the authoritative list
+ * of paths that actually differ between the start and end of the turn.
+ */
+export function extractGitPatchChangeRecords(patch: string): ChangeRecord[] {
+  const records: ChangeRecord[] = [];
+
+  for (const [index, filePatch] of splitGitPatchByFile(patch).entries()) {
+    const filePath = extractUnifiedDiffFilePath(filePatch);
+    if (!filePath || filePath === '/dev/null') continue;
+
+    const status = gitPatchStatus(filePatch);
+    const operation = statusToOperation(status);
+    const { fileName, dirPath } = splitPath(filePath);
+    const stats = countDiffStats(filePatch);
+
+    records.push({
+      id: `git-patch:${index}:${filePath}`,
+      filePath,
+      fileName,
+      dirPath,
+      status,
+      staged: false,
+      source: 'git',
+      operation,
+      state: 'success',
+      order: index,
+      diffContent: filePatch,
+      sizeBytes: null,
+      lineCount: null,
+      addedLines: stats.addedLines,
+      removedLines: stats.removedLines,
+    });
   }
 
   return records;
