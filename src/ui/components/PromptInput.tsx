@@ -1381,14 +1381,6 @@ export function PromptInput({
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
-        {activeSession?.handoffSourceProvider ? (
-          <div className="mb-2 flex items-center gap-2 px-1 text-[11.5px] text-[var(--text-muted)]">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden="true" />
-            <span className="min-w-0 truncate">
-              Handoff from {providerLabel(activeSession.handoffSourceProvider)}
-            </span>
-          </div>
-        ) : null}
         <Dialog.Root
           open={handoffTarget !== null}
           onOpenChange={(open) => {

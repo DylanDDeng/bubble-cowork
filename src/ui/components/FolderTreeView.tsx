@@ -32,6 +32,7 @@ import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type { AgentProvider, SessionView } from '../types';
 import { AgentIcon } from './ComposerAgentControls';
+import { SessionHandoffProviderRoute } from './SessionHandoffIndicator';
 
 type ProjectGroup = {
   key: string;
@@ -978,7 +979,14 @@ function SessionItem({
             </button>
 
             <div className="flex min-h-[22px] items-center gap-2">
-              <ProviderGlyph provider={session.provider} />
+              {session.handoffSourceProvider ? (
+                <SessionHandoffProviderRoute
+                  sourceProvider={session.handoffSourceProvider}
+                  targetProvider={session.provider ?? 'claude'}
+                />
+              ) : (
+                <ProviderGlyph provider={session.provider} />
+              )}
               <ScrollingTitle title={session.title} className="flex-1 text-[13px] font-normal leading-[1.3]" />
               {worktreeAction ? (
                 <span className="flex-shrink-0" title={WORKTREE_ACTION_LABELS[worktreeAction]}>

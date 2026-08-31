@@ -2988,6 +2988,7 @@ function handleSessionList(
       channelId,
       teamMode: normalizeSessionTeamMode(session.teamMode),
       teamId: session.teamId || null,
+      handoffSourceProvider: session.handoffSourceProvider || null,
       latestClaudeModelUsage: session.latestClaudeModelUsage,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,

@@ -103,6 +103,10 @@ assert.ok(
   appStore.includes('handoffSourceProvider: info.handoffSourceProvider'),
   'freshSessionViewFromInfo must carry handoffSourceProvider to the SessionView'
 );
+assert.ok(
+  appStore.includes('handoffSourceProvider: session.handoffSourceProvider || null'),
+  'session.list reconstruction must preserve handoffSourceProvider after reload'
+);
 
 // Composer: provider lock + dialog instead of silent switch
 const promptInput = read('src/ui/components/PromptInput.tsx');
@@ -116,9 +120,41 @@ assert.ok(
   promptInput.includes('Hand off to') && promptInput.includes('handoffSessionToProvider('),
   'PromptInput must render the handoff confirm dialog wired to the store action'
 );
+
+// Handoff provenance belongs with the session identity, not the composer.
+const handoffIndicator = read('src/ui/components/SessionHandoffIndicator.tsx');
 assert.ok(
-  promptInput.includes('Handoff from {providerLabel(activeSession.handoffSourceProvider)}'),
-  'PromptInput must show the handoff-source badge'
+  handoffIndicator.includes('export function SessionHandoffProviderRoute') &&
+    !handoffIndicator.includes('export function SessionHandoffBadge'),
+  'the shared handoff indicator must expose one consistent provider-route style'
+);
+const appSource = read('src/ui/App.tsx');
+const chatPaneSource = read('src/ui/components/ChatPane.tsx');
+const appHeaderHandoffStart = appSource.indexOf('{activeSession?.handoffSourceProvider ?');
+const appHeaderRouteIndex = appSource.indexOf('<SessionHandoffProviderRoute', appHeaderHandoffStart);
+const appHeaderTitleIndex = appSource.indexOf("{activeSession?.title || 'Chat'}", appHeaderHandoffStart);
+const chatPaneHandoffStart = chatPaneSource.indexOf('{session.handoffSourceProvider ?');
+const chatPaneRouteIndex = chatPaneSource.indexOf('<SessionHandoffProviderRoute', chatPaneHandoffStart);
+const chatPaneTitleIndex = chatPaneSource.indexOf("{session.title || 'Chat'}", chatPaneHandoffStart);
+assert.ok(
+  appHeaderHandoffStart >= 0 &&
+    appHeaderRouteIndex >= 0 &&
+    appHeaderRouteIndex < appHeaderTitleIndex &&
+    appSource.includes('targetProvider={activeSession.provider') &&
+    chatPaneHandoffStart >= 0 &&
+    chatPaneRouteIndex >= 0 &&
+    chatPaneRouteIndex < chatPaneTitleIndex &&
+    chatPaneSource.includes('targetProvider={session.provider'),
+  'global and split-pane headers must show the provider route before the title, matching the sidebar'
+);
+assert.ok(
+  read('src/ui/components/FolderTreeView.tsx').includes('<SessionHandoffProviderRoute') &&
+    read('src/ui/components/FolderTreeView.tsx').includes('targetProvider={session.provider'),
+  'project session rows must show source-to-target provider icons for handoff sessions'
+);
+assert.ok(
+  !promptInput.includes('Handoff from {providerLabel(activeSession.handoffSourceProvider)}'),
+  'the composer must not duplicate the handoff-source marker'
 );
 
 console.log('static wiring assertions passed');

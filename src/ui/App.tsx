@@ -39,6 +39,7 @@ import { PullRequestsView } from './components/PullRequestsView';
 import { NewSessionView } from './components/NewSessionView';
 import { LogoShimmer } from './components/LogoShimmer';
 import { SessionHistoryButtons } from './components/SessionHistoryButtons';
+import { SessionHandoffProviderRoute } from './components/SessionHandoffIndicator';
 import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
@@ -1037,13 +1038,21 @@ export function App() {
                     </>
                   ) : null}
                 </div>
-                <span
-                  className={`truncate text-[12px] font-medium text-[var(--text-primary)] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                <div
+                  className={`flex min-w-0 items-center gap-2 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                     sidebarCollapsed ? 'translate-x-0' : '-translate-x-[108px]'
                   }`}
                 >
-                  {activeSession?.title || 'Chat'}
-                </span>
+                  {activeSession?.handoffSourceProvider ? (
+                    <SessionHandoffProviderRoute
+                      sourceProvider={activeSession.handoffSourceProvider}
+                      targetProvider={activeSession.provider ?? 'claude'}
+                    />
+                  ) : null}
+                  <span className="truncate text-[12px] font-medium text-[var(--text-primary)]">
+                    {activeSession?.title || 'Chat'}
+                  </span>
+                </div>
               </div>
               <div className="flex items-center justify-end gap-1 pr-10">
                 <div className="aegis-header-editor-actions">

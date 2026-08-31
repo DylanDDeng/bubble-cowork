@@ -30,6 +30,7 @@ import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { NewThreadLanding } from './NewThreadLanding';
+import { SessionHandoffProviderRoute } from './SessionHandoffIndicator';
 import { ComposerContextPills } from './ComposerContextPills';
 import { InSessionSearch } from './search/InSessionSearch';
 import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
@@ -1858,6 +1859,12 @@ export function ChatPane({
           {showHeader ? (
             <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
               <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                {session.handoffSourceProvider ? (
+                  <SessionHandoffProviderRoute
+                    sourceProvider={session.handoffSourceProvider}
+                    targetProvider={session.provider ?? 'claude'}
+                  />
+                ) : null}
                 <span className="truncate font-medium text-[var(--text-primary)]">
                   {session.title || 'Chat'}
                 </span>
