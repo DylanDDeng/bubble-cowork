@@ -118,6 +118,12 @@ function TabItem({
       role="tab"
       aria-selected={active}
       tabIndex={0}
+      onMouseDown={(event) => {
+        // Pointer activation should not paint the keyboard focus ring while
+        // the view behind the tab is switching. Keyboard navigation can still
+        // focus the tab normally through tabIndex.
+        event.preventDefault();
+      }}
       onClick={onActivate}
       onKeyDown={(event) => {
         if (event.key === 'Enter') onActivate();
@@ -126,10 +132,10 @@ function TabItem({
         // Middle click closes, like a browser.
         if (event.button === 1 && closable) onClose();
       }}
-      className={`group flex h-7 min-w-0 max-w-[200px] flex-shrink-0 cursor-default items-center gap-1.5 rounded-lg px-2.5 text-[12px] transition-colors ${
+      className={`group flex h-7 min-w-0 max-w-[200px] flex-shrink-0 cursor-default items-center gap-1.5 rounded-lg px-2.5 text-[12px] outline-none transition-colors focus-visible:bg-[var(--sidebar-item-hover)] ${
         active
           ? 'border border-[var(--border)] bg-[var(--bg-primary)] font-medium text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,18,25,0.04)]'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+          : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
       }`}
     >
       <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{icon}</span>
