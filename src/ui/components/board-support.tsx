@@ -6,10 +6,12 @@ import type { BoardStage, BoardTask } from '../store/useBoardStore';
 import type { AgentProvider, SessionView } from '../types';
 
 export const STAGE_META: Record<BoardStage, { label: string }> = {
-  inbox: { label: 'Inbox' },
+  backlog: { label: 'Backlog' },
+  todo: { label: 'Todo' },
   working: { label: 'Working' },
   review: { label: 'Review' },
   done: { label: 'Done' },
+  canceled: { label: 'Canceled' },
 };
 
 const PIE_CIRCUMFERENCE = 2 * Math.PI * 2.5;
@@ -31,9 +33,10 @@ function StagePie({ fraction }: { fraction: number }) {
 }
 
 /**
- * Linear-style stage icons: an empty ring for Inbox, a partially filled pie
- * for Working, a nearly full pie for Review, and a solid check disc for Done.
- * Color is part of the stage's identity, so it lives here, not at call sites.
+ * Linear-style stage icons: a dashed ring for Backlog, an empty ring for
+ * Todo, a partially filled pie for Working, a nearly full pie for Review, a
+ * solid check disc for Done, and a muted X disc for Canceled. Color is part
+ * of the stage's identity, so it lives here, not at call sites.
  */
 export function StageIcon({ stage, className = 'h-3.5 w-3.5' }: { stage: BoardStage; className?: string }) {
   if (stage === 'done') {
@@ -51,6 +54,20 @@ export function StageIcon({ stage, className = 'h-3.5 w-3.5' }: { stage: BoardSt
       </svg>
     );
   }
+  if (stage === 'canceled') {
+    return (
+      <svg viewBox="0 0 14 14" className={`${className} flex-shrink-0 text-[var(--text-muted)]`} aria-hidden="true">
+        <circle cx="7" cy="7" r="6.5" fill="currentColor" />
+        <path
+          d="M4.9 4.9l4.2 4.2M9.1 4.9l-4.2 4.2"
+          fill="none"
+          stroke="var(--bg-primary)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
   const color =
     stage === 'working'
       ? 'text-[var(--warning)]'
@@ -59,7 +76,15 @@ export function StageIcon({ stage, className = 'h-3.5 w-3.5' }: { stage: BoardSt
         : 'text-[var(--text-muted)]';
   return (
     <svg viewBox="0 0 14 14" className={`${className} flex-shrink-0 ${color}`} aria-hidden="true">
-      <circle cx="7" cy="7" r="5.75" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <circle
+        cx="7"
+        cy="7"
+        r="5.75"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeDasharray={stage === 'backlog' ? '2 1.6' : undefined}
+      />
       {stage === 'working' ? <StagePie fraction={0.5} /> : null}
       {stage === 'review' ? <StagePie fraction={0.75} /> : null}
     </svg>

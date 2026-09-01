@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   CircleX,
   Clock,
@@ -15,6 +16,7 @@ import {
   MessageSquare,
   Pencil,
   Play,
+  Plus,
   User,
 } from './icons';
 import { AgentIcon } from './ComposerAgentControls';
@@ -27,6 +29,7 @@ import {
   latestTaskSession,
   type BoardStage,
   type BoardTask,
+  type BoardTaskEvent,
 } from '../store/useBoardStore';
 import {
   STAGE_META,
@@ -38,6 +41,58 @@ import {
 } from './board-support';
 import { extractToolChangeRecords } from '../utils/change-records';
 import type { SessionView } from '../types';
+
+/**
+ * The Activity timeline interleaves two shapes, Linear-style: thread cards
+ * (one per conversation round — a user message and the agent's replies to
+ * it) and groups of one-line system events between them. Splitting runs
+ * into rounds is what keeps chronology honest: a follow-up sent after a
+ * stage change must render after that event, not inside an earlier card.
+ */
+type TimelineItem = { kind: 'user' | 'agent'; text: string; time?: number };
+
+type ActivityEntry =
+  | {
+      kind: 'round';
+      sessionId: string;
+      runNumber: number;
+      firstOfRun: boolean;
+      lastOfRun: boolean;
+      items: TimelineItem[];
+      time: number;
+    }
+  | { kind: 'events'; events: BoardTaskEvent[]; time: number };
+
+/**
+ * A chronological mini-transcript of one session: every follow-up the user
+ * sent, and the agent's closing text for each turn. Built from message
+ * order, never from session status — earlier turns must not vanish when a
+ * new one starts. This is the session transcript, not a deduplicated
+ * summary: a task description may repeat the opening request, but that must
+ * never make the user's actual first message disappear here.
+ */
+function extractSessionTimeline(session: SessionView): TimelineItem[] {
+  const items: TimelineItem[] = [];
+  let pendingAgent: { text: string; time?: number } | null = null;
+  for (const message of session.messages) {
+    if (message.type === 'user_prompt') {
+      if (pendingAgent) {
+        items.push({ kind: 'agent', ...pendingAgent });
+        pendingAgent = null;
+      }
+      items.push({ kind: 'user', text: message.prompt, time: message.createdAt });
+    } else if (message.type === 'assistant' && !message.parentToolUseId) {
+      const texts = message.message.content
+        .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+        .map((block) => block.text.trim())
+        .filter(Boolean);
+      // Keep only the turn's last text — it supersedes interim narration.
+      if (texts.length > 0) pendingAgent = { text: texts.join('\n'), time: message.createdAt };
+    }
+  }
+  if (pendingAgent) items.push({ kind: 'agent', ...pendingAgent });
+  return items;
+}
 
 export function BoardTaskDetail({
   task,
@@ -75,6 +130,7 @@ export function BoardTaskDetail({
   const [followUp, setFollowUp] = useState('');
   const followUpRef = useRef<HTMLTextAreaElement | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   // The title is a wrapping textarea so long titles show in full; keep its
   // height matched to the content.
@@ -84,6 +140,15 @@ export function BoardTaskDetail({
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
   }, [titleDraft]);
+
+  // The description edits in place (Linear-style), so its textarea also has to
+  // track content height instead of scrolling inside a fixed box.
+  useEffect(() => {
+    const el = promptRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [promptDraft, editingPrompt]);
 
   useEffect(() => {
     setTitleDraft(task.title);
@@ -120,9 +185,72 @@ export function BoardTaskDetail({
     const first = firstSession.messages.find((message) => message.type === 'user_prompt');
     return first && first.type === 'user_prompt' ? first.prompt : null;
   }, [firstSession?.hydrated, firstSession?.messages]);
+  // Merge system events and conversation rounds into one chronological
+  // stream. Each round's position is its user message's time; events that
+  // fired at the same moment (stage moved as the round was sent) sort ahead
+  // of the round card.
+  const activityEntries = useMemo<ActivityEntry[]>(() => {
+    const merged: Array<ActivityEntry | { kind: 'event'; event: BoardTaskEvent; time: number }> =
+      [];
+    task.sessionIds.forEach((sessionId, index) => {
+      const session = sessions[sessionId];
+      const runNumber = index + 1;
+      const fallbackTime = task.createdAt + index + 1;
+      if (!session?.hydrated) {
+        // Missing or not yet hydrated: one placeholder card holds its spot.
+        merged.push({
+          kind: 'round',
+          sessionId,
+          runNumber,
+          firstOfRun: true,
+          lastOfRun: true,
+          items: [],
+          time: fallbackTime,
+        });
+        return;
+      }
+      const rounds: TimelineItem[][] = [];
+      for (const item of extractSessionTimeline(session)) {
+        if (item.kind === 'user' || rounds.length === 0) rounds.push([item]);
+        else rounds[rounds.length - 1].push(item);
+      }
+      if (rounds.length === 0) rounds.push([]);
+      rounds.forEach((items, roundIndex) => {
+        merged.push({
+          kind: 'round',
+          sessionId,
+          runNumber,
+          firstOfRun: roundIndex === 0,
+          lastOfRun: roundIndex === rounds.length - 1,
+          items,
+          time: items[0]?.time ?? fallbackTime + roundIndex,
+        });
+      });
+    });
+    for (const event of task.events ?? []) merged.push({ kind: 'event', event, time: event.at });
+    merged.sort(
+      (a, b) => a.time - b.time || (a.kind === 'event' ? -1 : 1) - (b.kind === 'event' ? -1 : 1)
+    );
+    const entries: ActivityEntry[] = [];
+    for (const item of merged) {
+      if (item.kind !== 'event') {
+        entries.push(item);
+        continue;
+      }
+      const last = entries[entries.length - 1];
+      if (last?.kind === 'events') last.events.push(item.event);
+      else entries.push({ kind: 'events', events: [item.event], time: item.time });
+    }
+    return entries;
+  }, [task.sessionIds, task.events, task.createdAt, sessions]);
+
+  const hasLinkedSession = task.sessionIds.length > 0;
   const hasDistinctDescription =
     Boolean(task.prompt.trim()) &&
-    (firstRunPrompt === null || task.prompt.trim() !== firstRunPrompt.trim());
+    (!hasLinkedSession ||
+      (Boolean(firstSession?.hydrated) &&
+        firstRunPrompt !== null &&
+        task.prompt.trim() !== firstRunPrompt.trim()));
 
   const latest = latestTaskSession(task, sessions);
   const taskIndex = orderedTaskIds.indexOf(task.id);
@@ -140,9 +268,21 @@ export function BoardTaskDetail({
     else setTitleDraft(task.title);
   };
 
+  // When the stored prompt is just the opening message echoed back, the UI
+  // presents the task as having no description — so the editor must open
+  // empty, not with that hidden echo pre-filled.
+  const openPromptEditor = () => {
+    setPromptDraft(hasDistinctDescription ? task.prompt : '');
+    setEditingPrompt(true);
+  };
+
   const commitPrompt = () => {
     setEditingPrompt(false);
-    if (promptDraft.trim() !== task.prompt) onUpdatePrompt(promptDraft);
+    const trimmed = promptDraft.trim();
+    // An empty draft means "never mind" — committing it would wipe the
+    // opening prompt that runs are started from.
+    if (trimmed && trimmed !== task.prompt) onUpdatePrompt(promptDraft);
+    else setPromptDraft(task.prompt);
   };
 
   const sendFollowUp = () => {
@@ -163,7 +303,7 @@ export function BoardTaskDetail({
           className="no-drag inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Board
+          Tasks
         </button>
         <span className="text-[12px] text-[var(--text-muted)]">/</span>
         <span className="max-w-[180px] truncate text-[12.5px] text-[var(--text-secondary)]">
@@ -202,7 +342,7 @@ export function BoardTaskDetail({
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mr-auto w-full max-w-[720px] px-8 pb-6 pt-7">
+            <div className="mx-auto w-full max-w-[720px] px-8 pb-6 pt-7">
               <textarea
                 ref={titleRef}
                 rows={1}
@@ -221,8 +361,10 @@ export function BoardTaskDetail({
 
               {editingPrompt ? (
                 <textarea
+                  ref={promptRef}
                   autoFocus
                   value={promptDraft}
+                  placeholder="Add a description…"
                   onChange={(event) => setPromptDraft(event.target.value)}
                   onBlur={commitPrompt}
                   onKeyDown={(event) => {
@@ -233,60 +375,63 @@ export function BoardTaskDetail({
                       commitPrompt();
                     }
                   }}
-                  className="mt-3 min-h-[120px] w-full resize-y rounded-[10px] border border-[var(--border-focus)] bg-[var(--bg-secondary)] px-3.5 py-3 text-[13px] leading-[1.6] text-[var(--text-primary)] outline-none"
+                  className="mt-3 w-full resize-none overflow-hidden bg-transparent text-[13px] leading-[1.6] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                   aria-label="Task description"
                 />
               ) : hasDistinctDescription ? (
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={() => setEditingPrompt(true)}
+                  onClick={openPromptEditor}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter') setEditingPrompt(true);
+                    if (event.key === 'Enter') openPromptEditor();
                   }}
-                  className="group mt-3 cursor-text whitespace-pre-wrap rounded-[10px] px-3.5 py-3 text-[13px] leading-[1.6] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)]"
+                  className="mt-3 cursor-text whitespace-pre-wrap text-[13px] leading-[1.6] text-[var(--text-secondary)]"
                 >
                   {task.prompt}
-                  <Pencil className="ml-2 inline h-3 w-3 align-baseline text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={() => setEditingPrompt(true)}
-                  className="mt-3 w-full rounded-[10px] border border-dashed border-[var(--border)] px-3.5 py-3 text-left text-[13px] text-[var(--text-muted)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                  onClick={openPromptEditor}
+                  className="mt-3 w-full text-left text-[13px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
                 >
-                  Add a description — what should the agent do, and how do you want it verified?
+                  Add a description…
                 </button>
               )}
 
               <div className="mt-8 border-t border-[var(--border)] pt-5">
                 <div className="mb-3 text-[13px] text-[var(--text-muted)]">Activity</div>
+                <div className="space-y-5">
+                  {activityEntries.map((entry, index) =>
+                    entry.kind === 'round' ? (
+                      <RoundCard
+                        key={`round-${index}`}
+                        session={sessions[entry.sessionId] || null}
+                        items={entry.items}
+                        runNumber={entry.runNumber}
+                        showRunNumber={task.sessionIds.length > 1 && entry.firstOfRun}
+                        showExtras={entry.lastOfRun}
+                        onOpenSession={onOpenSession}
+                      />
+                    ) : (
+                      <EventGroup key={`events-${index}`} events={entry.events} />
+                    )
+                  )}
+                </div>
                 {task.sessionIds.length === 0 ? (
-                  <p className="text-[12.5px] leading-relaxed text-[var(--text-muted)]">
+                  <p className="mt-4 text-[12.5px] leading-relaxed text-[var(--text-muted)]">
                     No runs yet. Starting this task creates a new session
                     {task.projectCwd ? ` in ${projectName(task.projectCwd)}` : ''} and its activity
                     shows up here.
                   </p>
-                ) : (
-                  <div className="space-y-5">
-                    {task.sessionIds.map((sessionId, index) => (
-                      <RunActivity
-                        key={sessionId}
-                        session={sessions[sessionId] || null}
-                        runNumber={index + 1}
-                        showRunNumber={task.sessionIds.length > 1}
-                        skipInitialPrompt={index === 0 && hasDistinctDescription}
-                        onOpenSession={onOpenSession}
-                      />
-                    ))}
-                  </div>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
 
           <div className="flex-shrink-0 px-8 pb-5 pt-2">
-            <div className="mr-auto w-full max-w-[720px]">
+            <div className="mx-auto w-full max-w-[720px]">
               {task.sessionIds.length === 0 ? (
                 <div className="flex items-center gap-3">
                   <button
@@ -305,13 +450,6 @@ export function BoardTaskDetail({
                 <div className="flex items-center gap-2 rounded-[10px] bg-[var(--bg-secondary)] px-3.5 py-2.5 text-[12.5px] text-[var(--text-secondary)]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" />
                   {providerLabel(latest?.provider) || 'The agent'} is working.
-                  <button
-                    type="button"
-                    onClick={() => latest && onOpenSession(latest.id)}
-                    className="ml-auto text-[12px] font-medium text-[var(--text-primary)] hover:underline"
-                  >
-                    Open session to steer
-                  </button>
                 </div>
               ) : (
                 // Mirrors the session composer (PromptInput's chat surface):
@@ -474,28 +612,30 @@ export function BoardTaskDetail({
 }
 
 /**
- * One run's slice of the activity timeline: who ran, the follow-ups you sent,
- * what changed on disk, and how it ended — derived from the session's
- * hydrated message history.
+ * One conversation round as a Linear-style thread card: a user message and
+ * the agent's replies to it. Run-level extras (change summary, permission
+ * waits, failure) render only on the run's last round, where they are
+ * current.
  */
-function RunActivity({
+function RoundCard({
   session,
+  items,
   runNumber,
   showRunNumber,
-  skipInitialPrompt,
+  showExtras,
   onOpenSession,
 }: {
   session: SessionView | null;
+  items: TimelineItem[];
   runNumber: number;
   showRunNumber: boolean;
-  /** True when the run's first prompt IS the task description shown above. */
-  skipInitialPrompt: boolean;
+  showExtras: boolean;
   onOpenSession: (sessionId: string) => void;
 }) {
   const profileName = useUserProfile()?.displayName || null;
 
   const changeSummary = useMemo(() => {
-    if (!session?.hydrated) return null;
+    if (!showExtras || !session?.hydrated) return null;
     const records = extractToolChangeRecords(session.messages).filter(
       (record) => record.operation !== 'bash'
     );
@@ -507,38 +647,7 @@ function RunActivity({
       added: records.reduce((sum, record) => sum + record.addedLines, 0),
       removed: records.reduce((sum, record) => sum + record.removedLines, 0),
     };
-  }, [session?.hydrated, session?.messages]);
-
-  // A chronological mini-transcript: every follow-up you sent, and the
-  // agent's closing text for each turn. Built from message order, never from
-  // session status — earlier turns must not vanish when a new one starts.
-  const timeline = useMemo(() => {
-    if (!session?.hydrated) return [];
-    const items: Array<{ kind: 'user' | 'agent'; text: string; time?: number }> = [];
-    let pendingAgent: { text: string; time?: number } | null = null;
-    let promptCount = 0;
-    for (const message of session.messages) {
-      if (message.type === 'user_prompt') {
-        if (pendingAgent) {
-          items.push({ kind: 'agent', ...pendingAgent });
-          pendingAgent = null;
-        }
-        promptCount += 1;
-        if (promptCount > 1 || !skipInitialPrompt) {
-          items.push({ kind: 'user', text: message.prompt, time: message.createdAt });
-        }
-      } else if (message.type === 'assistant' && !message.parentToolUseId) {
-        const texts = message.message.content
-          .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-          .map((block) => block.text.trim())
-          .filter(Boolean);
-        // Keep only the turn's last text — it supersedes interim narration.
-        if (texts.length > 0) pendingAgent = { text: texts.join('\n'), time: message.createdAt };
-      }
-    }
-    if (pendingAgent) items.push({ kind: 'agent', ...pendingAgent });
-    return items;
-  }, [session?.hydrated, session?.messages, skipInitialPrompt]);
+  }, [showExtras, session?.hydrated, session?.messages]);
 
   if (!session) {
     return (
@@ -549,24 +658,35 @@ function RunActivity({
   }
 
   const running = session.status === 'running' || session.status === 'stopping';
-  const needsPermission = running && session.permissionRequests.length > 0;
+  const needsPermission = showExtras && running && session.permissionRequests.length > 0;
+  const showFailed = showExtras && session.status === 'error';
+  // A fully empty card (hydrated round with nothing to show) renders nothing.
+  if (session.hydrated && items.length === 0 && !changeSummary && !needsPermission && !showFailed) {
+    return null;
+  }
 
   return (
-    // A comment-style conversation timeline, flush with the "Activity"
-    // heading: each message is a block with an avatar + name header.
-    <div className="space-y-4">
+    // Linear-style thread card: the conversation is framed so it reads as
+    // foreground content against the flat system-event lines around it.
+    // Rows inside are separated by hairlines, like replies in a thread.
+    <div>
       {showRunNumber ? (
-        <div className="text-[11px] font-medium text-[var(--text-muted)]">Run {runNumber}</div>
+        <div className="mb-1.5 text-[11px] font-medium text-[var(--text-muted)]">
+          Run {runNumber}
+        </div>
       ) : null}
-      {!session.hydrated ? (
-        <ActivityLine icon={<Loader2 className="h-3 w-3 animate-spin" />}>
-          Loading activity…
-        </ActivityLine>
-      ) : (
-        <>
+      <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--preview-surface)] px-4 shadow-[0_1px_2px_rgba(15,18,25,0.04)]">
+        {!session.hydrated ? (
+          <div className="py-3.5">
+            <ActivityLine icon={<Loader2 className="h-3 w-3 animate-spin" />}>
+              Loading activity…
+            </ActivityLine>
+          </div>
+        ) : (
+          <>
             {/* Comment-style blocks: avatar + name header, content full-width below. */}
-            {timeline.map((item, index) => (
-              <div key={index}>
+            {items.map((item, index) => (
+              <div key={index} className="py-3.5">
                 <div className="flex items-center gap-2">
                   {item.kind === 'user' ? (
                     <UserAvatar name={profileName} />
@@ -596,41 +716,48 @@ function RunActivity({
               </div>
             ))}
             {changeSummary ? (
-              <ActivityLine icon={<FileDiff className="h-3 w-3" />}>
-                Changed {changeSummary.fileCount} file{changeSummary.fileCount === 1 ? '' : 's'}
-                {changeSummary.added || changeSummary.removed ? (
-                  <span className="ml-1.5 font-mono text-[11px]">
-                    <span className="text-[var(--success)]">+{changeSummary.added}</span>{' '}
-                    <span className="text-[var(--error)]">−{changeSummary.removed}</span>
+              <div className="py-3">
+                <ActivityLine icon={<FileDiff className="h-3 w-3" />}>
+                  Changed {changeSummary.fileCount} file{changeSummary.fileCount === 1 ? '' : 's'}
+                  {changeSummary.added || changeSummary.removed ? (
+                    <span className="ml-1.5 font-mono text-[11px]">
+                      <span className="text-[var(--success)]">+{changeSummary.added}</span>{' '}
+                      <span className="text-[var(--error)]">−{changeSummary.removed}</span>
+                    </span>
+                  ) : null}
+                  <span className="ml-1.5 text-[var(--text-muted)]">
+                    {changeSummary.files.join(', ')}
+                    {changeSummary.fileCount > changeSummary.files.length ? ', …' : ''}
                   </span>
-                ) : null}
-                <span className="ml-1.5 text-[var(--text-muted)]">
-                  {changeSummary.files.join(', ')}
-                  {changeSummary.fileCount > changeSummary.files.length ? ', …' : ''}
-                </span>
-              </ActivityLine>
+                </ActivityLine>
+              </div>
             ) : null}
             {needsPermission ? (
-              <ActivityLine icon={<Clock className="h-3 w-3 text-[var(--warning)]" />}>
-                <span className="text-[var(--warning)]">
-                  Waiting for your permission —{' '}
-                  <button
-                    type="button"
-                    onClick={() => onOpenSession(session.id)}
-                    className="font-medium underline"
-                  >
-                    open the session to respond
-                  </button>
-                </span>
-              </ActivityLine>
+              <div className="py-3">
+                <ActivityLine icon={<Clock className="h-3 w-3 text-[var(--warning)]" />}>
+                  <span className="text-[var(--warning)]">
+                    Waiting for your permission —{' '}
+                    <button
+                      type="button"
+                      onClick={() => onOpenSession(session.id)}
+                      className="font-medium underline"
+                    >
+                      open the session to respond
+                    </button>
+                  </span>
+                </ActivityLine>
+              </div>
             ) : null}
-            {session.status === 'error' ? (
-              <ActivityLine icon={<CircleX className="h-3 w-3 text-[var(--error)]" />}>
-                <span className="text-[var(--error)]">The run failed.</span>
-              </ActivityLine>
+            {showFailed ? (
+              <div className="py-3">
+                <ActivityLine icon={<CircleX className="h-3 w-3 text-[var(--error)]" />}>
+                  <span className="text-[var(--error)]">The run failed.</span>
+                </ActivityLine>
+              </div>
             ) : null}
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -717,6 +844,88 @@ function RunSummary({ content }: { content: string }) {
           {expanded ? 'Show less' : 'Show more'}
         </button>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * A run of consecutive system events, Linear-style: a "N activities" header
+ * that collapses the group, with one-line rows underneath. Expanded by
+ * default — the rows are visually light; the header exists so a long streak
+ * of automation can be folded away.
+ */
+function EventGroup({ events }: { events: BoardTaskEvent[] }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const profileName = useUserProfile()?.displayName || null;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setCollapsed((value) => !value)}
+        className="flex items-center gap-1 text-[11px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
+      >
+        {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        {events.length} {events.length === 1 ? 'activity' : 'activities'}
+      </button>
+      {!collapsed ? (
+        <div className="mt-2 space-y-1.5">
+          {events.map((event, index) => (
+            <EventRow key={index} event={event} profileName={profileName} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function EventRow({ event, profileName }: { event: BoardTaskEvent; profileName: string | null }) {
+  const you = (
+    <span className="font-medium text-[var(--text-secondary)]">{profileName || 'You'}</span>
+  );
+  let icon: ReactNode;
+  let text: ReactNode;
+  switch (event.type) {
+    case 'created':
+      icon = <Plus className="h-3 w-3" />;
+      text = <>{you} created this task</>;
+      break;
+    case 'description-updated':
+      icon = <Pencil className="h-3 w-3" />;
+      text = <>{you} updated the description</>;
+      break;
+    case 'stage': {
+      const from = STAGE_META[event.from]?.label ?? event.from;
+      const to = STAGE_META[event.to]?.label ?? event.to;
+      icon = <StageIcon stage={event.to} className="h-3 w-3" />;
+      text = event.auto ? (
+        <>
+          Moved from {from} to {to}
+        </>
+      ) : (
+        <>
+          {you} moved this from {from} to {to}
+        </>
+      );
+      break;
+    }
+    case 'run-started':
+      icon = <Play className="h-3 w-3" />;
+      text = 'The agent started a run';
+      break;
+    case 'run-completed':
+      icon = <Check className="h-3 w-3 text-[var(--success)]" />;
+      text = 'The run completed';
+      break;
+    case 'run-failed':
+      icon = <CircleX className="h-3 w-3 text-[var(--error)]" />;
+      text = 'The run failed';
+      break;
+  }
+  return (
+    <div className="flex items-center gap-2 text-[12px] text-[var(--text-muted)]">
+      <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{icon}</span>
+      <span className="min-w-0 flex-1 truncate">{text}</span>
+      <span className="flex-shrink-0 text-[11px]">{relativeTime(event.at)} ago</span>
     </div>
   );
 }

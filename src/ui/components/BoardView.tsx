@@ -8,18 +8,18 @@ import {
 } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
 import { toast } from 'sonner';
-import { Check, ChevronDown, Folder, FolderOpen, Loader2, Play, Plus, Search, X } from './icons';
-import { SidebarHeaderTrigger } from './Sidebar';
-import { SessionHistoryButtons } from './SessionHistoryButtons';
+import { Check, ChevronDown, Folder, FolderOpen, Loader2, Play, Plus, X } from './icons';
 import { AgentIcon, ComposerAgentModelPicker } from './ComposerAgentControls';
 import { BoardTaskDetail } from './BoardTaskDetail';
+import { confirmDialog } from './ui/confirm-dialog';
 import { useAppStore } from '../store/useAppStore';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
+import { sendEvent } from '../hooks/useIPC';
+import { useTabsStore } from '../store/useTabsStore';
 import {
   BOARD_STAGES,
   ensureBoardSessionSync,
   latestTaskSession,
-  sessionIdsOnBoard,
   useBoardStore,
   type BoardSessionConfig,
   type BoardStage,
@@ -41,12 +41,8 @@ import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 
 export function BoardView() {
   const sessions = useAppStore((state) => state.sessions);
-  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
   const currentProjectCwd = useAppStore((state) => state.projectCwd);
   const activeChannelByProject = useAppStore((state) => state.activeChannelByProject);
-  const setActiveWorkspace = useAppStore((state) => state.setActiveWorkspace);
-  const setActiveSession = useAppStore((state) => state.setActiveSession);
-  const setShowNewSession = useAppStore((state) => state.setShowNewSession);
 
   const tasks = useBoardStore((state) => state.tasks);
   const addTask = useBoardStore((state) => state.addTask);
@@ -58,8 +54,9 @@ export function BoardView() {
   const markSeen = useBoardStore((state) => state.markSeen);
 
   const [projectFilter, setProjectFilter] = useState<string | 'all'>('all');
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
+  // Lifted to the store so app tabs can bookmark and restore the open task.
+  const selectedTaskId = useBoardStore((state) => state.selectedTaskId);
+  const setSelectedTaskId = useBoardStore((state) => state.setSelectedTask);
   const [composerTaskId, setComposerTaskId] = useState<string | null | undefined>(undefined);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [dragOverStage, setDragOverStage] = useState<BoardStage | null>(null);
@@ -126,27 +123,23 @@ export function BoardView() {
   );
 
   const byStage = useMemo(() => {
-    const groups: Record<BoardStage, BoardTask[]> = { inbox: [], working: [], review: [], done: [] };
+    const groups: Record<BoardStage, BoardTask[]> = {
+      backlog: [],
+      todo: [],
+      working: [],
+      review: [],
+      done: [],
+      canceled: [],
+    };
     for (const task of visibleTasks) groups[task.stage].push(task);
     return groups;
   }, [visibleTasks]);
 
-  const workingCount = useMemo(
-    () =>
-      visibleTasks.filter((task) => {
-        const state = deriveRunState(task, latestTaskSession(task, sessions));
-        return state === 'working' || state === 'permission';
-      }).length,
-    [visibleTasks, sessions]
-  );
-  const reviewCount = byStage.review.length;
-
   const selectedTask = selectedTaskId ? tasks[selectedTaskId] ?? null : null;
 
+  // Opens as a separate tab so the board/task tab keeps its context.
   const openSession = (sessionId: string) => {
-    setActiveWorkspace('chat');
-    setActiveSession(sessionId);
-    setShowNewSession(false);
+    useTabsStore.getState().openTab({ kind: 'chat', sessionId });
   };
 
   const openTask = (task: BoardTask) => {
@@ -171,7 +164,7 @@ export function BoardView() {
     });
     if (result.sessionId) {
       attachSession(task.id, result.sessionId);
-      setStage(task.id, 'working');
+      setStage(task.id, 'working', { auto: true });
     }
     if (!result.ok) {
       // The session row may have been created before a runtime readiness
@@ -187,7 +180,8 @@ export function BoardView() {
   };
 
   // Send a follow-up prompt to the task's latest run without leaving the
-  // board. Review/Done cards move back to Working — the agent is on it again.
+  // board. Review/Done/Canceled cards move back to Working — the agent is on
+  // it again.
   const continueTask = (task: BoardTask, prompt: string): boolean => {
     const latest = latestTaskSession(task, sessions);
     if (!latest) {
@@ -198,7 +192,9 @@ export function BoardView() {
       type: 'session.continue',
       payload: { sessionId: latest.id, prompt },
     });
-    if (task.stage === 'review' || task.stage === 'done') setStage(task.id, 'working');
+    if (task.stage === 'review' || task.stage === 'done' || task.stage === 'canceled') {
+      setStage(task.id, 'working', { auto: true });
+    }
     return true;
   };
 
@@ -209,18 +205,50 @@ export function BoardView() {
     if (taskId && tasks[taskId]) setStage(taskId, stage);
   };
 
+  const deleteTask = (task: BoardTask) => {
+    // Match the sidebar's conversation deletion flow: close the context menu
+    // first, then show the shared confirmation dialog before sending the same
+    // permanent session.delete event.
+    setCardMenu(null);
+    window.setTimeout(() => {
+      void (async () => {
+        const sessionIds = [...new Set(task.sessionIds)].filter((sessionId) => sessions[sessionId]);
+        const runningCount = sessionIds.filter((sessionId) => {
+          const status = sessions[sessionId]?.status;
+          return status === 'running' || status === 'stopping';
+        }).length;
+        const conversationDetail =
+          sessionIds.length === 0
+            ? 'This permanently removes the task.'
+            : sessionIds.length === 1
+              ? 'This permanently removes the task and its conversation.'
+              : `This permanently removes the task and all ${sessionIds.length} conversations in it.`;
+        const runningDetail =
+          runningCount === 0
+            ? ''
+            : runningCount === 1
+              ? ' The running task will be stopped.'
+              : ` ${runningCount} running conversations will be stopped.`;
+        const confirmed = await confirmDialog({
+          title: `Delete ${task.title}?`,
+          description: `${conversationDetail}${runningDetail}`,
+          confirmLabel: 'Delete task',
+        });
+        if (!confirmed) return;
+
+        // Remove the board entity immediately and remember its sessions as
+        // excluded so an intervening session.list cannot recreate the card.
+        removeTask(task.id);
+        if (selectedTaskId === task.id) setSelectedTaskId(null);
+        for (const sessionId of sessionIds) {
+          sendEvent({ type: 'session.delete', payload: { sessionId } });
+        }
+      })();
+    }, 0);
+  };
+
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col bg-[var(--bg-primary)]">
-      <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
-        <div className="flex h-full items-center px-3">
-          {sidebarCollapsed ? (
-            <>
-              <SidebarHeaderTrigger className="ml-[72px]" />
-              <SessionHistoryButtons />
-            </>
-          ) : null}
-        </div>
-      </div>
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--chat-pane-surface)]">
 
       {selectedTask ? (
         <BoardTaskDetail
@@ -243,15 +271,9 @@ export function BoardView() {
       ) : (
         <>
       <div className="flex flex-shrink-0 items-center justify-between gap-3 px-5 pb-3 pt-1">
-        <div className="flex min-w-0 items-baseline gap-2.5">
-          <h1 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
-            Board
-          </h1>
-          <span className="truncate text-[12px] text-[var(--text-muted)]">
-            {workingCount} agent{workingCount === 1 ? '' : 's'} working · {reviewCount} waiting for
-            review
-          </span>
-        </div>
+        <h1 className="text-[15px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
+          Tasks
+        </h1>
 
         <div className="no-drag relative flex items-center gap-1.5">
           <ProjectFilterMenu
@@ -269,53 +291,6 @@ export function BoardView() {
             <Plus className="h-3.5 w-3.5" />
             New Task
           </button>
-          <button
-            type="button"
-            onClick={() => setAddOpen((open) => !open)}
-            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[var(--composer-chip-border)] bg-[var(--preview-surface)] px-3 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          >
-            Add Session
-          </button>
-          {addOpen ? (
-            <AddToBoardPopover
-              sessions={sessions}
-              tasks={tasks}
-              onClose={() => setAddOpen(false)}
-              onAddSession={(session) => {
-                const stage: BoardStage =
-                  session.status === 'running' || session.status === 'stopping'
-                    ? 'working'
-                    : session.status === 'completed'
-                      ? 'review'
-                      : 'inbox';
-                addTask({
-                  title: session.title || 'Untitled task',
-                  projectCwd: session.projectCwd || session.cwd || null,
-                  sessionConfig: {
-                    provider: session.provider,
-                    model: session.model,
-                    compatibleProviderId: session.compatibleProviderId,
-                    claudeAccessMode: session.claudeAccessMode,
-                    claudeExecutionMode: session.claudeExecutionMode,
-                    claudeReasoningEffort: session.claudeReasoningEffort,
-                    codexExecutionMode: session.codexExecutionMode,
-                    codexPermissionMode: session.codexPermissionMode,
-                    codexReasoningEffort: session.codexReasoningEffort,
-                    codexFastMode: session.codexFastMode,
-                    kimiPermissionMode: session.kimiPermissionMode,
-                    grokPermissionMode: session.grokPermissionMode,
-                    grokReasoningEffort: session.grokReasoningEffort,
-                    deepseekAgentPreset: session.deepseekAgentPreset,
-                    opencodePermissionMode: session.opencodePermissionMode,
-                    bubblePermissionMode: session.bubblePermissionMode,
-                  },
-                  sessionId: session.id,
-                  stage,
-                });
-                setAddOpen(false);
-              }}
-            />
-          ) : null}
         </div>
       </div>
 
@@ -326,7 +301,7 @@ export function BoardView() {
           return (
             <section
               key={stage}
-              className={`flex min-h-0 min-w-[250px] max-w-[340px] flex-1 flex-col rounded-xl bg-[var(--bg-secondary)] transition-colors ${
+              className={`flex min-h-0 min-w-[250px] max-w-[340px] flex-1 flex-col rounded-xl bg-[var(--board-column-surface)] transition-colors ${
                 dragOverStage === stage ? 'bg-[var(--sidebar-item-active)]' : ''
               }`}
               onDragOver={(event) => {
@@ -360,7 +335,22 @@ export function BoardView() {
                       session={latestTaskSession(task, sessions)}
                       selected={task.id === selectedTaskId}
                       showProject={projectFilter === 'all'}
-                      onClick={() => openTask(task)}
+                      onClick={(event) => {
+                        if (event.metaKey || event.ctrlKey) {
+                          useTabsStore
+                            .getState()
+                            .openTab({ kind: 'board', taskId: task.id }, { background: true });
+                          return;
+                        }
+                        openTask(task);
+                      }}
+                      onAuxClick={(event) => {
+                        if (event.button === 1) {
+                          useTabsStore
+                            .getState()
+                            .openTab({ kind: 'board', taskId: task.id }, { background: true });
+                        }
+                      }}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         setCardMenu({ taskId: task.id, x: event.clientX, y: event.clientY });
@@ -395,13 +385,11 @@ export function BoardView() {
           <button
             type="button"
             onClick={() => {
-              removeTask(cardMenu.taskId);
-              if (selectedTaskId === cardMenu.taskId) setSelectedTaskId(null);
-              setCardMenu(null);
+              deleteTask(tasks[cardMenu.taskId]);
             }}
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--error)]"
           >
-            Remove from board
+            Delete
           </button>
         </div>
       ) : null}
@@ -417,7 +405,7 @@ export function BoardView() {
           onSubmit={async ({ title, prompt, projectCwd, sessionConfig, startNow }) => {
             const taskId = composerTaskId
               ? composerTaskId
-              : addTask({ title, prompt, projectCwd, sessionConfig, stage: 'inbox' });
+              : addTask({ title, prompt, projectCwd, sessionConfig, stage: 'backlog' });
             if (composerTaskId) {
               updateTask(composerTaskId, { title, prompt, projectCwd, sessionConfig });
             }
@@ -555,6 +543,7 @@ function BoardCard({
   selected,
   showProject,
   onClick,
+  onAuxClick,
   onContextMenu,
 }: {
   task: BoardTask;
@@ -562,7 +551,8 @@ function BoardCard({
   selected: boolean;
   /** Only when the board mixes projects — a scoped board would repeat it on every card. */
   showProject: boolean;
-  onClick: () => void;
+  onClick: (event: ReactMouseEvent) => void;
+  onAuxClick: (event: ReactMouseEvent) => void;
   onContextMenu: (event: ReactMouseEvent) => void;
 }) {
   const runState = deriveRunState(task, session);
@@ -580,6 +570,7 @@ function BoardCard({
         event.dataTransfer.effectAllowed = 'move';
       }}
       onClick={onClick}
+      onAuxClick={onAuxClick}
       className={`relative w-full rounded-[10px] border bg-[var(--preview-surface)] px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(15,18,25,0.04)] transition-[box-shadow,transform,border-color,opacity] duration-150 hover:-translate-y-px hover:shadow-[0_2px_6px_rgba(15,18,25,0.06),0_16px_40px_-12px_rgba(15,18,25,0.18)] ${
         selected ? 'border-[var(--border-focus)]' : 'border-[var(--border)]'
       } ${task.stage === 'done' ? 'opacity-60 hover:opacity-100' : ''}`}
@@ -593,25 +584,25 @@ function BoardCard({
           {task.title}
         </span>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {showProject ? (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-muted)]">
-            <Folder className="h-2.5 w-2.5 flex-shrink-0" />
-            <span className="truncate">{projectName(task.projectCwd)}</span>
-          </span>
-        ) : null}
-        {provider ? (
-          <span className="inline-flex items-center gap-1 text-[11px] text-[var(--text-secondary)]">
+      {showProject ? (
+        <div className="mt-2 flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-muted)]">
+          <Folder className="h-2.5 w-2.5 flex-shrink-0" />
+          <span className="truncate">{projectName(task.projectCwd)}</span>
+        </div>
+      ) : null}
+      {provider ? (
+        <div className="mt-1.5 flex min-w-0 items-center gap-2">
+          <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-secondary)]">
             <AgentIcon provider={provider} />
-            {label}
+            <span className="truncate">{label}</span>
           </span>
-        ) : null}
-        {task.sessionIds.length > 1 ? (
-          <span className="text-[11px] text-[var(--text-muted)]">
-            {task.sessionIds.length} runs
-          </span>
-        ) : null}
-      </div>
+          {task.sessionIds.length > 1 ? (
+            <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">
+              {task.sessionIds.length} runs
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-2 flex min-h-[16px] items-center gap-2">
         {/* The column already says "Review" — only live runtime states earn a badge. */}
         {runState && runState !== 'ready' ? <RunBadge state={runState} /> : null}
@@ -620,125 +611,6 @@ function BoardCard({
         </span>
       </div>
     </button>
-  );
-}
-
-function AddToBoardPopover({
-  sessions,
-  tasks,
-  onClose,
-  onAddSession,
-}: {
-  sessions: Record<string, SessionView>;
-  tasks: Record<string, BoardTask>;
-  onClose: () => void;
-  onAddSession: (session: SessionView) => void;
-}) {
-  const [query, setQuery] = useState('');
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) onClose();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [onClose]);
-
-  const linked = useMemo(() => sessionIdsOnBoard(tasks), [tasks]);
-  const candidates = useMemo(() => {
-    const trimmed = query.trim().toLowerCase();
-    return Object.values(sessions)
-      .filter(
-        (session) =>
-          !session.isDraft &&
-          !session.hiddenFromThreads &&
-          !linked.has(session.id) &&
-          (session.title || '').trim().length > 0 &&
-          (!trimmed || session.title.toLowerCase().includes(trimmed))
-      )
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 12);
-  }, [sessions, linked, query]);
-
-  return (
-    <div
-      ref={containerRef}
-      className="popover-surface absolute right-0 top-full z-40 mt-1.5 w-[340px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--popover-bg,var(--preview-surface))] shadow-xl"
-    >
-      <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5 text-[var(--text-muted)]">
-        <Search className="h-3.5 w-3.5 flex-shrink-0" />
-        <input
-          autoFocus
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search sessions…"
-          className="w-full bg-transparent text-[12.5px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-        />
-      </div>
-      <div className="px-3 pb-1 pt-2.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
-        Recent sessions not on the board
-      </div>
-      <div className="max-h-[280px] overflow-y-auto pb-1.5">
-        {candidates.length === 0 ? (
-          <div className="px-3 py-4 text-center text-[12px] text-[var(--text-muted)]">
-            No matching sessions
-          </div>
-        ) : (
-          candidates.map((session) => {
-            const destination =
-              session.status === 'running' || session.status === 'stopping'
-                ? 'Working'
-                : session.status === 'completed'
-                  ? 'Review'
-                  : 'Inbox';
-            return (
-              <button
-                key={session.id}
-                type="button"
-                onClick={() => onAddSession(session)}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--sidebar-item-hover)]"
-              >
-                {session.status === 'running' || session.status === 'stopping' ? (
-                  <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin text-[var(--text-muted)]" />
-                ) : (
-                  <span
-                    className={`status-dot flex-shrink-0 ${
-                      session.status === 'completed'
-                        ? 'completed'
-                        : session.status === 'error'
-                          ? 'error'
-                          : 'idle'
-                    }`}
-                    style={{ width: 6, height: 6 }}
-                  />
-                )}
-                <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--text-primary)]">
-                  {session.title}
-                </span>
-                <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">
-                  {projectName(session.projectCwd || session.cwd || null)}
-                </span>
-                <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">
-                  → {destination}
-                </span>
-              </button>
-            );
-          })
-        )}
-      </div>
-      <p className="border-t border-[var(--border)] px-3 py-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
-        A session joins the column that matches its state — running goes to Working, finished to
-        Review.
-      </p>
-    </div>
   );
 }
 
@@ -885,7 +757,7 @@ function BoardTaskComposer({
                 {task ? 'Edit task' : 'New task'}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-[12.5px] text-[var(--text-muted)]">
-                Keep it in Inbox for later, or start an agent without leaving the board.
+                Keep it in Backlog for later, or start an agent without leaving the board.
               </Dialog.Description>
             </div>
             <Dialog.Close className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]">
@@ -1002,7 +874,7 @@ function BoardTaskComposer({
               onClick={() => void submit(false)}
               className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Save to Inbox
+              Save to Backlog
             </button>
             <button
               type="button"

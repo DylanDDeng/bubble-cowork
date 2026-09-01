@@ -464,6 +464,10 @@ body {
 :root {
   --chat-pane-surface: var(--bg-primary);
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  /* Board lanes want a visibly gray track even on the plain (no-skin) canvas.
+     Mix toward ink, not --bg-secondary: in light themes the panel color is
+     anchored to white, so it's indistinguishable from the canvas. */
+  --board-column-surface: color-mix(in srgb, var(--text-primary) 6%, var(--bg-primary));
   --utility-pane-surface: var(--bg-primary);
   --utility-pane-surface-strong: var(--bg-primary);
   --utility-pane-backdrop: none;
@@ -480,6 +484,7 @@ body {
 .aegis-skin-host--active {
   --chat-pane-surface: transparent;
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
+  --board-column-surface: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
   --utility-pane-surface: color-mix(in srgb, var(--bg-primary) 58%, transparent);
   --utility-pane-surface-strong: color-mix(in srgb, var(--bg-primary) 72%, transparent);
   --utility-pane-backdrop: blur(14px) saturate(120%);
