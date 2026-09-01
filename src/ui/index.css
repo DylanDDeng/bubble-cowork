@@ -25,6 +25,7 @@
 /* Theme variables - Light */
 :root {
   --bg-primary: #FCFCFC;
+  --app-chrome-bg: #F4F4F4;
   --bg-secondary: rgba(0, 0, 0, 0.025);
   --bg-tertiary: #F5F5F7;
   --text-primary: #1A1A1A;
@@ -144,6 +145,7 @@
 /* Dark theme */
 .dark {
   --bg-primary: #0E0E0E;
+  --app-chrome-bg: #161616;
   --bg-secondary: rgba(255, 255, 255, 0.04);
   --bg-tertiary: rgba(255, 255, 255, 0.06);
   --text-primary: #E5E5E5;
@@ -448,7 +450,7 @@ body {
 }
 
 .aegis-window-shell {
-  background-color: var(--bg-primary);
+  background-color: var(--app-chrome-bg);
 }
 
 .aegis-window-shell--rounded .aegis-sidebar,
@@ -3347,27 +3349,12 @@ button.aegis-mdx-metadata-key:hover {
   background-color: var(--text-muted);
 }
 
-.status-dot.running {
-  background-color: var(--accent);
-  animation: pulse 1.5s infinite;
-}
-
 .status-dot.completed {
-  background-color: var(--success);
+  background-color: var(--accent);
 }
 
 .status-dot.error {
   background-color: var(--error);
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
 }
 
 /* Loading spinner (3x3 grid) */
@@ -3801,22 +3788,6 @@ button.aegis-mdx-metadata-key:hover {
   to {
     transform: translateX(0);
     opacity: 1;
-  }
-}
-
-/* Enhanced status dot pulse animation */
-.status-dot.running {
-  animation: statusPulse 1.5s infinite ease-in-out;
-}
-
-@keyframes statusPulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(0.9);
   }
 }
 

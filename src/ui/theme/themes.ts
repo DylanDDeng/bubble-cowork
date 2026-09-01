@@ -746,6 +746,12 @@ export function buildThemeVariables(
 
   return {
     '--bg-primary': surfaceUnder,
+    // The window "base plate" the content card floats on — one step away
+    // from the surface so the card reads as raised in every theme pack.
+    '--app-chrome-bg':
+      variant === 'light'
+        ? mixHex(pack.theme.surface, pack.theme.ink, 0.045)
+        : mixHex(pack.theme.surface, '#ffffff', 0.045),
     '--bg-secondary': panel,
     '--bg-tertiary': elevatedSecondary,
     '--text-primary': pack.theme.ink,

@@ -15,8 +15,6 @@ import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
-import { SidebarHeaderTrigger } from './Sidebar';
-import { SessionHistoryButtons } from './SessionHistoryButtons';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import {
   PermissionModePicker,
@@ -63,7 +61,6 @@ export function NewSessionView() {
     pendingStart,
     projectCwd,
     activeChannelByProject,
-    sidebarCollapsed,
     setPendingStart,
     setProjectCwd,
     setActiveChannelForProject,
@@ -575,17 +572,6 @@ export function NewSessionView() {
 
   return (
     <div className="flex-1 min-w-0 flex flex-col">
-      <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
-        <div className="flex h-full items-center px-3">
-          {sidebarCollapsed ? (
-            <>
-              <SidebarHeaderTrigger className="ml-[72px]" />
-              <SessionHistoryButtons />
-            </>
-          ) : null}
-        </div>
-      </div>
-
       <NewThreadLanding heading={heading}>
             <div className="group relative rounded-[18px] bg-[var(--bg-secondary)] shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
               {projectFileMentions.hasMentionQuery ? (

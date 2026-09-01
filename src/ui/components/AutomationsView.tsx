@@ -14,8 +14,6 @@ import {
   Workflow,
   X,
 } from './icons';
-import { SidebarHeaderTrigger } from './Sidebar';
-import { SessionHistoryButtons } from './SessionHistoryButtons';
 import { useAppStore } from '../store/useAppStore';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
@@ -202,7 +200,6 @@ function providerLabel(provider: AgentProvider): string {
 
 export function AutomationsView() {
   const {
-    sidebarCollapsed,
     projectCwd,
     setActiveWorkspace,
     setActiveSession,
@@ -368,17 +365,6 @@ export function AutomationsView() {
 
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
-      <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0 bg-[var(--bg-primary)]`}>
-        <div className="flex h-full items-center px-3">
-          {sidebarCollapsed ? (
-            <>
-              <SidebarHeaderTrigger className="ml-[72px]" />
-              <SessionHistoryButtons />
-            </>
-          ) : null}
-        </div>
-      </div>
-
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-7 px-8 pb-7 pt-4">
           <header className="flex items-start justify-between gap-4">
