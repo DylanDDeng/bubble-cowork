@@ -8,7 +8,18 @@ import {
 } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
 import { toast } from 'sonner';
-import { Check, ChevronDown, Folder, FolderOpen, Loader2, Play, Plus, X } from './icons';
+import {
+  Check,
+  ChevronDown,
+  Folder,
+  FolderOpen,
+  Loader2,
+  Play,
+  Plus,
+  SlidersHorizontal,
+  X,
+} from './icons';
+import { SettingsToggle } from './settings/SettingsPrimitives';
 import { AgentIcon, ComposerAgentModelPicker } from './ComposerAgentControls';
 import { BoardTaskDetail } from './BoardTaskDetail';
 import { confirmDialog } from './ui/confirm-dialog';
@@ -57,6 +68,8 @@ export function BoardView() {
   // Lifted to the store so app tabs can bookmark and restore the open task.
   const selectedTaskId = useBoardStore((state) => state.selectedTaskId);
   const setSelectedTaskId = useBoardStore((state) => state.setSelectedTask);
+  const showEmptyColumns = useBoardStore((state) => state.showEmptyColumns);
+  const setShowEmptyColumns = useBoardStore((state) => state.setShowEmptyColumns);
   const [composerTaskId, setComposerTaskId] = useState<string | null | undefined>(undefined);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [dragOverStage, setDragOverStage] = useState<BoardStage | null>(null);
@@ -290,6 +303,10 @@ export function BoardView() {
             countFor={(key) => taskList.filter((task) => (task.projectCwd || '') === key).length}
             onSelect={setProjectFilter}
           />
+          <BoardOptionsMenu
+            showEmptyColumns={showEmptyColumns}
+            onShowEmptyColumnsChange={setShowEmptyColumns}
+          />
           <button
             type="button"
             onClick={() => setComposerTaskId(null)}
@@ -302,7 +319,7 @@ export function BoardView() {
       </div>
 
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-5 pb-5">
-        {BOARD_STAGES.map((stage) => {
+        {BOARD_STAGES.filter((stage) => showEmptyColumns || byStage[stage].length > 0).map((stage) => {
           const meta = STAGE_META[stage];
           const stageTasks = byStage[stage];
           return (
@@ -506,6 +523,66 @@ function ProjectFilterMenu({
               }}
             />
           ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Linear-style board display options behind a sliders button. */
+function BoardOptionsMenu({
+  showEmptyColumns,
+  onShowEmptyColumnsChange,
+}: {
+  showEmptyColumns: boolean;
+  onShowEmptyColumnsChange: (value: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-label="Board options"
+        className={`inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] ${
+          open
+            ? 'bg-[var(--sidebar-item-hover)] text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)]'
+        }`}
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+      </button>
+      {open ? (
+        <div className="popover-surface absolute right-0 top-full z-40 mt-1.5 w-[240px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--popover-bg,var(--preview-surface))] py-2 shadow-lg">
+          <div className="px-3 pb-1.5 text-[11.5px] font-medium text-[var(--text-muted)]">
+            Board options
+          </div>
+          <div className="flex items-center justify-between gap-3 px-3 py-1.5">
+            <span className="text-[12.5px] text-[var(--text-primary)]">Show empty columns</span>
+            <SettingsToggle
+              checked={showEmptyColumns}
+              onChange={onShowEmptyColumnsChange}
+              ariaLabel="Show empty columns"
+            />
+          </div>
         </div>
       ) : null}
     </div>

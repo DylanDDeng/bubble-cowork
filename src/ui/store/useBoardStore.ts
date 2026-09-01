@@ -125,6 +125,9 @@ export interface BoardStore {
    */
   selectedTaskId: string | null;
   setSelectedTask: (taskId: string | null) => void;
+  /** Board option: render stages that currently hold no tasks. */
+  showEmptyColumns: boolean;
+  setShowEmptyColumns: (value: boolean) => void;
   /**
    * Sessions the user removed from the board. Every chat session
    * auto-materializes as a card, so removal must be remembered or the next
@@ -284,6 +287,9 @@ export const useBoardStore = create<BoardStore>()(
 
       selectedTaskId: null,
       setSelectedTask: (taskId) => set({ selectedTaskId: taskId }),
+
+      showEmptyColumns: true,
+      setShowEmptyColumns: (value) => set({ showEmptyColumns: value }),
 
       excludedSessionIds: {},
     }),
