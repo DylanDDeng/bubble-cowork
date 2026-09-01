@@ -181,13 +181,20 @@ export function BoardView() {
 
   // Send a follow-up prompt to the task's latest run without leaving the
   // board. Review/Done/Canceled cards move back to Working — the agent is on
-  // it again.
-  const continueTask = (task: BoardTask, prompt: string): boolean => {
+  // it again. The composer opens a new thread card (`newCard`, the default);
+  // an in-card reply continues the current card.
+  const continueTask = (
+    task: BoardTask,
+    prompt: string,
+    opts?: { newCard?: boolean }
+  ): boolean => {
     const latest = latestTaskSession(task, sessions);
     if (!latest) {
       toast.error('This task has no session to continue.');
       return false;
     }
+    // Recorded before the send so the mark precedes the message timestamp.
+    useBoardStore.getState().markFollowUp(task.id, opts?.newCard !== false);
     window.electron.sendClientEvent({
       type: 'session.continue',
       payload: { sessionId: latest.id, prompt },
@@ -265,7 +272,7 @@ export function BoardView() {
           onRename={(title) => renameTask(selectedTask.id, title)}
           onUpdatePrompt={(prompt) => updateTask(selectedTask.id, { prompt })}
           onStart={() => void startTask(selectedTask)}
-          onContinue={(prompt) => continueTask(selectedTask, prompt)}
+          onContinue={(prompt, opts) => continueTask(selectedTask, prompt, opts)}
           onEdit={() => setComposerTaskId(selectedTask.id)}
         />
       ) : (

@@ -83,6 +83,19 @@ export interface BoardTask {
   unread: boolean;
   /** System events, oldest first, capped at EVENT_CAP. */
   events: BoardTaskEvent[];
+  /**
+   * Send-time markers: whether the follow-up sent at `at` opened a new
+   * thread card (bottom composer) or continued the current one (in-card
+   * reply). Rounds without a marker (pre-feature history) fall back to
+   * splitting where system events interleave.
+   */
+  cardMarks?: Array<{ at: number; newCard: boolean }>;
+  /**
+   * The latest run status this board has already reacted to. Persisted so
+   * the stage observer survives reloads: a run that finishes while nothing
+   * is watching must still hand the task from Working to Review.
+   */
+  lastRunStatus?: string;
 }
 
 export interface BoardStore {
@@ -100,6 +113,8 @@ export interface BoardStore {
     patch: Partial<Pick<BoardTask, 'title' | 'prompt' | 'projectCwd' | 'sessionConfig'>>
   ) => void;
   setStage: (taskId: string, stage: BoardStage, opts?: { auto?: boolean }) => void;
+  /** Record whether the follow-up being sent opens a new thread card. */
+  markFollowUp: (taskId: string, newCard: boolean) => void;
   renameTask: (taskId: string, title: string) => void;
   attachSession: (taskId: string, sessionId: string) => void;
   removeTask: (taskId: string) => void;
@@ -152,6 +167,7 @@ export const useBoardStore = create<BoardStore>()(
               updatedAt: now,
               unread: false,
               events: [{ type: 'created', at: now }],
+              cardMarks: [],
             },
           },
         }));
@@ -208,6 +224,14 @@ export const useBoardStore = create<BoardStore>()(
               },
             },
           };
+        }),
+
+      markFollowUp: (taskId, newCard) =>
+        set((state) => {
+          const task = state.tasks[taskId];
+          if (!task) return state;
+          const marks = [...(task.cardMarks ?? []), { at: Date.now(), newCard }].slice(-100);
+          return { tasks: { ...state.tasks, [taskId]: { ...task, cardMarks: marks } } };
         }),
 
       renameTask: (taskId, title) =>
@@ -330,8 +354,6 @@ export function sessionIdsOnBoard(tasks: Record<string, BoardTask>): Set<string>
 // moves a card into Done.
 // ---------------------------------------------------------------------------
 
-const lastSeenStatus = new Map<string, string>();
-
 /** Append a system event without touching updatedAt (no reorder side effects). */
 function recordTaskEvent(taskId: string, event: BoardTaskEvent): void {
   useBoardStore.setState((state) => {
@@ -343,25 +365,69 @@ function recordTaskEvent(taskId: string, event: BoardTaskEvent): void {
   });
 }
 
+function setTaskRunStatus(taskId: string, status: string): void {
+  useBoardStore.setState((state) => {
+    const task = state.tasks[taskId];
+    if (!task) return state;
+    return { tasks: { ...state.tasks, [taskId]: { ...task, lastRunStatus: status } } };
+  });
+}
+
+/** The automated working → review handoff, with its unread flag and event. */
+function moveWorkingTaskToReview(taskId: string): void {
+  useBoardStore.setState((state) => {
+    const current = state.tasks[taskId];
+    if (!current || current.stage !== 'working') return state;
+    const now = Date.now();
+    return {
+      tasks: {
+        ...state.tasks,
+        [taskId]: {
+          ...current,
+          stage: 'review',
+          unread: true,
+          updatedAt: now,
+          events: withEvent(current.events, {
+            type: 'stage',
+            at: now,
+            from: 'working',
+            to: 'review',
+            auto: true,
+          }),
+        },
+      },
+    };
+  });
+}
+
 function syncStagesFromSessions(sessions: Record<string, SessionView>): void {
   const { tasks, setStage } = useBoardStore.getState();
   for (const task of Object.values(tasks)) {
     const session = latestTaskSession(task, sessions);
     if (!session) continue;
-    const previous = lastSeenStatus.get(task.id);
-    lastSeenStatus.set(task.id, session.status);
+    // The observed status lives ON the task, not in module state: a reload
+    // (or dev hot-update) between "running" and "completed" must not make
+    // the observer forget a run was in flight.
+    const previous = task.lastRunStatus;
     if (previous === session.status) continue;
-    // Run lifecycle events. `previous === undefined` is the first pass after
-    // app launch — the status is not a transition, so nothing is recorded.
-    if (previous !== undefined) {
-      const wasRunning = previous === 'running' || previous === 'stopping';
-      if (session.status === 'running' && !wasRunning) {
-        recordTaskEvent(task.id, { type: 'run-started', at: Date.now() });
-      } else if (wasRunning && session.status === 'completed') {
+    setTaskRunStatus(task.id, session.status);
+    if (previous === undefined) {
+      // First observation ever for this task. There is no transition to
+      // derive events from — except a run that finished while nothing was
+      // watching: Working + completed means the handoff is still owed.
+      if (task.stage === 'working' && session.status === 'completed') {
         recordTaskEvent(task.id, { type: 'run-completed', at: Date.now() });
-      } else if (wasRunning && session.status === 'error') {
-        recordTaskEvent(task.id, { type: 'run-failed', at: Date.now() });
+        moveWorkingTaskToReview(task.id);
       }
+      continue;
+    }
+    const wasRunning = previous === 'running' || previous === 'stopping';
+    if (session.status === 'running' && !wasRunning) {
+      recordTaskEvent(task.id, { type: 'run-started', at: Date.now() });
+    } else if (wasRunning && session.status === 'completed') {
+      recordTaskEvent(task.id, { type: 'run-completed', at: Date.now() });
+    } else if (wasRunning && session.status === 'error') {
+      recordTaskEvent(task.id, { type: 'run-failed', at: Date.now() });
     }
     if ((task.stage === 'backlog' || task.stage === 'todo') && session.status === 'running') {
       setStage(task.id, 'working', { auto: true });
@@ -370,29 +436,7 @@ function syncStagesFromSessions(sessions: Record<string, SessionView>): void {
       previous === 'running' &&
       session.status === 'completed'
     ) {
-      useBoardStore.setState((state) => {
-        const current = state.tasks[task.id];
-        if (!current || current.stage !== 'working') return state;
-        const now = Date.now();
-        return {
-          tasks: {
-            ...state.tasks,
-            [task.id]: {
-              ...current,
-              stage: 'review',
-              unread: true,
-              updatedAt: now,
-              events: withEvent(current.events, {
-                type: 'stage',
-                at: now,
-                from: 'working',
-                to: 'review',
-                auto: true,
-              }),
-            },
-          },
-        };
-      });
+      moveWorkingTaskToReview(task.id);
     }
   }
 }

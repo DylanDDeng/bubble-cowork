@@ -120,7 +120,7 @@ export function BoardTaskDetail({
   onUpdatePrompt: (prompt: string) => void;
   onStart: () => void;
   /** Send a follow-up prompt to the latest run. Returns false if it could not send. */
-  onContinue: (prompt: string) => boolean;
+  onContinue: (prompt: string, opts?: { newCard?: boolean }) => boolean;
   onEdit: () => void;
 }) {
   const requestSessionHydration = useAppStore((state) => state.requestSessionHydration);
@@ -190,8 +190,10 @@ export function BoardTaskDetail({
   // fired at the same moment (stage moved as the round was sent) sort ahead
   // of the round card.
   const activityEntries = useMemo<ActivityEntry[]>(() => {
-    const merged: Array<ActivityEntry | { kind: 'event'; event: BoardTaskEvent; time: number }> =
-      [];
+    const merged: Array<
+      | Extract<ActivityEntry, { kind: 'round' }>
+      | { kind: 'event'; event: BoardTaskEvent; time: number }
+    > = [];
     task.sessionIds.forEach((sessionId, index) => {
       const session = sessions[sessionId];
       const runNumber = index + 1;
@@ -215,16 +217,38 @@ export function BoardTaskDetail({
         else rounds[rounds.length - 1].push(item);
       }
       if (rounds.length === 0) rounds.push([]);
+      // Group rounds into thread cards. Sends record their intent: the
+      // bottom composer marks `newCard`, an in-card reply marks the
+      // opposite. Rounds without a marker (pre-feature history) split
+      // where system events interleave, so those events keep their place
+      // in the timeline instead of piling up under one giant card.
+      const marks = task.cardMarks ?? [];
+      const events = task.events ?? [];
+      let card: Extract<ActivityEntry, { kind: 'round' }> | null = null;
+      let prevTime = -Infinity;
       rounds.forEach((items, roundIndex) => {
-        merged.push({
-          kind: 'round',
-          sessionId,
-          runNumber,
-          firstOfRun: roundIndex === 0,
-          lastOfRun: roundIndex === rounds.length - 1,
-          items,
-          time: items[0]?.time ?? fallbackTime + roundIndex,
-        });
+        const time = items[0]?.time ?? fallbackTime + roundIndex;
+        const lastOfRun = roundIndex === rounds.length - 1;
+        const mark = marks.filter((m) => m.at > prevTime && m.at <= time).pop();
+        const opensCard = mark
+          ? mark.newCard
+          : events.some((e) => e.at > prevTime && e.at <= time);
+        if (card && !opensCard) {
+          card.items = [...card.items, ...items];
+          card.lastOfRun = lastOfRun;
+        } else {
+          card = {
+            kind: 'round',
+            sessionId,
+            runNumber,
+            firstOfRun: roundIndex === 0,
+            lastOfRun,
+            items,
+            time,
+          };
+          merged.push(card);
+        }
+        prevTime = time;
       });
     });
     for (const event of task.events ?? []) merged.push({ kind: 'event', event, time: event.at });
@@ -233,7 +257,7 @@ export function BoardTaskDetail({
     );
     const entries: ActivityEntry[] = [];
     for (const item of merged) {
-      if (item.kind !== 'event') {
+      if (item.kind === 'round') {
         entries.push(item);
         continue;
       }
@@ -242,7 +266,17 @@ export function BoardTaskDetail({
       else entries.push({ kind: 'events', events: [item.event], time: item.time });
     }
     return entries;
-  }, [task.sessionIds, task.events, task.createdAt, sessions]);
+  }, [task.sessionIds, task.events, task.cardMarks, task.createdAt, sessions]);
+
+  // The reply box lives on the newest thread card only: replying targets the
+  // latest run's context, so offering it on older cards would misplace the
+  // agent's answer.
+  const lastCardIndex = useMemo(() => {
+    for (let i = activityEntries.length - 1; i >= 0; i -= 1) {
+      if (activityEntries[i].kind === 'round') return i;
+    }
+    return -1;
+  }, [activityEntries]);
 
   const hasLinkedSession = task.sessionIds.length > 0;
   const hasDistinctDescription =
@@ -413,6 +447,11 @@ export function BoardTaskDetail({
                         showRunNumber={task.sessionIds.length > 1 && entry.firstOfRun}
                         showExtras={entry.lastOfRun}
                         onOpenSession={onOpenSession}
+                        onReply={
+                          index === lastCardIndex && hasLinkedSession
+                            ? (prompt) => onContinue(prompt, { newCard: false })
+                            : undefined
+                        }
                       />
                     ) : (
                       <EventGroup key={`events-${index}`} events={entry.events} />
@@ -612,9 +651,10 @@ export function BoardTaskDetail({
 }
 
 /**
- * One conversation round as a Linear-style thread card: a user message and
- * the agent's replies to it. Run-level extras (change summary, permission
- * waits, failure) render only on the run's last round, where they are
+ * A Linear-style thread card: one topic's rounds of conversation. The
+ * bottom composer opens a new card; the in-card reply box (newest card
+ * only) continues this one. Run-level extras (change summary, permission
+ * waits, failure) render only on the run's last card, where they are
  * current.
  */
 function RoundCard({
@@ -624,6 +664,7 @@ function RoundCard({
   showRunNumber,
   showExtras,
   onOpenSession,
+  onReply,
 }: {
   session: SessionView | null;
   items: TimelineItem[];
@@ -631,8 +672,11 @@ function RoundCard({
   showRunNumber: boolean;
   showExtras: boolean;
   onOpenSession: (sessionId: string) => void;
+  /** Present on the newest card only: send a reply that stays in this card. */
+  onReply?: (prompt: string) => boolean;
 }) {
   const profileName = useUserProfile()?.displayName || null;
+  const [replyDraft, setReplyDraft] = useState('');
 
   const changeSummary = useMemo(() => {
     if (!showExtras || !session?.hydrated) return null;
@@ -661,7 +705,14 @@ function RoundCard({
   const needsPermission = showExtras && running && session.permissionRequests.length > 0;
   const showFailed = showExtras && session.status === 'error';
   // A fully empty card (hydrated round with nothing to show) renders nothing.
-  if (session.hydrated && items.length === 0 && !changeSummary && !needsPermission && !showFailed) {
+  if (
+    session.hydrated &&
+    items.length === 0 &&
+    !changeSummary &&
+    !needsPermission &&
+    !showFailed &&
+    !onReply
+  ) {
     return null;
   }
 
@@ -757,6 +808,23 @@ function RoundCard({
             ) : null}
           </>
         )}
+        {onReply ? (
+          <div className="flex items-center gap-2 py-2.5">
+            <UserAvatar name={profileName} />
+            <input
+              value={replyDraft}
+              onChange={(event) => setReplyDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                const prompt = replyDraft.trim();
+                if (prompt && onReply(prompt)) setReplyDraft('');
+              }}
+              placeholder="Leave a reply…"
+              aria-label="Reply in this thread"
+              className="min-w-0 flex-1 bg-transparent text-[12.5px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );
