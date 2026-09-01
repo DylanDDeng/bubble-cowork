@@ -308,7 +308,7 @@ export function BoardView() {
           return (
             <section
               key={stage}
-              className={`flex min-h-0 min-w-[250px] max-w-[340px] flex-1 flex-col rounded-xl bg-[var(--board-column-surface)] transition-colors ${
+              className={`flex min-h-0 w-[348px] flex-shrink-0 flex-col rounded-xl bg-[var(--board-column-surface)] transition-colors ${
                 dragOverStage === stage ? 'bg-[var(--sidebar-item-active)]' : ''
               }`}
               onDragOver={(event) => {
@@ -330,12 +330,7 @@ export function BoardView() {
                 <span className="text-[12px] text-[var(--text-muted)]">{stageTasks.length}</span>
               </div>
               <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
-                {stageTasks.length === 0 ? (
-                  <div className="rounded-[10px] border border-dashed border-[var(--composer-chip-border)] px-3 py-4 text-center text-[12px] text-[var(--text-muted)]">
-                    No tasks
-                  </div>
-                ) : (
-                  stageTasks.map((task) => (
+                {stageTasks.map((task) => (
                     <BoardCard
                       key={task.id}
                       task={task}
@@ -363,8 +358,7 @@ export function BoardView() {
                         setCardMenu({ taskId: task.id, x: event.clientX, y: event.clientY });
                       }}
                     />
-                  ))
-                )}
+                ))}
               </div>
             </section>
           );

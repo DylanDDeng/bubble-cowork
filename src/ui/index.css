@@ -108,7 +108,9 @@
   --sidebar-segment-bg: rgba(0, 0, 0, 0.06);
   --sidebar-segment-active: rgba(0, 0, 0, 0.03);
   --sidebar-segment-shadow-active: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --app-sidebar-surface: rgba(252, 252, 252, 0.72);
+  /* Same plate as the window chrome: the sidebar and the app base read as
+     one continuous surface (Linear-style) — only the content card is raised. */
+  --app-sidebar-surface: var(--app-chrome-bg);
   --panel-soft-divider: rgba(17, 24, 39, 0.075);
   --border-focus: rgba(0, 0, 0, 0.18);
   --focus-ring: rgba(0, 0, 0, 0.12);
@@ -466,8 +468,9 @@ body {
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
   /* Board lanes want a visibly gray track even on the plain (no-skin) canvas.
      Mix toward ink, not --bg-secondary: in light themes the panel color is
-     anchored to white, so it's indistinguishable from the canvas. */
-  --board-column-surface: color-mix(in srgb, var(--text-primary) 6%, var(--bg-primary));
+     anchored to white, so it's indistinguishable from the canvas. Kept
+     subtle (Linear-like): the lane should read as a track, not a slab. */
+  --board-column-surface: color-mix(in srgb, var(--text-primary) 3%, var(--bg-primary));
   --utility-pane-surface: var(--bg-primary);
   --utility-pane-surface-strong: var(--bg-primary);
   --utility-pane-backdrop: none;

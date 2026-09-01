@@ -1005,7 +1005,7 @@ export function App() {
           conversation and the utility workspace (including fullscreen). */}
       <div
         ref={skinHostRef}
-        className={`aegis-skin-host relative mx-1.5 mb-1.5 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_3px_rgba(15,18,25,0.04)] ${
+        className={`aegis-skin-host relative mx-1.5 mb-1.5 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[10px] bg-[var(--bg-primary)] shadow-[0_1px_4px_rgba(15,18,25,0.06)] ${
           skinVisible ? 'aegis-skin-host--active' : ''
         }`}
       >

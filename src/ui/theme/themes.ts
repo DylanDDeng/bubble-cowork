@@ -702,9 +702,13 @@ export function buildThemeVariables(
   const contextPanelSurface = variant === 'light'
     ? mixHex(panel, '#ffffff', 0.2)
     : mixHex(panel, '#ffffff', 0.02 + theme.contrast * 0.02);
-  const sidebarBase = variant === 'light'
-    ? mixHex(surfaceUnder, pack.theme.ink, 0.01 + theme.contrast * 0.005)
-    : mixHex(surfaceUnder, '#000000', 0.08);
+  // The sidebar shares the chrome plate so the two read as one continuous
+  // surface — any tone difference at their seam shows up as a fake divider.
+  const chromeBg =
+    variant === 'light'
+      ? mixHex(pack.theme.surface, pack.theme.ink, 0.045)
+      : mixHex(pack.theme.surface, '#ffffff', 0.045);
+  const sidebarBase = chromeBg;
   const sidebarSurface = pack.theme.opaqueWindows
     ? sidebarBase
     : `color-mix(in srgb, ${sidebarBase} 72%, transparent)`;
@@ -748,10 +752,7 @@ export function buildThemeVariables(
     '--bg-primary': surfaceUnder,
     // The window "base plate" the content card floats on — one step away
     // from the surface so the card reads as raised in every theme pack.
-    '--app-chrome-bg':
-      variant === 'light'
-        ? mixHex(pack.theme.surface, pack.theme.ink, 0.045)
-        : mixHex(pack.theme.surface, '#ffffff', 0.045),
+    '--app-chrome-bg': chromeBg,
     '--bg-secondary': panel,
     '--bg-tertiary': elevatedSecondary,
     '--text-primary': pack.theme.ink,

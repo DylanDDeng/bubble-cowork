@@ -613,7 +613,7 @@ export function Sidebar() {
                     // during 'closing' so the fade-out transition is visible.
                     'fixed bottom-0 left-0 top-0 z-[80] rounded-r-[12px] shadow-[24px_0_60px_rgba(15,23,42,0.18)]'
                   : 'relative h-full'
-              } flex min-h-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--app-sidebar-surface)] transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              } flex min-h-0 flex-col overflow-hidden bg-[var(--app-sidebar-surface)] transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                 peekVisible || !sidebarCollapsed
                   ? 'translate-x-0 opacity-100'
                   : '-translate-x-2 opacity-0'
