@@ -886,6 +886,46 @@ body {
   font-weight: 600;
 }
 
+.markdown-content.board-activity-markdown {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.markdown-content.board-activity-markdown h1,
+.markdown-content.board-activity-markdown h2,
+.markdown-content.board-activity-markdown h3 {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 0.7rem 0 0.2rem;
+}
+
+.markdown-content.board-activity-markdown h1:first-child,
+.markdown-content.board-activity-markdown h2:first-child,
+.markdown-content.board-activity-markdown h3:first-child,
+.markdown-content.board-activity-markdown p:first-child {
+  margin-top: 0;
+}
+
+.markdown-content.board-activity-markdown p {
+  margin: 0.3rem 0;
+}
+
+.markdown-content.board-activity-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content.board-activity-markdown ul,
+.markdown-content.board-activity-markdown ol {
+  margin: 0.25rem 0;
+  padding-left: 1.1rem;
+}
+
+.markdown-content.board-activity-markdown strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .markdown-content ul,
 .markdown-content ol {
   margin: 0.42rem 0;

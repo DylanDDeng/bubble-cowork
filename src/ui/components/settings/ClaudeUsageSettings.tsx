@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { avatarColorFor, initialsOf } from '../../utils/user-avatar';
 import claudeLogo from '../../assets/claude-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import grokLogo from '../../assets/grok.svg';
@@ -387,26 +388,6 @@ export function ClaudeUsageSettingsContent() {
 }
 
 /* ---------- Profile header ---------- */
-
-const AVATAR_COLORS = ['#0F9D90', '#315EFB', '#D97757', '#7C3AED', '#DB2777', '#B45309', '#15803D'];
-
-function avatarColorFor(name: string): string {
-  let hash = 0;
-  for (let index = 0; index < name.length; index += 1) {
-    hash = (hash * 31 + name.charCodeAt(index)) | 0;
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
-function initialsOf(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return '?';
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return `${words[0][0]}${words[1][0]}`.toUpperCase();
-  }
-  return trimmed.slice(0, 2).toUpperCase();
-}
 
 function UsageProfileHeader({
   profile,

@@ -36,6 +36,8 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
 import { AutomationsView } from './components/AutomationsView';
 import { PullRequestsView } from './components/PullRequestsView';
+import { BoardView } from './components/BoardView';
+import { ensureBoardSessionSync } from './store/useBoardStore';
 import { NewSessionView } from './components/NewSessionView';
 import { LogoShimmer } from './components/LogoShimmer';
 import { SessionHistoryButtons } from './components/SessionHistoryButtons';
@@ -363,6 +365,12 @@ export function App() {
   // can complete while its session is shown nowhere.
   useEffect(() => {
     startQueueAutoFlush();
+  }, []);
+
+  // Board stage sync must run even while the board isn't mounted: a run
+  // finishing in the background should still move its card to Review.
+  useEffect(() => {
+    ensureBoardSessionSync();
   }, []);
 
   useEffect(() => {
@@ -1018,6 +1026,8 @@ export function App() {
         <AutomationsView />
       ) : activeWorkspace === 'prs' ? (
         <PullRequestsView />
+      ) : activeWorkspace === 'board' ? (
+        <BoardView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
         <div
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--chat-pane-surface)]"

@@ -5167,6 +5167,21 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return generateSessionTitle(prompt);
   });
 
+  // Board/background starts need the real persisted session id without
+  // routing through a renderer draft. `handleSessionStart` can still return
+  // null when runtime setup fails after the row is created, so capture the id
+  // at creation time and report both facts to the caller.
+  ipcMainHandle('session-start-background', async (_, payload: SessionStartPayload) => {
+    let createdSessionId: string | null = null;
+    const startedSessionId = await handleSessionStart(mainWindow, payload, (sessionId) => {
+      createdSessionId = sessionId;
+    });
+    return {
+      ok: Boolean(startedSessionId),
+      sessionId: startedSessionId || createdSessionId,
+    };
+  });
+
   // Fork a codex/opencode/kimi conversation: fork the provider-side thread
   // through the adapter (codex `thread/fork`, opencode `session.fork`, kimi
   // server `:fork`), then mirror the Aegis session row and transcript so both
@@ -8827,7 +8842,8 @@ function handleSessionList(mainWindow: BrowserWindow): void {
 // 新建会话
 async function handleSessionStart(
   mainWindow: BrowserWindow,
-  payload: SessionStartPayload
+  payload: SessionStartPayload,
+  onCreated?: (sessionId: string) => void
 ): Promise<string | null> {
   const {
     title,
@@ -9027,6 +9043,7 @@ async function handleSessionStart(
     teamMode: normalizedTeamMode,
     teamId: normalizedTeamId,
   });
+  onCreated?.(session.id);
 
   // 更新状态为 running
   sessions.updateSessionStatus(session.id, 'running');

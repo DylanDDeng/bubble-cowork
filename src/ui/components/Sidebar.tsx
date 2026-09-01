@@ -10,6 +10,7 @@ import {
 import {
   Bell,
   BellDot,
+  Columns2,
   FolderOpen,
   GitPullRequest,
   Script,
@@ -19,6 +20,7 @@ import {
   Clock,
 } from './icons';
 import { useAppStore } from '../store/useAppStore';
+import { useBoardStore } from '../store/useBoardStore';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
 import type {
   SidebarSearchAction,
@@ -148,6 +150,10 @@ export function Sidebar() {
   const startWidthRef = useRef(sidebarWidth);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const newThreadCwd = activeSession?.cwd || projectCwd;
+  // Badge = cards waiting for YOUR review, not the board's total size.
+  const boardReviewCount = useBoardStore((state) =>
+    Object.values(state.tasks).reduce((count, task) => count + (task.stage === 'review' ? 1 : 0), 0)
+  );
   // runtimeNotice = 任务在后台结束但用户还没点开看（查看后自动清除），
   // 铃铛上的小圆点就是这个未读信号，和 Codex 的 activity badge 一致。
   const hasUnviewedFinishedSession = Object.values(sessions).some((session) =>
@@ -684,6 +690,17 @@ export function Sidebar() {
                   <div className="pb-2 pt-0.5">
                     <div className="space-y-0.5">
                       <SidebarNavRow
+                        icon={<Columns2 className="h-[15px] w-[15px]" />}
+                        label="Board"
+                        active={activeWorkspace === 'board'}
+                        badge={boardReviewCount}
+                        onClick={() => {
+                          setActiveWorkspace('board');
+                          setChatSidebarView('threads');
+                          setShowSettings(false);
+                        }}
+                      />
+                      <SidebarNavRow
                         icon={<Clock className="h-[15px] w-[15px]" />}
                         label="Automations"
                         active={activeWorkspace === 'automations'}
@@ -800,11 +817,14 @@ function SidebarNavRow({
   icon,
   label,
   active,
+  badge,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   active?: boolean;
+  /** Small trailing count (hidden when 0), e.g. Board cards waiting for review. */
+  badge?: number;
   onClick: () => void;
 }) {
   return (
@@ -825,6 +845,11 @@ function SidebarNavRow({
         {icon}
       </span>
       <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{label}</span>
+      {badge ? (
+        <span className="rounded-full bg-[var(--sidebar-segment-bg)] px-1.5 text-[11px] leading-[16px] text-[var(--text-muted)]">
+          {badge}
+        </span>
+      ) : null}
     </button>
   );
 }

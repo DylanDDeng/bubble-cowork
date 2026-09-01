@@ -5,6 +5,7 @@ import type {
   AutomationDefinition,
   AutomationSnapshot,
   SessionInfo,
+  SessionStartPayload,
   ClientEvent,
   ClaudeCompatibleProvidersConfig,
   ServerEvent,
@@ -106,6 +107,9 @@ declare global {
       callback: () => { ok: boolean; message?: string } | Promise<{ ok: boolean; message?: string }>
     ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
+    startBackgroundSession: (
+      payload: SessionStartPayload
+    ) => Promise<{ ok: boolean; sessionId: string | null }>;
     forkSession: (
       sessionId: string,
       options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }
