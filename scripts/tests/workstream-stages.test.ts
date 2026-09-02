@@ -409,6 +409,70 @@ assert.deepEqual(
   'apply_patch and exec_command must produce fallback file records'
 );
 
+const heredocToolContext = buildTurnChangeContext([
+  { type: 'user_prompt', prompt: 'write components with heredocs' },
+  {
+    type: 'assistant',
+    uuid: 'assistant-heredoc-tools',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'heredoc-command-1',
+          name: 'Bash',
+          input: {
+            command: `cat > src/ui/components/BoardView.tsx <<'COMPONENT'
+const panel = (
+  >
+    {(close) => (
+      <StageIcon>
+        No
+      </StageIcon>
+    )}
+);
+COMPONENT
+cat >>src/generated.tsx <<-'TABBED'
+	<div>
+	  > fake-file.tsx
+	</div>
+	TABBED
+touch src/after-heredoc.ts
+printf failure 2>logs/build.log
+printf ignored > "reports/bad name.txt"
+printf combined 2>&1
+touch README '{(close)}' '<StageIcon' valid.txt nested/file`,
+          },
+        },
+        {
+          type: 'tool_result',
+          tool_use_id: 'heredoc-command-1',
+          content: '{"output": "ok"}',
+        },
+      ],
+    },
+  },
+]);
+
+assert.deepEqual(
+  heredocToolContext.turns[0].records.map((record) => record.filePath).sort(),
+  [
+    'logs/build.log',
+    'nested/file',
+    'src/after-heredoc.ts',
+    'src/generated.tsx',
+    'src/ui/components/BoardView.tsx',
+    'valid.txt',
+  ],
+  'heredoc bodies must be skipped while real redirects and later commands remain visible'
+);
+assert.equal(
+  heredocToolContext.turns[0].records.some((record) =>
+    ['{(close)}', '<StageIcon', 'No', 'fake-file.tsx', 'reports/bad name.txt'].includes(record.filePath)
+  ),
+  false,
+  'JSX tokens and implausible path shapes must not appear as inferred files'
+);
+
 const subagentOwnedContext = buildTurnChangeContext([
   { type: 'user_prompt', prompt: 'change a main-agent and subagent file' },
   {
