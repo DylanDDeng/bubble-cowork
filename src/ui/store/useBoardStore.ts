@@ -129,6 +129,12 @@ export interface BoardStore {
   showEmptyColumns: boolean;
   setShowEmptyColumns: (value: boolean) => void;
   /**
+   * Columns the user hid from the column header menu (Linear's "Hide
+   * column"). Restored from the board options popover.
+   */
+  hiddenStages: Partial<Record<BoardStage, true>>;
+  setStageHidden: (stage: BoardStage, hidden: boolean) => void;
+  /**
    * Sessions the user removed from the board. Every chat session
    * auto-materializes as a card, so removal must be remembered or the next
    * sync pass would resurrect the card.
@@ -384,6 +390,15 @@ export const useBoardStore = create<BoardStore>()(
 
       showEmptyColumns: true,
       setShowEmptyColumns: (value) => set({ showEmptyColumns: value }),
+
+      hiddenStages: {},
+      setStageHidden: (stage, hidden) =>
+        set((state) => {
+          const next = { ...state.hiddenStages };
+          if (hidden) next[stage] = true;
+          else delete next[stage];
+          return { hiddenStages: next };
+        }),
 
       excludedSessionIds: {},
     }),

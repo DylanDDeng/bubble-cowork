@@ -74,7 +74,13 @@ export function AppTabBar() {
           <SessionHistoryButtons />
         </div>
       ) : null}
-      <div className="no-drag flex min-w-0 items-center gap-1 overflow-x-auto">
+      {/* Tabs are equal-width, Chrome-style: each wants 220px, they shrink
+          together down to a floor, and only then does the strip scroll. The
+          strip itself is content-sized so the "+" hugs the last tab. */}
+      <div
+        role="tablist"
+        className="no-drag sidebar-scrollbar flex min-w-0 items-center gap-1 overflow-x-auto"
+      >
         {tabs.map((tab) => (
           <TabItem
             key={tab.id}
@@ -132,14 +138,16 @@ function TabItem({
         // Middle click closes, like a browser.
         if (event.button === 1 && closable) onClose();
       }}
-      className={`group flex h-7 min-w-0 max-w-[200px] flex-shrink-0 cursor-default items-center gap-1.5 rounded-lg px-2.5 text-[12px] outline-none transition-colors focus-visible:bg-[var(--sidebar-item-hover)] ${
+      // Same font weight in both states so switching tabs never reflows the
+      // neighbours; active/inactive is carried by fill and text colour only.
+      className={`group flex h-7 min-w-[96px] max-w-[220px] flex-[1_1_220px] cursor-default items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[var(--border-focus)] ${
         active
-          ? 'border border-[var(--border)] bg-[var(--bg-primary)] font-medium text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,18,25,0.04)]'
-          : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+          ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_1px_3px_rgba(15,18,25,0.08)]'
+          : 'bg-[var(--tab-inactive-bg)] text-[var(--text-secondary)] hover:bg-[var(--tab-inactive-hover-bg)] hover:text-[var(--text-primary)]'
       }`}
     >
       <span className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">{icon}</span>
-      <span className="min-w-0 truncate">{title}</span>
+      <span className="min-w-0 flex-1 truncate">{title}</span>
       {closable ? (
         <button
           type="button"

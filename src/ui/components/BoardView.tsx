@@ -5,15 +5,18 @@ import {
   useState,
   type DragEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
 import { toast } from 'sonner';
 import {
   Check,
   ChevronDown,
+  ChevronRight,
   Folder,
   FolderOpen,
   Loader2,
+  MoreHorizontal,
   Play,
   Plus,
   SlidersHorizontal,
@@ -70,7 +73,12 @@ export function BoardView() {
   const setSelectedTaskId = useBoardStore((state) => state.setSelectedTask);
   const showEmptyColumns = useBoardStore((state) => state.showEmptyColumns);
   const setShowEmptyColumns = useBoardStore((state) => state.setShowEmptyColumns);
+  const hiddenStages = useBoardStore((state) => state.hiddenStages);
+  const setStageHidden = useBoardStore((state) => state.setStageHidden);
   const [composerTaskId, setComposerTaskId] = useState<string | null | undefined>(undefined);
+  // Column the "+" was pressed in: a new task lands there instead of Backlog.
+  const [composerStage, setComposerStage] = useState<BoardStage>('backlog');
+  const [columnMenuStage, setColumnMenuStage] = useState<BoardStage | null>(null);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [dragOverStage, setDragOverStage] = useState<BoardStage | null>(null);
   // Card right-click menu — Edit/Remove live here, not in the detail page.
@@ -303,20 +311,21 @@ export function BoardView() {
           <BoardOptionsMenu
             showEmptyColumns={showEmptyColumns}
             onShowEmptyColumnsChange={setShowEmptyColumns}
+            hiddenStages={hiddenStages}
+            onStageHiddenChange={setStageHidden}
           />
-          <button
-            type="button"
-            onClick={() => setComposerTaskId(null)}
-            className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-[var(--text-primary)] px-3 text-[12.5px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New Task
-          </button>
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-5 pb-5">
-        {BOARD_STAGES.filter((stage) => showEmptyColumns || byStage[stage].length > 0).map((stage) => {
+        {BOARD_STAGES.every((stage) => hiddenStages[stage]) ? (
+          <div className="flex flex-1 items-center justify-center text-[12.5px] text-[var(--text-muted)]">
+            All columns are hidden. Show them again from the board options.
+          </div>
+        ) : null}
+        {BOARD_STAGES.filter(
+          (stage) => !hiddenStages[stage] && (showEmptyColumns || byStage[stage].length > 0)
+        ).map((stage) => {
           const meta = STAGE_META[stage];
           const stageTasks = byStage[stage];
           return (
@@ -336,12 +345,33 @@ export function BoardView() {
               }}
               onDrop={(event) => handleDrop(event, stage)}
             >
-              <div className="flex flex-shrink-0 items-center gap-2 px-3 pb-2 pt-3">
+              <div className="flex flex-shrink-0 items-center gap-2 py-2 pl-3 pr-2">
                 <StageIcon stage={stage} className="h-3.5 w-3.5" />
                 <span className="text-[12.5px] font-semibold text-[var(--text-primary)]">
                   {meta.label}
                 </span>
                 <span className="text-[12px] text-[var(--text-muted)]">{stageTasks.length}</span>
+                {/* Linear-style column actions: overflow menu, then create. */}
+                <div className="ml-auto flex items-center gap-0.5">
+                  <ColumnMenu
+                    label={meta.label}
+                    open={columnMenuStage === stage}
+                    onOpenChange={(open) => setColumnMenuStage(open ? stage : null)}
+                    onHide={() => setStageHidden(stage, true)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setComposerStage(stage);
+                      setComposerTaskId(null);
+                    }}
+                    title={`New task in ${meta.label}`}
+                    aria-label={`New task in ${meta.label}`}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
               <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
                 {stageTasks.map((task) => (
@@ -412,17 +442,19 @@ export function BoardView() {
       {composerTaskId !== undefined ? (
         <BoardTaskComposer
           task={composerTaskId ? tasks[composerTaskId] || null : null}
+          stage={(composerTaskId && tasks[composerTaskId]?.stage) || composerStage}
           projectOptions={composerProjectOptions}
           initialProjectCwd={
             (projectFilter !== 'all' && projectFilter) || currentProjectCwd || composerProjectOptions[0] || ''
           }
           onClose={() => setComposerTaskId(undefined)}
-          onSubmit={async ({ title, description, projectCwd, sessionConfig, startNow }) => {
+          onSubmit={async ({ title, description, projectCwd, sessionConfig, stage: nextStage, startNow }) => {
             const taskId = composerTaskId
               ? composerTaskId
-              : addTask({ title, description, projectCwd, sessionConfig, stage: 'backlog' });
+              : addTask({ title, description, projectCwd, sessionConfig, stage: nextStage });
             if (composerTaskId) {
               updateTask(composerTaskId, { title, description, projectCwd, sessionConfig });
+              if (tasks[composerTaskId]?.stage !== nextStage) setStage(composerTaskId, nextStage);
             }
             setComposerTaskId(undefined);
             setSelectedTaskId(taskId);
@@ -530,9 +562,13 @@ function ProjectFilterMenu({
 function BoardOptionsMenu({
   showEmptyColumns,
   onShowEmptyColumnsChange,
+  hiddenStages,
+  onStageHiddenChange,
 }: {
   showEmptyColumns: boolean;
   onShowEmptyColumnsChange: (value: boolean) => void;
+  hiddenStages: Partial<Record<BoardStage, true>>;
+  onStageHiddenChange: (stage: BoardStage, hidden: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -580,6 +616,85 @@ function BoardOptionsMenu({
               ariaLabel="Show empty columns"
             />
           </div>
+          <div className="mx-3 my-1.5 border-t border-[var(--border)]" />
+          <div className="px-3 pb-1.5 text-[11.5px] font-medium text-[var(--text-muted)]">Columns</div>
+          {BOARD_STAGES.map((stage) => (
+            <div key={stage} className="flex items-center justify-between gap-3 px-3 py-1.5">
+              <span className="flex items-center gap-2 text-[12.5px] text-[var(--text-primary)]">
+                <StageIcon stage={stage} className="h-3.5 w-3.5" />
+                {STAGE_META[stage].label}
+              </span>
+              <SettingsToggle
+                checked={!hiddenStages[stage]}
+                onChange={(visible) => onStageHiddenChange(stage, !visible)}
+                ariaLabel={`Show ${STAGE_META[stage].label} column`}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Column header overflow menu (Linear's "…"): hide the column. */
+function ColumnMenu({
+  label,
+  open,
+  onOpenChange,
+  onHide,
+}: {
+  label: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onHide: () => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) onOpenChange(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onOpenChange(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, onOpenChange]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => onOpenChange(!open)}
+        title={`${label} column options`}
+        aria-label={`${label} column options`}
+        aria-expanded={open}
+        className={`inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] ${
+          open ? 'bg-[var(--sidebar-item-hover)] text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
+        }`}
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+      </button>
+      {open ? (
+        <div className="popover-surface absolute right-0 top-full z-40 mt-1 w-[180px] p-1">
+          {/* Inset, rounded hover like Linear: the highlight stays inside the
+              popover padding instead of bleeding edge to edge. */}
+          <button
+            type="button"
+            onClick={() => {
+              onOpenChange(false);
+              onHide();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+          >
+            Hide column
+          </button>
         </div>
       ) : null}
     </div>
@@ -691,12 +806,15 @@ function BoardCard({
 
 function BoardTaskComposer({
   task,
+  stage,
   projectOptions,
   initialProjectCwd,
   onClose,
   onSubmit,
 }: {
   task: BoardTask | null;
+  /** Column the composer was opened from; the stage chip can change it. */
+  stage: BoardStage;
   projectOptions: string[];
   initialProjectCwd: string;
   onClose: () => void;
@@ -705,12 +823,15 @@ function BoardTaskComposer({
     description: string;
     projectCwd: string | null;
     sessionConfig: Partial<BoardSessionConfig>;
+    stage: BoardStage;
     startNow: boolean;
   }) => Promise<void>;
 }) {
   const [title, setTitle] = useState(task?.title === 'Untitled task' ? '' : task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [projectCwd, setProjectCwd] = useState(task?.projectCwd || initialProjectCwd);
+  const [stageValue, setStageValue] = useState<BoardStage>(stage);
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const agentSelection = useComposerAgentSelection({
     selectionKey: task?.id || '__board_new_task__',
@@ -809,6 +930,7 @@ function BoardTaskComposer({
         description: description.trim(),
         projectCwd: projectCwd.trim() || null,
         sessionConfig: buildSessionConfig(),
+        stage: stageValue,
         startNow,
       });
     } finally {
@@ -816,87 +938,130 @@ function BoardTaskComposer({
     }
   };
 
+  const stageLabel = STAGE_META[stageValue].label;
+  const projectLabel = projectCwd.trim() ? projectName(projectCwd) : 'No project';
+
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/35" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[86vh] w-[min(640px,calc(100vw-40px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_70px_rgba(15,18,25,0.24)]">
-          <div className="flex items-start justify-between border-b border-[var(--border)] px-5 py-4">
-            <div>
-              <Dialog.Title className="text-[16px] font-semibold text-[var(--text-primary)]">
-                {task ? 'Edit task' : 'New task'}
-              </Dialog.Title>
-              <Dialog.Description className="mt-1 text-[12.5px] text-[var(--text-muted)]">
-                Keep it in Backlog for later, or start an agent without leaving the board.
-              </Dialog.Description>
-            </div>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/25" />
+        {/* Linear "New issue" sheet: anchored near the top, borderless inputs,
+            properties as a chip row, actions in a quiet footer. */}
+        <Dialog.Content className="fixed left-1/2 top-[14vh] z-50 flex max-h-[76vh] w-[min(760px,calc(100vw-40px))] -translate-x-1/2 flex-col rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_70px_rgba(15,18,25,0.24)]">
+          <div className="flex items-center gap-2 px-4 pt-3.5">
+            <span className="inline-flex h-6 max-w-[220px] items-center gap-1.5 rounded-md border border-[var(--border)] px-2 text-[12px] text-[var(--text-secondary)]">
+              <Folder className="h-3 w-3 flex-shrink-0" />
+              <span className="truncate">{projectLabel}</span>
+            </span>
+            <ChevronRight className="h-3 w-3 text-[var(--text-muted)]" />
+            <Dialog.Title className="text-[13px] font-medium text-[var(--text-primary)]">
+              {task ? 'Edit task' : 'New task'}
+            </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              {`Save the task to ${stageLabel}, or start an agent on it right away.`}
+            </Dialog.Description>
+            <span className="flex-1" />
             <Dialog.Close className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]">
               <X className="h-4 w-4" />
             </Dialog.Close>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-medium text-[var(--text-secondary)]">
-                Task title
-              </span>
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="What should the agent do?"
-                className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]"
-              />
-            </label>
+          <div className="min-h-0 flex-1 px-5 pb-2 pt-4">
+            <input
+              autoFocus
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  descriptionRef.current?.focus();
+                }
+              }}
+              placeholder="What should the agent do?"
+              aria-label="Task title"
+              className="w-full bg-transparent text-[18px] font-semibold leading-7 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            />
+            <textarea
+              ref={descriptionRef}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Add task notes (not sent to the agent)…"
+              aria-label="Task description"
+              rows={5}
+              className="mt-2 max-h-[40vh] min-h-[120px] w-full resize-none overflow-y-auto bg-transparent text-[13.5px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            />
 
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-medium text-[var(--text-secondary)]">
-                Description <span className="font-normal text-[var(--text-muted)]">· not sent to agent</span>
-              </span>
-              <textarea
-                autoFocus
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Add task notes…"
-                className="min-h-[180px] w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5 text-[13px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]"
-              />
-            </label>
-
-            <div>
-              <span className="mb-1.5 block text-[11px] font-medium text-[var(--text-secondary)]">
-                Project
-              </span>
-              <div className="flex gap-2">
-                <select
-                  value={projectCwd}
-                  onChange={(event) => setProjectCwd(event.target.value)}
-                  className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[12.5px] text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
-                >
-                  <option value="">No Project</option>
-                  {projectCwd && !projectOptions.includes(projectCwd) ? (
-                    <option value={projectCwd}>{projectName(projectCwd)} · {projectCwd}</option>
-                  ) : null}
-                  {projectOptions.map((cwd) => (
-                    <option key={cwd} value={cwd}>
-                      {projectName(cwd)} · {cwd}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const selected = await window.electron.selectDirectory();
-                    if (selected) setProjectCwd(selected);
-                  }}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                  Browse
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-3">
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <ChipMenu
+                label={stageLabel}
+                icon={<StageIcon stage={stageValue} className="h-3.5 w-3.5" />}
+                ariaLabel="Stage"
+              >
+                {(close) =>
+                  BOARD_STAGES.map((option) => (
+                    <ChipMenuItem
+                      key={option}
+                      selected={option === stageValue}
+                      onClick={() => {
+                        setStageValue(option);
+                        close();
+                      }}
+                    >
+                      <StageIcon stage={option} className="h-3.5 w-3.5" />
+                      {STAGE_META[option].label}
+                    </ChipMenuItem>
+                  ))
+                }
+              </ChipMenu>
+              <ChipMenu
+                label={projectLabel}
+                icon={<Folder className="h-3.5 w-3.5" />}
+                ariaLabel="Project"
+                width={280}
+              >
+                {(close) => (
+                  <>
+                    <ChipMenuItem
+                      selected={!projectCwd.trim()}
+                      onClick={() => {
+                        setProjectCwd('');
+                        close();
+                      }}
+                    >
+                      No project
+                    </ChipMenuItem>
+                    {projectCwd && !projectOptions.includes(projectCwd) ? (
+                      <ChipMenuItem selected onClick={close} detail={projectCwd}>
+                        {projectName(projectCwd)}
+                      </ChipMenuItem>
+                    ) : null}
+                    {projectOptions.map((cwd) => (
+                      <ChipMenuItem
+                        key={cwd}
+                        selected={cwd === projectCwd}
+                        detail={cwd}
+                        onClick={() => {
+                          setProjectCwd(cwd);
+                          close();
+                        }}
+                      >
+                        {projectName(cwd)}
+                      </ChipMenuItem>
+                    ))}
+                    <div className="mx-1 my-1 border-t border-[var(--border)]" />
+                    <ChipMenuItem
+                      onClick={async () => {
+                        close();
+                        const selected = await window.electron.selectDirectory();
+                        if (selected) setProjectCwd(selected);
+                      }}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      Browse…
+                    </ChipMenuItem>
+                  </>
+                )}
+              </ChipMenu>
             <ComposerAgentModelPicker
               agentProvider={agentSelection.provider}
               modelLabel={agentSelection.selectedModelLabel}
@@ -937,14 +1102,17 @@ function BoardTaskComposer({
               menuSide="top"
               bubbleModelsLoading={agentSelection.bubbleModelsLoading}
             />
-            <span className="flex-1" />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 px-4 py-3">
             <button
               type="button"
               disabled={submitting || !title.trim()}
               onClick={() => void submit(false)}
               className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Save to Backlog
+              {`Save to ${stageLabel}`}
             </button>
             <button
               type="button"
@@ -959,5 +1127,97 @@ function BoardTaskComposer({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+/**
+ * Linear-style property chip: a bordered pill that opens a small option list
+ * beneath it. Children receive `close` so a pick can dismiss the menu.
+ */
+function ChipMenu({
+  label,
+  icon,
+  ariaLabel,
+  width = 200,
+  children,
+}: {
+  label: string;
+  icon: ReactNode;
+  ariaLabel: string;
+  width?: number;
+  children: (close: () => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Stop here so Escape closes the chip menu without closing the dialog.
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-label={`${ariaLabel}: ${label}`}
+        aria-expanded={open}
+        className={`inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 text-[12.5px] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] ${
+          open ? 'bg-[var(--sidebar-item-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
+        }`}
+      >
+        <span className="flex-shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
+      </button>
+      {open ? (
+        <div
+          className="popover-surface absolute left-0 top-full z-50 mt-1 max-h-[280px] overflow-y-auto p-1"
+          style={{ width }}
+        >
+          {children(() => setOpen(false))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ChipMenuItem({
+  selected,
+  detail,
+  onClick,
+  children,
+}: {
+  selected?: boolean;
+  detail?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={detail}
+      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] ${
+        selected ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
+      }`}
+    >
+      <span className="flex min-w-0 flex-1 items-center gap-2 truncate">{children}</span>
+      {selected ? <Check className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" /> : null}
+    </button>
   );
 }
