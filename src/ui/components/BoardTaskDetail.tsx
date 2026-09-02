@@ -328,6 +328,17 @@ export function BoardTaskDetail({
           {task.title}
         </span>
         <span className="flex-1" />
+        <button
+          type="button"
+          disabled={!latest}
+          onClick={() => latest && onOpenSession(latest.id)}
+          title="Open session"
+          aria-label="Open session"
+          className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </button>
+        <span className="mx-1.5 h-4 w-px bg-[var(--border)]" />
         {taskIndex >= 0 ? (
           <span className="no-drag mr-1 text-[11.5px] tabular-nums text-[var(--text-muted)]">
             {taskIndex + 1} / {orderedTaskIds.length}
@@ -589,23 +600,33 @@ export function BoardTaskDetail({
           </PropertyGroup>
 
           {task.sessionIds.length > 1 ? (
-            <PropertyGroup label="Runs">
-              <div className="space-y-0.5">
+            <PropertyGroup label="Sessions">
+              <div className="-mx-2 space-y-px">
                 {[...task.sessionIds].reverse().map((sessionId, index) => {
                   const session = sessions[sessionId];
                   const runNumber = task.sessionIds.length - index;
+                  const running = session?.status === 'running' || session?.status === 'stopping';
                   return (
                     <button
                       key={sessionId}
                       type="button"
                       disabled={!session}
                       onClick={() => session && onOpenSession(sessionId)}
-                      className="group flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-default disabled:opacity-50"
+                      className="group flex min-h-[26px] w-full items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-default disabled:opacity-50"
                     >
-                      {session?.provider ? <AgentIcon provider={session.provider} /> : null}
+                      {session?.provider ? (
+                        <AgentIcon provider={session.provider} />
+                      ) : (
+                        <MessageSquare className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+                      )}
                       <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
                         Run {runNumber}
                       </span>
+                      {running ? (
+                        <span className="text-[11px] text-[var(--text-muted)]">Running</span>
+                      ) : index === 0 ? (
+                        <span className="text-[11px] text-[var(--text-muted)]">Latest</span>
+                      ) : null}
                       {session ? (
                         <ExternalLink className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
                       ) : null}
@@ -614,15 +635,6 @@ export function BoardTaskDetail({
                 })}
               </div>
             </PropertyGroup>
-          ) : null}
-
-          {latest ? (
-            <div className="mt-8">
-              <RailButton onClick={() => onOpenSession(latest.id)}>
-                <ExternalLink className="h-3.5 w-3.5" />
-                Open Session
-              </RailButton>
-            </div>
           ) : null}
         </aside>
       </div>
@@ -1002,18 +1014,6 @@ function PropertyRow({ label, children }: { label: string; children: ReactNode }
       <span className="w-[68px] flex-shrink-0 text-[11.5px] text-[var(--text-muted)]">{label}</span>
       <span className="flex min-w-0 flex-1 items-center">{children}</span>
     </div>
-  );
-}
-
-function RailButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex h-7 w-full items-center gap-2 rounded-md px-2 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-    >
-      {children}
-    </button>
   );
 }
 
