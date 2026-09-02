@@ -45,10 +45,10 @@ import {
   projectName,
   providerLabel,
   relativeTime,
-  titleFromPrompt,
 } from './board-support';
 import type { SessionView } from '../types';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import { createBoardTaskStartPayload } from '../utils/board-task-start';
 
 export function BoardView() {
   const sessions = useAppStore((state) => state.sessions);
@@ -161,20 +161,17 @@ export function BoardView() {
   };
 
   const startTask = async (task: BoardTask): Promise<void> => {
-    if (!task.prompt.trim() || !task.projectCwd) {
+    if (!task.title.trim() || !task.projectCwd) {
       setComposerTaskId(task.id);
       return;
     }
 
-    const result = await window.electron.startBackgroundSession({
-      title: task.title,
-      prompt: task.prompt,
-      cwd: task.projectCwd,
-      projectCwd: task.projectCwd,
-      scope: 'project',
-      channelId: activeChannelByProject[task.projectCwd] || DEFAULT_WORKSPACE_CHANNEL_ID,
-      ...task.sessionConfig,
-    });
+    const result = await window.electron.startBackgroundSession(
+      createBoardTaskStartPayload(
+        task,
+        activeChannelByProject[task.projectCwd] || DEFAULT_WORKSPACE_CHANNEL_ID
+      )
+    );
     if (result.sessionId) {
       attachSession(task.id, result.sessionId);
       setStage(task.id, 'working', { auto: true });
@@ -283,7 +280,7 @@ export function BoardView() {
           onOpenSession={openSession}
           onSetStage={(stage) => setStage(selectedTask.id, stage)}
           onRename={(title) => renameTask(selectedTask.id, title)}
-          onUpdatePrompt={(prompt) => updateTask(selectedTask.id, { prompt })}
+          onUpdateDescription={(description) => updateTask(selectedTask.id, { description })}
           onStart={() => void startTask(selectedTask)}
           onContinue={(prompt, opts) => continueTask(selectedTask, prompt, opts)}
           onEdit={() => setComposerTaskId(selectedTask.id)}
@@ -420,12 +417,12 @@ export function BoardView() {
             (projectFilter !== 'all' && projectFilter) || currentProjectCwd || composerProjectOptions[0] || ''
           }
           onClose={() => setComposerTaskId(undefined)}
-          onSubmit={async ({ title, prompt, projectCwd, sessionConfig, startNow }) => {
+          onSubmit={async ({ title, description, projectCwd, sessionConfig, startNow }) => {
             const taskId = composerTaskId
               ? composerTaskId
-              : addTask({ title, prompt, projectCwd, sessionConfig, stage: 'backlog' });
+              : addTask({ title, description, projectCwd, sessionConfig, stage: 'backlog' });
             if (composerTaskId) {
-              updateTask(composerTaskId, { title, prompt, projectCwd, sessionConfig });
+              updateTask(composerTaskId, { title, description, projectCwd, sessionConfig });
             }
             setComposerTaskId(undefined);
             setSelectedTaskId(taskId);
@@ -705,14 +702,14 @@ function BoardTaskComposer({
   onClose: () => void;
   onSubmit: (input: {
     title: string;
-    prompt: string;
+    description: string;
     projectCwd: string | null;
     sessionConfig: Partial<BoardSessionConfig>;
     startNow: boolean;
   }) => Promise<void>;
 }) {
   const [title, setTitle] = useState(task?.title === 'Untitled task' ? '' : task?.title || '');
-  const [prompt, setPrompt] = useState(task?.prompt || '');
+  const [description, setDescription] = useState(task?.description || '');
   const [projectCwd, setProjectCwd] = useState(task?.projectCwd || initialProjectCwd);
   const [submitting, setSubmitting] = useState(false);
   const agentSelection = useComposerAgentSelection({
@@ -795,13 +792,8 @@ function BoardTaskComposer({
   });
 
   const submit = async (startNow: boolean) => {
-    const normalizedPrompt = prompt.trim();
-    const normalizedTitle = title.trim() || titleFromPrompt(normalizedPrompt);
-    if (!normalizedPrompt && !title.trim()) return;
-    if (startNow && !normalizedPrompt) {
-      toast.error('Describe the work before starting the task.');
-      return;
-    }
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) return;
     if (startNow && !projectCwd.trim()) {
       toast.error('Select a project before starting the task.');
       return;
@@ -814,7 +806,7 @@ function BoardTaskComposer({
     try {
       await onSubmit({
         title: normalizedTitle,
-        prompt: normalizedPrompt,
+        description: description.trim(),
         projectCwd: projectCwd.trim() || null,
         sessionConfig: buildSessionConfig(),
         startNow,
@@ -846,25 +838,25 @@ function BoardTaskComposer({
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
             <label className="block">
               <span className="mb-1.5 block text-[11px] font-medium text-[var(--text-secondary)]">
-                Task title <span className="font-normal text-[var(--text-muted)]">· optional</span>
+                Task title
               </span>
               <input
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="Generated from the first line if left blank"
+                placeholder="What should the agent do?"
                 className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]"
               />
             </label>
 
             <label className="block">
               <span className="mb-1.5 block text-[11px] font-medium text-[var(--text-secondary)]">
-                What should the agent do?
+                Description <span className="font-normal text-[var(--text-muted)]">· not sent to agent</span>
               </span>
               <textarea
                 autoFocus
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                placeholder="Describe the outcome, constraints, and how you want it verified…"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Add task notes…"
                 className="min-h-[180px] w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5 text-[13px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]"
               />
             </label>
@@ -948,7 +940,7 @@ function BoardTaskComposer({
             <span className="flex-1" />
             <button
               type="button"
-              disabled={submitting || (!prompt.trim() && !title.trim())}
+              disabled={submitting || !title.trim()}
               onClick={() => void submit(false)}
               className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -956,7 +948,7 @@ function BoardTaskComposer({
             </button>
             <button
               type="button"
-              disabled={submitting || !prompt.trim() || !projectCwd.trim()}
+              disabled={submitting || !title.trim() || !projectCwd.trim()}
               onClick={() => void submit(true)}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--text-primary)] px-3.5 text-[12.5px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
             >

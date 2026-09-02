@@ -147,15 +147,6 @@ export function relativeTime(timestamp: number): string {
   return `${Math.floor(days / 7)}w`;
 }
 
-export function titleFromPrompt(prompt: string): string {
-  const firstLine = prompt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean);
-  if (!firstLine) return 'Untitled task';
-  return firstLine.length > 80 ? `${firstLine.slice(0, 77)}…` : firstLine;
-}
-
 export function RunBadge({ state }: { state: RunState }) {
   if (state === 'working') {
     return (

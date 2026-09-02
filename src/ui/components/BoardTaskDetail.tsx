@@ -103,7 +103,7 @@ export function BoardTaskDetail({
   onOpenSession,
   onSetStage,
   onRename,
-  onUpdatePrompt,
+  onUpdateDescription,
   onStart,
   onContinue,
   onEdit,
@@ -117,7 +117,7 @@ export function BoardTaskDetail({
   onOpenSession: (sessionId: string) => void;
   onSetStage: (stage: BoardStage) => void;
   onRename: (title: string) => void;
-  onUpdatePrompt: (prompt: string) => void;
+  onUpdateDescription: (description: string) => void;
   onStart: () => void;
   /** Send a follow-up prompt to the latest run. Returns false if it could not send. */
   onContinue: (prompt: string, opts?: { newCard?: boolean }) => boolean;
@@ -125,12 +125,12 @@ export function BoardTaskDetail({
 }) {
   const requestSessionHydration = useAppStore((state) => state.requestSessionHydration);
   const [titleDraft, setTitleDraft] = useState(task.title);
-  const [editingPrompt, setEditingPrompt] = useState(false);
-  const [promptDraft, setPromptDraft] = useState(task.prompt);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState(task.description);
   const [followUp, setFollowUp] = useState('');
   const followUpRef = useRef<HTMLTextAreaElement | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
-  const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
 
   // The title is a wrapping textarea so long titles show in full; keep its
   // height matched to the content.
@@ -144,17 +144,17 @@ export function BoardTaskDetail({
   // The description edits in place (Linear-style), so its textarea also has to
   // track content height instead of scrolling inside a fixed box.
   useEffect(() => {
-    const el = promptRef.current;
+    const el = descriptionRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
-  }, [promptDraft, editingPrompt]);
+  }, [descriptionDraft, editingDescription]);
 
   useEffect(() => {
     setTitleDraft(task.title);
-    setPromptDraft(task.prompt);
-    setEditingPrompt(false);
-  }, [task.id, task.title, task.prompt]);
+    setDescriptionDraft(task.description);
+    setEditingDescription(false);
+  }, [task.id, task.title, task.description]);
 
   // The activity timeline reads linked sessions' messages; make sure they load.
   useEffect(() => {
@@ -176,15 +176,6 @@ export function BoardTaskDetail({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onBack]);
 
-  // A description only counts when it says something the conversation's
-  // opening message doesn't — identical text is just the message echoed back,
-  // which belongs in the Activity timeline, not up here.
-  const firstSession = task.sessionIds.length > 0 ? sessions[task.sessionIds[0]] : null;
-  const firstRunPrompt = useMemo(() => {
-    if (!firstSession?.hydrated) return null;
-    const first = firstSession.messages.find((message) => message.type === 'user_prompt');
-    return first && first.type === 'user_prompt' ? first.prompt : null;
-  }, [firstSession?.hydrated, firstSession?.messages]);
   // Merge system events and conversation rounds into one chronological
   // stream. Each round's position is its user message's time; events that
   // fired at the same moment (stage moved as the round was sent) sort ahead
@@ -279,12 +270,7 @@ export function BoardTaskDetail({
   }, [activityEntries]);
 
   const hasLinkedSession = task.sessionIds.length > 0;
-  const hasDistinctDescription =
-    Boolean(task.prompt.trim()) &&
-    (!hasLinkedSession ||
-      (Boolean(firstSession?.hydrated) &&
-        firstRunPrompt !== null &&
-        task.prompt.trim() !== firstRunPrompt.trim()));
+  const hasDescription = Boolean(task.description.trim());
 
   const latest = latestTaskSession(task, sessions);
   const taskIndex = orderedTaskIds.indexOf(task.id);
@@ -302,21 +288,15 @@ export function BoardTaskDetail({
     else setTitleDraft(task.title);
   };
 
-  // When the stored prompt is just the opening message echoed back, the UI
-  // presents the task as having no description — so the editor must open
-  // empty, not with that hidden echo pre-filled.
-  const openPromptEditor = () => {
-    setPromptDraft(hasDistinctDescription ? task.prompt : '');
-    setEditingPrompt(true);
+  const openDescriptionEditor = () => {
+    setDescriptionDraft(task.description);
+    setEditingDescription(true);
   };
 
-  const commitPrompt = () => {
-    setEditingPrompt(false);
-    const trimmed = promptDraft.trim();
-    // An empty draft means "never mind" — committing it would wipe the
-    // opening prompt that runs are started from.
-    if (trimmed && trimmed !== task.prompt) onUpdatePrompt(promptDraft);
-    else setPromptDraft(task.prompt);
+  const commitDescription = () => {
+    setEditingDescription(false);
+    if (descriptionDraft.trim() !== task.description) onUpdateDescription(descriptionDraft);
+    else setDescriptionDraft(task.description);
   };
 
   const sendFollowUp = () => {
@@ -393,41 +373,41 @@ export function BoardTaskDetail({
                 aria-label="Task title"
               />
 
-              {editingPrompt ? (
+              {editingDescription ? (
                 <textarea
-                  ref={promptRef}
+                  ref={descriptionRef}
                   autoFocus
-                  value={promptDraft}
+                  value={descriptionDraft}
                   placeholder="Add a description…"
-                  onChange={(event) => setPromptDraft(event.target.value)}
-                  onBlur={commitPrompt}
+                  onChange={(event) => setDescriptionDraft(event.target.value)}
+                  onBlur={commitDescription}
                   onKeyDown={(event) => {
                     if (event.key === 'Escape') {
-                      setPromptDraft(task.prompt);
-                      setEditingPrompt(false);
+                      setDescriptionDraft(task.description);
+                      setEditingDescription(false);
                     } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                      commitPrompt();
+                      commitDescription();
                     }
                   }}
                   className="mt-3 w-full resize-none overflow-hidden bg-transparent text-[13px] leading-[1.6] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                   aria-label="Task description"
                 />
-              ) : hasDistinctDescription ? (
+              ) : hasDescription ? (
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={openPromptEditor}
+                  onClick={openDescriptionEditor}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter') openPromptEditor();
+                    if (event.key === 'Enter') openDescriptionEditor();
                   }}
                   className="mt-3 cursor-text whitespace-pre-wrap text-[13px] leading-[1.6] text-[var(--text-secondary)]"
                 >
-                  {task.prompt}
+                  {task.description}
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={openPromptEditor}
+                  onClick={openDescriptionEditor}
                   className="mt-3 w-full text-left text-[13px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
                 >
                   Add a description…

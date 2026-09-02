@@ -69,8 +69,8 @@ export type BoardSessionConfig = Pick<
 export interface BoardTask {
   id: string;
   title: string;
-  /** The work request that can be started directly from the board. */
-  prompt: string;
+  /** Board-only notes. The agent receives the title, never this description. */
+  description: string;
   projectCwd: string | null;
   /** Runtime choices captured when the task is composed. */
   sessionConfig: Partial<BoardSessionConfig>;
@@ -102,7 +102,7 @@ export interface BoardStore {
   tasks: Record<string, BoardTask>;
   addTask: (input: {
     title: string;
-    prompt?: string;
+    description?: string;
     projectCwd?: string | null;
     sessionConfig?: Partial<BoardSessionConfig>;
     sessionId?: string | null;
@@ -110,7 +110,7 @@ export interface BoardStore {
   }) => string;
   updateTask: (
     taskId: string,
-    patch: Partial<Pick<BoardTask, 'title' | 'prompt' | 'projectCwd' | 'sessionConfig'>>
+    patch: Partial<Pick<BoardTask, 'title' | 'description' | 'projectCwd' | 'sessionConfig'>>
   ) => void;
   setStage: (taskId: string, stage: BoardStage, opts?: { auto?: boolean }) => void;
   /** Record whether the follow-up being sent opens a new thread card. */
@@ -140,6 +140,81 @@ function makeTaskId(): string {
   return `board-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+type LegacyBoardTask = BoardTask & { prompt?: string };
+
+function preferSessionOwner(candidate: BoardTask, current: BoardTask): boolean {
+  const candidateHasDescription = Boolean(candidate.description.trim());
+  const currentHasDescription = Boolean(current.description.trim());
+  if (candidateHasDescription !== currentHasDescription) return candidateHasDescription;
+  return candidate.createdAt < current.createdAt;
+}
+
+/**
+ * Normalize legacy prompt-backed descriptions and collapse duplicate cards
+ * created when session sync wins the race against attachSession().
+ */
+function migrateBoardTasks(tasks: Record<string, BoardTask>): {
+  tasks: Record<string, BoardTask>;
+  replacementByTaskId: Record<string, string>;
+} {
+  const normalizedTasks = Object.fromEntries(
+    Object.entries(tasks).map(([id, task]) => {
+      const legacyTask = task as LegacyBoardTask;
+      const { prompt: legacyPrompt, ...taskWithoutLegacyPrompt } = legacyTask;
+      return [
+        id,
+        {
+          ...taskWithoutLegacyPrompt,
+          description: legacyTask.description ?? legacyPrompt ?? '',
+          sessionConfig: task.sessionConfig || {},
+          // v2 boards had a single "inbox" column, since split into
+          // Backlog + Todo. Inbox tasks were startable, so they land in Todo.
+          stage: (task.stage as string) === 'inbox' ? 'todo' : task.stage,
+          // v3 tasks predate the event timeline; seed it with creation.
+          events: task.events ?? [{ type: 'created', at: task.createdAt }],
+          // Older Board starts linked renderer-only drafts. They are removed
+          // by session.start and can never be opened again.
+          sessionIds: task.sessionIds.filter((sessionId) => !sessionId.startsWith('draft-')),
+        },
+      ];
+    })
+  ) as Record<string, BoardTask>;
+
+  const ownerBySessionId = new Map<string, string>();
+  for (const task of Object.values(normalizedTasks)) {
+    for (const sessionId of task.sessionIds) {
+      const currentOwnerId = ownerBySessionId.get(sessionId);
+      const currentOwner = currentOwnerId ? normalizedTasks[currentOwnerId] : null;
+      if (!currentOwner || preferSessionOwner(task, currentOwner)) {
+        ownerBySessionId.set(sessionId, task.id);
+      }
+    }
+  }
+
+  const deduplicatedTasks: Record<string, BoardTask> = {};
+  const replacementByTaskId: Record<string, string> = {};
+  for (const task of Object.values(normalizedTasks)) {
+    if (task.sessionIds.length === 0) {
+      deduplicatedTasks[task.id] = task;
+      continue;
+    }
+    const ownedSessionIds = task.sessionIds.filter(
+      (sessionId) => ownerBySessionId.get(sessionId) === task.id
+    );
+    if (ownedSessionIds.length === 0) {
+      const replacementId = ownerBySessionId.get(task.sessionIds[0]);
+      if (replacementId) replacementByTaskId[task.id] = replacementId;
+      continue;
+    }
+    deduplicatedTasks[task.id] =
+      ownedSessionIds.length === task.sessionIds.length
+        ? task
+        : { ...task, sessionIds: ownedSessionIds };
+  }
+
+  return { tasks: deduplicatedTasks, replacementByTaskId };
+}
+
 export const useBoardStore = create<BoardStore>()(
   persist(
     (set) => ({
@@ -147,7 +222,7 @@ export const useBoardStore = create<BoardStore>()(
 
       addTask: ({
         title,
-        prompt = '',
+        description = '',
         projectCwd = null,
         sessionConfig = {},
         sessionId = null,
@@ -161,7 +236,7 @@ export const useBoardStore = create<BoardStore>()(
             [id]: {
               id,
               title: title.trim() || 'Untitled task',
-              prompt: prompt.trim(),
+              description: description.trim(),
               projectCwd: projectCwd?.trim() || null,
               sessionConfig,
               stage,
@@ -184,7 +259,8 @@ export const useBoardStore = create<BoardStore>()(
           const nextTitle = patch.title === undefined ? task.title : patch.title.trim() || task.title;
           const nextProjectCwd =
             patch.projectCwd === undefined ? task.projectCwd : patch.projectCwd?.trim() || null;
-          const nextPrompt = patch.prompt === undefined ? task.prompt : patch.prompt.trim();
+          const nextDescription =
+            patch.description === undefined ? task.description : patch.description.trim();
           return {
             tasks: {
               ...state.tasks,
@@ -192,12 +268,12 @@ export const useBoardStore = create<BoardStore>()(
                 ...task,
                 ...patch,
                 title: nextTitle,
-                prompt: nextPrompt,
+                description: nextDescription,
                 projectCwd: nextProjectCwd,
                 sessionConfig: patch.sessionConfig ?? task.sessionConfig,
                 updatedAt: Date.now(),
                 events:
-                  nextPrompt !== task.prompt
+                  nextDescription !== task.description
                     ? withEvent(task.events, { type: 'description-updated', at: Date.now() })
                     : task.events,
               },
@@ -250,16 +326,34 @@ export const useBoardStore = create<BoardStore>()(
       attachSession: (taskId, sessionId) =>
         set((state) => {
           const task = state.tasks[taskId];
-          if (!task || task.sessionIds.includes(sessionId)) return state;
-          return {
-            tasks: {
-              ...state.tasks,
-              [taskId]: {
+          if (!task) return state;
+          const tasks = { ...state.tasks };
+          let selectedTaskId = state.selectedTaskId;
+
+          // session.list can materialize a generic card before the explicit
+          // Board start returns its session id. The explicit task owns that
+          // run; remove the transient duplicate instead of showing two cards.
+          for (const [otherTaskId, otherTask] of Object.entries(tasks)) {
+            if (otherTaskId === taskId || !otherTask.sessionIds.includes(sessionId)) continue;
+            const remainingSessionIds = otherTask.sessionIds.filter((id) => id !== sessionId);
+            if (remainingSessionIds.length === 0) {
+              delete tasks[otherTaskId];
+              if (selectedTaskId === otherTaskId) selectedTaskId = taskId;
+            } else {
+              tasks[otherTaskId] = { ...otherTask, sessionIds: remainingSessionIds };
+            }
+          }
+
+          tasks[taskId] = task.sessionIds.includes(sessionId)
+            ? task
+            : {
                 ...task,
                 sessionIds: [...task.sessionIds, sessionId],
                 updatedAt: Date.now(),
-              },
-            },
+              };
+          return {
+            tasks,
+            selectedTaskId,
           };
         }),
 
@@ -296,31 +390,18 @@ export const useBoardStore = create<BoardStore>()(
     {
       name: 'cowork-board-storage',
       storage: createJSONStorage(() => rendererStateStorage),
-      version: 4,
+      version: 6,
       migrate: (persistedState) => {
         const state = persistedState as Partial<BoardStore> | undefined;
         const tasks = state?.tasks || {};
+        const migrated = migrateBoardTasks(tasks);
+        const selectedTaskId = state?.selectedTaskId;
         return {
           ...state,
-          tasks: Object.fromEntries(
-            Object.entries(tasks).map(([id, task]) => [
-              id,
-              {
-                ...task,
-                prompt: task.prompt || '',
-                sessionConfig: task.sessionConfig || {},
-                // v2 boards had a single "inbox" column, since split into
-                // Backlog + Todo. Inbox tasks were startable, so they land
-                // in Todo.
-                stage: (task.stage as string) === 'inbox' ? 'todo' : task.stage,
-                // v3 tasks predate the event timeline; seed it with creation.
-                events: task.events ?? [{ type: 'created', at: task.createdAt }],
-                // Older Board starts linked renderer-only drafts. They are
-                // removed by session.start and can never be opened again.
-                sessionIds: task.sessionIds.filter((sessionId) => !sessionId.startsWith('draft-')),
-              },
-            ])
-          ),
+          tasks: migrated.tasks,
+          selectedTaskId: selectedTaskId
+            ? migrated.replacementByTaskId[selectedTaskId] ?? selectedTaskId
+            : null,
         };
       },
     }
