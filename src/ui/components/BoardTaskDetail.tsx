@@ -10,6 +10,8 @@ import {
   Clock,
   ExternalLink,
   FileDiff,
+  ArrowElbowRight,
+  CornerDownRight,
   Folder,
   GitBranch,
   GitPullRequest,
@@ -24,6 +26,7 @@ import {
 } from './icons';
 import { toast } from 'sonner';
 import { AgentIcon } from './ComposerAgentControls';
+import { PromptPrefixChip, usePromptPrefixDisplay } from './PromptPrefixChip';
 import {
   TaskFollowUpEditor,
   type TaskFollowUpEditorHandle,
@@ -34,6 +37,7 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import { avatarColorFor, initialsOf } from '../utils/user-avatar';
 import { useAppStore } from '../store/useAppStore';
 import { useTaskGit, useTaskGitStore } from '../store/useTaskGitStore';
+import { selectQueuedMessages, useComposerQueueStore } from '../store/useComposerQueueStore';
 import { PROVIDERS } from '../utils/provider';
 import {
   BOARD_STAGES,
@@ -307,7 +311,25 @@ export function BoardTaskDetail({
   const nextTaskId =
     taskIndex >= 0 && taskIndex < orderedTaskIds.length - 1 ? orderedTaskIds[taskIndex + 1] : null;
 
-  const latestRunning = latest?.status === 'running' || latest?.status === 'stopping';
+  const latestId = latest?.id ?? null;
+  const queuedMessages = useComposerQueueStore((state) => selectQueuedMessages(state, latestId));
+  const removeQueuedMessage = useComposerQueueStore((state) => state.remove);
+  // Inject a queued message into the running turn now (Codex-Desktop "Steer").
+  const steerQueuedMessage = (itemId: string) => {
+    if (!latestId) return;
+    const item = useComposerQueueStore.getState().takeOne(latestId, itemId);
+    if (!item) return;
+    window.electron.sendClientEvent({
+      type: 'session.continue',
+      payload: {
+        sessionId: latestId,
+        prompt: item.displayPrompt,
+        effectivePrompt: item.effectivePrompt,
+        attachments: item.attachments.length > 0 ? item.attachments : undefined,
+        ...item.references,
+      },
+    });
+  };
   const provider = latest?.provider || task.sessionConfig.provider;
   const model = latest?.model || task.sessionConfig.model;
   const git = useTaskGit(task, latest);
@@ -544,15 +566,47 @@ export function BoardTaskDetail({
                     Runs in the background — you stay on the board.
                   </span>
                 </div>
-              ) : latestRunning ? (
-                <div className="flex items-center gap-2 rounded-[10px] bg-[var(--bg-secondary)] px-3.5 py-2.5 text-[12.5px] text-[var(--text-secondary)]">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" />
-                  {providerLabel(latest?.provider) || 'The agent'} is working.
-                </div>
               ) : (
                 // Mirrors the session composer (PromptInput's chat surface):
                 // same radii, shadow, focus transition, editor and send button.
+                // It stays while the agent works — a running turn is a state
+                // line above it, never a replacement for the input.
                 <div className="group relative rounded-[28px] bg-transparent transition-shadow duration-200">
+                  {queuedMessages.length > 0 && latestId ? (
+                    <div className="mx-1.5 -mb-4 rounded-t-[18px] border border-b-0 border-[var(--border)] bg-[var(--bg-primary)] px-1.5 pb-5 pt-1">
+                      {queuedMessages.map((item) => (
+                        <div key={item.id} className="flex items-center gap-2.5 py-1 pl-2.5 pr-1">
+                          <ArrowElbowRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--text-primary)]">
+                            {item.displayPrompt || 'Queued message'}
+                          </span>
+                          {item.attachments.length > 0 ? (
+                            <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">
+                              +{item.attachments.length} file{item.attachments.length > 1 ? 's' : ''}
+                            </span>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => steerQueuedMessage(item.id)}
+                            title="Send into the running turn now"
+                            className="flex flex-shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                          >
+                            <CornerDownRight className="h-3.5 w-3.5" aria-hidden="true" />
+                            Steer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeQueuedMessage(latestId, item.id)}
+                            title="Remove from queue"
+                            aria-label="Remove queued message"
+                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]">
                     <TaskFollowUpEditor
                       ref={followUpRef}
@@ -862,7 +916,7 @@ function RoundCard({
                 </div>
                 <div className="mt-1.5 text-[12.5px] leading-[1.55] text-[var(--text-primary)]">
                   {item.kind === 'user' ? (
-                    <CollapsibleText text={item.text} />
+                    <UserPromptText text={item.text} session={session} />
                   ) : (
                     <RunSummary content={item.text} />
                   )}
@@ -911,9 +965,17 @@ function RoundCard({
             ) : null}
           </>
         )}
-        {onReply ? (
-          <div className="flex items-center gap-2 py-2.5">
-            <UserAvatar name={profileName} />
+        {onReply && running ? (
+          <div className="flex items-center gap-2 py-2.5 text-[12.5px] text-[var(--text-muted)]">
+            {session.provider ? <AgentIcon provider={session.provider} /> : null}
+            <span>{providerLabel(session.provider) || 'The agent'} is working</span>
+            <Loader2 className="h-3 w-3 animate-spin" />
+          </div>
+        ) : onReply ? (
+          <div className="flex items-start gap-2 py-2.5">
+            <span className="flex h-[20px] items-center">
+              <UserAvatar name={profileName} />
+            </span>
             <div className="min-w-0 flex-1">
               <TaskFollowUpEditor
                 value={replyDraft}
@@ -926,8 +988,9 @@ function RoundCard({
                 session={session}
                 chipsClassName="pb-2"
                 placeholder="Leave a reply…"
+                placeholderClassName="inset-x-0 top-0 text-[12.5px] leading-[20px]"
                 ariaLabel="Reply in this thread"
-                className="max-h-[160px] w-full bg-transparent text-[12.5px] text-[var(--text-primary)] outline-none"
+                className="max-h-[160px] min-h-[20px] w-full bg-transparent text-[12.5px] leading-[20px] text-[var(--text-primary)] outline-none"
               />
             </div>
           </div>
@@ -961,7 +1024,23 @@ function UserAvatar({ name }: { name: string | null }) {
 const SUMMARY_COLLAPSE_LENGTH = 600;
 
 /** A user message in the timeline: full text, collapsed past the threshold. */
-function CollapsibleText({ text }: { text: string }) {
+/** A sent prompt: leading "/" or "$" token as the composer's chip, rest as text. */
+function UserPromptText({ text, session }: { text: string; session: SessionView | null }) {
+  const display = usePromptPrefixDisplay(text, session);
+  if (!display) return <CollapsibleText text={text} />;
+  return (
+    <CollapsibleText
+      text={display.remainder}
+      prefix={
+        <span className="mr-2 inline-flex align-middle">
+          <PromptPrefixChip display={display} />
+        </span>
+      }
+    />
+  );
+}
+
+function CollapsibleText({ text, prefix }: { text: string; prefix?: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const collapsible = text.length > SUMMARY_COLLAPSE_LENGTH;
   return (
@@ -971,7 +1050,8 @@ function CollapsibleText({ text }: { text: string }) {
           collapsible && !expanded ? 'relative max-h-[176px] overflow-hidden' : undefined
         }
       >
-        <span className="whitespace-pre-wrap">
+        {prefix}
+        <span className="whitespace-pre-wrap align-middle">
           {text}
         </span>
         {collapsible && !expanded ? (

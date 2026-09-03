@@ -32,6 +32,7 @@ import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { sendEvent } from '../hooks/useIPC';
 import { useTabsStore } from '../store/useTabsStore';
 import { useTaskGit, useTaskGitStore } from '../store/useTaskGitStore';
+import { useComposerQueueStore } from '../store/useComposerQueueStore';
 import {
   BOARD_CARD_PROPERTIES,
   BOARD_STAGES,
@@ -237,6 +238,24 @@ export function BoardView() {
     }
     // Recorded before the send so the mark precedes the message timestamp.
     useBoardStore.getState().markFollowUp(task.id, opts?.newCard !== false);
+    // Same rule as the session composer: runtimes that stream a turn
+    // (codex, kimi server, deepseek) take the message after it completes —
+    // queued here, flushed by the store-level watcher. Others accept it now.
+    const running = latest.status === 'running' || latest.status === 'stopping';
+    const queuesWhileRunning =
+      latest.provider === 'codex' ||
+      (latest.provider === 'kimi' && latest.kimiRuntime !== 'legacy') ||
+      latest.provider === 'deepseek';
+    if (running && queuesWhileRunning) {
+      useComposerQueueStore.getState().enqueue(latest.id, {
+        id: crypto.randomUUID(),
+        displayPrompt: prompt,
+        effectivePrompt: opts?.effectivePrompt || prompt,
+        attachments: opts?.attachments || [],
+        references: opts?.references || {},
+      });
+      return true;
+    }
     window.electron.sendClientEvent({
       type: 'session.continue',
       payload: {

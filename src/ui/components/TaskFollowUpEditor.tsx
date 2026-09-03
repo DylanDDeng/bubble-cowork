@@ -50,6 +50,7 @@ export const TaskFollowUpEditor = forwardRef<
     className: string;
     /** Padding for the attachment chip row, matching the editor's inset. */
     chipsClassName?: string;
+    placeholderClassName?: string;
     ariaLabel?: string;
     /** Where the menus open relative to the field. */
     menuSide?: 'top' | 'bottom';
@@ -64,6 +65,7 @@ export const TaskFollowUpEditor = forwardRef<
     placeholder,
     className,
     chipsClassName = 'px-4 pt-3',
+    placeholderClassName,
     ariaLabel,
     menuSide = 'top',
   },
@@ -224,6 +226,9 @@ export const TaskFollowUpEditor = forwardRef<
       if (sent) {
         setAttachments(() => []);
         setCursorIndex(0);
+        // The parent clears the text on the next render; move the editor's
+        // own caret back to the start once that has happened.
+        focusAt(0);
       }
     } finally {
       setSending(false);
@@ -341,6 +346,7 @@ export const TaskFollowUpEditor = forwardRef<
           }
         }}
         placeholder={placeholder}
+        placeholderClassName={placeholderClassName}
         disabled={sending}
         className={className}
         autoFocus={false}
