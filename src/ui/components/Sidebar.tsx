@@ -71,22 +71,51 @@ function SidebarToggleIcon({ className }: { className?: string }) {
   );
 }
 
+// Collapsing from the expanded panel's own trigger leaves the pointer resting
+// exactly where the collapsed trigger appears, and the browser reports that
+// as a fresh hover, so the panel would peek straight back open. Hold the peek
+// until the pointer has actually left the trigger; a keyboard collapse with
+// the pointer elsewhere releases on the first movement, so nothing is missed.
+let peekHeldUntilPointerLeaves = false;
+let releasePeekHold: (() => void) | null = null;
+
+function holdPeekUntilPointerLeaves() {
+  releasePeekHold?.();
+  peekHeldUntilPointerLeaves = true;
+  const release = () => {
+    peekHeldUntilPointerLeaves = false;
+    releasePeekHold = null;
+    document.removeEventListener('pointermove', handlePointerMove, true);
+  };
+  const handlePointerMove = (event: PointerEvent) => {
+    const target = event.target;
+    if (target instanceof Element && target.closest('[data-sidebar-trigger]')) return;
+    release();
+  };
+  releasePeekHold = release;
+  document.addEventListener('pointermove', handlePointerMove, true);
+}
+
 function SidebarToggleButton({
   collapsed,
   className = '',
   onClick,
   onMouseEnter,
+  onMouseLeave,
 }: {
   collapsed: boolean;
   className?: string;
   onClick: () => void;
   onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   return (
     <button
       type="button"
+      data-sidebar-trigger=""
       onClick={onClick}
       onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       className={`${SIDEBAR_TRIGGER_CLASS} ${className}`}
       aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -105,7 +134,15 @@ export function SidebarHeaderTrigger({ className = '' }: { className?: string })
       collapsed={sidebarCollapsed}
       className={className}
       onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-      onMouseEnter={sidebarCollapsed ? () => setSidebarPeek(true) : undefined}
+      onMouseEnter={
+        sidebarCollapsed
+          ? () => {
+              if (peekHeldUntilPointerLeaves) return;
+              setSidebarPeek(true);
+            }
+          : undefined
+      }
+      onMouseLeave={sidebarCollapsed ? () => releasePeekHold?.() : undefined}
     />
   );
 }
@@ -402,6 +439,7 @@ export function Sidebar() {
 
   const toggleSidebarCollapsed = () => {
     finishSidebarResize();
+    if (!sidebarCollapsed) holdPeekUntilPointerLeaves();
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
