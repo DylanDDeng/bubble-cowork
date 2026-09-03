@@ -390,6 +390,16 @@ declare global {
       sha: string
     ) => Promise<import('./shared/types').GitCommitPatchResult>;
     getGitBranch: (cwd: string) => Promise<{ ok: boolean; branch: string | null; message?: string }>;
+    getGitRepoBrief: (cwd: string) => Promise<{
+      ok: boolean;
+      fullName: string | null;
+      defaultBranch: string | null;
+      branch: string | null;
+    }>;
+    getGitBranchChanges: (
+      cwd: string,
+      baseRef: string
+    ) => Promise<{ ok: boolean; files: number; insertions: number; deletions: number }>;
     getGitBranches: (cwd: string) => Promise<{
       ok: boolean;
       error: string | null;

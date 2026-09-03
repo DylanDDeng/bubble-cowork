@@ -12,18 +12,24 @@ import {
   FileDiff,
   Folder,
   GitBranch,
+  GitPullRequest,
   Loader2,
   MessageSquare,
+  MoreHorizontal,
   Pencil,
   Play,
   Plus,
+  Trash2,
   User,
 } from './icons';
+import { toast } from 'sonner';
 import { AgentIcon } from './ComposerAgentControls';
 import { MDContent } from '../render/markdown';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { avatarColorFor, initialsOf } from '../utils/user-avatar';
 import { useAppStore } from '../store/useAppStore';
+import { useTaskGit, useTaskGitStore } from '../store/useTaskGitStore';
+import { PROVIDERS } from '../utils/provider';
 import {
   BOARD_STAGES,
   latestTaskSession,
@@ -32,15 +38,17 @@ import {
   type BoardTaskEvent,
 } from '../store/useBoardStore';
 import {
+  DiffStat,
   STAGE_META,
   StageIcon,
   modelDisplayLabel,
   projectName,
   providerLabel,
+  pullRequestTone,
   relativeTime,
 } from './board-support';
 import { extractToolChangeRecords } from '../utils/change-records';
-import type { SessionView } from '../types';
+import type { AgentProvider, SessionView } from '../types';
 
 /**
  * The Activity timeline interleaves two shapes, Linear-style: thread cards
@@ -106,7 +114,10 @@ export function BoardTaskDetail({
   onUpdateDescription,
   onStart,
   onContinue,
-  onEdit,
+  onRemove,
+  projectOptions,
+  onUpdateProject,
+  onUpdateAgent,
 }: {
   task: BoardTask;
   sessions: Record<string, SessionView>;
@@ -121,7 +132,11 @@ export function BoardTaskDetail({
   onStart: () => void;
   /** Send a follow-up prompt to the latest run. Returns false if it could not send. */
   onContinue: (prompt: string, opts?: { newCard?: boolean }) => boolean;
-  onEdit: () => void;
+  onRemove: () => void;
+  /** Project choices for the rail dropdown while the task has not run yet. */
+  projectOptions: string[];
+  onUpdateProject: (projectCwd: string) => void;
+  onUpdateAgent: (provider: AgentProvider) => void;
 }) {
   const requestSessionHydration = useAppStore((state) => state.requestSessionHydration);
   const [titleDraft, setTitleDraft] = useState(task.title);
@@ -281,7 +296,37 @@ export function BoardTaskDetail({
   const latestRunning = latest?.status === 'running' || latest?.status === 'stopping';
   const provider = latest?.provider || task.sessionConfig.provider;
   const model = latest?.model || task.sessionConfig.model;
-  const branch = latest?.associatedWorktreeBranch || null;
+  const git = useTaskGit(task, latest);
+  const createPullRequest = useTaskGitStore((state) => state.createPullRequest);
+  const [creatingPr, setCreatingPr] = useState(false);
+  // Project and agent are bound once a run exists; before that they are
+  // editable in place, Linear-style.
+  const hasRun = task.sessionIds.length > 0;
+
+  const handleCreatePullRequest = async () => {
+    if (!git || creatingPr) return;
+    setCreatingPr(true);
+    try {
+      const result = await createPullRequest(git.cwd);
+      if (!result.ok) toast.error(result.message || 'Could not create the pull request.');
+    } finally {
+      setCreatingPr(false);
+    }
+  };
+
+  // ⌘⌫ removes the task, like the overflow menu — unless typing somewhere.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key !== 'Backspace') return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      event.preventDefault();
+      onRemove();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onRemove]);
 
   const commitTitle = () => {
     if (titleDraft.trim() && titleDraft.trim() !== task.title) onRename(titleDraft);
@@ -328,16 +373,17 @@ export function BoardTaskDetail({
           {task.title}
         </span>
         <span className="flex-1" />
+        {/* Header = navigation only. Open session is a jump, like "← Tasks". */}
         <button
           type="button"
           disabled={!latest}
           onClick={() => latest && onOpenSession(latest.id)}
-          title="Open session"
-          aria-label="Open session"
-          className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-30"
+          className="no-drag inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-30"
         >
-          <ExternalLink className="h-3.5 w-3.5" />
+          Open session
+          <ExternalLink className="h-3 w-3" />
         </button>
+        <OverflowMenu onRemove={onRemove} />
         <span className="mx-1.5 h-4 w-px bg-[var(--border)]" />
         {taskIndex >= 0 ? (
           <span className="no-drag mr-1 text-[11.5px] tabular-nums text-[var(--text-muted)]">
@@ -545,45 +591,57 @@ export function BoardTaskDetail({
               <StageMenu stage={task.stage} onSetStage={onSetStage} />
             </PropertyRow>
             <PropertyRow label="Project">
-              <span
-                className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]"
-                title={task.projectCwd || undefined}
-              >
-                <Folder className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
-                <span className="truncate">{projectName(task.projectCwd)}</span>
-              </span>
-            </PropertyRow>
-            <PropertyRow label="Agent">
-              {provider ? (
-                <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]">
-                  <AgentIcon provider={provider} />
-                  <span className="truncate">{providerLabel(provider)}</span>
+              {hasRun ? (
+                <span
+                  className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]"
+                  title={task.projectCwd || undefined}
+                >
+                  <Folder className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+                  <span className="truncate">{projectName(task.projectCwd)}</span>
                 </span>
               ) : (
-                <button
-                  type="button"
-                  onClick={onEdit}
-                  className="text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                >
-                  Choose…
-                </button>
+                <PropertyMenu
+                  value={task.projectCwd}
+                  placeholder="Choose a project…"
+                  options={[...new Set([task.projectCwd, ...projectOptions])]
+                    .filter((cwd): cwd is string => Boolean(cwd))
+                    .map((cwd) => ({
+                    key: cwd,
+                    label: projectName(cwd),
+                    title: cwd,
+                    icon: <Folder className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />,
+                  }))}
+                  onSelect={onUpdateProject}
+                />
+              )}
+            </PropertyRow>
+            <PropertyRow label="Agent">
+              {hasRun ? (
+                provider ? (
+                  <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]">
+                    <AgentIcon provider={provider} />
+                    <span className="truncate">{providerLabel(provider)}</span>
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-[var(--text-muted)]">None</span>
+                )
+              ) : (
+                <PropertyMenu
+                  value={provider || null}
+                  placeholder="Choose an agent…"
+                  options={PROVIDERS.map((entry) => ({
+                    key: entry.id,
+                    label: entry.label,
+                    icon: <AgentIcon provider={entry.id} />,
+                  }))}
+                  onSelect={(key) => onUpdateAgent(key as AgentProvider)}
+                />
               )}
             </PropertyRow>
             {model ? (
               <PropertyRow label="Model">
                 <span className="truncate text-[12px] text-[var(--text-primary)]" title={model}>
                   {modelDisplayLabel(provider, model) || model}
-                </span>
-              </PropertyRow>
-            ) : null}
-            {branch ? (
-              <PropertyRow label="Branch">
-                <span
-                  className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]"
-                  title={branch}
-                >
-                  <GitBranch className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
-                  <span className="truncate">{branch}</span>
                 </span>
               </PropertyRow>
             ) : null}
@@ -599,41 +657,72 @@ export function BoardTaskDetail({
             </PropertyRow>
           </PropertyGroup>
 
-          {task.sessionIds.length > 1 ? (
-            <PropertyGroup label="Sessions">
-              <div className="-mx-2 space-y-px">
-                {[...task.sessionIds].reverse().map((sessionId, index) => {
-                  const session = sessions[sessionId];
-                  const runNumber = task.sessionIds.length - index;
-                  const running = session?.status === 'running' || session?.status === 'stopping';
-                  return (
+          {git ? (
+            // Data only. The one action here is the PR row's empty state.
+            <PropertyGroup label="Git">
+              <PropertyRow label="Branch">
+                <span
+                  className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]"
+                  title={git.branch}
+                >
+                  <GitBranch className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+                  <span className="truncate font-mono text-[11.5px]">{git.branch}</span>
+                </span>
+              </PropertyRow>
+              {git.base && git.base !== git.branch ? (
+                <PropertyRow label="Base">
+                  <span className="truncate font-mono text-[11.5px] text-[var(--text-secondary)]">
+                    {git.base}
+                  </span>
+                </PropertyRow>
+              ) : null}
+              {git.changes ? (
+                <PropertyRow label="Changes">
+                  {git.changes.files > 0 ? (
+                    <DiffStat
+                      files={git.changes.files}
+                      insertions={git.changes.insertions}
+                      deletions={git.changes.deletions}
+                      className="text-[12px]"
+                    />
+                  ) : (
+                    <span className="text-[12px] text-[var(--text-muted)]">No changes yet</span>
+                  )}
+                </PropertyRow>
+              ) : null}
+              {/* On the base branch itself there is nothing to open a PR from. */}
+              {git.pr || git.branch !== git.base ? (
+                <PropertyRow label="PR">
+                  {git.pr ? (
                     <button
-                      key={sessionId}
                       type="button"
-                      disabled={!session}
-                      onClick={() => session && onOpenSession(sessionId)}
-                      className="group flex min-h-[26px] w-full items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-default disabled:opacity-50"
+                      onClick={() => void window.electron.openExternalUrl(git.pr!.url)}
+                      title={git.pr.title}
+                      className={`group -ml-1.5 inline-flex h-[24px] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--sidebar-item-hover)] ${pullRequestTone(git.pr).className}`}
                     >
-                      {session?.provider ? (
-                        <AgentIcon provider={session.provider} />
-                      ) : (
-                        <MessageSquare className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
-                        Run {runNumber}
+                      <GitPullRequest className="h-3 w-3 flex-shrink-0" />
+                      <span className="truncate">
+                        #{git.pr.number} {pullRequestTone(git.pr).label}
                       </span>
-                      {running ? (
-                        <span className="text-[11px] text-[var(--text-muted)]">Running</span>
-                      ) : index === 0 ? (
-                        <span className="text-[11px] text-[var(--text-muted)]">Latest</span>
-                      ) : null}
-                      {session ? (
-                        <ExternalLink className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
-                      ) : null}
+                      <ExternalLink className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
                     </button>
-                  );
-                })}
-              </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={creatingPr}
+                      onClick={() => void handleCreatePullRequest()}
+                      className="-ml-1.5 inline-flex h-[24px] items-center gap-1.5 rounded-md px-1.5 text-[12px] text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
+                    >
+                      {creatingPr ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Plus className="h-3 w-3" />
+                      )}
+                      {creatingPr ? 'Creating pull request…' : 'Create pull request'}
+                    </button>
+                  )}
+                </PropertyRow>
+              ) : null}
             </PropertyGroup>
           ) : null}
         </aside>
@@ -980,6 +1069,31 @@ function EventRow({ event, profileName }: { event: BoardTaskEvent; profileName: 
       icon = <CircleX className="h-3 w-3 text-[var(--error)]" />;
       text = 'The run failed';
       break;
+    case 'pr-opened':
+      icon = <GitPullRequest className="h-3 w-3 text-[var(--success)]" />;
+      text = (
+        <>
+          {you} opened <PullRequestLink number={event.number} url={event.url} />
+          {event.base ? ` against ${event.base}` : ''}
+        </>
+      );
+      break;
+    case 'pr-merged':
+      icon = <GitPullRequest className="h-3 w-3 text-[#8b5cf6]" />;
+      text = (
+        <>
+          <PullRequestLink number={event.number} url={event.url} /> was merged
+        </>
+      );
+      break;
+    case 'pr-closed':
+      icon = <GitPullRequest className="h-3 w-3 text-[var(--error)]" />;
+      text = (
+        <>
+          <PullRequestLink number={event.number} url={event.url} /> was closed
+        </>
+      );
+      break;
   }
   return (
     <div className="flex items-center gap-2 text-[12px] text-[var(--text-muted)]">
@@ -987,6 +1101,18 @@ function EventRow({ event, profileName }: { event: BoardTaskEvent; profileName: 
       <span className="min-w-0 flex-1 truncate">{text}</span>
       <span className="flex-shrink-0 text-[11px]">{relativeTime(event.at)} ago</span>
     </div>
+  );
+}
+
+function PullRequestLink({ number, url }: { number: number; url: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => void window.electron.openExternalUrl(url)}
+      className="font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline"
+    >
+      #{number}
+    </button>
   );
 }
 
@@ -1013,6 +1139,124 @@ function PropertyRow({ label, children }: { label: string; children: ReactNode }
     <div className="flex min-h-[26px] items-center gap-2">
       <span className="w-[68px] flex-shrink-0 text-[11.5px] text-[var(--text-muted)]">{label}</span>
       <span className="flex min-w-0 flex-1 items-center">{children}</span>
+    </div>
+  );
+}
+
+/** Header overflow: only what has no home on the page, destructive last. */
+function OverflowMenu({ onRemove }: { onRemove: () => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        title="More"
+        aria-label="More"
+        className={`no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] ${
+          open ? 'bg-[var(--sidebar-item-hover)] text-[var(--text-primary)]' : ''
+        }`}
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-full z-20 mt-1 w-[224px] rounded-[10px] border border-[var(--border)] bg-[var(--popover-bg,var(--preview-surface))] p-1 shadow-lg">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onRemove();
+            }}
+            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] text-[var(--error)] transition-colors hover:bg-[var(--sidebar-item-hover)]"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Remove from board
+            <span className="ml-auto text-[11px] tracking-wide text-[var(--text-muted)]">⌘⌫</span>
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A rail property that opens a small option list beneath it, like Stage. */
+function PropertyMenu({
+  value,
+  placeholder,
+  options,
+  onSelect,
+}: {
+  value: string | null;
+  placeholder: string;
+  options: Array<{ key: string; label: string; title?: string; icon?: ReactNode }>;
+  onSelect: (key: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
+  const current = options.find((option) => option.key === value) || null;
+
+  return (
+    <div ref={containerRef} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen((entry) => !entry)}
+        title={current?.title}
+        className={`-ml-1.5 inline-flex h-[24px] max-w-full items-center gap-1.5 rounded-md px-1.5 text-[12px] transition-colors hover:bg-[var(--sidebar-item-hover)] ${
+          current ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
+        }`}
+      >
+        {current?.icon}
+        <span className="truncate">{current?.label || placeholder}</span>
+        <ChevronDown className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-[260px] w-[220px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--popover-bg,var(--preview-surface))] py-1 shadow-lg">
+          {options.length === 0 ? (
+            <div className="px-2.5 py-1.5 text-[12px] text-[var(--text-muted)]">No options</div>
+          ) : null}
+          {options.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              title={option.title}
+              onClick={() => {
+                onSelect(option.key);
+                setOpen(false);
+              }}
+              className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12.5px] hover:bg-[var(--sidebar-item-hover)] ${
+                option.key === value ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
+              }`}
+            >
+              {option.icon}
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.key === value ? (
+                <Check className="ml-auto h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

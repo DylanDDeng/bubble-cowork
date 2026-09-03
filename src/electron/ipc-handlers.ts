@@ -7986,6 +7986,93 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  /**
+   * Board cards need "which repo / which base" without the network round
+   * trips of get-git-overview. Pure local git, safe to call per project.
+   */
+  ipcMainHandle('get-git-repo-brief', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, fullName: null, defaultBranch: null, branch: null };
+    try {
+      const [branchResult, originRemote, defaultBranch] = await Promise.all([
+        execFileAsync('git', ['branch', '--show-current'], { cwd, timeout: 5000 }),
+        getGitOriginRemote(cwd),
+        getGitDefaultBranch(cwd),
+      ]);
+      const originRepo = originRemote ? parseGitHubRepoFromRemote(originRemote) : null;
+      return {
+        ok: true,
+        fullName: originRepo ? `${originRepo.owner}/${originRepo.repo}` : null,
+        defaultBranch: defaultBranch || null,
+        branch: branchResult.stdout.trim() || null,
+      };
+    } catch {
+      return { ok: false, fullName: null, defaultBranch: null, branch: null };
+    }
+  });
+
+  /**
+   * What a task's branch changed relative to its base: committed work plus
+   * whatever is still in the working tree, measured from the merge-base so
+   * the base branch moving on does not count against the task.
+   */
+  ipcMainHandle('get-git-branch-changes', async (_event, cwd: string, baseRef: string) => {
+    if (!cwd || !baseRef) return { ok: false, files: 0, insertions: 0, deletions: 0 };
+    try {
+      // A worktree usually only has the remote-tracking base; prefer it.
+      let mergeBase: string | null = null;
+      for (const candidate of [`origin/${baseRef}`, baseRef]) {
+        try {
+          const { stdout } = await execFileAsync('git', ['merge-base', candidate, 'HEAD'], {
+            cwd,
+            timeout: 5000,
+          });
+          if (stdout.trim()) {
+            mergeBase = stdout.trim();
+            break;
+          }
+        } catch {
+          // Try the next candidate.
+        }
+      }
+      if (!mergeBase) return { ok: false, files: 0, insertions: 0, deletions: 0 };
+      const [tracked, untracked] = await Promise.all([
+        execFileAsync('git', ['diff', '--numstat', mergeBase], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        }),
+        execFileAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        }),
+      ]);
+      const trackedLines = tracked.stdout.split('\n').filter((line) => line.trim());
+      const totals = parseGitNumstat(tracked.stdout);
+      const untrackedPaths = untracked.stdout.split('\0').map((item) => item.trim()).filter(Boolean);
+      let files = trackedLines.length + untrackedPaths.length;
+      let insertions = totals.insertions;
+      for (const filePath of untrackedPaths) {
+        try {
+          await execFileAsync('git', ['diff', '--no-index', '--numstat', '/dev/null', filePath], {
+            cwd,
+            timeout: 10000,
+            maxBuffer: 2 * 1024 * 1024,
+          });
+        } catch (error: unknown) {
+          const stdout =
+            error && typeof error === 'object' && 'stdout' in error
+              ? String((error as { stdout?: unknown }).stdout ?? '')
+              : '';
+          insertions += parseGitNumstat(stdout).insertions;
+        }
+      }
+      return { ok: true, files, insertions, deletions: totals.deletions };
+    } catch {
+      return { ok: false, files: 0, insertions: 0, deletions: 0 };
+    }
+  });
+
   const normalizeGitCheckoutInput = (
     input: GitCheckoutBranchInput | string,
     branchArg?: string

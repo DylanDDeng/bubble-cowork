@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Folder,
   FolderOpen,
+  GitBranch,
   Loader2,
   MoreHorizontal,
   Play,
@@ -30,6 +31,7 @@ import { useAppStore } from '../store/useAppStore';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { sendEvent } from '../hooks/useIPC';
 import { useTabsStore } from '../store/useTabsStore';
+import { useTaskGit, useTaskGitStore } from '../store/useTaskGitStore';
 import {
   BOARD_STAGES,
   ensureBoardSessionSync,
@@ -40,6 +42,8 @@ import {
   type BoardTask,
 } from '../store/useBoardStore';
 import {
+  DiffStat,
+  PullRequestBadge,
   STAGE_META,
   RunBadge,
   StageIcon,
@@ -97,6 +101,15 @@ export function BoardView() {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [cardMenu]);
+
+  // Pull-request state on cards comes from the (cached) PR directory; keep
+  // it reasonably fresh while the board is on screen.
+  const refreshPullRequests = useTaskGitStore((state) => state.refreshPullRequests);
+  useEffect(() => {
+    void refreshPullRequests();
+    const timer = window.setInterval(() => void refreshPullRequests(true), 3 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [refreshPullRequests]);
 
   useEffect(() => {
     ensureBoardSessionSync();
@@ -291,7 +304,10 @@ export function BoardView() {
           onUpdateDescription={(description) => updateTask(selectedTask.id, { description })}
           onStart={() => void startTask(selectedTask)}
           onContinue={(prompt, opts) => continueTask(selectedTask, prompt, opts)}
-          onEdit={() => setComposerTaskId(selectedTask.id)}
+          onRemove={() => deleteTask(selectedTask)}
+          projectOptions={composerProjectOptions}
+          onUpdateProject={(projectCwd) => updateTask(selectedTask.id, { projectCwd })}
+          onUpdateAgent={(provider) => updateTask(selectedTask.id, { sessionConfig: { provider } })}
         />
       ) : (
         <>
@@ -746,6 +762,7 @@ function BoardCard({
   onContextMenu: (event: ReactMouseEvent) => void;
 }) {
   const runState = deriveRunState(task, session);
+  const git = useTaskGit(task, session);
   const provider = session?.provider || task.sessionConfig.provider;
   const label =
     modelDisplayLabel(provider, session?.model || task.sessionConfig.model) ||
@@ -786,16 +803,32 @@ function BoardCard({
             <AgentIcon provider={provider} />
             <span className="truncate">{label}</span>
           </span>
-          {task.sessionIds.length > 1 ? (
-            <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">
-              {task.sessionIds.length} runs
-            </span>
+        </div>
+      ) : null}
+      {git ? (
+        // Only isolated-copy runs own a branch; local runs share the checkout.
+        <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+          <GitBranch className="h-2.5 w-2.5 flex-shrink-0 text-[var(--text-muted)]" />
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--text-secondary)]"
+            title={git.branch}
+          >
+            {git.branch}
+          </span>
+          {git.changes && git.changes.files > 0 ? (
+            <DiffStat
+              files={git.changes.files}
+              insertions={git.changes.insertions}
+              deletions={git.changes.deletions}
+              className="flex-shrink-0"
+            />
           ) : null}
         </div>
       ) : null}
       <div className="mt-2 flex min-h-[16px] items-center gap-2">
         {/* The column already says "Review" — only live runtime states earn a badge. */}
         {runState && runState !== 'ready' ? <RunBadge state={runState} /> : null}
+        {git?.pr ? <PullRequestBadge pr={git.pr} /> : null}
         <span className="ml-auto text-[11px] text-[var(--text-muted)]">
           {relativeTime(task.updatedAt)}
         </span>
@@ -1114,15 +1147,19 @@ function BoardTaskComposer({
             >
               {`Save to ${stageLabel}`}
             </button>
-            <button
-              type="button"
-              disabled={submitting || !title.trim() || !projectCwd.trim()}
-              onClick={() => void submit(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--text-primary)] px-3.5 text-[12.5px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
-            >
-              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              Start now
-            </button>
+            {task && task.sessionIds.length > 0 ? null : (
+              // One task, one run: a task that already ran is continued from
+              // its detail page, never started a second time.
+              <button
+                type="button"
+                disabled={submitting || !title.trim() || !projectCwd.trim()}
+                onClick={() => void submit(true)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--text-primary)] px-3.5 text-[12.5px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                Start now
+              </button>
+            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

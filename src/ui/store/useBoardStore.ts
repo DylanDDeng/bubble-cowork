@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { rendererStateStorage } from '../utils/renderer-state-storage';
 import { useAppStore } from './useAppStore';
 import type { SessionView } from '../types';
-import type { SessionStartPayload } from '../../shared/types';
+import type { PullRequestSummary, SessionStartPayload } from '../../shared/types';
 
 /**
  * Board task stages. A column is a HUMAN-owned position in your workflow;
@@ -27,7 +27,12 @@ export type BoardTaskEvent =
   | { type: 'run-started'; at: number }
   | { type: 'run-completed'; at: number }
   | { type: 'run-failed'; at: number }
-  | { type: 'description-updated'; at: number };
+  | { type: 'description-updated'; at: number }
+  // Pull-request lifecycle, stamped with GitHub's own timestamps so the
+  // timeline shows when it happened, not when the board noticed.
+  | { type: 'pr-opened'; at: number; number: number; url: string; base?: string }
+  | { type: 'pr-merged'; at: number; number: number; url: string }
+  | { type: 'pr-closed'; at: number; number: number; url: string };
 
 const EVENT_CAP = 200;
 
@@ -96,6 +101,8 @@ export interface BoardTask {
    * is watching must still hand the task from Working to Review.
    */
   lastRunStatus?: string;
+  /** The pull request state already reflected in `events`; see syncPullRequestEvents. */
+  lastPullRequest?: { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED' };
 }
 
 export interface BoardStore {
@@ -465,6 +472,79 @@ function recordTaskEvent(taskId: string, event: BoardTaskEvent): void {
       tasks: { ...state.tasks, [taskId]: { ...task, events: withEvent(task.events, event) } },
     };
   });
+}
+
+function setTaskPullRequest(
+  taskId: string,
+  pr: { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED' }
+): void {
+  useBoardStore.setState((state) => {
+    const task = state.tasks[taskId];
+    if (!task) return state;
+    return { tasks: { ...state.tasks, [taskId]: { ...task, lastPullRequest: pr } } };
+  });
+}
+
+function parseGitHubTime(value: string | undefined, fallback: number): number {
+  const parsed = value ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/**
+ * Turn pull-request state changes into timeline events. A task is matched
+ * to a PR by its branch — the isolated copy's, or the project checkout's
+ * for a local run — and by repo when known; the last observed state lives
+ * on the task so reloads never repeat an event.
+ */
+export function syncPullRequestEvents(
+  prs: PullRequestSummary[],
+  briefByProject: Record<string, { repo: string | null; branch: string | null } | undefined>
+): void {
+  const { tasks } = useBoardStore.getState();
+  const sessions = useAppStore.getState().sessions;
+  for (const task of Object.values(tasks)) {
+    const session = latestTaskSession(task, sessions);
+    if (!session) continue;
+    const brief = task.projectCwd ? briefByProject[task.projectCwd] : undefined;
+    const branch = session.associatedWorktreeBranch?.trim() || brief?.branch?.trim();
+    if (!branch) continue;
+    const repo = brief?.repo;
+    const matches = prs.filter(
+      (pr) => pr.headRefName === branch && (!repo || pr.repo === repo)
+    );
+    // Same branch name in two repos and no repo yet: wait for the brief.
+    if (matches.length !== 1) continue;
+    const pr = matches[0];
+    const previous = task.lastPullRequest;
+    const now = Date.now();
+    if (!previous || previous.number !== pr.number) {
+      recordTaskEvent(task.id, {
+        type: 'pr-opened',
+        at: parseGitHubTime(pr.createdAt, now),
+        number: pr.number,
+        url: pr.url,
+        base: pr.baseRefName,
+      });
+      if (pr.state === 'MERGED' || pr.state === 'CLOSED') {
+        recordTaskEvent(task.id, {
+          type: pr.state === 'MERGED' ? 'pr-merged' : 'pr-closed',
+          at: parseGitHubTime(pr.updatedAt, now),
+          number: pr.number,
+          url: pr.url,
+        });
+      }
+    } else if (previous.state !== pr.state) {
+      recordTaskEvent(task.id, {
+        type: pr.state === 'MERGED' ? 'pr-merged' : pr.state === 'CLOSED' ? 'pr-closed' : 'pr-opened',
+        at: parseGitHubTime(pr.updatedAt, now),
+        number: pr.number,
+        url: pr.url,
+      });
+    } else {
+      continue;
+    }
+    setTaskPullRequest(task.id, { number: pr.number, state: pr.state });
+  }
 }
 
 function setTaskRunStatus(taskId: string, status: string): void {

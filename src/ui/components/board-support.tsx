@@ -1,9 +1,10 @@
-import { Check, CircleX, Clock, Loader2 } from './icons';
+import { Check, CircleX, Clock, GitPullRequest, Loader2 } from './icons';
 import { PROVIDERS } from '../utils/provider';
 import { formatClaudeModelLabel } from '../utils/claude-model';
 import { formatCodexModelLabel } from '../utils/codex-model';
 import type { BoardStage, BoardTask } from '../store/useBoardStore';
 import type { AgentProvider, SessionView } from '../types';
+import type { PullRequestSummary } from '../../shared/types';
 
 export const STAGE_META: Record<BoardStage, { label: string }> = {
   backlog: { label: 'Backlog' },
@@ -196,4 +197,54 @@ export function SessionRunStatus({ session }: { session: SessionView }) {
     return <span className="text-[11px] font-medium text-[var(--success)]">Completed</span>;
   }
   return <span className="text-[11px] font-normal text-[var(--text-muted)]">Idle</span>;
+}
+
+/**
+ * Pull-request state as Linear colours it: open green, merged purple,
+ * closed red, draft quiet. Same glyph everywhere; only the colour changes.
+ */
+export function pullRequestTone(pr: PullRequestSummary): { label: string; className: string } {
+  if (pr.state === 'MERGED') return { label: 'Merged', className: 'text-[#8b5cf6]' };
+  if (pr.state === 'CLOSED') return { label: 'Closed', className: 'text-[var(--error)]' };
+  if (pr.isDraft) return { label: 'Draft', className: 'text-[var(--text-muted)]' };
+  return { label: 'Open', className: 'text-[var(--success)]' };
+}
+
+export function PullRequestBadge({
+  pr,
+  className = '',
+}: {
+  pr: PullRequestSummary;
+  className?: string;
+}) {
+  const tone = pullRequestTone(pr);
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${tone.className} ${className}`}>
+      <GitPullRequest className="h-3 w-3" />
+      #{pr.number} · {tone.label}
+    </span>
+  );
+}
+
+/** "3 files +41 −9": file count quiet, line counts coloured, tabular digits. */
+export function DiffStat({
+  files,
+  insertions,
+  deletions,
+  className = '',
+}: {
+  files: number;
+  insertions: number;
+  deletions: number;
+  className?: string;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap text-[11px] tabular-nums ${className}`}>
+      <span className="text-[var(--text-muted)]">
+        {files} file{files === 1 ? '' : 's'}
+      </span>
+      {insertions > 0 ? <span className="text-[var(--success)]">+{insertions}</span> : null}
+      {deletions > 0 ? <span className="text-[var(--error)]">−{deletions}</span> : null}
+    </span>
+  );
 }

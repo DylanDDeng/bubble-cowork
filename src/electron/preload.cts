@@ -1026,6 +1026,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-branch', cwd);
   },
 
+  getGitRepoBrief: (cwd: string) => {
+    return ipcRenderer.invoke('get-git-repo-brief', cwd);
+  },
+
+  getGitBranchChanges: (cwd: string, baseRef: string) => {
+    return ipcRenderer.invoke('get-git-branch-changes', cwd, baseRef);
+  },
+
   getGitBranches: (cwd: string) => {
     return ipcRenderer.invoke('get-git-branches', cwd);
   },
