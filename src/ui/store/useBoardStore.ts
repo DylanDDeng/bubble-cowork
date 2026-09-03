@@ -105,6 +105,25 @@ export interface BoardTask {
   lastPullRequest?: { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED' };
 }
 
+/** Card properties the user can toggle from the board's display options. */
+export type BoardCardProperty = 'project' | 'agent' | 'branch' | 'changes' | 'pullRequest';
+
+export const BOARD_CARD_PROPERTIES: Array<{ key: BoardCardProperty; label: string }> = [
+  { key: 'project', label: 'Project' },
+  { key: 'agent', label: 'Agent' },
+  { key: 'branch', label: 'Branch' },
+  { key: 'changes', label: 'Changes' },
+  { key: 'pullRequest', label: 'Pull request' },
+];
+
+export const DEFAULT_CARD_PROPERTIES: Record<BoardCardProperty, boolean> = {
+  project: true,
+  agent: true,
+  branch: true,
+  changes: true,
+  pullRequest: true,
+};
+
 export interface BoardStore {
   tasks: Record<string, BoardTask>;
   addTask: (input: {
@@ -135,6 +154,9 @@ export interface BoardStore {
   /** Board option: render stages that currently hold no tasks. */
   showEmptyColumns: boolean;
   setShowEmptyColumns: (value: boolean) => void;
+  /** Display properties (Linear's): which facts a card shows. */
+  cardProperties: Record<BoardCardProperty, boolean>;
+  setCardProperty: (property: BoardCardProperty, visible: boolean) => void;
   /**
    * Columns the user hid from the column header menu (Linear's "Hide
    * column"). Restored from the board options popover.
@@ -397,6 +419,11 @@ export const useBoardStore = create<BoardStore>()(
 
       showEmptyColumns: true,
       setShowEmptyColumns: (value) => set({ showEmptyColumns: value }),
+      cardProperties: DEFAULT_CARD_PROPERTIES,
+      setCardProperty: (property, visible) =>
+        set((state) => ({
+          cardProperties: { ...DEFAULT_CARD_PROPERTIES, ...state.cardProperties, [property]: visible },
+        })),
 
       hiddenStages: {},
       setStageHidden: (stage, hidden) =>

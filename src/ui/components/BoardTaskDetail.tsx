@@ -24,6 +24,11 @@ import {
 } from './icons';
 import { toast } from 'sonner';
 import { AgentIcon } from './ComposerAgentControls';
+import {
+  TaskFollowUpEditor,
+  type TaskFollowUpEditorHandle,
+  type TaskFollowUpOutgoing,
+} from './TaskFollowUpEditor';
 import { MDContent } from '../render/markdown';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { avatarColorFor, initialsOf } from '../utils/user-avatar';
@@ -48,7 +53,8 @@ import {
   relativeTime,
 } from './board-support';
 import { extractToolChangeRecords } from '../utils/change-records';
-import type { AgentProvider, SessionView } from '../types';
+import type { AgentProvider, Attachment, SessionView } from '../types';
+import type { CodexReferencePayload } from '../utils/codex-composer';
 
 /**
  * The Activity timeline interleaves two shapes, Linear-style: thread cards
@@ -131,7 +137,15 @@ export function BoardTaskDetail({
   onUpdateDescription: (description: string) => void;
   onStart: () => void;
   /** Send a follow-up prompt to the latest run. Returns false if it could not send. */
-  onContinue: (prompt: string, opts?: { newCard?: boolean }) => boolean;
+  onContinue: (
+    prompt: string,
+    opts?: {
+      newCard?: boolean;
+      effectivePrompt?: string;
+      attachments?: Attachment[];
+      references?: CodexReferencePayload;
+    }
+  ) => boolean;
   onRemove: () => void;
   /** Project choices for the rail dropdown while the task has not run yet. */
   projectOptions: string[];
@@ -143,7 +157,7 @@ export function BoardTaskDetail({
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState(task.description);
   const [followUp, setFollowUp] = useState('');
-  const followUpRef = useRef<HTMLTextAreaElement | null>(null);
+  const followUpRef = useRef<TaskFollowUpEditorHandle | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -344,13 +358,15 @@ export function BoardTaskDetail({
     else setDescriptionDraft(task.description);
   };
 
-  const sendFollowUp = () => {
-    const prompt = followUp.trim();
-    if (!prompt) return;
-    if (onContinue(prompt)) {
-      setFollowUp('');
-      if (followUpRef.current) followUpRef.current.style.height = 'auto';
-    }
+  const [followUpAttachmentCount, setFollowUpAttachmentCount] = useState(0);
+  const sendFollowUp = (outgoing: TaskFollowUpOutgoing): boolean => {
+    const sent = onContinue(outgoing.prompt, {
+      effectivePrompt: outgoing.effectivePrompt,
+      attachments: outgoing.attachments,
+      references: outgoing.references,
+    });
+    if (sent) setFollowUp('');
+    return sent;
   };
 
   return (
@@ -486,7 +502,13 @@ export function BoardTaskDetail({
                         onOpenSession={onOpenSession}
                         onReply={
                           index === lastCardIndex && hasLinkedSession
-                            ? (prompt) => onContinue(prompt, { newCard: false })
+                            ? (outgoing) =>
+                                onContinue(outgoing.prompt, {
+                                  newCard: false,
+                                  effectivePrompt: outgoing.effectivePrompt,
+                                  attachments: outgoing.attachments,
+                                  references: outgoing.references,
+                                })
                             : undefined
                         }
                       />
@@ -532,31 +554,31 @@ export function BoardTaskDetail({
                 // same radii, shadow, focus transition, editor and send button.
                 <div className="group relative rounded-[28px] bg-transparent transition-shadow duration-200">
                   <div className="rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]">
-                    <textarea
+                    <TaskFollowUpEditor
                       ref={followUpRef}
                       value={followUp}
-                      onChange={(event) => {
-                        setFollowUp(event.target.value);
-                        const target = event.target;
-                        target.style.height = 'auto';
-                        target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                          event.preventDefault();
-                          sendFollowUp();
-                        }
-                      }}
-                      rows={1}
+                      onChange={setFollowUp}
+                      onSubmit={sendFollowUp}
+                      onAttachmentsChange={setFollowUpAttachmentCount}
+                      session={latest}
                       placeholder={
                         task.stage === 'review'
                           ? 'Request changes — this sends feedback and moves the task back to Working…'
                           : 'Continue the task with a follow-up…'
                       }
-                      className="min-h-[56px] w-full resize-none bg-transparent px-4 pb-1 pt-3 text-[14px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                      className="min-h-[56px] max-h-[200px] w-full resize-none bg-transparent px-4 pb-1 pt-3 text-[14px] text-[var(--text-primary)] outline-none"
                     />
                     <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
-                      <div className="flex min-w-0 flex-1 items-center gap-1.5 pl-1.5">
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => followUpRef.current?.addAttachments()}
+                          title="Add files or photos"
+                          aria-label="Add files or photos"
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
                         {provider ? (
                           <span
                             className="inline-flex items-center gap-1.5 text-[12px] text-[var(--text-muted)]"
@@ -569,8 +591,8 @@ export function BoardTaskDetail({
                       </div>
                       <button
                         type="button"
-                        disabled={!followUp.trim()}
-                        onClick={sendFollowUp}
+                        disabled={!followUp.trim() && followUpAttachmentCount === 0}
+                        onClick={() => followUpRef.current?.submit()}
                         title="Send"
                         aria-label="Send"
                         className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
@@ -754,7 +776,7 @@ function RoundCard({
   showExtras: boolean;
   onOpenSession: (sessionId: string) => void;
   /** Present on the newest card only: send a reply that stays in this card. */
-  onReply?: (prompt: string) => boolean;
+  onReply?: (outgoing: TaskFollowUpOutgoing) => boolean;
 }) {
   const profileName = useUserProfile()?.displayName || null;
   const [replyDraft, setReplyDraft] = useState('');
@@ -892,18 +914,22 @@ function RoundCard({
         {onReply ? (
           <div className="flex items-center gap-2 py-2.5">
             <UserAvatar name={profileName} />
-            <input
-              value={replyDraft}
-              onChange={(event) => setReplyDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
-                const prompt = replyDraft.trim();
-                if (prompt && onReply(prompt)) setReplyDraft('');
-              }}
-              placeholder="Leave a reply…"
-              aria-label="Reply in this thread"
-              className="min-w-0 flex-1 bg-transparent text-[12.5px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-            />
+            <div className="min-w-0 flex-1">
+              <TaskFollowUpEditor
+                value={replyDraft}
+                onChange={setReplyDraft}
+                onSubmit={(outgoing) => {
+                  const sent = onReply(outgoing);
+                  if (sent) setReplyDraft('');
+                  return sent;
+                }}
+                session={session}
+                chipsClassName="pb-2"
+                placeholder="Leave a reply…"
+                ariaLabel="Reply in this thread"
+                className="max-h-[160px] w-full bg-transparent text-[12.5px] text-[var(--text-primary)] outline-none"
+              />
+            </div>
           </div>
         ) : null}
       </div>

@@ -33,10 +33,13 @@ import { sendEvent } from '../hooks/useIPC';
 import { useTabsStore } from '../store/useTabsStore';
 import { useTaskGit, useTaskGitStore } from '../store/useTaskGitStore';
 import {
+  BOARD_CARD_PROPERTIES,
   BOARD_STAGES,
+  DEFAULT_CARD_PROPERTIES,
   ensureBoardSessionSync,
   latestTaskSession,
   useBoardStore,
+  type BoardCardProperty,
   type BoardSessionConfig,
   type BoardStage,
   type BoardTask,
@@ -53,7 +56,8 @@ import {
   providerLabel,
   relativeTime,
 } from './board-support';
-import type { SessionView } from '../types';
+import type { Attachment, SessionView } from '../types';
+import type { CodexReferencePayload } from '../utils/codex-composer';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { createBoardTaskStartPayload } from '../utils/board-task-start';
 
@@ -79,6 +83,8 @@ export function BoardView() {
   const setShowEmptyColumns = useBoardStore((state) => state.setShowEmptyColumns);
   const hiddenStages = useBoardStore((state) => state.hiddenStages);
   const setStageHidden = useBoardStore((state) => state.setStageHidden);
+  const cardProperties = useBoardStore((state) => state.cardProperties);
+  const setCardProperty = useBoardStore((state) => state.setCardProperty);
   const [composerTaskId, setComposerTaskId] = useState<string | null | undefined>(undefined);
   // Column the "+" was pressed in: a new task lands there instead of Backlog.
   const [composerStage, setComposerStage] = useState<BoardStage>('backlog');
@@ -217,7 +223,12 @@ export function BoardView() {
   const continueTask = (
     task: BoardTask,
     prompt: string,
-    opts?: { newCard?: boolean }
+    opts?: {
+      newCard?: boolean;
+      effectivePrompt?: string;
+      attachments?: Attachment[];
+      references?: CodexReferencePayload;
+    }
   ): boolean => {
     const latest = latestTaskSession(task, sessions);
     if (!latest) {
@@ -228,7 +239,14 @@ export function BoardView() {
     useBoardStore.getState().markFollowUp(task.id, opts?.newCard !== false);
     window.electron.sendClientEvent({
       type: 'session.continue',
-      payload: { sessionId: latest.id, prompt },
+      payload: {
+        sessionId: latest.id,
+        prompt,
+        effectivePrompt: opts?.effectivePrompt,
+        attachments: opts?.attachments && opts.attachments.length > 0 ? opts.attachments : undefined,
+        // Codex runs a picked skill from its reference, like the chat composer.
+        ...(opts?.references || {}),
+      },
     });
     if (task.stage === 'review' || task.stage === 'done' || task.stage === 'canceled') {
       setStage(task.id, 'working', { auto: true });
@@ -329,6 +347,8 @@ export function BoardView() {
             onShowEmptyColumnsChange={setShowEmptyColumns}
             hiddenStages={hiddenStages}
             onStageHiddenChange={setStageHidden}
+            cardProperties={cardProperties}
+            onCardPropertyChange={setCardProperty}
           />
         </div>
       </div>
@@ -397,6 +417,7 @@ export function BoardView() {
                       session={latestTaskSession(task, sessions)}
                       selected={task.id === selectedTaskId}
                       showProject={projectFilter === 'all'}
+                      properties={cardProperties}
                       onClick={(event) => {
                         if (event.metaKey || event.ctrlKey) {
                           useTabsStore
@@ -580,11 +601,15 @@ function BoardOptionsMenu({
   onShowEmptyColumnsChange,
   hiddenStages,
   onStageHiddenChange,
+  cardProperties,
+  onCardPropertyChange,
 }: {
   showEmptyColumns: boolean;
   onShowEmptyColumnsChange: (value: boolean) => void;
   hiddenStages: Partial<Record<BoardStage, true>>;
   onStageHiddenChange: (stage: BoardStage, hidden: boolean) => void;
+  cardProperties: Record<BoardCardProperty, boolean>;
+  onCardPropertyChange: (property: BoardCardProperty, visible: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -633,20 +658,53 @@ function BoardOptionsMenu({
             />
           </div>
           <div className="mx-3 my-1.5 border-t border-[var(--border)]" />
-          <div className="px-3 pb-1.5 text-[11.5px] font-medium text-[var(--text-muted)]">Columns</div>
-          {BOARD_STAGES.map((stage) => (
-            <div key={stage} className="flex items-center justify-between gap-3 px-3 py-1.5">
-              <span className="flex items-center gap-2 text-[12.5px] text-[var(--text-primary)]">
-                <StageIcon stage={stage} className="h-3.5 w-3.5" />
-                {STAGE_META[stage].label}
-              </span>
-              <SettingsToggle
-                checked={!hiddenStages[stage]}
-                onChange={(visible) => onStageHiddenChange(stage, !visible)}
-                ariaLabel={`Show ${STAGE_META[stage].label} column`}
-              />
-            </div>
-          ))}
+          <div className="px-3 pb-1.5 text-[11.5px] font-medium text-[var(--text-muted)]">
+            Display properties
+          </div>
+          {/* Linear-style chips: on = filled, off = faded. */}
+          <div className="flex flex-wrap gap-1.5 px-3 pb-1.5 pt-0.5">
+            {BOARD_CARD_PROPERTIES.map((property) => {
+              const on = cardProperties[property.key] ?? DEFAULT_CARD_PROPERTIES[property.key];
+              return (
+                <button
+                  key={property.key}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => onCardPropertyChange(property.key, !on)}
+                  className={`inline-flex h-6 items-center rounded-full px-2.5 text-[12px] transition-colors ${
+                    on
+                      ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)] hover:bg-[var(--border-focus)]'
+                      : 'bg-[var(--sidebar-item-hover)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                  }`}
+                >
+                  {property.label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Columns are hidden from their own header menu; this is only the way back. */}
+          {BOARD_STAGES.some((stage) => hiddenStages[stage]) ? (
+            <>
+              <div className="mx-3 my-1.5 border-t border-[var(--border)]" />
+              <div className="px-3 pb-1.5 text-[11.5px] font-medium text-[var(--text-muted)]">
+                Hidden columns
+              </div>
+              <div className="flex flex-wrap gap-1.5 px-3 pb-1.5 pt-0.5">
+                {BOARD_STAGES.filter((stage) => hiddenStages[stage]).map((stage) => (
+                  <button
+                    key={stage}
+                    type="button"
+                    title={`Show ${STAGE_META[stage].label} column`}
+                    onClick={() => onStageHiddenChange(stage, false)}
+                    className="inline-flex h-6 items-center gap-1.5 rounded-full bg-[var(--sidebar-item-hover)] px-2.5 text-[12px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                  >
+                    <StageIcon stage={stage} className="h-3 w-3" />
+                    {STAGE_META[stage].label}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -748,6 +806,7 @@ function BoardCard({
   session,
   selected,
   showProject,
+  properties,
   onClick,
   onAuxClick,
   onContextMenu,
@@ -757,12 +816,16 @@ function BoardCard({
   selected: boolean;
   /** Only when the board mixes projects — a scoped board would repeat it on every card. */
   showProject: boolean;
+  properties: Record<BoardCardProperty, boolean>;
   onClick: (event: ReactMouseEvent) => void;
   onAuxClick: (event: ReactMouseEvent) => void;
   onContextMenu: (event: ReactMouseEvent) => void;
 }) {
   const runState = deriveRunState(task, session);
   const git = useTaskGit(task, session);
+  const show = { ...DEFAULT_CARD_PROPERTIES, ...properties };
+  const showBranch = !!git && show.branch;
+  const showChanges = !!git?.changes && git.changes.files > 0 && show.changes;
   const provider = session?.provider || task.sessionConfig.provider;
   const label =
     modelDisplayLabel(provider, session?.model || task.sessionConfig.model) ||
@@ -791,13 +854,13 @@ function BoardCard({
           {task.title}
         </span>
       </div>
-      {showProject ? (
+      {showProject && show.project ? (
         <div className="mt-2 flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-muted)]">
           <Folder className="h-2.5 w-2.5 flex-shrink-0" />
           <span className="truncate">{projectName(task.projectCwd)}</span>
         </div>
       ) : null}
-      {provider ? (
+      {provider && show.agent ? (
         <div className="mt-1.5 flex min-w-0 items-center gap-2">
           <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-[var(--text-secondary)]">
             <AgentIcon provider={provider} />
@@ -805,17 +868,22 @@ function BoardCard({
           </span>
         </div>
       ) : null}
-      {git ? (
-        // Only isolated-copy runs own a branch; local runs share the checkout.
+      {git && (showBranch || showChanges) ? (
         <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
-          <GitBranch className="h-2.5 w-2.5 flex-shrink-0 text-[var(--text-muted)]" />
-          <span
-            className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--text-secondary)]"
-            title={git.branch}
-          >
-            {git.branch}
-          </span>
-          {git.changes && git.changes.files > 0 ? (
+          {showBranch ? (
+            <>
+              <GitBranch className="h-2.5 w-2.5 flex-shrink-0 text-[var(--text-muted)]" />
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--text-secondary)]"
+                title={git.branch}
+              >
+                {git.branch}
+              </span>
+            </>
+          ) : (
+            <span className="flex-1" />
+          )}
+          {showChanges && git.changes ? (
             <DiffStat
               files={git.changes.files}
               insertions={git.changes.insertions}
@@ -828,7 +896,7 @@ function BoardCard({
       <div className="mt-2 flex min-h-[16px] items-center gap-2">
         {/* The column already says "Review" — only live runtime states earn a badge. */}
         {runState && runState !== 'ready' ? <RunBadge state={runState} /> : null}
-        {git?.pr ? <PullRequestBadge pr={git.pr} /> : null}
+        {git?.pr && show.pullRequest ? <PullRequestBadge pr={git.pr} /> : null}
         <span className="ml-auto text-[11px] text-[var(--text-muted)]">
           {relativeTime(task.updatedAt)}
         </span>
@@ -1132,7 +1200,7 @@ function BoardTaskComposer({
               kimiThinkingOptions={agentSelection.kimiThinkingOptions}
               kimiThinkingChecked={agentSelection.kimiThinkingChecked}
               onKimiThinkingChange={agentSelection.setKimiThinking}
-              menuSide="top"
+              menuSide="bottom"
               bubbleModelsLoading={agentSelection.bubbleModelsLoading}
             />
             </div>
