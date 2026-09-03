@@ -5,6 +5,7 @@ import type {
   AutomationDefinition,
   AutomationSnapshot,
   SessionInfo,
+  SessionStartPayload,
   ClientEvent,
   ClaudeCompatibleProvidersConfig,
   ServerEvent,
@@ -106,6 +107,9 @@ declare global {
       callback: () => { ok: boolean; message?: string } | Promise<{ ok: boolean; message?: string }>
     ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
+    startBackgroundSession: (
+      payload: SessionStartPayload
+    ) => Promise<{ ok: boolean; sessionId: string | null }>;
     forkSession: (
       sessionId: string,
       options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }
@@ -386,6 +390,16 @@ declare global {
       sha: string
     ) => Promise<import('./shared/types').GitCommitPatchResult>;
     getGitBranch: (cwd: string) => Promise<{ ok: boolean; branch: string | null; message?: string }>;
+    getGitRepoBrief: (cwd: string) => Promise<{
+      ok: boolean;
+      fullName: string | null;
+      defaultBranch: string | null;
+      branch: string | null;
+    }>;
+    getGitBranchChanges: (
+      cwd: string,
+      baseRef: string
+    ) => Promise<{ ok: boolean; files: number; insertions: number; deletions: number }>;
     getGitBranches: (cwd: string) => Promise<{
       ok: boolean;
       error: string | null;

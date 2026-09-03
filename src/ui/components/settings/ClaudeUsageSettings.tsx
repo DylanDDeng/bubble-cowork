@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { avatarColorFor, initialsOf } from '../../utils/user-avatar';
 import claudeLogo from '../../assets/claude-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import grokLogo from '../../assets/grok.svg';
@@ -388,26 +389,6 @@ export function ClaudeUsageSettingsContent() {
 
 /* ---------- Profile header ---------- */
 
-const AVATAR_COLORS = ['#0F9D90', '#315EFB', '#D97757', '#7C3AED', '#DB2777', '#B45309', '#15803D'];
-
-function avatarColorFor(name: string): string {
-  let hash = 0;
-  for (let index = 0; index < name.length; index += 1) {
-    hash = (hash * 31 + name.charCodeAt(index)) | 0;
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
-function initialsOf(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return '?';
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return `${words[0][0]}${words[1][0]}`.toUpperCase();
-  }
-  return trimmed.slice(0, 2).toUpperCase();
-}
-
 function UsageProfileHeader({
   profile,
   provider,
@@ -642,17 +623,19 @@ function HeatmapHoverTip({ tip }: { tip: HeatmapTip | null }) {
 
   return (
     <div
-      className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-[11px] leading-4 shadow-[0_10px_28px_rgba(15,23,42,0.14)]"
+      className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg bg-[var(--tooltip-bg)] px-2.5 py-1.5 text-[11px] leading-4 shadow-[0_10px_28px_rgba(15,23,42,0.18)]"
       style={{ left: `${tip.xPct}%`, top: `${tip.yPct}%`, transform, marginTop: '-7px' }}
     >
-      <div className="font-medium text-[var(--text-primary)]">{tip.title}</div>
-      <div className="text-[var(--text-muted)]">{tip.detail}</div>
+      <div className="font-medium text-[var(--tooltip-fg)]">{tip.title}</div>
+      <div className="text-[var(--tooltip-fg-muted)]">{tip.detail}</div>
     </div>
   );
 }
 
+// Same compact form as the stat tiles and the Top models list, so a day
+// reads "217.4K tokens" rather than a six-digit count.
 function formatTokenDetail(tokens: number): string {
-  return tokens > 0 ? `${tokens.toLocaleString('en-US')} tokens` : 'No tokens';
+  return tokens > 0 ? `${formatCompactNumber(tokens)} tokens` : 'No tokens';
 }
 
 function ActivityHeatmap({ daily, mode }: { daily: ClaudeUsageDailyPoint[]; mode: ActivityViewMode }) {
@@ -739,7 +722,7 @@ function ActivityHeatmap({ daily, mode }: { daily: ClaudeUsageDailyPoint[]; mode
       return {
         ...anchor,
         title: formatLongDate(point.date),
-        detail: cumulative > 0 ? `${cumulative.toLocaleString('en-US')} tokens to date` : 'No tokens yet',
+        detail: cumulative > 0 ? `${formatCompactNumber(cumulative)} tokens to date` : 'No tokens yet',
       };
     }
     return {

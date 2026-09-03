@@ -29,16 +29,20 @@ import {
   Users,
   X,
 } from './components/icons';
+import { RightPanelToggleIcon } from './components/RightPanelToggleIcon';
 import { useAppStore } from './store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
-import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
+import { Sidebar } from './components/Sidebar';
 import { AutomationsView } from './components/AutomationsView';
 import { PullRequestsView } from './components/PullRequestsView';
+import { BoardView } from './components/BoardView';
+import { ensureBoardSessionSync, useBoardStore } from './store/useBoardStore';
+import { useTabsStore, type TabView } from './store/useTabsStore';
+import { AppTabBar } from './components/AppTabBar';
 import { NewSessionView } from './components/NewSessionView';
 import { LogoShimmer } from './components/LogoShimmer';
-import { SessionHistoryButtons } from './components/SessionHistoryButtons';
 import { SessionHandoffProviderRoute } from './components/SessionHandoffIndicator';
 import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
@@ -364,6 +368,35 @@ export function App() {
   useEffect(() => {
     startQueueAutoFlush();
   }, []);
+
+  // Board stage sync must run even while the board isn't mounted: a run
+  // finishing in the background should still move its card to Review.
+  useEffect(() => {
+    ensureBoardSessionSync();
+  }, []);
+
+  // Tabs mirror: every in-app navigation (sidebar, board, back/forward)
+  // lands here and is recorded on the active tab, so tab switching can
+  // replay it later. Settings is a modal surface, not a tab.
+  const boardSelectedTaskId = useBoardStore((state) => state.selectedTaskId);
+  useEffect(() => {
+    if (showSettings) return;
+    let view: TabView;
+    if (activeWorkspace === 'board') {
+      view = { kind: 'board', taskId: boardSelectedTaskId };
+    } else if (activeWorkspace === 'chat') {
+      view = { kind: 'chat', sessionId: showNewSession ? null : activeSessionId };
+    } else if (
+      activeWorkspace === 'automations' ||
+      activeWorkspace === 'prs' ||
+      activeWorkspace === 'skills'
+    ) {
+      view = { kind: activeWorkspace };
+    } else {
+      return;
+    }
+    useTabsStore.getState().setActiveTabView(view);
+  }, [activeWorkspace, activeSessionId, showNewSession, boardSelectedTaskId, showSettings]);
 
   useEffect(() => {
     if (!electronAvailable) {
@@ -932,7 +965,11 @@ export function App() {
     !showSettings &&
     activeWorkspace === 'chat' &&
     (chatLayoutMode === 'split' || Boolean(activeSession && !showNewSession));
-  const skinVisible = chatSurfaceVisible && Boolean(skinImageData && skinLayout);
+  // The board paints through the same skin vars as chat, so the wallpaper
+  // spans both workspaces.
+  const skinSurfaceVisible =
+    chatSurfaceVisible || (!showSettings && activeWorkspace === 'board');
+  const skinVisible = skinSurfaceVisible && Boolean(skinImageData && skinLayout);
 
   // First-run (or zero-agents) takeover: the main UI is unusable without at
   // least one working agent, so detection/install guidance becomes the page.
@@ -961,13 +998,17 @@ export function App() {
       {/* Sidebar */}
       {!showSettings && <Sidebar />}
 
+      {/* Main column: the tab strip sits on the window chrome; everything
+          below floats as a rounded content card (Linear-style figure/ground). */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {!showSettings ? <AppTabBar /> : null}
       {/* Shared chat surface: the wallpaper lives here so it spans both the
           conversation and the utility workspace (including fullscreen). */}
       <div
         ref={skinHostRef}
-        className={`aegis-skin-host relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--bg-primary)] ${
-          chatSurfaceVisible ? 'rounded-l-[12px]' : ''
-        } ${skinVisible ? 'aegis-skin-host--active' : ''}`}
+        className={`aegis-skin-host relative mx-1.5 mb-1.5 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[10px] bg-[var(--bg-primary)] shadow-[0_1px_4px_rgba(15,18,25,0.06)] ${
+          skinVisible ? 'aegis-skin-host--active' : ''
+        }`}
       >
         {skinVisible ? (
           <div aria-hidden className="aegis-skin-layer" style={{ opacity: skinOpacity }}>
@@ -997,17 +1038,7 @@ export function App() {
           </div>
         </div>
       ) : activeWorkspace === 'skills' ? (
-        <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
-          <div className="h-12 drag-region flex-shrink-0 bg-[var(--bg-primary)]">
-            <div className="flex h-full items-center px-3">
-              {sidebarCollapsed ? (
-                <>
-                  <SidebarHeaderTrigger className="ml-[72px]" />
-                  <SessionHistoryButtons />
-                </>
-              ) : null}
-            </div>
-          </div>
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--bg-primary)]">
           <main className="min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-[1360px] px-8 py-8">
               <SkillMarketSettingsContent />
@@ -1018,31 +1049,17 @@ export function App() {
         <AutomationsView />
       ) : activeWorkspace === 'prs' ? (
         <PullRequestsView />
+      ) : activeWorkspace === 'board' ? (
+        <BoardView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
         <div
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--chat-pane-surface)]"
         >
           {/* Top drag region */}
-          <div className="relative h-12 drag-region flex-shrink-0 bg-[var(--chat-pane-surface)]">
+          <div className="relative h-11 flex-shrink-0 bg-[var(--chat-pane-surface)]">
             <div className="flex h-full items-center justify-between px-3">
               <div className="flex min-w-0 items-center gap-2">
-                <div
-                  className={`ml-[72px] flex h-7 shrink-0 items-center ${
-                    sidebarCollapsed ? '' : 'w-7 justify-center'
-                  }`}
-                >
-                  {sidebarCollapsed ? (
-                    <>
-                      <SidebarHeaderTrigger />
-                      <SessionHistoryButtons />
-                    </>
-                  ) : null}
-                </div>
-                <div
-                  className={`flex min-w-0 items-center gap-2 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                    sidebarCollapsed ? 'translate-x-0' : '-translate-x-[108px]'
-                  }`}
-                >
+                <div className="flex min-w-0 items-center gap-2 pl-1">
                   {activeSession?.handoffSourceProvider ? (
                     <SessionHandoffProviderRoute
                       sourceProvider={activeSession.handoffSourceProvider}
@@ -1263,16 +1280,17 @@ export function App() {
         </RightUtilityWorkspace>
       ) : null}
       </AnimatePresence>
-      </div>
 
       {!showSettings && activeWorkspace === 'chat' && activeUtilityPanel === null ? (
-        <div className="fixed right-3 top-2.5 z-[90] no-drag">
+        <div className="absolute right-3 top-2 z-[90] no-drag">
           <PanelLauncher
             activePanel={activeUtilityPanel}
             onToggle={toggleRightUtilityPanel}
           />
         </div>
       ) : null}
+      </div>
+      </div>
 
       {/* Design-mode annotate delivery: app-level so a note submitted right
           before the browser panel closes still reaches the composer. */}
@@ -1749,24 +1767,6 @@ function BottomTerminalToggleIcon() {
     >
       <rect width="18" height="16" x="3" y="4" rx="4" />
       <path d="M9 16h6" />
-    </svg>
-  );
-}
-
-function RightPanelToggleIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-[14px] w-[14px] shrink-0"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect width="18" height="16" x="3" y="4" rx="4" />
-      <path d="M15 8v8" />
     </svg>
   );
 }

@@ -2722,7 +2722,8 @@ export const useAppStore = create<Store>()(
         });
         const activeWorkspace =
           persisted?.activeWorkspace === 'skills' ||
-          persisted?.activeWorkspace === 'automations'
+          persisted?.activeWorkspace === 'automations' ||
+          persisted?.activeWorkspace === 'board'
             ? persisted.activeWorkspace
             : 'chat';
         const sidebarView = persisted?.chatSidebarView === 'skills' ? 'skills' : 'threads';

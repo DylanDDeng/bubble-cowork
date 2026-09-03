@@ -1004,25 +1004,27 @@ function SessionItem({
                   <GitBranch className="h-3.5 w-3.5 text-[var(--accent)]" aria-label="Runs on an isolated branch" />
                 </span>
               ) : null}
-              {runtimeBadge && (
+              {runtimeBadge === 'running' ? (
+                <Loader2
+                  className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-[var(--text-muted)]"
+                  title="Session is running"
+                  aria-label="Session is running"
+                />
+              ) : runtimeBadge ? (
                 <span
                   className={`status-dot ${runtimeBadge} flex-shrink-0`}
                   title={
-                    runtimeBadge === 'running'
-                      ? 'Session is running'
-                      : runtimeBadge === 'completed'
+                    runtimeBadge === 'completed'
                         ? 'Session completed'
                         : 'Session failed'
                   }
                   aria-label={
-                    runtimeBadge === 'running'
-                      ? 'Session is running'
-                      : runtimeBadge === 'completed'
+                    runtimeBadge === 'completed'
                         ? 'Session completed'
                         : 'Session failed'
                   }
                 />
-              )}
+              ) : null}
             </div>
           </div>
             }

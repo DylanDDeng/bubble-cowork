@@ -590,6 +590,8 @@ export const ComposerPromptEditor = forwardRef<
     className?: string;
     slashContext?: SlashTokenContext;
     slashDisplayLabels?: Record<string, string>;
+    /** Placement/size of the placeholder; defaults to the chat composer's inset. */
+    placeholderClassName?: string;
   }
 >(function ComposerPromptEditor(props, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -884,7 +886,11 @@ export const ComposerPromptEditor = forwardRef<
   return (
     <div ref={containerRef} className="relative">
       {!displayHasValue && props.placeholder ? (
-        <div className="pointer-events-none absolute inset-x-5 top-4 text-[14px] text-[var(--text-muted)]">
+        <div
+          className={`pointer-events-none absolute text-[var(--text-muted)] ${
+            props.placeholderClassName ?? 'inset-x-5 top-4 text-[14px]'
+          }`}
+        >
           {props.placeholder}
         </div>
       ) : null}

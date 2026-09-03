@@ -189,7 +189,7 @@ export interface SessionStreamingState {
   thinking: string;
 }
 
-export type ActiveWorkspace = 'chat' | 'skills' | 'automations' | 'prs';
+export type ActiveWorkspace = 'chat' | 'skills' | 'automations' | 'prs' | 'board';
 export type ChatSidebarView = 'threads' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';

@@ -25,6 +25,7 @@
 /* Theme variables - Light */
 :root {
   --bg-primary: #FCFCFC;
+  --app-chrome-bg: #F4F4F4;
   --bg-secondary: rgba(0, 0, 0, 0.025);
   --bg-tertiary: #F5F5F7;
   --text-primary: #1A1A1A;
@@ -104,10 +105,17 @@
   --sidebar-item-hover: rgba(0, 0, 0, 0.04);
   --sidebar-item-active: rgba(0, 0, 0, 0.06);
   --sidebar-item-border: rgba(0, 0, 0, 0.06);
+
+  /* Top tab strip: inactive tabs get a faint plate so they read as cards
+     on the chrome; the active tab lifts to the content surface. */
+  --tab-inactive-bg: rgba(0, 0, 0, 0.035);
+  --tab-inactive-hover-bg: rgba(0, 0, 0, 0.06);
   --sidebar-segment-bg: rgba(0, 0, 0, 0.06);
   --sidebar-segment-active: rgba(0, 0, 0, 0.03);
   --sidebar-segment-shadow-active: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --app-sidebar-surface: rgba(252, 252, 252, 0.72);
+  /* Same plate as the window chrome: the sidebar and the app base read as
+     one continuous surface (Linear-style) — only the content card is raised. */
+  --app-sidebar-surface: var(--app-chrome-bg);
   --panel-soft-divider: rgba(17, 24, 39, 0.075);
   --border-focus: rgba(0, 0, 0, 0.18);
   --focus-ring: rgba(0, 0, 0, 0.12);
@@ -124,6 +132,10 @@
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #FFFFFF;
+  /* Hover tooltips invert against the surface: ink plate in light, paper in dark */
+  --tooltip-bg: #1F2124;
+  --tooltip-fg: #FFFFFF;
+  --tooltip-fg-muted: rgba(255, 255, 255, 0.62);
   /* Right-click context menus use a warm off-white, one step below --popover-bg */
   --context-menu-bg: #F7F7F5;
   --popover-border: rgba(17, 24, 39, 0.08);
@@ -144,6 +156,7 @@
 /* Dark theme */
 .dark {
   --bg-primary: #0E0E0E;
+  --app-chrome-bg: #161616;
   --bg-secondary: rgba(255, 255, 255, 0.04);
   --bg-tertiary: rgba(255, 255, 255, 0.06);
   --text-primary: #E5E5E5;
@@ -223,6 +236,9 @@
   --sidebar-item-hover: rgba(255, 255, 255, 0.05);
   --sidebar-item-active: rgba(255, 255, 255, 0.08);
   --sidebar-item-border: rgba(255, 255, 255, 0.06);
+
+  --tab-inactive-bg: rgba(255, 255, 255, 0.04);
+  --tab-inactive-hover-bg: rgba(255, 255, 255, 0.07);
   --sidebar-segment-bg: rgba(255, 255, 255, 0.06);
   --sidebar-segment-active: rgba(255, 255, 255, 0.1);
   --sidebar-segment-shadow-active: 0 1px 2px rgba(0, 0, 0, 0.16);
@@ -232,6 +248,9 @@
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #1E2025;
+  --tooltip-bg: #F4F4F5;
+  --tooltip-fg: #111214;
+  --tooltip-fg-muted: rgba(17, 18, 20, 0.6);
   --context-menu-bg: #1E2025;
   --popover-border: rgba(255, 255, 255, 0.08);
   --popover-ring: rgba(255, 255, 255, 0.04);
@@ -448,7 +467,7 @@ body {
 }
 
 .aegis-window-shell {
-  background-color: var(--bg-primary);
+  background-color: var(--app-chrome-bg);
 }
 
 .aegis-window-shell--rounded .aegis-sidebar,
@@ -462,6 +481,11 @@ body {
 :root {
   --chat-pane-surface: var(--bg-primary);
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
+  /* Board lanes want a visibly gray track even on the plain (no-skin) canvas.
+     Mix toward ink, not --bg-secondary: in light themes the panel color is
+     anchored to white, so it's indistinguishable from the canvas. Kept
+     subtle (Linear-like): the lane should read as a track, not a slab. */
+  --board-column-surface: color-mix(in srgb, var(--text-primary) 3%, var(--bg-primary));
   --utility-pane-surface: var(--bg-primary);
   --utility-pane-surface-strong: var(--bg-primary);
   --utility-pane-backdrop: none;
@@ -478,6 +502,7 @@ body {
 .aegis-skin-host--active {
   --chat-pane-surface: transparent;
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
+  --board-column-surface: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
   --utility-pane-surface: color-mix(in srgb, var(--bg-primary) 58%, transparent);
   --utility-pane-surface-strong: color-mix(in srgb, var(--bg-primary) 72%, transparent);
   --utility-pane-backdrop: blur(14px) saturate(120%);
@@ -749,12 +774,15 @@ body {
   background: var(--text-muted);
 }
 
-/* Sidebar uses its own capped, draggable thumb instead of the proportional native one. */
-.sidebar-scrollbar {
+/* Hosts of CappedScrollbar (sidebar, task detail) draw their own capped,
+   draggable thumb instead of the proportional native one. */
+.sidebar-scrollbar,
+.capped-scrollbar-host {
   scrollbar-width: none;
 }
 
-.sidebar-scrollbar::-webkit-scrollbar {
+.sidebar-scrollbar::-webkit-scrollbar,
+.capped-scrollbar-host::-webkit-scrollbar {
   width: 0;
   height: 0;
 }
@@ -882,6 +910,46 @@ body {
 }
 
 .markdown-content.environment-recap-markdown strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.markdown-content.board-activity-markdown {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.markdown-content.board-activity-markdown h1,
+.markdown-content.board-activity-markdown h2,
+.markdown-content.board-activity-markdown h3 {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 0.7rem 0 0.2rem;
+}
+
+.markdown-content.board-activity-markdown h1:first-child,
+.markdown-content.board-activity-markdown h2:first-child,
+.markdown-content.board-activity-markdown h3:first-child,
+.markdown-content.board-activity-markdown p:first-child {
+  margin-top: 0;
+}
+
+.markdown-content.board-activity-markdown p {
+  margin: 0.3rem 0;
+}
+
+.markdown-content.board-activity-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content.board-activity-markdown ul,
+.markdown-content.board-activity-markdown ol {
+  margin: 0.25rem 0;
+  padding-left: 1.1rem;
+}
+
+.markdown-content.board-activity-markdown strong {
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -3307,27 +3375,12 @@ button.aegis-mdx-metadata-key:hover {
   background-color: var(--text-muted);
 }
 
-.status-dot.running {
-  background-color: var(--accent);
-  animation: pulse 1.5s infinite;
-}
-
 .status-dot.completed {
-  background-color: var(--success);
+  background-color: var(--accent);
 }
 
 .status-dot.error {
   background-color: var(--error);
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
 }
 
 /* Loading spinner (3x3 grid) */
@@ -3761,22 +3814,6 @@ button.aegis-mdx-metadata-key:hover {
   to {
     transform: translateX(0);
     opacity: 1;
-  }
-}
-
-/* Enhanced status dot pulse animation */
-.status-dot.running {
-  animation: statusPulse 1.5s infinite ease-in-out;
-}
-
-@keyframes statusPulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(0.9);
   }
 }
 

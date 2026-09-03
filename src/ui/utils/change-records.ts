@@ -195,17 +195,67 @@ function buildToolResultMap(messages: StreamMessage[]): Map<string, ToolResultBl
   return results;
 }
 
+type PendingHeredoc = {
+  delimiter: string;
+  stripLeadingTabs: boolean;
+};
+
+function skipHeredocBodies(
+  command: string,
+  startIndex: number,
+  pendingHeredocs: PendingHeredoc[]
+): number {
+  let cursor = startIndex;
+
+  for (const heredoc of pendingHeredocs) {
+    let foundDelimiter = false;
+
+    while (cursor < command.length) {
+      const newlineIndex = command.indexOf('\n', cursor);
+      const lineEnd = newlineIndex >= 0 ? newlineIndex : command.length;
+      const line = command.slice(cursor, lineEnd).replace(/\r$/, '');
+      const comparableLine = heredoc.stripLeadingTabs ? line.replace(/^\t+/, '') : line;
+      cursor = newlineIndex >= 0 ? newlineIndex + 1 : command.length;
+
+      if (comparableLine === heredoc.delimiter) {
+        foundDelimiter = true;
+        break;
+      }
+    }
+
+    if (!foundDelimiter) {
+      return command.length;
+    }
+  }
+
+  return cursor;
+}
+
 function tokenizeShell(command: string): string[] {
   const tokens: string[] = [];
   let current = '';
   let quote: '"' | "'" | null = null;
   let escapeNext = false;
+  let awaitingHeredoc: Pick<PendingHeredoc, 'stripLeadingTabs'> | null = null;
+  let pendingHeredocs: PendingHeredoc[] = [];
 
   const pushCurrent = () => {
     if (current.length > 0) {
       tokens.push(current);
+      if (awaitingHeredoc) {
+        pendingHeredocs.push({
+          delimiter: current,
+          stripLeadingTabs: awaitingHeredoc.stripLeadingTabs,
+        });
+        awaitingHeredoc = null;
+      }
       current = '';
     }
+  };
+
+  const pushOperator = (operator: string) => {
+    pushCurrent();
+    tokens.push(operator);
   };
 
   for (let index = 0; index < command.length; index += 1) {
@@ -233,8 +283,84 @@ function tokenizeShell(command: string): string[] {
       continue;
     }
 
+    if (quote === null && char === '\n') {
+      pushCurrent();
+      if (tokens[tokens.length - 1] !== ';') {
+        tokens.push(';');
+      }
+      if (pendingHeredocs.length > 0) {
+        const resumeIndex = skipHeredocBodies(command, index + 1, pendingHeredocs);
+        pendingHeredocs = [];
+        index = resumeIndex - 1;
+      }
+      continue;
+    }
+
     if (quote === null && /\s/.test(char)) {
       pushCurrent();
+      continue;
+    }
+
+    if (quote === null && char === ';') {
+      pushOperator(';');
+      continue;
+    }
+
+    if (quote === null && (command.startsWith('&&', index) || command.startsWith('||', index))) {
+      pushOperator(command.slice(index, index + 2));
+      index += 1;
+      continue;
+    }
+
+    if (quote === null && char === '|') {
+      pushOperator('|');
+      continue;
+    }
+
+    if (quote === null && command.startsWith('<<<', index)) {
+      const descriptor = /^\d+$/.test(current) ? current : '';
+      if (descriptor) {
+        current = '';
+      } else {
+        pushCurrent();
+      }
+      tokens.push(`${descriptor}<<<`);
+      index += 2;
+      continue;
+    }
+
+    if (quote === null && command.startsWith('<<', index)) {
+      const descriptor = /^\d+$/.test(current) ? current : '';
+      if (descriptor) {
+        current = '';
+      } else {
+        pushCurrent();
+      }
+      const stripLeadingTabs = command[index + 2] === '-';
+      tokens.push(`${descriptor}<<${stripLeadingTabs ? '-' : ''}`);
+      awaitingHeredoc = { stripLeadingTabs };
+      index += stripLeadingTabs ? 2 : 1;
+      continue;
+    }
+
+    if (quote === null && char === '&' && command[index + 1] === '>') {
+      pushCurrent();
+      const append = command[index + 2] === '>';
+      tokens.push(`&>${append ? '>' : ''}`);
+      index += append ? 2 : 1;
+      continue;
+    }
+
+    if (quote === null && char === '>') {
+      const descriptor = /^\d+$/.test(current) ? current : '';
+      if (descriptor) {
+        current = '';
+      } else {
+        pushCurrent();
+      }
+      const append = command[index + 1] === '>';
+      tokens.push(`${descriptor}>${append ? '>' : ''}`);
+      if (append) index += 1;
       continue;
     }
 
@@ -250,10 +376,36 @@ function cleanCommandPath(token: string | undefined): string | null {
   const trimmed = token.trim().replace(/^["']+|["']+$/g, '').trim();
   if (!trimmed) return null;
   if (trimmed === '/dev/null') return null;
+  if (/[\s<>{}()[\]`$*?]/.test(trimmed)) return null;
+  if (!trimmed.includes('/') && !trimmed.includes('.')) return null;
+  if (/^&\d+$/.test(trimmed)) return null;
   if (/^\d+>$/.test(trimmed)) return null;
   if (/^\d+>>$/.test(trimmed)) return null;
   if (trimmed.startsWith('-')) return null;
   return trimmed;
+}
+
+function isOutputRedirection(token: string): boolean {
+  return /^(?:\d+|&)?>{1,2}$/.test(token);
+}
+
+function isInputRedirection(token: string): boolean {
+  return /^(?:\d+)?(?:<<-?|<<<)$/.test(token);
+}
+
+function commandOperands(segment: string[], startIndex = 1): string[] {
+  const operands: string[] = [];
+
+  for (let index = startIndex; index < segment.length; index += 1) {
+    const token = segment[index];
+    if (isOutputRedirection(token) || isInputRedirection(token)) {
+      index += 1;
+      continue;
+    }
+    operands.push(token);
+  }
+
+  return operands;
 }
 
 function splitCommandSegments(tokens: string[]): string[][] {
@@ -261,7 +413,7 @@ function splitCommandSegments(tokens: string[]): string[][] {
   let current: string[] = [];
 
   for (const token of tokens) {
-    if (token === '&&' || token === ';' || token === '||') {
+    if (token === '&&' || token === ';' || token === '||' || token === '|') {
       if (current.length > 0) {
         segments.push(current);
         current = [];
@@ -349,52 +501,57 @@ function parseBashChangeSpecs(command: string): Array<{
     }
 
     if (segment[0] === 'rm') {
-      for (const token of segment.slice(1)) {
+      for (const token of commandOperands(segment)) {
         pushSpec(cleanCommandPath(token), 'D', 'delete');
       }
       continue;
     }
 
     if (segment[0] === 'mv' && segment.length >= 3) {
-      pushSpec(cleanCommandPath(segment[segment.length - 1]), 'R', 'renamed');
+      const operands = commandOperands(segment);
+      pushSpec(cleanCommandPath(operands[operands.length - 1]), 'R', 'renamed');
       continue;
     }
 
     if (segment[0] === 'cp' && segment.length >= 3) {
-      pushSpec(cleanCommandPath(segment[segment.length - 1]), 'A', 'write');
+      const operands = commandOperands(segment);
+      pushSpec(cleanCommandPath(operands[operands.length - 1]), 'A', 'write');
       continue;
     }
 
     if (segment[0] === 'touch') {
-      for (const token of segment.slice(1)) {
+      for (const token of commandOperands(segment)) {
         pushSpec(cleanCommandPath(token), 'A', 'write');
       }
       continue;
     }
 
     if (segment[0] === 'tee') {
-      for (const token of segment.slice(1)) {
+      for (const token of commandOperands(segment)) {
         if (token.startsWith('-')) continue;
         pushSpec(cleanCommandPath(token), 'A', 'write');
       }
     }
 
     if (segment[0] === 'sed' && segment.includes('-i')) {
-      pushSpec(cleanCommandPath(segment[segment.length - 1]), 'M', 'edit');
+      const operands = commandOperands(segment);
+      pushSpec(cleanCommandPath(operands[operands.length - 1]), 'M', 'edit');
       continue;
     }
 
     if (segment[0] === 'perl' && segment.some((token) => token.includes('-0pi') || token.includes('-pi'))) {
-      pushSpec(cleanCommandPath(segment[segment.length - 1]), 'M', 'edit');
+      const operands = commandOperands(segment);
+      pushSpec(cleanCommandPath(operands[operands.length - 1]), 'M', 'edit');
       continue;
     }
   }
 
-  const redirectionPattern = /(?:^|[\s;&|])(?:>|>>)\s*(["'])(.+?)\1|(?:^|[\s;&|])(?:>|>>)\s*([^\s;&|]+)/g;
-  let match: RegExpExecArray | null;
-  while ((match = redirectionPattern.exec(command)) !== null) {
-    const filePath = cleanCommandPath(match[2] || match[3]);
-    pushSpec(filePath, 'A', 'write');
+  for (const segment of segments) {
+    for (let index = 0; index < segment.length; index += 1) {
+      if (!isOutputRedirection(segment[index])) continue;
+      pushSpec(cleanCommandPath(segment[index + 1]), 'A', 'write');
+      index += 1;
+    }
   }
 
   return specs;

@@ -25,6 +25,7 @@ import type {
   ProviderReadPluginInput,
   ProviderUninstallPluginInput,
   ProviderReadPluginResult,
+  SessionStartPayload,
   WechatClipboardHtmlWriteInput,
   WechatClipboardHtmlWriteResult,
   WechatMarkdownHtmlGenerationInput,
@@ -205,6 +206,10 @@ contextBridge.exposeInMainWorld('electron', {
   // 生成会话标题
   generateSessionTitle: (prompt: string) => {
     return ipcRenderer.invoke('generate-session-title', prompt);
+  },
+
+  startBackgroundSession: (payload: SessionStartPayload) => {
+    return ipcRenderer.invoke('session-start-background', payload);
   },
 
   sessionHandoff: (payload: { sessionId: string; targetProvider: string }) => {
@@ -1019,6 +1024,14 @@ contextBridge.exposeInMainWorld('electron', {
 
   getGitBranch: (cwd: string) => {
     return ipcRenderer.invoke('get-git-branch', cwd);
+  },
+
+  getGitRepoBrief: (cwd: string) => {
+    return ipcRenderer.invoke('get-git-repo-brief', cwd);
+  },
+
+  getGitBranchChanges: (cwd: string, baseRef: string) => {
+    return ipcRenderer.invoke('get-git-branch-changes', cwd, baseRef);
   },
 
   getGitBranches: (cwd: string) => {

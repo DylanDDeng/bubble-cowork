@@ -702,9 +702,13 @@ export function buildThemeVariables(
   const contextPanelSurface = variant === 'light'
     ? mixHex(panel, '#ffffff', 0.2)
     : mixHex(panel, '#ffffff', 0.02 + theme.contrast * 0.02);
-  const sidebarBase = variant === 'light'
-    ? mixHex(surfaceUnder, pack.theme.ink, 0.01 + theme.contrast * 0.005)
-    : mixHex(surfaceUnder, '#000000', 0.08);
+  // The sidebar shares the chrome plate so the two read as one continuous
+  // surface — any tone difference at their seam shows up as a fake divider.
+  const chromeBg =
+    variant === 'light'
+      ? mixHex(pack.theme.surface, pack.theme.ink, 0.045)
+      : mixHex(pack.theme.surface, '#ffffff', 0.045);
+  const sidebarBase = chromeBg;
   const sidebarSurface = pack.theme.opaqueWindows
     ? sidebarBase
     : `color-mix(in srgb, ${sidebarBase} 72%, transparent)`;
@@ -746,6 +750,9 @@ export function buildThemeVariables(
 
   return {
     '--bg-primary': surfaceUnder,
+    // The window "base plate" the content card floats on — one step away
+    // from the surface so the card reads as raised in every theme pack.
+    '--app-chrome-bg': chromeBg,
     '--bg-secondary': panel,
     '--bg-tertiary': elevatedSecondary,
     '--text-primary': pack.theme.ink,
@@ -848,6 +855,10 @@ export function buildThemeVariables(
       ? formatRgba(parseHexColor(pack.theme.accent), 0.45)
       : formatRgba(parseHexColor(pack.theme.accent), 0.52),
     '--popover-bg': popoverBackground,
+    // Tooltips sit on the opposite plate from the surface they annotate.
+    '--tooltip-bg': pack.theme.ink,
+    '--tooltip-fg': pack.theme.surface,
+    '--tooltip-fg-muted': formatRgba(parseHexColor(pack.theme.surface), 0.64),
     '--popover-border': borderLight,
     '--popover-ring': variant === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(255, 255, 255, 0.04)',
     '--popover-radius': '14px',

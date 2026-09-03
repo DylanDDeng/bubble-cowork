@@ -186,8 +186,13 @@ export function ChatOutlineRail({
         ? 'translateY(calc(-100% + 12px))'
         : 'translateY(-50%)';
 
+  // The rail lives in the gutter beside the centred message column. Once the
+  // pane is too narrow for a gutter (column max 56rem plus room for the rail
+  // and its preview card), the ticks would sit on top of the messages, so it
+  // hides until the pane widens again. Measured against the chat pane, not
+  // the window: sidebars, split views and side chats all narrow the pane.
   return (
-    <div className="pointer-events-none absolute inset-y-0 left-0 z-30 flex items-center">
+    <div className="pointer-events-none absolute inset-y-0 left-0 z-30 hidden items-center @[60rem]:flex">
       <div
         className="pointer-events-auto relative ml-1.5"
         style={{ height: railHeight, width: 20 }}
