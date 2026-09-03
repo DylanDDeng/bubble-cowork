@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ChevronDown, Eye, EyeOff } from '../icons';
 import { BubbleLogo } from '../BubbleLogo';
+import { OpenCodeLogo } from '../OpenCodeLogo';
 import claudeLogo from '../../assets/claude-color.svg';
 import openaiLogo from '../../assets/openai.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
@@ -43,6 +44,9 @@ const PROVIDER_LOGOS: Record<string, string> = {
 };
 
 function ProviderLogo({ providerId, name }: { providerId: string; name: string }) {
+  // OpenCode's mark is theme-dependent, so it comes from the shared component
+  // rather than the static map.
+  if (providerId === 'opencode-zen') return <OpenCodeLogo />;
   const logo = PROVIDER_LOGOS[providerId];
   if (logo) {
     return <img src={logo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
