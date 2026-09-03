@@ -29,6 +29,7 @@ import {
   Users,
   X,
 } from './components/icons';
+import { RightPanelToggleIcon } from './components/RightPanelToggleIcon';
 import { useAppStore } from './store/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useIPC, sendEvent } from './hooks/useIPC';
@@ -1766,24 +1767,6 @@ function BottomTerminalToggleIcon() {
     >
       <rect width="18" height="16" x="3" y="4" rx="4" />
       <path d="M9 16h6" />
-    </svg>
-  );
-}
-
-function RightPanelToggleIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-[14px] w-[14px] shrink-0"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect width="18" height="16" x="3" y="4" rx="4" />
-      <path d="M15 8v8" />
     </svg>
   );
 }

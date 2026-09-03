@@ -132,6 +132,10 @@
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #FFFFFF;
+  /* Hover tooltips invert against the surface: ink plate in light, paper in dark */
+  --tooltip-bg: #1F2124;
+  --tooltip-fg: #FFFFFF;
+  --tooltip-fg-muted: rgba(255, 255, 255, 0.62);
   /* Right-click context menus use a warm off-white, one step below --popover-bg */
   --context-menu-bg: #F7F7F5;
   --popover-border: rgba(17, 24, 39, 0.08);
@@ -244,6 +248,9 @@
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #1E2025;
+  --tooltip-bg: #F4F4F5;
+  --tooltip-fg: #111214;
+  --tooltip-fg-muted: rgba(17, 18, 20, 0.6);
   --context-menu-bg: #1E2025;
   --popover-border: rgba(255, 255, 255, 0.08);
   --popover-ring: rgba(255, 255, 255, 0.04);
@@ -767,12 +774,15 @@ body {
   background: var(--text-muted);
 }
 
-/* Sidebar uses its own capped, draggable thumb instead of the proportional native one. */
-.sidebar-scrollbar {
+/* Hosts of CappedScrollbar (sidebar, task detail) draw their own capped,
+   draggable thumb instead of the proportional native one. */
+.sidebar-scrollbar,
+.capped-scrollbar-host {
   scrollbar-width: none;
 }
 
-.sidebar-scrollbar::-webkit-scrollbar {
+.sidebar-scrollbar::-webkit-scrollbar,
+.capped-scrollbar-host::-webkit-scrollbar {
   width: 0;
   height: 0;
 }

@@ -623,17 +623,19 @@ function HeatmapHoverTip({ tip }: { tip: HeatmapTip | null }) {
 
   return (
     <div
-      className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-[11px] leading-4 shadow-[0_10px_28px_rgba(15,23,42,0.14)]"
+      className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg bg-[var(--tooltip-bg)] px-2.5 py-1.5 text-[11px] leading-4 shadow-[0_10px_28px_rgba(15,23,42,0.18)]"
       style={{ left: `${tip.xPct}%`, top: `${tip.yPct}%`, transform, marginTop: '-7px' }}
     >
-      <div className="font-medium text-[var(--text-primary)]">{tip.title}</div>
-      <div className="text-[var(--text-muted)]">{tip.detail}</div>
+      <div className="font-medium text-[var(--tooltip-fg)]">{tip.title}</div>
+      <div className="text-[var(--tooltip-fg-muted)]">{tip.detail}</div>
     </div>
   );
 }
 
+// Same compact form as the stat tiles and the Top models list, so a day
+// reads "217.4K tokens" rather than a six-digit count.
 function formatTokenDetail(tokens: number): string {
-  return tokens > 0 ? `${tokens.toLocaleString('en-US')} tokens` : 'No tokens';
+  return tokens > 0 ? `${formatCompactNumber(tokens)} tokens` : 'No tokens';
 }
 
 function ActivityHeatmap({ daily, mode }: { daily: ClaudeUsageDailyPoint[]; mode: ActivityViewMode }) {
@@ -720,7 +722,7 @@ function ActivityHeatmap({ daily, mode }: { daily: ClaudeUsageDailyPoint[]; mode
       return {
         ...anchor,
         title: formatLongDate(point.date),
-        detail: cumulative > 0 ? `${cumulative.toLocaleString('en-US')} tokens to date` : 'No tokens yet',
+        detail: cumulative > 0 ? `${formatCompactNumber(cumulative)} tokens to date` : 'No tokens yet',
       };
     }
     return {

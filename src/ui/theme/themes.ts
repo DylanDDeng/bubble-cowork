@@ -855,6 +855,10 @@ export function buildThemeVariables(
       ? formatRgba(parseHexColor(pack.theme.accent), 0.45)
       : formatRgba(parseHexColor(pack.theme.accent), 0.52),
     '--popover-bg': popoverBackground,
+    // Tooltips sit on the opposite plate from the surface they annotate.
+    '--tooltip-bg': pack.theme.ink,
+    '--tooltip-fg': pack.theme.surface,
+    '--tooltip-fg-muted': formatRgba(parseHexColor(pack.theme.surface), 0.64),
     '--popover-border': borderLight,
     '--popover-ring': variant === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(255, 255, 255, 0.04)',
     '--popover-radius': '14px',

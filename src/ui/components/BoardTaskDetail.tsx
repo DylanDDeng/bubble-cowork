@@ -45,7 +45,10 @@ import {
   type BoardStage,
   type BoardTask,
   type BoardTaskEvent,
+  useBoardStore,
 } from '../store/useBoardStore';
+import { RightPanelToggleIcon } from './RightPanelToggleIcon';
+import { CappedScrollbar } from './CappedScrollbar';
 import {
   DiffStat,
   STAGE_META,
@@ -380,6 +383,85 @@ export function BoardTaskDetail({
     else setDescriptionDraft(task.description);
   };
 
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const propertiesCollapsed = useBoardStore((state) => state.detailPropertiesCollapsed);
+  const setPropertiesCollapsed = useBoardStore((state) => state.setDetailPropertiesCollapsed);
+
+  // The same property values feed the rail and, when the rail is folded,
+  // the compact row under the title.
+  const projectValue = hasRun ? (
+    <span
+      className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]"
+      title={task.projectCwd || undefined}
+    >
+      <Folder className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+      <span className="truncate">{projectName(task.projectCwd)}</span>
+    </span>
+  ) : (
+    <PropertyMenu
+      value={task.projectCwd}
+      placeholder="Choose a project…"
+      options={[...new Set([task.projectCwd, ...projectOptions])]
+        .filter((cwd): cwd is string => Boolean(cwd))
+        .map((cwd) => ({
+          key: cwd,
+          label: projectName(cwd),
+          title: cwd,
+          icon: <Folder className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />,
+        }))}
+      onSelect={onUpdateProject}
+    />
+  );
+  const agentValue = hasRun ? (
+    provider ? (
+      <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]">
+        <AgentIcon provider={provider} />
+        <span className="truncate">{providerLabel(provider)}</span>
+      </span>
+    ) : (
+      <span className="text-[12px] text-[var(--text-muted)]">None</span>
+    )
+  ) : (
+    <PropertyMenu
+      value={provider || null}
+      placeholder="Choose an agent…"
+      options={PROVIDERS.map((entry) => ({
+        key: entry.id,
+        label: entry.label,
+        icon: <AgentIcon provider={entry.id} />,
+      }))}
+      onSelect={(key) => onUpdateAgent(key as AgentProvider)}
+    />
+  );
+  // On the base branch itself there is nothing to open a PR from.
+  const pullRequestValue =
+    git && (git.pr || git.branch !== git.base) ? (
+      git.pr ? (
+        <button
+          type="button"
+          onClick={() => void window.electron.openExternalUrl(git.pr!.url)}
+          title={git.pr.title}
+          className={`group -ml-1.5 inline-flex h-[24px] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--sidebar-item-hover)] ${pullRequestTone(git.pr).className}`}
+        >
+          <GitPullRequest className="h-3 w-3 flex-shrink-0" />
+          <span className="truncate">
+            #{git.pr.number} {pullRequestTone(git.pr).label}
+          </span>
+          <ExternalLink className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={creatingPr}
+          onClick={() => void handleCreatePullRequest()}
+          className="-ml-1.5 inline-flex h-[24px] items-center gap-1.5 rounded-md px-1.5 text-[12px] text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
+        >
+          {creatingPr ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+          {creatingPr ? 'Creating pull request…' : 'Create pull request'}
+        </button>
+      )
+    ) : null;
+
   const [followUpAttachmentCount, setFollowUpAttachmentCount] = useState(0);
   const sendFollowUp = (outgoing: TaskFollowUpOutgoing): boolean => {
     const sent = onContinue(outgoing.prompt, {
@@ -446,11 +528,27 @@ export function BoardTaskDetail({
         >
           <ChevronDown className="h-3.5 w-3.5" />
         </button>
+        <span className="mx-1.5 h-4 w-px bg-[var(--border)]" />
+        {/* Layout control, not a task action: the same glyph as the session view's right panel. */}
+        <button
+          type="button"
+          onClick={() => setPropertiesCollapsed(!propertiesCollapsed)}
+          title={propertiesCollapsed ? 'Show properties' : 'Hide properties'}
+          aria-label={propertiesCollapsed ? 'Show properties' : 'Hide properties'}
+          aria-pressed={!propertiesCollapsed}
+          className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+        >
+          <RightPanelToggleIcon />
+        </button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="@container flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* Capped thumb (the sidebar's), not the native proportional bar:
+              a task a few screens tall otherwise gets a thumb that fills
+              most of the track. */}
+          <div className="relative min-h-0 flex-1">
+          <div ref={scrollRef} className="capped-scrollbar-host h-full overflow-y-auto">
             <div className="mx-auto w-full max-w-[720px] px-8 pb-6 pt-7">
               <textarea
                 ref={titleRef}
@@ -467,6 +565,31 @@ export function BoardTaskDetail({
                 className="w-full resize-none overflow-hidden bg-transparent text-[21px] font-semibold leading-snug tracking-[-0.015em] text-[var(--text-primary)] outline-none"
                 aria-label="Task title"
               />
+
+              {/* Rail folded (by choice, or because the pane is too narrow for
+                  one): the same facts as one row under the title, Linear's
+                  compact layout, so Stage stays one click away. */}
+              <div
+                className={`${
+                  propertiesCollapsed ? 'flex' : 'flex @[68rem]:hidden'
+                } mt-2.5 flex-wrap items-center gap-x-3 gap-y-1.5`}
+              >
+                <StageMenu stage={task.stage} onSetStage={onSetStage} />
+                <span className="inline-flex h-[24px] items-center">{projectValue}</span>
+                <span className="inline-flex h-[24px] items-center">{agentValue}</span>
+                {git ? (
+                  <span
+                    className="inline-flex h-[24px] min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]"
+                    title={git.branch}
+                  >
+                    <GitBranch className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+                    <span className="max-w-[220px] truncate font-mono text-[11.5px]">{git.branch}</span>
+                  </span>
+                ) : null}
+                {pullRequestValue ? (
+                  <span className="inline-flex h-[24px] items-center pl-1.5">{pullRequestValue}</span>
+                ) : null}
+              </div>
 
               {editingDescription ? (
                 <textarea
@@ -659,61 +782,33 @@ export function BoardTaskDetail({
               )}
             </div>
           </div>
+          <CappedScrollbar scrollRef={scrollRef} />
+          </div>
         </div>
 
-        <aside className="w-[316px] flex-shrink-0 overflow-y-auto pb-5 pl-4 pr-16 pt-4">
+        {/* Same choreography as the left sidebar: the shell animates its
+            width while the panel itself slides and fades, so folding the
+            rail reads as one motion instead of a cut. The shell stays
+            mounted so both directions animate. */}
+        <div
+          className="hidden min-h-0 flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] @[68rem]:flex"
+          style={{ width: propertiesCollapsed ? 0 : RAIL_WIDTH }}
+        >
+        <aside
+          className={`h-full overflow-y-auto pb-5 pl-4 pr-16 pt-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            propertiesCollapsed
+              ? 'pointer-events-none translate-x-2 opacity-0'
+              : 'translate-x-0 opacity-100'
+          }`}
+          style={{ width: RAIL_WIDTH, minWidth: RAIL_WIDTH }}
+          aria-hidden={propertiesCollapsed}
+        >
           <PropertyGroup label="Properties">
             <PropertyRow label="Stage">
               <StageMenu stage={task.stage} onSetStage={onSetStage} />
             </PropertyRow>
-            <PropertyRow label="Project">
-              {hasRun ? (
-                <span
-                  className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]"
-                  title={task.projectCwd || undefined}
-                >
-                  <Folder className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
-                  <span className="truncate">{projectName(task.projectCwd)}</span>
-                </span>
-              ) : (
-                <PropertyMenu
-                  value={task.projectCwd}
-                  placeholder="Choose a project…"
-                  options={[...new Set([task.projectCwd, ...projectOptions])]
-                    .filter((cwd): cwd is string => Boolean(cwd))
-                    .map((cwd) => ({
-                    key: cwd,
-                    label: projectName(cwd),
-                    title: cwd,
-                    icon: <Folder className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />,
-                  }))}
-                  onSelect={onUpdateProject}
-                />
-              )}
-            </PropertyRow>
-            <PropertyRow label="Agent">
-              {hasRun ? (
-                provider ? (
-                  <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-[var(--text-primary)]">
-                    <AgentIcon provider={provider} />
-                    <span className="truncate">{providerLabel(provider)}</span>
-                  </span>
-                ) : (
-                  <span className="text-[12px] text-[var(--text-muted)]">None</span>
-                )
-              ) : (
-                <PropertyMenu
-                  value={provider || null}
-                  placeholder="Choose an agent…"
-                  options={PROVIDERS.map((entry) => ({
-                    key: entry.id,
-                    label: entry.label,
-                    icon: <AgentIcon provider={entry.id} />,
-                  }))}
-                  onSelect={(key) => onUpdateAgent(key as AgentProvider)}
-                />
-              )}
-            </PropertyRow>
+            <PropertyRow label="Project">{projectValue}</PropertyRow>
+            <PropertyRow label="Agent">{agentValue}</PropertyRow>
             {model ? (
               <PropertyRow label="Model">
                 <span className="truncate text-[12px] text-[var(--text-primary)]" title={model}>
@@ -766,42 +861,11 @@ export function BoardTaskDetail({
                   )}
                 </PropertyRow>
               ) : null}
-              {/* On the base branch itself there is nothing to open a PR from. */}
-              {git.pr || git.branch !== git.base ? (
-                <PropertyRow label="PR">
-                  {git.pr ? (
-                    <button
-                      type="button"
-                      onClick={() => void window.electron.openExternalUrl(git.pr!.url)}
-                      title={git.pr.title}
-                      className={`group -ml-1.5 inline-flex h-[24px] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--sidebar-item-hover)] ${pullRequestTone(git.pr).className}`}
-                    >
-                      <GitPullRequest className="h-3 w-3 flex-shrink-0" />
-                      <span className="truncate">
-                        #{git.pr.number} {pullRequestTone(git.pr).label}
-                      </span>
-                      <ExternalLink className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={creatingPr}
-                      onClick={() => void handleCreatePullRequest()}
-                      className="-ml-1.5 inline-flex h-[24px] items-center gap-1.5 rounded-md px-1.5 text-[12px] text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:opacity-60"
-                    >
-                      {creatingPr ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Plus className="h-3 w-3" />
-                      )}
-                      {creatingPr ? 'Creating pull request…' : 'Create pull request'}
-                    </button>
-                  )}
-                </PropertyRow>
-              ) : null}
+              {pullRequestValue ? <PropertyRow label="PR">{pullRequestValue}</PropertyRow> : null}
             </PropertyGroup>
           ) : null}
         </aside>
+        </div>
       </div>
     </div>
   );
@@ -1230,6 +1294,8 @@ function ActivityLine({ icon, children }: { icon: ReactNode; children: ReactNode
     </div>
   );
 }
+
+const RAIL_WIDTH = 316;
 
 function PropertyGroup({ label, children }: { label: string; children: ReactNode }) {
   return (

@@ -158,6 +158,12 @@ export interface BoardStore {
   cardProperties: Record<BoardCardProperty, boolean>;
   setCardProperty: (property: BoardCardProperty, visible: boolean) => void;
   /**
+   * Task detail: the properties rail is folded away (its facts move to a
+   * row under the title). One preference for every task, like Linear.
+   */
+  detailPropertiesCollapsed: boolean;
+  setDetailPropertiesCollapsed: (collapsed: boolean) => void;
+  /**
    * Columns the user hid from the column header menu (Linear's "Hide
    * column"). Restored from the board options popover.
    */
@@ -424,6 +430,8 @@ export const useBoardStore = create<BoardStore>()(
         set((state) => ({
           cardProperties: { ...DEFAULT_CARD_PROPERTIES, ...state.cardProperties, [property]: visible },
         })),
+      detailPropertiesCollapsed: false,
+      setDetailPropertiesCollapsed: (collapsed) => set({ detailPropertiesCollapsed: collapsed }),
 
       hiddenStages: {},
       setStageHidden: (stage, hidden) =>

@@ -28,6 +28,7 @@ import type {
   SidebarSearchThread,
 } from './search/SidebarSearchPalette.logic';
 import { FolderTreeView } from './FolderTreeView';
+import { CappedScrollbar } from './CappedScrollbar';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { getMessageContentBlocks } from '../utils/message-content';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from '../utils/sidebar-width';
@@ -35,9 +36,6 @@ import { SessionHistoryButtons } from './SessionHistoryButtons';
 
 const SIDEBAR_TRIGGER_CLASS =
   'no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] active:scale-95';
-const SIDEBAR_SCROLLBAR_INSET = 14;
-const SIDEBAR_SCROLLBAR_MIN_THUMB_HEIGHT = 52;
-const SIDEBAR_SCROLLBAR_MAX_THUMB_HEIGHT = 220;
 // Grace period before the hover-peek overlay collapses again, so the pointer
 // can travel between the collapsed-state trigger icon and the panel without
 // the peek flickering shut.
@@ -46,12 +44,6 @@ const SIDEBAR_PEEK_CLOSE_DELAY_MS = 240;
 // `duration-200` transition so the overlay only returns to the collapsed
 // (clipped) slot after it has fully faded out.
 const SIDEBAR_PEEK_ANIM_MS = 200;
-
-type SidebarScrollbarMetrics = {
-  visible: boolean;
-  thumbHeight: number;
-  thumbTop: number;
-};
 
 function SidebarToggleIcon({ className }: { className?: string }) {
   return (
@@ -176,11 +168,6 @@ export function Sidebar() {
     toggleSidebarActivityView,
   } = useAppStore();
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
-  const [sidebarScrollbar, setSidebarScrollbar] = useState<SidebarScrollbarMetrics>({
-    visible: false,
-    thumbHeight: 0,
-    thumbTop: 0,
-  });
   const sidebarResizingRef = useRef(false);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
@@ -196,88 +183,6 @@ export function Sidebar() {
   const hasUnviewedFinishedSession = Object.values(sessions).some((session) =>
     Boolean(session.runtimeNotice)
   );
-
-  const updateSidebarScrollbar = useCallback(() => {
-    const element = sidebarScrollRef.current;
-    if (!element) return;
-
-    const maxScrollTop = element.scrollHeight - element.clientHeight;
-    const trackHeight = Math.max(0, element.clientHeight - SIDEBAR_SCROLLBAR_INSET * 2);
-    if (maxScrollTop <= 1 || trackHeight <= 0) {
-      setSidebarScrollbar((current) =>
-        current.visible ? { visible: false, thumbHeight: 0, thumbTop: 0 } : current
-      );
-      return;
-    }
-
-    const proportionalHeight = trackHeight * (element.clientHeight / element.scrollHeight);
-    const thumbHeight = Math.min(
-      trackHeight,
-      SIDEBAR_SCROLLBAR_MAX_THUMB_HEIGHT,
-      Math.max(SIDEBAR_SCROLLBAR_MIN_THUMB_HEIGHT, proportionalHeight)
-    );
-    const thumbTravel = Math.max(0, trackHeight - thumbHeight);
-    const thumbTop = thumbTravel * (element.scrollTop / maxScrollTop);
-
-    setSidebarScrollbar((current) =>
-      current.visible &&
-      Math.abs(current.thumbHeight - thumbHeight) < 0.5 &&
-      Math.abs(current.thumbTop - thumbTop) < 0.5
-        ? current
-        : { visible: true, thumbHeight, thumbTop }
-    );
-  }, []);
-
-  const handleSidebarScrollbarTrackMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return;
-    const element = sidebarScrollRef.current;
-    if (!element) return;
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const thumbTravel = rect.height - sidebarScrollbar.thumbHeight;
-    const maxScrollTop = element.scrollHeight - element.clientHeight;
-    if (thumbTravel <= 0 || maxScrollTop <= 0) return;
-
-    const nextThumbTop = Math.min(
-      thumbTravel,
-      Math.max(0, event.clientY - rect.top - sidebarScrollbar.thumbHeight / 2)
-    );
-    element.scrollTop = (nextThumbTop / thumbTravel) * maxScrollTop;
-  };
-
-  const handleSidebarScrollbarThumbMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const element = sidebarScrollRef.current;
-    if (!element) return;
-
-    const startY = event.clientY;
-    const startScrollTop = element.scrollTop;
-    const trackHeight = element.clientHeight - SIDEBAR_SCROLLBAR_INSET * 2;
-    const thumbTravel = trackHeight - sidebarScrollbar.thumbHeight;
-    const maxScrollTop = element.scrollHeight - element.clientHeight;
-    if (thumbTravel <= 0 || maxScrollTop <= 0) return;
-
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = 'grabbing';
-    document.body.style.userSelect = 'none';
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      element.scrollTop = startScrollTop + ((moveEvent.clientY - startY) / thumbTravel) * maxScrollTop;
-    };
-    const finishDrag = () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', finishDrag);
-      window.removeEventListener('blur', finishDrag);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', finishDrag);
-    window.addEventListener('blur', finishDrag);
-  };
 
   const getActiveChannelIdForProject = (cwd?: string | null) => {
     const key = cwd?.trim() || '__no_project__';
@@ -329,21 +234,6 @@ export function Sidebar() {
       document.body.style.userSelect = '';
     };
   }, []);
-
-  useEffect(() => {
-    const element = sidebarScrollRef.current;
-    if (!element) return;
-
-    const frame = requestAnimationFrame(updateSidebarScrollbar);
-    const resizeObserver = new ResizeObserver(updateSidebarScrollbar);
-    resizeObserver.observe(element);
-    Array.from(element.children).forEach((child) => resizeObserver.observe(child));
-
-    return () => {
-      cancelAnimationFrame(frame);
-      resizeObserver.disconnect();
-    };
-  }, [updateSidebarScrollbar]);
 
   // Hover-peek: while collapsed, hovering the header trigger floats the panel
   // open as an overlay (layout stays collapsed); leaving the panel closes it
@@ -723,7 +613,6 @@ export function Sidebar() {
                   ref={sidebarScrollRef}
                   className="sidebar-scrollbar h-full overflow-y-auto overflow-x-hidden px-2"
                   data-sidebar-scroll-region
-                  onScroll={updateSidebarScrollbar}
                 >
                   <div className="pb-2 pt-0.5">
                     <div className="space-y-0.5">
@@ -793,23 +682,7 @@ export function Sidebar() {
                   </div>
                 </div>
 
-                {sidebarScrollbar.visible ? (
-                  <div
-                    className="absolute bottom-[14px] right-1 top-[14px] w-[7px]"
-                    data-sidebar-scrollbar-track
-                    onMouseDown={handleSidebarScrollbarTrackMouseDown}
-                  >
-                    <div
-                      className="absolute right-0 top-0 w-[7px] cursor-grab rounded-full bg-[var(--border)] transition-colors hover:bg-[var(--text-muted)] active:cursor-grabbing"
-                      data-sidebar-scrollbar-thumb
-                      onMouseDown={handleSidebarScrollbarThumbMouseDown}
-                      style={{
-                        height: sidebarScrollbar.thumbHeight,
-                        transform: `translateY(${sidebarScrollbar.thumbTop}px)`,
-                      }}
-                    />
-                  </div>
-                ) : null}
+                <CappedScrollbar scrollRef={sidebarScrollRef} />
               </div>
 
               <div className="px-2 py-2">
