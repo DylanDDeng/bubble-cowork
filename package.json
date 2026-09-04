@@ -58,7 +58,7 @@
     "verify:acp-narration": "npx tsx scripts/tests/acp-narration-split.test.ts",
     "verify:grok-streaming": "npx tsx scripts/tests/grok-streaming-partial.test.ts",
     "verify:review-diff-panel": "node scripts/verify-review-diff-panel.mjs",
-    "verify:board-task-semantics": "npx tsx scripts/tests/board-task-start.test.ts && node scripts/verify-board-task-semantics.mjs",
+    "verify:board-task-semantics": "npx tsx scripts/tests/board-task-start.test.ts && npx tsx scripts/tests/board-title-sync.test.ts && node scripts/verify-board-task-semantics.mjs",
     "verify:workstream-stages": "node scripts/verify-workstream-stages.mjs",
     "verify:workstream-preamble-order": "node scripts/verify-workstream-preamble-order.mjs",
     "verify:workstream-duration": "node scripts/verify-workstream-duration.mjs",

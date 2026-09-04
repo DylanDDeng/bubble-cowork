@@ -103,6 +103,14 @@ export interface BoardTask {
   lastRunStatus?: string;
   /** The pull request state already reflected in `events`; see syncPullRequestEvents. */
   lastPullRequest?: { number: number; state: 'OPEN' | 'MERGED' | 'CLOSED' };
+  /**
+   * The title mirrors the linked session's. Set on cards materialized from
+   * chat sessions, whose session starts under a placeholder ("New Chat") and
+   * is renamed once the real title is generated; cleared the moment the
+   * user renames the card. Absent on legacy cards, which follow only while
+   * they still show a placeholder.
+   */
+  titleFollowsSession?: boolean;
 }
 
 /** Card properties the user can toggle from the board's display options. */
@@ -133,6 +141,7 @@ export interface BoardStore {
     sessionConfig?: Partial<BoardSessionConfig>;
     sessionId?: string | null;
     stage?: BoardStage;
+    titleFollowsSession?: boolean;
   }) => string;
   updateTask: (
     taskId: string,
@@ -268,6 +277,7 @@ export const useBoardStore = create<BoardStore>()(
         sessionConfig = {},
         sessionId = null,
         stage = 'todo',
+        titleFollowsSession,
       }) => {
         const id = makeTaskId();
         const now = Date.now();
@@ -287,6 +297,7 @@ export const useBoardStore = create<BoardStore>()(
               unread: false,
               events: [{ type: 'created', at: now }],
               cardMarks: [],
+              ...(titleFollowsSession ? { titleFollowsSession: true } : {}),
             },
           },
         }));
@@ -312,6 +323,8 @@ export const useBoardStore = create<BoardStore>()(
                 description: nextDescription,
                 projectCwd: nextProjectCwd,
                 sessionConfig: patch.sessionConfig ?? task.sessionConfig,
+                titleFollowsSession:
+                  nextTitle !== task.title ? false : task.titleFollowsSession,
                 updatedAt: Date.now(),
                 events:
                   nextDescription !== task.description
@@ -360,7 +373,15 @@ export const useBoardStore = create<BoardStore>()(
           const trimmed = title.trim();
           if (!task || !trimmed || task.title === trimmed) return state;
           return {
-            tasks: { ...state.tasks, [taskId]: { ...task, title: trimmed, updatedAt: Date.now() } },
+            tasks: {
+              ...state.tasks,
+              [taskId]: {
+                ...task,
+                title: trimmed,
+                titleFollowsSession: false,
+                updatedAt: Date.now(),
+              },
+            },
           };
         }),
 
@@ -701,6 +722,46 @@ function materializeSessions(sessions: Record<string, SessionView>): void {
       },
       sessionId: session.id,
       stage,
+      titleFollowsSession: true,
+    });
+  }
+}
+
+/**
+ * Titles a chat session starts under before the real one is generated.
+ * Legacy cards (no titleFollowsSession flag) still showing one of these
+ * were never renamed by the user, so they may follow the session too.
+ */
+const PLACEHOLDER_TITLES = new Set(['New Chat', 'New Session', 'Untitled task']);
+
+function titleFollowsSession(task: BoardTask): boolean {
+  return task.titleFollowsSession ?? PLACEHOLDER_TITLES.has(task.title);
+}
+
+/**
+ * Keep a materialized card's title in step with its session. The session
+ * starts as "New Chat" (the draft's placeholder) and the main process
+ * renames it asynchronously once a title is generated; the card would
+ * otherwise keep the placeholder forever. The card mirrors the session that
+ * created it (the first linked run), so a follow-up run's title never
+ * overwrites it, and updatedAt stays put so the card doesn't reorder.
+ */
+export function syncTitlesFromSessions(sessions: Record<string, SessionView>): void {
+  const { tasks } = useBoardStore.getState();
+  for (const task of Object.values(tasks)) {
+    if (!titleFollowsSession(task)) continue;
+    const session = task.sessionIds[0] ? sessions[task.sessionIds[0]] : undefined;
+    const nextTitle = session?.title?.trim();
+    if (!nextTitle || nextTitle === task.title) continue;
+    useBoardStore.setState((state) => {
+      const current = state.tasks[task.id];
+      if (!current || !titleFollowsSession(current) || current.title === nextTitle) return state;
+      return {
+        tasks: {
+          ...state.tasks,
+          [task.id]: { ...current, title: nextTitle, titleFollowsSession: true },
+        },
+      };
     });
   }
 }
@@ -713,11 +774,13 @@ export function ensureBoardSessionSync(): void {
   sessionSyncStarted = true;
   let prevSessions = useAppStore.getState().sessions;
   materializeSessions(prevSessions);
+  syncTitlesFromSessions(prevSessions);
   syncStagesFromSessions(prevSessions);
   useAppStore.subscribe((state) => {
     if (state.sessions === prevSessions) return;
     prevSessions = state.sessions;
     materializeSessions(state.sessions);
+    syncTitlesFromSessions(state.sessions);
     syncStagesFromSessions(state.sessions);
   });
 }
