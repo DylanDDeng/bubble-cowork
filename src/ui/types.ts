@@ -2,6 +2,8 @@
 
 // Settings 标签类型
 export type SettingsTab = 'mcp' | 'general' | 'browser' | 'providers' | 'usage' | 'bridge';
+/** Agent runtime whose MCP servers the settings pane is showing. */
+export type McpSettingsRuntime = 'claude' | 'codex' | 'opencode' | 'kimi' | 'qoder' | 'bubble' | 'deepseek';
 
 import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
@@ -487,6 +489,8 @@ export interface AppState {
   // 按 draft session id 记，默认 local。
   draftStartMode: Record<string, 'local' | 'worktree'>;
   activeSettingsTab: SettingsTab;
+  // Which runtime's MCP servers the settings pane shows; drives the sidebar sub-nav too.
+  mcpSettingsRuntime: McpSettingsRuntime;
   agentSetupOpen: boolean;
   agentSetupDismissedAt: number | null;
   agentSetupCompletedAt: number | null;
@@ -656,6 +660,7 @@ export interface AppActions {
   // Settings Actions
   setShowSettings: (show: boolean) => void;
   setActiveSettingsTab: (tab: SettingsTab) => void;
+  setMcpSettingsRuntime: (runtime: McpSettingsRuntime) => void;
   setAgentSetupOpen: (open: boolean) => void;
   dismissAgentSetup: () => void;
   completeAgentSetup: () => void;
