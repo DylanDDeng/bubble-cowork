@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { useTabsStore } from '../store/useTabsStore';
 
 /**
  * Global keyboard shortcuts
@@ -23,9 +24,9 @@ export function useKeyboardShortcuts() {
     setSidebarCollapsed,
     toggleSidebarActivityView,
     showSettings,
-    goSessionHistoryBack,
-    goSessionHistoryForward,
   } = useAppStore();
+  const goHistoryBack = useTabsStore((state) => state.goBack);
+  const goHistoryForward = useTabsStore((state) => state.goForward);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -45,20 +46,21 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Cmd/Ctrl + [: 回到上一个看过的会话。非美式键盘上 e.key 不稳定，用 code。
+      // Cmd/Ctrl + [: 回到当前 tab 上一个看过的视图（会话、Board、卡片详情……）。
+      // 非美式键盘上 e.key 不稳定，用 code。
       if (isMod && !e.shiftKey && !e.altKey && e.code === 'BracketLeft') {
         if (!showSettings) {
           e.preventDefault();
-          goSessionHistoryBack();
+          goHistoryBack();
         }
         return;
       }
 
-      // Cmd/Ctrl + ]: 前进到下一个会话。
+      // Cmd/Ctrl + ]: 前进到当前 tab 的下一个视图。
       if (isMod && !e.shiftKey && !e.altKey && e.code === 'BracketRight') {
         if (!showSettings) {
           e.preventDefault();
-          goSessionHistoryForward();
+          goHistoryForward();
         }
         return;
       }
@@ -105,8 +107,8 @@ export function useKeyboardShortcuts() {
     setSidebarCollapsed,
     toggleSidebarActivityView,
     showSettings,
-    goSessionHistoryBack,
-    goSessionHistoryForward,
+    goHistoryBack,
+    goHistoryForward,
   ]);
 
   return { sidebarSearchRef };

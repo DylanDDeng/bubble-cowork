@@ -413,8 +413,6 @@ export interface AppState {
   showNewSession: boolean;
   newSessionKey: number;
   /** Recently viewed threads (null = new-session landing). Used by header back/forward. */
-  sessionHistoryStack: Array<string | null>;
-  sessionHistoryIndex: number;
   sidebarCollapsed: boolean;
   /** Transient hover-peek: sidebar stays collapsed in layout but floats open as an overlay. */
   sidebarPeek: boolean;
@@ -516,8 +514,6 @@ export interface AppActions {
   setConnected: (connected: boolean) => void;
   handleServerEvent: (event: import('../shared/types').ServerEvent) => void;
   setActiveSession: (sessionId: string | null) => void;
-  goSessionHistoryBack: () => void;
-  goSessionHistoryForward: () => void;
   setActiveWorkspace: (workspace: ActiveWorkspace) => void;
   setChatSidebarView: (view: ChatSidebarView) => void;
   createWorkspaceChannel: (projectCwd: string, name: string) => string | null;

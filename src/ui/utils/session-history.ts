@@ -1,18 +1,25 @@
-export type SessionHistoryEntry = string | null;
-
-export interface SessionHistoryState {
-  stack: SessionHistoryEntry[];
+/**
+ * A browser-style back/forward stack. Generic over the entry type: the app
+ * tabs keep one of these per tab, holding the views visited in that tab.
+ * Entries that stop being visitable (a deleted session, a removed board
+ * task) stay in the stack and are skipped over when stepping.
+ */
+export interface HistoryState<T> {
+  stack: T[];
   index: number;
 }
 
 export const SESSION_HISTORY_LIMIT = 50;
 
-export function pushSessionHistory(
-  stack: SessionHistoryEntry[],
+const strictEqual = <T,>(a: T, b: T): boolean => a === b;
+
+export function pushSessionHistory<T>(
+  stack: T[],
   index: number,
-  entry: SessionHistoryEntry
-): SessionHistoryState {
-  if (stack.length > 0 && stack[index] === entry) {
+  entry: T,
+  isSame: (a: T, b: T) => boolean = strictEqual
+): HistoryState<T> {
+  if (stack.length > 0 && index >= 0 && index < stack.length && isSame(stack[index], entry)) {
     return { stack, index };
   }
 
@@ -24,12 +31,12 @@ export function pushSessionHistory(
   return { stack: nextStack, index: nextStack.length - 1 };
 }
 
-export function stepSessionHistory(
-  stack: SessionHistoryEntry[],
+export function stepSessionHistory<T>(
+  stack: T[],
   index: number,
   direction: -1 | 1,
-  isVisitable: (entry: SessionHistoryEntry) => boolean
-): { stack: SessionHistoryEntry[]; index: number; entry: SessionHistoryEntry } | null {
+  isVisitable: (entry: T) => boolean
+): { stack: T[]; index: number; entry: T } | null {
   let cursor = index + direction;
   while (cursor >= 0 && cursor < stack.length) {
     if (isVisitable(stack[cursor])) {
@@ -40,11 +47,11 @@ export function stepSessionHistory(
   return null;
 }
 
-export function canMoveSessionHistory(
-  stack: SessionHistoryEntry[],
+export function canMoveSessionHistory<T>(
+  stack: T[],
   index: number,
   direction: -1 | 1,
-  isVisitable: (entry: SessionHistoryEntry) => boolean
+  isVisitable: (entry: T) => boolean
 ): boolean {
   return stepSessionHistory(stack, index, direction, isVisitable) !== null;
 }

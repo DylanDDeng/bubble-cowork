@@ -1,29 +1,28 @@
 import { ArrowLeft, ArrowRight } from './icons';
 import { useAppStore } from '../store/useAppStore';
-import { canMoveSessionHistory } from '../utils/session-history';
+import { useBoardStore } from '../store/useBoardStore';
+import { canNavigateActiveTab, isTabViewVisitable, useTabsStore, type TabView } from '../store/useTabsStore';
 
 function shortcutMod(): string {
   if (typeof navigator === 'undefined') return 'Ctrl+';
   return /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 }
 
-function sessionHistoryVisitable(
-  sessions: Record<string, { id: string }>,
-  entry: string | null
-): boolean {
-  return entry === null || Boolean(sessions[entry]);
-}
-
+/**
+ * Back/Forward through the active tab's view history: sessions, the board,
+ * a board task's detail page, and the other workspaces alike.
+ */
 export function SessionHistoryButtons({ className = '' }: { className?: string }) {
   const sessions = useAppStore((state) => state.sessions);
-  const stack = useAppStore((state) => state.sessionHistoryStack);
-  const index = useAppStore((state) => state.sessionHistoryIndex);
-  const goBack = useAppStore((state) => state.goSessionHistoryBack);
-  const goForward = useAppStore((state) => state.goSessionHistoryForward);
+  const boardTasks = useBoardStore((state) => state.tasks);
+  const tabs = useTabsStore((state) => state.tabs);
+  const activeTabId = useTabsStore((state) => state.activeTabId);
+  const goBack = useTabsStore((state) => state.goBack);
+  const goForward = useTabsStore((state) => state.goForward);
 
-  const visitable = (entry: string | null) => sessionHistoryVisitable(sessions, entry);
-  const canBack = canMoveSessionHistory(stack, index, -1, visitable);
-  const canForward = canMoveSessionHistory(stack, index, 1, visitable);
+  const visitable = (view: TabView) => isTabViewVisitable(view, sessions, boardTasks);
+  const canBack = canNavigateActiveTab({ tabs, activeTabId }, -1, visitable);
+  const canForward = canNavigateActiveTab({ tabs, activeTabId }, 1, visitable);
   const mod = shortcutMod();
 
   return (

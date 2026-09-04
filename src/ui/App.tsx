@@ -376,8 +376,9 @@ export function App() {
   }, []);
 
   // Tabs mirror: every in-app navigation (sidebar, board, back/forward)
-  // lands here and is recorded on the active tab, so tab switching can
-  // replay it later. Settings is a modal surface, not a tab.
+  // lands here and is recorded on the active tab — as its current view and
+  // as an entry in its back/forward history — so tab switching and
+  // Back/Forward can replay it later. Settings is a modal surface, not a tab.
   const boardSelectedTaskId = useBoardStore((state) => state.selectedTaskId);
   useEffect(() => {
     if (showSettings) return;
