@@ -35,6 +35,7 @@ import type {
   SearchFilters,
   SearchMatch,
   SettingsTab,
+  McpSettingsRuntime,
   FolderConfig,
   Theme,
   ThemeFonts,
@@ -1009,6 +1010,7 @@ export const useAppStore = create<Store>()(
       showSettings: false,
       draftStartMode: {},
       activeSettingsTab: 'general' as SettingsTab,
+      mcpSettingsRuntime: 'claude' as McpSettingsRuntime,
       agentSetupOpen: false,
       agentSetupDismissedAt: null,
       agentSetupCompletedAt: null,
@@ -2484,6 +2486,7 @@ export const useAppStore = create<Store>()(
     set((state) => ({ draftStartMode: { ...state.draftStartMode, [sessionId]: mode } })),
 
   setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
+  setMcpSettingsRuntime: (runtime) => set({ mcpSettingsRuntime: runtime }),
   setAgentSetupOpen: (open) => set({ agentSetupOpen: open }),
   dismissAgentSetup: () =>
     set({

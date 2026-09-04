@@ -6,7 +6,8 @@ import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings'
 import { BubbleProviderSettings } from './BubbleProviderSettings';
 import { DeepseekProviderSettings } from './DeepseekProviderSettings';
 import { BrowserUseSettings } from './BrowserUseSettings';
-import { McpSettingsContent } from './McpSettings';
+import { MCP_RUNTIMES, McpSettingsContent } from './McpSettings';
+import { ProviderIcon } from '../AgentModelPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
 import { SettingsGroup, SettingsRow, SettingsToggle } from './SettingsPrimitives';
@@ -80,6 +81,8 @@ export function Settings() {
     chatCodeFontFamily,
     setChatCodeFontFamily,
     updateStatus,
+    mcpSettingsRuntime,
+    setMcpSettingsRuntime,
   } = useAppStore();
 
   if (!showSettings) return null;
@@ -119,8 +122,40 @@ export function Settings() {
                 label={tab.label}
                 icon={tab.icon}
                 active={resolvedActiveSettingsTab === key}
+                // With runtime sub-items showing, the child carries the highlight.
+                expanded={key === 'mcp' && resolvedActiveSettingsTab === 'mcp'}
                 onClick={() => setActiveSettingsTab(key as SettingsTabKey)}
-              />
+              >
+                {/* Runtimes are sub-pages of MCP Servers rather than tabs inside
+                    the page: the list scales to any number of runtimes without
+                    a horizontal strip that wraps in narrow panes. */}
+                {key === 'mcp' && resolvedActiveSettingsTab === 'mcp' ? (
+                  <ul className="relative mb-1 mt-0.5 ml-[19px] space-y-px border-l border-[var(--border-focus)]/60 pl-2">
+                    {MCP_RUNTIMES.map((runtime) => {
+                      const active = mcpSettingsRuntime === runtime.id;
+                      return (
+                        <li key={runtime.id}>
+                          <button
+                            onClick={() => setMcpSettingsRuntime(runtime.id)}
+                            className={`flex w-full items-center gap-2 rounded-[6px] py-1.5 pl-2 pr-3 text-left text-[12.5px] transition-colors ${
+                              active
+                                ? 'bg-[var(--sidebar-item-active)] font-medium text-[var(--text-primary)]'
+                                : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                            }`}
+                          >
+                            <span
+                              className={`flex h-4 w-4 flex-shrink-0 items-center justify-center transition-opacity ${active ? '' : 'opacity-80 group-hover:opacity-100'}`}
+                            >
+                              <ProviderIcon provider={runtime.id} />
+                            </span>
+                            <span className="truncate">{runtime.label}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </SettingsNavItem>
             ))}
           </ul>
 
@@ -140,7 +175,8 @@ export function Settings() {
         <div
           className="mx-auto max-w-3xl px-10 py-8"
         >
-          {resolvedActiveSettingsTab !== 'usage' ? (
+          {/* The MCP page renders its own header (runtime name + last-checked). */}
+          {resolvedActiveSettingsTab !== 'usage' && resolvedActiveSettingsTab !== 'mcp' ? (
             <header className="mb-6">
               <h1 className="text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
                 {activeMeta.title}
@@ -198,21 +234,27 @@ function SettingsNavItem({
   label,
   icon,
   active,
+  expanded = false,
   onClick,
+  children,
 }: {
   label: string;
   icon: ReactNode;
   active: boolean;
+  expanded?: boolean;
   onClick: () => void;
+  children?: ReactNode;
 }) {
   return (
     <li>
       <button
         onClick={onClick}
         className={`group flex w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] transition-colors ${
-          active
-            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+          active && expanded
+            ? 'text-[var(--text-primary)]'
+            : active
+              ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
         }`}
       >
         <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${active ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`}>
@@ -220,6 +262,7 @@ function SettingsNavItem({
         </span>
         <span className="font-medium">{label}</span>
       </button>
+      {children}
     </li>
   );
 }

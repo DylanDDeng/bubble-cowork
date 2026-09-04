@@ -1,26 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Plus, RefreshCw, Settings, Trash2 } from '../icons';
+import { ArrowLeft, Plus, Settings, Trash2 } from '../icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { sendEvent } from '../../hooks/useIPC';
-import type { McpServerConfig, McpServerStatus } from '../../types';
+import type { McpServerConfig, McpServerStatus, McpSettingsRuntime } from '../../types';
 import type { CodexMcpServerRuntimeStatus } from '../../../shared/types';
 import { SegmentedControl, SegmentedControlItem, SettingsToggle } from './SettingsPrimitives';
+import { ProviderIcon } from '../AgentModelPicker';
+import { confirmDialog } from '../ui/confirm-dialog';
 
-type ServerTool = 'claude' | 'codex' | 'opencode' | 'kimi' | 'qoder' | 'bubble' | 'deepseek';
-type ServerScope = 'global' | 'project';
+type ServerTool = McpSettingsRuntime;
 type GroupId =
   | 'claude-global'
-  | 'claude-project'
   | 'codex-global'
   | 'opencode-global'
-  | 'opencode-project'
   | 'kimi-global'
-  | 'kimi-project'
   | 'qoder-global'
   | 'bubble-global'
-  | 'deepseek-global'
-  | 'deepseek-project';
+  | 'deepseek-global';
 
 // Component-local page navigation: the settings pane swaps between the grouped
 // list and full-page create/edit forms (Codex-desktop style), no router.
@@ -32,12 +29,25 @@ type PanelView =
 interface ServerGroup {
   id: GroupId;
   tool: ServerTool;
-  scope: ServerScope;
-  title: string;
-  description: string;
+  /** Where this group is persisted; shown as muted monospace text in the section header. */
+  path: string;
   servers: Record<string, McpServerConfig>;
   allowedTransports: Array<NonNullable<McpServerConfig['type']>>;
 }
+
+/**
+ * Agent runtimes that expose an MCP catalog, in sidebar order. Rendered as
+ * sub-items under "MCP Servers" in the Settings sidebar (see Settings.tsx).
+ */
+export const MCP_RUNTIMES: ReadonlyArray<{ id: ServerTool; label: string }> = [
+  { id: 'claude', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'opencode', label: 'OpenCode' },
+  { id: 'kimi', label: 'Kimi' },
+  { id: 'qoder', label: 'Qoder' },
+  { id: 'bubble', label: 'Bubble' },
+  { id: 'deepseek', label: 'DeepSeek Harness' },
+];
 
 const ALL_TRANSPORTS: Array<{
   value: NonNullable<McpServerConfig['type']>;
@@ -64,35 +74,44 @@ const ALL_TRANSPORTS: Array<{
 export function McpSettingsContent() {
   const {
     mcpGlobalServers,
-    mcpProjectServers,
     mcpCodexGlobalServers,
     mcpOpencodeGlobalServers,
-    mcpOpencodeProjectServers,
     mcpKimiGlobalServers,
-    mcpKimiProjectServers,
     mcpQoderGlobalServers,
     mcpBubbleGlobalServers,
     mcpDeepseekGlobalServers,
-    mcpDeepseekProjectServers,
     mcpServerStatus,
     showSettings,
     activeSessionId,
     sessions,
+    mcpSettingsRuntime: selectedTool,
   } = useAppStore();
 
   const [view, setView] = useState<PanelView>({ kind: 'list' });
-  const [selectedTool, setSelectedTool] = useState<ServerTool>('claude');
   const currentProjectPath = activeSessionId ? sessions[activeSessionId]?.cwd : undefined;
-  const currentProjectName = currentProjectPath?.split('/').pop() || 'this workspace';
+
+  // Config + status are re-read on open and whenever the window regains
+  // focus. There is no refresh button and no "last checked" label.
+  const refreshConfig = useCallback(() => {
+    sendEvent({
+      type: 'mcp.get-config',
+      payload: { projectPath: currentProjectPath },
+    });
+  }, [currentProjectPath]);
 
   useEffect(() => {
-    if (showSettings) {
-      sendEvent({
-        type: 'mcp.get-config',
-        payload: { projectPath: currentProjectPath },
-      });
-    }
-  }, [showSettings, currentProjectPath]);
+    if (!showSettings) return;
+    refreshConfig();
+    const onFocus = () => refreshConfig();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [showSettings, refreshConfig]);
+
+  // Runtime selection lives in the store because the Settings sidebar drives
+  // it; leaving the list view when it changes keeps stale editors from lingering.
+  useEffect(() => {
+    setView({ kind: 'list' });
+  }, [selectedTool]);
 
   // Codex-managed runtime status (auth state per server). Fetched lazily when
   // the Codex tab is open — the query boots the codex app-server if needed.
@@ -113,9 +132,11 @@ export function McpSettingsContent() {
   }, []);
 
   useEffect(() => {
-    if (showSettings && selectedTool === 'codex') {
-      void refreshCodexMcpStatus();
-    }
+    if (!showSettings || selectedTool !== 'codex') return;
+    void refreshCodexMcpStatus();
+    const onFocus = () => void refreshCodexMcpStatus();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [showSettings, selectedTool, refreshCodexMcpStatus]);
 
   useEffect(() => {
@@ -153,32 +174,16 @@ export function McpSettingsContent() {
       {
         id: 'claude-global',
         tool: 'claude',
-        scope: 'global',
-        title: 'Global Servers',
-        description: 'Reusable MCP connections available in every workspace.',
+        path: '~/.claude.json',
         servers: mcpGlobalServers,
         allowedTransports: ['stdio', 'http', 'sse'],
       },
     ];
 
-    if (currentProjectPath) {
-      items.push({
-        id: 'claude-project',
-        tool: 'claude',
-        scope: 'project',
-        title: 'Project Servers',
-        description: `Connections only available in ${currentProjectName}.`,
-        servers: mcpProjectServers,
-        allowedTransports: ['stdio', 'http', 'sse'],
-      });
-    }
-
     items.push({
       id: 'codex-global',
       tool: 'codex',
-      scope: 'global',
-      title: 'Aegis Servers',
-      description: 'Stored by Aegis. Your ~/.codex/config.toml remains unchanged.',
+      path: 'Aegis private config',
       servers: mcpCodexGlobalServers,
       allowedTransports: ['stdio', 'http'],
     });
@@ -186,53 +191,23 @@ export function McpSettingsContent() {
     items.push({
       id: 'opencode-global',
       tool: 'opencode',
-      scope: 'global',
-      title: 'Global Servers',
-      description: 'Written to ~/.config/opencode/opencode.json. Supports local (stdio) and remote (HTTP) servers.',
+      path: '~/.config/opencode/opencode.json',
       servers: mcpOpencodeGlobalServers,
       allowedTransports: ['stdio', 'http'],
     });
 
-    if (currentProjectPath) {
-      items.push({
-        id: 'opencode-project',
-        tool: 'opencode',
-        scope: 'project',
-        title: 'Project Servers',
-        description: `Written to opencode.json in ${currentProjectName}.`,
-        servers: mcpOpencodeProjectServers,
-        allowedTransports: ['stdio', 'http'],
-      });
-    }
-
     items.push({
       id: 'kimi-global',
       tool: 'kimi',
-      scope: 'global',
-      title: 'Global Servers',
-      description: 'Written to ~/.kimi/mcp.json. Supports local (stdio) and remote (HTTP) servers.',
+      path: '~/.kimi/mcp.json',
       servers: mcpKimiGlobalServers,
       allowedTransports: ['stdio', 'http'],
     });
 
-    if (currentProjectPath) {
-      items.push({
-        id: 'kimi-project',
-        tool: 'kimi',
-        scope: 'project',
-        title: 'Project Servers',
-        description: `Written to .kimi-code/mcp.json in ${currentProjectName}.`,
-        servers: mcpKimiProjectServers,
-        allowedTransports: ['stdio', 'http'],
-      });
-    }
-
     items.push({
       id: 'qoder-global',
       tool: 'qoder',
-      scope: 'global',
-      title: 'Global Servers',
-      description: 'Written to ~/.qoder/mcp.json. Supports local (stdio) and remote (HTTP) servers.',
+      path: '~/.qoder/mcp.json',
       servers: mcpQoderGlobalServers,
       allowedTransports: ['stdio', 'http'],
     });
@@ -240,9 +215,7 @@ export function McpSettingsContent() {
     items.push({
       id: 'bubble-global',
       tool: 'bubble',
-      scope: 'global',
-      title: 'Global Servers',
-      description: 'Written to ~/.bubble/settings.json. Supports local (stdio) and remote (HTTP) servers.',
+      path: '~/.bubble/settings.json',
       servers: mcpBubbleGlobalServers,
       allowedTransports: ['stdio', 'http'],
     });
@@ -250,40 +223,20 @@ export function McpSettingsContent() {
     items.push({
       id: 'deepseek-global',
       tool: 'deepseek',
-      scope: 'global',
-      title: 'Global Servers',
-      description: 'Stored by Aegis and loaded into every DeepSeek Harness workspace.',
+      path: '~/.aegis/deepseek-mcp.json',
       servers: mcpDeepseekGlobalServers,
       allowedTransports: ['stdio', 'http'],
     });
 
-    if (currentProjectPath) {
-      items.push({
-        id: 'deepseek-project',
-        tool: 'deepseek',
-        scope: 'project',
-        title: 'Project Servers',
-        description: `Connections only loaded into DeepSeek Harness for ${currentProjectName}.`,
-        servers: mcpDeepseekProjectServers,
-        allowedTransports: ['stdio', 'http'],
-      });
-    }
-
     return items;
   }, [
     mcpGlobalServers,
-    mcpProjectServers,
     mcpCodexGlobalServers,
     mcpOpencodeGlobalServers,
-    mcpOpencodeProjectServers,
     mcpKimiGlobalServers,
-    mcpKimiProjectServers,
     mcpQoderGlobalServers,
     mcpBubbleGlobalServers,
     mcpDeepseekGlobalServers,
-    mcpDeepseekProjectServers,
-    currentProjectPath,
-    currentProjectName,
   ]);
 
   const dispatchSave = (groupId: GroupId, nextServers: Record<string, McpServerConfig>) => {
@@ -291,16 +244,6 @@ export function McpSettingsContent() {
       sendEvent({
         type: 'mcp.save-config',
         payload: { globalServers: nextServers },
-      });
-      return;
-    }
-    if (groupId === 'claude-project') {
-      sendEvent({
-        type: 'mcp.save-config',
-        payload: {
-          projectServers: nextServers,
-          projectPath: currentProjectPath,
-        },
       });
       return;
     }
@@ -318,30 +261,10 @@ export function McpSettingsContent() {
       });
       return;
     }
-    if (groupId === 'opencode-project') {
-      sendEvent({
-        type: 'mcp.save-config',
-        payload: {
-          opencodeProjectServers: nextServers,
-          projectPath: currentProjectPath,
-        },
-      });
-      return;
-    }
     if (groupId === 'kimi-global') {
       sendEvent({
         type: 'mcp.save-config',
         payload: { kimiGlobalServers: nextServers },
-      });
-      return;
-    }
-    if (groupId === 'kimi-project') {
-      sendEvent({
-        type: 'mcp.save-config',
-        payload: {
-          kimiProjectServers: nextServers,
-          projectPath: currentProjectPath,
-        },
       });
       return;
     }
@@ -366,19 +289,15 @@ export function McpSettingsContent() {
       });
       return;
     }
-    if (groupId === 'deepseek-project') {
-      sendEvent({
-        type: 'mcp.save-config',
-        payload: {
-          deepseekProjectServers: nextServers,
-          projectPath: currentProjectPath,
-        },
-      });
-    }
   };
 
-  const handleDelete = (name: string, group: ServerGroup) => {
-    const confirmed = window.confirm(`Delete the ${group.title} server "${name}"?`);
+  const handleDelete = async (name: string, group: ServerGroup) => {
+    const runtimeLabel = MCP_RUNTIMES.find((runtime) => runtime.id === group.tool)?.label ?? group.tool;
+    const confirmed = await confirmDialog({
+      title: `Remove ${name}?`,
+      description: `${runtimeLabel} won't see this server in new sessions. It is removed from ${group.path}.`,
+      confirmLabel: 'Remove server',
+    });
     if (!confirmed) return;
 
     const { [name]: _removed, ...rest } = group.servers;
@@ -422,43 +341,10 @@ export function McpSettingsContent() {
     toast.success(`${nextEnabled ? 'Enabled' : 'Disabled'} "${name}".`);
   };
 
-  const handleRefresh = (group: ServerGroup) => {
-    if (group.tool === 'codex') {
-      void refreshCodexMcpStatus();
-      return;
-    }
-    sendEvent({
-      type: 'mcp.get-config',
-      payload: { projectPath: currentProjectPath },
-    });
-  };
-
   const visibleGroups = useMemo(
     () => groups.filter((group) => group.tool === selectedTool),
     [groups, selectedTool]
   );
-
-  const counts = useMemo(() => {
-    const byTool: Record<ServerTool, number> = {
-      claude: 0,
-      codex: 0,
-      opencode: 0,
-      kimi: 0,
-      qoder: 0,
-      bubble: 0,
-      deepseek: 0,
-    };
-    for (const group of groups) {
-      byTool[group.tool] += Object.keys(group.servers).length;
-    }
-    return byTool;
-  }, [groups]);
-
-  const handleSelectTool = (tool: ServerTool) => {
-    if (tool === selectedTool) return;
-    setSelectedTool(tool);
-    setView({ kind: 'list' });
-  };
 
   const findStatus = (name: string, group: ServerGroup) =>
     mcpServerStatus.find(
@@ -494,7 +380,7 @@ export function McpSettingsContent() {
             statusError={findStatus(view.name, group)?.error}
             onBack={() => setView({ kind: 'list' })}
             onSave={(name, nextConfig) => handleSave(name, nextConfig, group)}
-            onUninstall={() => handleDelete(view.name, group)}
+            onUninstall={() => void handleDelete(view.name, group)}
           />
         );
       }
@@ -502,108 +388,40 @@ export function McpSettingsContent() {
     // Target disappeared (deleted or config refreshed) — fall through to list.
   }
 
-  return (
-    <div className="space-y-5 pb-8">
-      <ToolTabBar selected={selectedTool} onSelect={handleSelectTool} counts={counts} />
-
-      {visibleGroups.map((group) => (
-        <ServerGroupSection
-          key={group.id}
-          group={group}
-          statusEntries={mcpServerStatus}
-          codexRuntime={group.tool === 'codex' ? codexRuntime : undefined}
-          codexAuthPending={codexAuthPending}
-          onCodexAuthorize={handleCodexAuthorize}
-          onRefresh={() => handleRefresh(group)}
-          onAdd={() => setView({ kind: 'create', groupId: group.id })}
-          onOpen={(name) => setView({ kind: 'edit', groupId: group.id, name })}
-          onToggleEnabled={
-            // Only where the target runtime honors a disable flag in its config:
-            // codex (config.toml `enabled`) and opencode (opencode.json
-            // `enabled`), plus Aegis's DeepSeek runtime config. Claude/Kimi
-            // mcpServers formats have no such field.
-            group.tool === 'codex' || group.tool === 'opencode' || group.tool === 'deepseek'
-              ? (name, nextEnabled) => handleToggleEnabled(name, group, nextEnabled)
-              : undefined
-          }
-        />
-      ))}
-    </div>
-  );
-}
-
-function ToolTabBar({
-  selected,
-  onSelect,
-  counts,
-}: {
-  selected: ServerTool;
-  onSelect: (tool: ServerTool) => void;
-  counts: Record<ServerTool, number>;
-}) {
-  const tabs: Array<{ id: ServerTool; label: string; hint: string }> = [
-    {
-      id: 'claude',
-      label: 'Claude Code',
-      hint: '~/.claude.json',
-    },
-    {
-      id: 'codex',
-      label: 'Codex',
-      hint: 'Aegis private config',
-    },
-    {
-      id: 'opencode',
-      label: 'OpenCode',
-      hint: '~/.config/opencode/opencode.json',
-    },
-    {
-      id: 'kimi',
-      label: 'Kimi',
-      hint: '~/.kimi/mcp.json',
-    },
-    {
-      id: 'qoder',
-      label: 'Qoder',
-      hint: '~/.qoder/mcp.json',
-    },
-    {
-      id: 'bubble',
-      label: 'Bubble',
-      hint: '~/.bubble/settings.json',
-    },
-    {
-      id: 'deepseek',
-      label: 'DeepSeek Harness',
-      hint: '~/.aegis/deepseek-mcp.json',
-    },
-  ];
+  const runtimeLabel = MCP_RUNTIMES.find((runtime) => runtime.id === selectedTool)?.label ?? 'MCP';
 
   return (
-    <div role="tablist" aria-label="Agent runtime" className="flex items-center gap-1.5">
-      {tabs.map((tab) => {
-        const isActive = tab.id === selected;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => onSelect(tab.id)}
-            title={tab.hint}
-            className={`flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[13px] transition-colors ${
-              isActive
-                ? 'bg-[var(--bg-tertiary)] font-semibold text-[var(--text-primary)]'
-                : 'font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <span>{tab.label}</span>
-            <span className={`font-normal ${isActive ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)]/70'}`}>
-              {counts[tab.id]}
-            </span>
-          </button>
-        );
-      })}
+    <div className="pb-8">
+      <h1 className="mb-6 flex items-center gap-2 text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
+        <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center [&>img]:h-5 [&>img]:w-5 [&>svg]:h-5 [&>svg]:w-5">
+          <ProviderIcon provider={selectedTool} />
+        </span>
+        <span>{runtimeLabel}</span>
+      </h1>
+
+      <div className="space-y-7">
+        {visibleGroups.map((group) => (
+          <ServerGroupSection
+            key={group.id}
+            group={group}
+            statusEntries={mcpServerStatus}
+            codexRuntime={group.tool === 'codex' ? codexRuntime : undefined}
+            codexAuthPending={codexAuthPending}
+            onCodexAuthorize={handleCodexAuthorize}
+            onAdd={() => setView({ kind: 'create', groupId: group.id })}
+            onOpen={(name) => setView({ kind: 'edit', groupId: group.id, name })}
+            onToggleEnabled={
+              // Only where the target runtime honors a disable flag in its config:
+              // codex (config.toml `enabled`) and opencode (opencode.json
+              // `enabled`), plus Aegis's DeepSeek runtime config. Claude/Kimi
+              // mcpServers formats have no such field.
+              group.tool === 'codex' || group.tool === 'opencode' || group.tool === 'deepseek'
+                ? (name, nextEnabled) => handleToggleEnabled(name, group, nextEnabled)
+                : undefined
+            }
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -621,7 +439,6 @@ function ServerGroupSection({
   codexRuntime,
   codexAuthPending,
   onCodexAuthorize,
-  onRefresh,
   onAdd,
   onOpen,
   onToggleEnabled,
@@ -631,89 +448,21 @@ function ServerGroupSection({
   codexRuntime?: Record<string, CodexMcpServerRuntimeStatus>;
   codexAuthPending?: string | null;
   onCodexAuthorize?: (name: string) => void;
-  onRefresh: () => void;
   onAdd: () => void;
   onOpen: (name: string) => void;
   onToggleEnabled?: (name: string, nextEnabled: boolean) => void;
 }) {
   const serverEntries = Object.entries(group.servers);
 
-  const emptyDescription = (() => {
-    if (group.tool === 'codex') {
-      return 'Add an MCP server for Codex sessions in Aegis. Your Codex App configuration stays unchanged.';
-    }
-    if (group.tool === 'opencode') {
-      return group.scope === 'project'
-        ? 'Add a workspace-only MCP server for the OpenCode CLI. Written to opencode.json in this project.'
-        : 'Add an MCP server for the OpenCode CLI. Written to ~/.config/opencode/opencode.json.';
-    }
-    if (group.tool === 'kimi') {
-      return group.scope === 'project'
-        ? 'Add a workspace-only MCP server for the Kimi CLI. Written to .kimi-code/mcp.json in this project.'
-        : 'Add an MCP server for the Kimi CLI. Written to ~/.kimi/mcp.json.';
-    }
-    if (group.tool === 'qoder') {
-      return 'Add an MCP server for the Qoder CLI. Written to ~/.qoder/mcp.json.';
-    }
-    if (group.tool === 'bubble') {
-      return 'Add an MCP server for the Bubble CLI. Written to ~/.bubble/settings.json.';
-    }
-    if (group.tool === 'deepseek') {
-      return group.scope === 'project'
-        ? 'Add a workspace-only MCP server for DeepSeek Harness.'
-        : 'Add an MCP server loaded into every DeepSeek Harness workspace.';
-    }
-    return group.scope === 'global'
-      ? 'Add a reusable MCP connection to make tools available in every Claude Code workspace.'
-      : 'Add a workspace-only MCP connection for Claude Code.';
-  })();
-
   return (
-    <section>
-      <div className="mb-2 flex items-center justify-between gap-3 px-1">
-        <div className="min-w-0">
-          <h2 className="text-[12px] font-medium text-[var(--text-muted)]">{group.title}</h2>
-          <p className="mt-0.5 truncate text-[12px] leading-5 text-[var(--text-muted)]">
-            {group.description}
-          </p>
-        </div>
-        <div className="flex flex-shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            aria-label={`Refresh ${group.title.toLowerCase()}`}
-            title="Refresh"
-            onClick={onRefresh}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onAdd}
-            className="inline-flex h-7 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Add server</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <section title={group.path}>
+      <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="divide-y divide-[var(--border)]">
-          {serverEntries.length === 0 ? (
-            <EmptyStateRow
-              title="No servers configured"
-              description={emptyDescription}
-              actionLabel="Add server"
-              onAction={onAdd}
-            />
-          ) : (
-            serverEntries.map(([name, config]) => {
+          {serverEntries.map(([name, config]) => {
               // mcpServerStatus entries are tagged with the reporting agent
               // (tool). Match by name AND tool so Claude/Codex statuses coexist
               // without cross-agent name collisions. Kimi/Grok protocols do not
-              // report status (their ACP protocol doesn't expose it), so they
-              // stay "Unknown".
+              // report status, so their rows fall back to the muted dot.
               const status = statusEntries.find(
                 (entry) => entry.name === name && (!entry.tool || entry.tool === group.tool)
               );
@@ -732,8 +481,15 @@ function ServerGroupSection({
                   }
                 />
               );
-            })
-          )}
+            })}
+          <button
+            type="button"
+            onClick={onAdd}
+            className="flex h-9 w-full items-center gap-2 px-3.5 text-left text-[13px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Add server</span>
+          </button>
         </div>
       </div>
     </section>
@@ -760,90 +516,90 @@ function ServerListRow({
   onToggleEnabled?: (nextEnabled: boolean) => void;
 }) {
   const statusMeta = getStatusMeta(status);
-  const transport = (config.type || 'stdio').toUpperCase();
-  const authLabel = codexRuntime ? CODEX_AUTH_LABELS[codexRuntime.authStatus] : null;
+  const transport = (config.type || 'stdio').toLowerCase();
   const enabled = config.enabled !== false;
-  const sublineParts = status ? [statusMeta.label, transport] : [transport];
-  if (authLabel) sublineParts.push(authLabel);
-  if (onToggleEnabled && !enabled) sublineParts.push('Disabled');
-  const subline = sublineParts.join(' · ');
   const needsAuth = codexRuntime?.authStatus === 'notLoggedIn' && Boolean(onAuthorize);
+  const isDisabled = Boolean(onToggleEnabled) && !enabled;
+
+  // Status is a dot; text only appears when the user has something to do.
+  const dotClass = isDisabled
+    ? 'border-[1.5px] border-[var(--text-muted)]'
+    : !status
+      ? 'bg-[var(--text-muted)] opacity-50'
+      : statusMeta.tone === 'success'
+        ? 'bg-[var(--success)]'
+        : statusMeta.tone === 'error'
+          ? 'bg-[var(--error)]'
+          : 'bg-[var(--warning)]';
+  const dotTitle = isDisabled ? 'Disabled' : statusMeta.label;
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--bg-secondary)]"
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className="group flex h-[38px] cursor-pointer items-center gap-2.5 pl-3.5 pr-3 transition-colors hover:bg-[var(--bg-secondary)] focus-visible:bg-[var(--bg-secondary)] focus-visible:outline-none"
     >
-      <div className={`min-w-0 flex-1 ${enabled ? '' : 'opacity-60'}`}>
-        <div className="truncate text-[13px] font-medium text-[var(--text-primary)]">{name}</div>
-        <div className="mt-0.5 truncate text-[12px] leading-5 text-[var(--text-muted)]">
-          {subline}
-        </div>
-      </div>
-      <div className="flex flex-shrink-0 items-center gap-1.5 text-[var(--text-muted)]">
-        {needsAuth ? (
-          <button
-            type="button"
-            disabled={codexAuthPending}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (!codexAuthPending) onAuthorize?.();
-            }}
-            className={`rounded-full border border-[var(--accent)]/40 px-2.5 py-0.5 text-[11px] font-medium text-[var(--accent)] transition-colors ${
-              codexAuthPending ? 'cursor-default opacity-60' : 'hover:bg-[var(--accent)]/10'
-            }`}
-          >
-            {codexAuthPending ? 'Authorizing...' : 'Authorize'}
-          </button>
-        ) : null}
+      <span
+        aria-label={dotTitle}
+        title={dotTitle}
+        className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dotClass}`}
+      />
+      <span
+        className={`truncate text-[13px] font-medium ${isDisabled ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}
+      >
+        {name}
+      </span>
+      <span className="flex-shrink-0 text-[12.5px] text-[var(--text-muted)]">{transport}</span>
+      {status && statusMeta.tone === 'error' ? (
+        <span className="truncate text-[12.5px] text-[var(--error)]" title={status.error}>
+          {statusMeta.label}
+        </span>
+      ) : null}
+      {needsAuth ? (
         <button
           type="button"
-          aria-label={`Configure ${name}`}
+          disabled={codexAuthPending}
           onClick={(event) => {
             event.stopPropagation();
-            onOpen();
+            if (!codexAuthPending) onAuthorize?.();
           }}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          className={`flex-shrink-0 text-[12.5px] text-[var(--text-secondary)] underline decoration-[var(--border-focus)] underline-offset-[3px] transition-colors ${
+            codexAuthPending ? 'cursor-default opacity-60' : 'hover:text-[var(--text-primary)]'
+          }`}
         >
-          <Settings className="h-3.5 w-3.5" />
+          {codexAuthPending ? 'Authorizing…' : 'Authorize'}
         </button>
-        {onToggleEnabled ? (
-          <span onClick={(event) => event.stopPropagation()} className="flex items-center">
-            <SettingsToggle
-              checked={enabled}
-              onChange={(value) => onToggleEnabled(value)}
-              ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${name}`}
-            />
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-}
+      ) : null}
 
-function EmptyStateRow({
-  title,
-  description,
-  actionLabel,
-  onAction,
-}: {
-  title: string;
-  description: string;
-  actionLabel: string;
-  onAction: () => void;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-      <div className="text-[13px] font-medium text-[var(--text-primary)]">{title}</div>
-      <div className="max-w-[360px] text-[12px] leading-5 text-[var(--text-muted)]">{description}</div>
+      <span className="flex-1" />
+
       <button
         type="button"
-        onClick={onAction}
-        className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+        aria-label={`Configure ${name}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen();
+        }}
+        className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-[6px] text-[var(--text-muted)] opacity-0 transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
       >
-        <Plus className="h-3.5 w-3.5" />
-        <span>{actionLabel}</span>
+        <Settings className="h-3.5 w-3.5" />
       </button>
+      {onToggleEnabled ? (
+        <span onClick={(event) => event.stopPropagation()} className="flex flex-shrink-0 items-center">
+          <SettingsToggle
+            checked={enabled}
+            onChange={(value) => onToggleEnabled(value)}
+            ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${name}`}
+          />
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -913,7 +669,7 @@ function ServerEditorPage({
     if (!trimmedName) {
       nextErrors.name = 'Enter a server name.';
     } else if (normalizedName !== editingExisting && existingNamesLower.includes(normalizedName)) {
-      nextErrors.name = 'That name already exists in this scope.';
+      nextErrors.name = 'That name already exists.';
     }
 
     if (type === 'stdio') {
@@ -976,21 +732,9 @@ function ServerEditorPage({
         <span>Back</span>
       </button>
 
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <h2 className="min-w-0 truncate text-[16px] font-semibold text-[var(--text-primary)]">
-          {title}
-        </h2>
-        {onUninstall ? (
-          <button
-            type="button"
-            onClick={onUninstall}
-            className="inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-full border border-[var(--error)]/30 bg-[var(--error)]/10 px-3 text-[12px] font-medium text-[var(--error)] transition-colors hover:bg-[var(--error)]/15"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span>Uninstall</span>
-          </button>
-        ) : null}
-      </div>
+      <h2 className="mt-3 min-w-0 truncate text-[16px] font-semibold text-[var(--text-primary)]">
+        {title}
+      </h2>
 
       {statusError ? (
         <div className="mt-3 rounded-[var(--radius-lg)] border border-[var(--error)]/30 bg-[var(--error)]/5 px-3 py-2 text-[12px] leading-5 text-[var(--error)]">
@@ -1133,7 +877,27 @@ function ServerEditorPage({
           </FormField>
         </FormCard>
 
-        <div className="flex items-center justify-end">
+        {/* One action row: the destructive action sits at the far left as a
+            quiet text button, primary actions at the right. Same row keeps it
+            aligned and reachable without giving it a colored surface. */}
+        <div className="flex items-center gap-2">
+          {onUninstall ? (
+            <button
+              type="button"
+              onClick={onUninstall}
+              className="inline-flex h-8 items-center rounded-[var(--radius-lg)] px-2 text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[color-mix(in_srgb,var(--error)_8%,transparent)] hover:text-[var(--error)]"
+            >
+              Remove server
+            </button>
+          ) : null}
+          <span className="flex-1" />
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-8 items-center rounded-[var(--radius-lg)] px-3 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          >
+            Cancel
+          </button>
           <button
             type="submit"
             className="inline-flex h-8 items-center rounded-[var(--radius-lg)] bg-[var(--accent)] px-4 text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
