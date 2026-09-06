@@ -30,6 +30,7 @@ import { ClaudePlanModePill } from './ClaudePlanModePill';
 import { DeepseekAgentPresetPicker } from './DeepseekAgentPresetPicker';
 import { FolderOpen } from './icons';
 import { NewThreadLanding } from './NewThreadLanding';
+import { NewThreadProjectHeading } from './NewThreadProjectHeading';
 import { ComposerContextPills } from './ComposerContextPills';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
@@ -505,9 +506,6 @@ export function NewSessionView() {
     !modelSetupRequired;
 
   const projectName = cwd ? cwd.split('/').filter(Boolean).pop() || cwd : '';
-  const heading = hasSelectedCwd
-    ? `What should we build in ${projectName}?`
-    : 'What can I help you with?';
 
   const handleKeyDown = (e: ReactKeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
@@ -572,7 +570,7 @@ export function NewSessionView() {
 
   return (
     <div className="flex-1 min-w-0 flex flex-col">
-      <NewThreadLanding heading={heading}>
+      <NewThreadLanding heading={<NewThreadProjectHeading cwd={cwd} disabled={pendingStart} />}>
             <div className="group relative rounded-[18px] bg-[var(--bg-secondary)] shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
               {projectFileMentions.hasMentionQuery ? (
                 <div className="absolute inset-x-0 bottom-full z-40 mb-1">

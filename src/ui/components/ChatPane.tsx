@@ -30,6 +30,8 @@ import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { NewThreadLanding } from './NewThreadLanding';
+import { NewThreadProjectHeading } from './NewThreadProjectHeading';
+import { openProjectNewChat } from '../utils/project-new-chat';
 import { SessionHandoffProviderRoute } from './SessionHandoffIndicator';
 import { ComposerContextPills } from './ComposerContextPills';
 import { InSessionSearch } from './search/InSessionSearch';
@@ -968,8 +970,6 @@ export function ChatPane({
     removePermissionRequest,
     openReviewDiff,
     requestChatInjection,
-    createDraftSession,
-    removeDraftSession,
     draftStartMode,
     setDraftStartMode,
   } = useAppStore(
@@ -982,8 +982,6 @@ export function ChatPane({
       removePermissionRequest: s.removePermissionRequest,
       openReviewDiff: s.openReviewDiff,
       requestChatInjection: s.requestChatInjection,
-      createDraftSession: s.createDraftSession,
-      removeDraftSession: s.removeDraftSession,
       draftStartMode: s.draftStartMode,
       setDraftStartMode: s.setDraftStartMode,
     }))
@@ -1776,9 +1774,6 @@ export function ChatPane({
   const threadStarterProject = threadStarterCwd
     ? threadStarterCwd.split('/').filter(Boolean).pop() || threadStarterCwd
     : '';
-  const threadStarterHeading = threadStarterProject
-    ? `What should we build in ${threadStarterProject}?`
-    : 'What can I help you with?';
   // Recent folders for the new-thread context pill's project dropdown.
   const [threadStarterRecentCwds, setThreadStarterRecentCwds] = useState<string[]>([]);
   useEffect(() => {
@@ -1800,10 +1795,9 @@ export function ChatPane({
   const switchDraftFolder = useCallback(
     (dir: string) => {
       if (!dir || dir === threadStarterCwd || !sessionId) return;
-      createDraftSession(dir, session?.channelId || null, { projectCwd: dir });
-      removeDraftSession(sessionId);
+      openProjectNewChat(dir, sessionId);
     },
-    [createDraftSession, removeDraftSession, session?.channelId, threadStarterCwd, sessionId]
+    [threadStarterCwd, sessionId]
   );
   const handleThreadStarterBrowse = useCallback(() => {
     void window.electron.selectDirectory().then((dir) => {
@@ -1888,7 +1882,7 @@ export function ChatPane({
             </div>
           ) : null}
           {showThreadStarter ? (
-            <NewThreadLanding heading={threadStarterHeading}>
+            <NewThreadLanding heading={<NewThreadProjectHeading cwd={threadStarterCwd} sessionId={sessionId} />}>
               <div className="mx-auto w-full max-w-3xl">
                 <PromptInput
                   sessionId={sessionId}

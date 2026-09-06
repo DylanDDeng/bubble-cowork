@@ -9,7 +9,7 @@ export function NewThreadLanding({
   heading,
   children,
 }: {
-  heading: string;
+  heading: ReactNode;
   children: ReactNode;
 }) {
   return (

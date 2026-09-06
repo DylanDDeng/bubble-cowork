@@ -210,6 +210,7 @@ export function FolderTreeView({
   const {
     sessions,
     activeWorkspace,
+    activeSessionId,
     workspaceLayout,
     sidebarSearchQuery,
     sidebarActivityView,
@@ -220,6 +221,20 @@ export function FolderTreeView({
     () => new Set()
   );
   const isChatWorkspaceActive = activeWorkspace === 'chat';
+
+  const activeDraft = activeSessionId ? sessions[activeSessionId] : undefined;
+  const activeDraftProject = activeDraft?.isDraft
+    ? activeDraft.projectCwd || activeDraft.cwd || '__no_project__'
+    : null;
+  useLayoutEffect(() => {
+    if (!activeDraftProject || !isChatWorkspaceActive) return;
+    setCollapsedGroups((current) => {
+      if (!current.has(activeDraftProject)) return current;
+      const next = new Set(current);
+      next.delete(activeDraftProject);
+      return next;
+    });
+  }, [activeSessionId, activeDraftProject, isChatWorkspaceActive]);
 
   // Sessions currently mounted in any workspace pane. With recursive tiling
   // there is no single "split pair" — every open session simply renders with the
@@ -751,6 +766,14 @@ function SessionItem({
   onClick: () => void;
   onTogglePin: () => void;
 }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!isActive || !session.isDraft) return;
+    const frame = window.requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isActive, session.id, session.isDraft]);
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
   const createDraftSession = useAppStore((s) => s.createDraftSession);
   const [branchLookup, setBranchLookup] = useState<{
@@ -944,6 +967,9 @@ function SessionItem({
           <ContextMenuTrigger
             render={
           <div
+            ref={rowRef}
+            data-session-id={session.id}
+            aria-current={isActive ? 'page' : undefined}
             className={`group/session relative cursor-pointer rounded-lg py-1 pl-8 pr-3 transition-colors duration-150 ${
               isActive
                 ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
