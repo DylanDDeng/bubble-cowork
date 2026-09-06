@@ -358,6 +358,7 @@ export interface SessionView {
   source?: import('../shared/types').SessionSource;
   readOnly?: boolean;
   isDraft?: boolean;
+  draftTitleEdited?: boolean;
   handoffSourceProvider?: AgentProvider | null;
   latestClaudeModelUsage?: import('../shared/types').LatestClaudeModelUsage;
   messages: import('../shared/types').StreamMessage[];
@@ -511,6 +512,7 @@ export interface AppState {
 
 // Store Actions
 export interface AppActions {
+  renameSession: (sessionId: string, title: string) => Promise<void>;
   setConnected: (connected: boolean) => void;
   handleServerEvent: (event: import('../shared/types').ServerEvent) => void;
   setActiveSession: (sessionId: string | null) => void;

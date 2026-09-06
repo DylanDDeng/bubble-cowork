@@ -107,6 +107,7 @@ declare global {
       callback: () => { ok: boolean; message?: string } | Promise<{ ok: boolean; message?: string }>
     ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
+    renameSession: (sessionId: string, title: string) => Promise<{ title: string; updatedAt: number }>;
     startBackgroundSession: (
       payload: SessionStartPayload
     ) => Promise<{ ok: boolean; sessionId: string | null }>;

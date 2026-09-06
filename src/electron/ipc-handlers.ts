@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
+import { setupSessionTitleIPC } from './ipc/session-title';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
 import {
   forkClaudeAgentSession,
@@ -5167,6 +5168,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return generateSessionTitle(prompt);
   });
 
+  setupSessionTitleIPC((event) => broadcast(mainWindow, event));
+
   // Board/background starts need the real persisted session id without
   // routing through a renderer draft. `handleSessionStart` can still return
   // null when runtime setup fails after the row is created, so capture the id
@@ -9296,7 +9299,7 @@ async function handleSessionStart(
         return;
       }
 
-      sessions.updateSessionTitle(session.id, trimmedTitle);
+      if (!sessions.updateSessionTitle(session.id, trimmedTitle, session.title)) return;
       const latest = sessions.getSession(session.id);
       const currentStatus = latest?.status || session.status || 'running';
       broadcast(mainWindow, {

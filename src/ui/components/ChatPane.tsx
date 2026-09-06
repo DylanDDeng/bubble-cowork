@@ -22,6 +22,7 @@ import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { resolveCodexModel } from '../utils/codex-model';
 import { AssistantCopyAction, MessageCard, getAssistantMarkdownToCopy } from './MessageCard';
 import { ChatOutlineRail } from './ChatOutlineRail';
+import { SessionTitleEditor } from './SessionTitleEditor';
 import { buildSessionUserPromptSummaries } from '../../shared/outline-summary';
 import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
 import { GeneratedMediaGallery } from './GeneratedMediaGallery';
@@ -1852,18 +1853,16 @@ export function ChatPane({
         <>
           {showHeader ? (
             <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
-              <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+              <div className="flex min-w-0 flex-1 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
                 {session.handoffSourceProvider ? (
                   <SessionHandoffProviderRoute
                     sourceProvider={session.handoffSourceProvider}
                     targetProvider={session.provider ?? 'claude'}
                   />
                 ) : null}
-                <span className="truncate font-medium text-[var(--text-primary)]">
-                  {session.title || 'Chat'}
-                </span>
+                <SessionTitleEditor session={session} className="font-medium text-[var(--text-primary)]" />
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1">
                 {headerActions}
                 {onClose ? (
                   <button

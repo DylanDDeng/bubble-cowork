@@ -207,6 +207,9 @@ contextBridge.exposeInMainWorld('electron', {
   generateSessionTitle: (prompt: string) => {
     return ipcRenderer.invoke('generate-session-title', prompt);
   },
+  renameSession: (sessionId: string, title: string) => {
+    return ipcRenderer.invoke('rename-session', sessionId, title);
+  },
 
   startBackgroundSession: (payload: SessionStartPayload) => {
     return ipcRenderer.invoke('session-start-background', payload);

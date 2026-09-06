@@ -42,6 +42,7 @@ import { ensureBoardSessionSync, useBoardStore } from './store/useBoardStore';
 import { useTabsStore, type TabView } from './store/useTabsStore';
 import { AppTabBar } from './components/AppTabBar';
 import { NewSessionView } from './components/NewSessionView';
+import { SessionTitleEditor } from './components/SessionTitleEditor';
 import { LogoShimmer } from './components/LogoShimmer';
 import { SessionHandoffProviderRoute } from './components/SessionHandoffIndicator';
 import { PromptInput } from './components/PromptInput';
@@ -1059,20 +1060,18 @@ export function App() {
           {/* Top drag region */}
           <div className="relative h-11 flex-shrink-0 bg-[var(--chat-pane-surface)]">
             <div className="flex h-full items-center justify-between px-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <div className="flex min-w-0 items-center gap-2 pl-1">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
                   {activeSession?.handoffSourceProvider ? (
                     <SessionHandoffProviderRoute
                       sourceProvider={activeSession.handoffSourceProvider}
                       targetProvider={activeSession.provider ?? 'claude'}
                     />
                   ) : null}
-                  <span className="truncate text-[12px] font-medium text-[var(--text-primary)]">
-                    {activeSession?.title || 'Chat'}
-                  </span>
+                  <SessionTitleEditor session={activeSession} className="text-[13px] font-medium text-[var(--text-primary)]" />
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-1 pr-10">
+              <div className="flex shrink-0 items-center justify-end gap-1 pr-10">
                 <div className="aegis-header-editor-actions">
                   <EnvironmentEditorPicker context={environmentContext} />
                 </div>

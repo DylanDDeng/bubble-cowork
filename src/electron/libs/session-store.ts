@@ -2112,12 +2112,16 @@ export function updateLastPrompt(sessionId: string, prompt: string): void {
 }
 
 // 更新会话标题
-export function updateSessionTitle(sessionId: string, title: string): void {
+export function updateSessionTitle(sessionId: string, title: string, expectedTitle?: string): boolean {
   const now = Date.now();
+  // A generated title must not overwrite a name edited while generation ran.
   const stmt = getDb().prepare(`
-    UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?
+    UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?${expectedTitle === undefined ? '' : ' AND title = ?'}
   `);
-  stmt.run(title, now, sessionId);
+  const result = expectedTitle === undefined
+    ? stmt.run(title, now, sessionId)
+    : stmt.run(title, now, sessionId, expectedTitle);
+  return result.changes > 0;
 }
 
 // 删除会话

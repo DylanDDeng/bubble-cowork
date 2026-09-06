@@ -812,6 +812,7 @@ export function PromptInput({
         type: 'session.start',
         payload: {
           title: activeSession.title || 'New Chat',
+          skipTitleGeneration: activeSession.draftTitleEdited || undefined,
           prompt: outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
           cwd: activeSession.cwd,

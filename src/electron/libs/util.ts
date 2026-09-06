@@ -6,6 +6,7 @@ import {
   toClaudeCodeRuntimeModel,
 } from './claude-model-selection';
 import { getRequiredClaudeCodeRuntime } from './claude-runtime';
+import { generateSessionTitleLocally, truncateSessionTitle } from '../../shared/session-title';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
@@ -183,26 +184,6 @@ export async function runClaudeOneShot(params: {
   };
 }
 
-function generateSessionTitleLocally(prompt: string): string {
-  const cleaned = prompt
-    .replace(/\s+/g, ' ')
-    .replace(/[`*_#>\-\[\]\(\)]/g, ' ')
-    .trim();
-  if (!cleaned) {
-    return '';
-  }
-
-  const firstSentence = cleaned.split(/[.!?。！？\n]/, 1)[0]?.trim() || cleaned;
-  const words = firstSentence
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .slice(0, 6);
-
-  const title = words.join(' ').trim();
-  return title.slice(0, 50);
-}
-
 // LLM 起分支名：让选定的 provider 用英文概括这次任务（kebab-case），
 // 中文提示词也能得到可读的分支第三级。失败/超时静默返回 null，
 // 调用方退回本地 slug/哈希——起名绝不能挡住任务启动。
@@ -302,7 +283,7 @@ Just output the title, nothing else.`;
       betas,
       claudeReasoningEffort,
     });
-    return result.text.slice(0, 50);
+    return truncateSessionTitle(result.text);
   } catch (error) {
     console.error('Failed to generate title:', error);
     return generateSessionTitleLocally(prompt);

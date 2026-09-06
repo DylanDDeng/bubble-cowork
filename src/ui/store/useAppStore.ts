@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { rendererStateStorage } from '../utils/renderer-state-storage';
 import { toast } from 'sonner';
+import { normalizeSessionTitleInput } from '../../shared/session-rename';
 import * as tree from './layout-tree';
 import type { PaneId, SplitEdge, WorkspaceLayout } from './layout-tree';
 import {
@@ -1001,6 +1002,17 @@ export const useAppStore = create<Store>()(
   // Actions
   setConnected: (connected) => set({ connected }),
 
+  renameSession: async (sessionId, value) => {
+    const title = normalizeSessionTitleInput(value);
+    const session = get().sessions[sessionId];
+    if (!session) throw new Error('This conversation is no longer available.');
+    if (title === session.title) return;
+    const result = session.isDraft
+      ? { title, updatedAt: Date.now() }
+      : await window.electron.renameSession(sessionId, title);
+    get().handleServerEvent({ type: 'session.renamed', payload: { sessionId, ...result } });
+  },
+
   handleServerEvent: (event: ServerEvent) => {
     // Streaming deltas are coalesced before they hit the store (P1). The
     // emitter is rebound on every dispatch — set/get are stable, this just
@@ -1009,6 +1021,18 @@ export const useAppStore = create<Store>()(
     switch (event.type) {
       case 'session.list':
         handleSessionList(event.payload.sessions, set, get);
+        break;
+
+      case 'session.renamed':
+        set((state) => {
+          const { sessionId, title, updatedAt } = event.payload;
+          const session = state.sessions[sessionId];
+          if (!session) return state;
+          return { sessions: { ...state.sessions, [sessionId]: {
+            ...session, title, updatedAt,
+            ...(session.isDraft ? { draftTitleEdited: true } : {}),
+          } } };
+        });
         break;
 
       case 'session.status':
