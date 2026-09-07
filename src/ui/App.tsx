@@ -42,8 +42,7 @@ import { ensureBoardSessionSync, useBoardStore } from './store/useBoardStore';
 import { useTabsStore, type TabView } from './store/useTabsStore';
 import { AppTabBar } from './components/AppTabBar';
 import { NewSessionView } from './components/NewSessionView';
-import { SessionActionsMenu } from './components/SessionActionsMenu';
-import { SessionTitleEditor } from './components/SessionTitleEditor';
+import { SessionTitleActions } from './components/SessionTitleActions';
 import { LogoShimmer } from './components/LogoShimmer';
 import { SessionHandoffProviderRoute } from './components/SessionHandoffIndicator';
 import { PromptInput } from './components/PromptInput';
@@ -1069,11 +1068,10 @@ export function App() {
                       targetProvider={activeSession.provider ?? 'claude'}
                     />
                   ) : null}
-                  <SessionTitleEditor session={activeSession} className="text-[13px] font-medium text-[var(--text-primary)]" />
+                  <SessionTitleActions session={activeSession} className="text-[13px] font-medium text-[var(--text-primary)]" />
                 </div>
               </div>
               <div className="flex shrink-0 items-center justify-end gap-1 pr-10">
-                {activeSession ? <SessionActionsMenu session={activeSession} /> : null}
                 <div className="aegis-header-editor-actions">
                   <EnvironmentEditorPicker context={environmentContext} />
                 </div>

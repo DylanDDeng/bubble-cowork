@@ -22,8 +22,7 @@ import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { resolveCodexModel } from '../utils/codex-model';
 import { AssistantCopyAction, MessageCard, getAssistantMarkdownToCopy } from './MessageCard';
 import { ChatOutlineRail } from './ChatOutlineRail';
-import { SessionActionsMenu } from './SessionActionsMenu';
-import { SessionTitleEditor } from './SessionTitleEditor';
+import { SessionTitleActions } from './SessionTitleActions';
 import { buildSessionUserPromptSummaries } from '../../shared/outline-summary';
 import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
 import { GeneratedMediaGallery } from './GeneratedMediaGallery';
@@ -1861,10 +1860,9 @@ export function ChatPane({
                     targetProvider={session.provider ?? 'claude'}
                   />
                 ) : null}
-                <SessionTitleEditor session={session} className="font-medium text-[var(--text-primary)]" />
+                <SessionTitleActions session={session} className="font-medium text-[var(--text-primary)]" />
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <SessionActionsMenu session={session} />
                 {headerActions}
                 {onClose ? (
                   <button

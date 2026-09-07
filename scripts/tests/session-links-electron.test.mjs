@@ -13,7 +13,7 @@ import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Tooltip} from '@base-ui-components/react/tooltip';
 import {Toaster} from 'sonner';
-import {SessionActionsMenu} from '/src/ui/components/SessionActionsMenu.tsx';
+import {SessionTitleActions} from '/src/ui/components/SessionTitleActions.tsx';
 import {FolderTreeView} from '/src/ui/components/FolderTreeView.tsx';
 import {ComposerPromptEditor} from '/src/ui/components/ComposerPromptEditor.tsx';
 import {useAppStore} from '/src/ui/store/useAppStore.ts';
@@ -29,7 +29,7 @@ function Harness(){
  window.qa.value=value;window.qa.setValue=text=>{setValue(text);setCursor(text.length)};
  return <Tooltip.Provider><div style={{display:'flex',height:'100vh',background:'var(--bg-primary)'}}>
  <aside style={{width:260,padding:12,background:'var(--sidebar-bg)'}}><h3>Aegis</h3><FolderTreeView projectCwd="/projects/test" onSessionClick={s.setActiveSession} onSelectProjectFolder={()=>{}} onNewSessionForProject={()=>{}} /></aside>
- <main style={{flex:1,padding:24}}><header style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><span>{active.title}</span><SessionActionsMenu session={active}/></header>
+ <main style={{flex:1,padding:24}}><header style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><SessionTitleActions session={active} className="text-[13px] font-medium"/></header>
  <div style={{marginTop:180,border:'1px solid var(--border)',borderRadius:16,padding:20}}><ComposerPromptEditor value={value} cursorIndex={cursor} onChange={(v,c)=>{setValue(v);setCursor(c)}} placeholder="Paste a conversation link" /></div>
  <button id="outside">Outside</button></main><Toaster/></div></Tooltip.Provider>;
 }
@@ -67,7 +67,7 @@ app.whenReady().then(async()=>{
  const flatten=menu=>menu.items.flatMap(item=>[item,...item.submenu?flatten(item.submenu):[]]);
  const select=async label=>{const item=flatten(openedMenu).find(item=>item.label===label);assert.ok(item,'Missing native menu item: '+label);assert.equal(item.enabled,true);item.click();await dismiss();await delay(170)};
  const shape=menu=>menu.items.map(item=>({label:item.label,type:item.type,enabled:item.enabled,submenu:item.submenu?shape(item.submenu):undefined}));
- const screenshot=async name=>{if(process.env.QA_CAPTURE){fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});fs.writeFileSync(path.join(process.env.QA_CAPTURE,name+'.png'),(await win.webContents.capturePage()).toPNG())}};
+ const screenshot=async name=>{if(process.env.QA_CAPTURE){fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});try{fs.writeFileSync(path.join(process.env.QA_CAPTURE,name+'.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG())}catch(error){console.warn('Optional screenshot unavailable: '+error.message)}}};
  let http;
  try {
   // URI roundtrips, malformed links and prompt metadata boundaries.
@@ -188,6 +188,10 @@ app.whenReady().then(async()=>{
   await win.loadURL(process.env.QA_URL+'?ids='+source.id+','+target.id);
   for(let i=0;i<100;i++){if(await js('!!window.qa && !!document.querySelector("[aria-label=\\\\"Conversation actions\\\\"]")'))break;await delay(100)}
   win.focus();
+  if(process.env.QA_CAPTURE){
+    console.log('Title/menu layout: '+JSON.stringify(await js('(()=>{const group=document.querySelector("[data-session-title-actions]");return [...group.children].map(e=>({label:e.getAttribute("aria-label"),x:e.getBoundingClientRect().x,width:e.getBoundingClientRect().width}))})()')));
+    await screenshot('header-title-actions');
+  }
   if(process.env.QA_NATIVE){
     console.log('Native menu preview ready');
     await new Promise(r=>setTimeout(r,process.env.QA_NATIVE==='1'?90000:Number(process.env.QA_NATIVE)));
