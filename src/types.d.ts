@@ -1,3 +1,4 @@
+import type { SessionMenuRequest, SessionMenuAction } from './shared/session-menu';
 // 全局类型声明（Window 扩展）
 // 实际类型定义在 src/shared/types.ts
 
@@ -443,6 +444,8 @@ declare global {
     gitCreatePr: (cwd: string) => Promise<{ ok: boolean; message?: string; url?: string }>;
     getEnvironmentEditorLaunchers: () => Promise<import('./shared/types').EnvironmentEditorLauncher[]>;
     openInEditor: (input: import('./shared/types').OpenInEditorInput) => Promise<{ ok: boolean; message?: string }>;
+    showSessionMenu: (request: SessionMenuRequest) => Promise<SessionMenuAction | null>;
+    copySessionValue: (sessionId: string, target: 'link' | 'cwd') => Promise<void>;
     openExternalUrl: (url: string) => Promise<{ ok: boolean; message?: string }>;
     subscribeStatistics: (callback: (data: StatisticsData) => void) => () => void;
     getStaticData: () => Promise<StaticData>;

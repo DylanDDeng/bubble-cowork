@@ -1,3 +1,4 @@
+import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
@@ -498,7 +499,7 @@ export class QoderSdkAdapter implements ProviderAdapter {
     const promptQueue = new QoderPromptQueue();
     const query = sdk.query({
       prompt: promptQueue,
-      options: this.buildQueryOptions(sdk, input, cwd),
+      options: { ...this.buildQueryOptions(sdk, input, cwd), mcpServers: { [SESSION_MCP_SERVER_NAME]: await getSessionReaderHttpConfig() } },
     });
 
     let initResolve!: (sessionId: string) => void;

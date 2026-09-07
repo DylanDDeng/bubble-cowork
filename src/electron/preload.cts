@@ -1,3 +1,4 @@
+import type { SessionMenuRequest, SessionMenuAction } from '../shared/session-menu';
 const { contextBridge, ipcRenderer } = require('electron');
 import type {
   AutomationDefinition,
@@ -1108,6 +1109,8 @@ contextBridge.exposeInMainWorld('electron', {
 
 
 
+  showSessionMenu: (request: SessionMenuRequest): Promise<SessionMenuAction | null> => ipcRenderer.invoke('show-session-menu', request),
+  copySessionValue: (sessionId: string, target: 'link' | 'cwd'): Promise<void> => ipcRenderer.invoke('copy-session-value', sessionId, target),
   openExternalUrl: (url: string) => {
     return ipcRenderer.invoke('open-external-url', url);
   },

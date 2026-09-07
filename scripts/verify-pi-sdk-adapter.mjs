@@ -27,7 +27,8 @@ assert.ok(
 const adapter = read('src/electron/libs/provider/pi-sdk-adapter.ts');
 assert.ok(
   adapter.includes("readonly provider: ProviderKind = 'pi'") &&
-    adapter.includes("tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']") &&
+    adapter.includes("tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'read_session']") &&
+    adapter.includes('customTools: [createPiSessionReader()]') &&
     adapter.includes('modelRuntime') &&
     adapter.includes('agentDir: resolvePiAgentDir()'),
   'Pi adapter must register provider=pi and pass the SDK runtime, agent dir, and tool allowlist'

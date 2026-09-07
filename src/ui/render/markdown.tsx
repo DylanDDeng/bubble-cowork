@@ -1,5 +1,6 @@
 import { isValidElement, memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import { parseSessionLink } from '../../shared/session-links';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
@@ -567,6 +568,15 @@ function MarkdownAnchor({
     openProjectFile(projectFile);
   };
 
+  if (href && parseSessionLink(href)) {
+    return <a href={href} className="md-app-link" onClick={event => {
+      event.preventDefault();
+      void window.electron.openExternalUrl(href).then(result => {
+        if (!result.ok) toast.error(result.message || 'Could not open conversation');
+      }).catch(() => toast.error('Could not open conversation'));
+    }}><span className="md-link-label">{children}</span></a>;
+  }
+
   if (projectFile) {
     const showLine = shouldShowLineSuffix(children, projectFile.line);
     const isHtmlFile = isHtmlFilePath(projectFile.path);
@@ -876,6 +886,7 @@ function MDContentImpl({ content, className = '', allowHtml = false }: MDContent
     <div className={`markdown-content ${className}`}>
       <ErrorBoundary fallback={fallback} resetKey={renderedContent}>
         <ReactMarkdown
+          urlTransform={url => parseSessionLink(url) ? url : defaultUrlTransform(url)}
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={rehypePlugins}
           disallowedElements={disallowedElements}

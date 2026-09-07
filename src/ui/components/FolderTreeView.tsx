@@ -1,3 +1,4 @@
+import { useSessionActionsMenu } from '../hooks/useSessionActionsMenu';
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Tooltip as TooltipPrimitive } from '@base-ui-components/react/tooltip';
 import {
@@ -18,14 +19,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from './ui/context-menu';
-import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { allLeaves } from '../store/layout-tree';
 import { sendEvent } from '../hooks/useIPC';
@@ -774,17 +767,13 @@ function SessionItem({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [isActive, session.id, session.isDraft]);
-  const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
-  const createDraftSession = useAppStore((s) => s.createDraftSession);
+  const { openMenu, menuOpen, worktreeAction } = useSessionActionsMenu(session);
   const [branchLookup, setBranchLookup] = useState<{
     cwd: string;
     branch: string | null;
     loading: boolean;
     expiresAt: number;
   } | null>(null);
-  // worktree 生命周期动作（挪入/收下/扔掉）都有秒级耗时：期间行上要有
-  // pending 反馈，并禁掉重复触发
-  const [worktreeAction, setWorktreeAction] = useState<'move' | 'apply' | 'discard' | null>(null);
   const inWorktree = session.envMode === 'worktree' && Boolean(session.worktreePath);
   const projectPath = getSessionProjectPath(session);
   const projectLabel = getProjectLabel(projectPath);
@@ -798,29 +787,6 @@ function SessionItem({
       branchLookup?.cwd === branchCwd &&
       branchLookup.loading
   );
-  // Fork branches the provider-side conversation: Claude via the SDK's native
-  // fork (bootstrapped from history if needed), Codex via app-server
-  // `thread/fork`, OpenCode via the SDK's `session.fork`, Kimi via the server
-  // runtime's `:fork` (legacy-runtime kimi threads get a friendly error from
-  // the main process). Other providers have no fork mechanism yet. The main
-  // process returns a friendly error for an empty conversation.
-  const providerSupportsFork =
-    session.provider === 'claude' ||
-    session.provider === 'codex' ||
-    session.provider === 'opencode' ||
-    session.provider === 'kimi';
-  // Kimi server fork semantics mid-turn are unprobed — disable while running.
-  const forkBlockedWhileRunning = session.provider === 'kimi' && session.status === 'running';
-  const canFork = !session.isDraft && providerSupportsFork && !forkBlockedWhileRunning;
-  const canMoveToWorktree =
-    !session.isDraft && session.envMode !== 'worktree' && session.status !== 'running';
-  // provider 不支持 fork 时整项隐藏（不显示置灰的解释文案）
-  const forkLabel = canFork
-    ? 'Fork into a new pane'
-    : forkBlockedWhileRunning
-      ? 'Fork into a new pane (wait for the turn to finish)'
-      : 'Fork into a new pane (send a message first)';
-
   const handlePreviewOpenChange = (open: boolean) => {
     if (!open || storedWorktreeBranch || !branchCwd) return;
     if (
@@ -852,123 +818,32 @@ function SessionItem({
     });
   };
 
-  // 右键菜单动作（菜单本体是应用内 Base UI ContextMenu，与其它下拉菜单同款视觉）
-  const handleFork = () => {
-    void forkSessionToPane(session.id);
-  };
-
-  const handleNewInWorktree = () => {
-    if (!session.worktreePath) return;
-    createDraftSession(session.worktreePath, session.channelId || null, {
-      title: `New Chat - ${session.associatedWorktreeBranch || 'Worktree'}`,
-      projectCwd: session.projectCwd ?? null,
-      envMode: 'worktree',
-      worktreePath: session.worktreePath,
-      associatedWorktreePath: session.worktreePath,
-      associatedWorktreeBranch: session.associatedWorktreeBranch ?? null,
-      associatedWorktreeRef: session.associatedWorktreeRef ?? null,
-    });
-  };
-
-  const handleMoveToWorktree = () => {
-    void (async () => {
-      setWorktreeAction('move');
-      const toastId = toast.loading('Moving thread into a new worktree…');
-      try {
-        const result = await window.electron.moveSessionToWorktree(session.id);
-        if (result.ok) {
-          toast.success('Thread moved into a new worktree — changes stay on its own branch.', {
-            id: toastId,
-          });
-        } else {
-          toast.error(result.message || 'Could not move the thread into a worktree.', {
-            id: toastId,
-          });
-        }
-      } finally {
-        setWorktreeAction(null);
-      }
-    })();
-  };
-
-  const handleApplyWorktree = () => {
-    void (async () => {
-      setWorktreeAction('apply');
-      const toastId = toast.loading('Squash-merging worktree changes into the project…');
-      try {
-        const applied = await window.electron.applyWorktreeChanges(session.id);
-        if (applied.ok) {
-          toast.success('Squash-merged — changes are staged in your project for review.', {
-            id: toastId,
-          });
-        } else {
-          toast.error(applied.message || 'Squash-merge failed.', { id: toastId });
-        }
-      } finally {
-        setWorktreeAction(null);
-      }
-    })();
-  };
-
-  const handleDiscardWorktree = () => {
-    // confirm 推迟到菜单关闭之后，避免弹窗和菜单抢焦点
-    window.setTimeout(() => {
-      const branchName = session.associatedWorktreeBranch;
-      void (async () => {
-        const confirmed = await confirmDialog({
-          title: branchName ? `Remove this worktree and branch ${branchName}?` : 'Remove this worktree?',
-          description: 'All uncommitted changes in it are lost. The conversation stays.',
-          confirmLabel: 'Remove worktree',
-        });
-        if (!confirmed) {
-          return;
-        }
-        setWorktreeAction('discard');
-        try {
-          const discarded = await window.electron.discardWorktreeChanges(session.id);
-          if (discarded.ok) {
-            toast.success('Worktree removed — thread is back on the project.');
-          } else {
-            toast.error(discarded.message || 'Could not remove the worktree.');
-          }
-        } finally {
-          setWorktreeAction(null);
-        }
-      })();
-    }, 0);
-  };
-
-  const handleDelete = () => {
-    window.setTimeout(() => {
-      void (async () => {
-        const detail = session.status === 'running' ? ' The running task will be stopped.' : '';
-        const confirmed = await confirmDialog({
-          title: `Delete ${session.title}?`,
-          description: `This permanently removes the conversation.${detail}`,
-          confirmLabel: 'Delete conversation',
-        });
-        if (confirmed) {
-          sendEvent({ type: 'session.delete', payload: { sessionId: session.id } });
-        }
-      })();
-    }, 0);
-  };
-
   return (
-    <ContextMenu>
     <TooltipPrimitive.Root
       disableHoverablePopup
+      disabled={menuOpen}
       onOpenChange={handlePreviewOpenChange}
     >
       <TooltipPrimitive.Trigger
         delay={420}
         closeDelay={80}
         render={
-          <ContextMenuTrigger
-            render={
           <div
             ref={rowRef}
             data-session-id={session.id}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void openMenu({ x: event.clientX, y: event.clientY });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                void openMenu({ x: rect.left + 12, y: rect.bottom });
+              }
+            }}
+            tabIndex={0}
             aria-current={isActive ? 'page' : undefined}
             className={`group/session relative cursor-pointer rounded-lg py-1 pl-8 pr-3 transition-colors duration-150 ${
               isActive
@@ -1053,8 +928,6 @@ function SessionItem({
               ) : null}
             </div>
           </div>
-            }
-          />
         }
       />
 
@@ -1102,53 +975,6 @@ function SessionItem({
         </TooltipPrimitive.Positioner>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
-
-    <ContextMenuContent className="min-w-[176px]">
-      {providerSupportsFork ? (
-        <ContextMenuItem disabled={!canFork} onClick={handleFork}>
-          {forkLabel}
-        </ContextMenuItem>
-      ) : null}
-      {/* worktree 内外互斥的动作：在外可以搬进去；在内可以再开一条，
-          或走 Environment 卡片同款的收尾动作（收下 / 扔掉） */}
-      {inWorktree ? (
-        <>
-          {/* 分支名由侧栏的 worktree 分组头展示，菜单里不再重复（会把菜单撑得很宽） */}
-          <ContextMenuItem onClick={handleNewInWorktree}>New thread in this worktree</ContextMenuItem>
-          <ContextMenuItem
-            disabled={session.status === 'running' || worktreeAction !== null}
-            onClick={handleApplyWorktree}
-          >
-            {session.status === 'running'
-              ? 'Squash-merge back into project (agent is running)'
-              : 'Squash-merge back into project'}
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={session.status === 'running' || worktreeAction !== null}
-            onClick={handleDiscardWorktree}
-          >
-            {session.status === 'running' ? 'Discard worktree… (agent is running)' : 'Discard worktree…'}
-          </ContextMenuItem>
-        </>
-      ) : (
-        <ContextMenuItem
-          // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
-          disabled={!canMoveToWorktree || worktreeAction !== null}
-          onClick={handleMoveToWorktree}
-        >
-          {worktreeAction === 'move'
-            ? 'Move into a new worktree (moving…)'
-            : canMoveToWorktree
-              ? 'Move into a new worktree'
-              : 'Move into a new worktree (agent is running)'}
-        </ContextMenuItem>
-      )}
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={onTogglePin}>{session.pinned ? 'Unpin' : 'Pin'}</ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onClick={handleDelete}>Delete</ContextMenuItem>
-    </ContextMenuContent>
-    </ContextMenu>
   );
 }
 

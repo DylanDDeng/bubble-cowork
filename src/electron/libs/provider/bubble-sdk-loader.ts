@@ -1,3 +1,4 @@
+import { installBubbleSessionReader } from '../bubble-session-reader';
 /**
  * Bubble SDK loader.
  *
@@ -329,7 +330,9 @@ export function loadBubbleProviderCatalog(): Promise<BubbleProviderCatalogModule
 export async function getBubbleSdk(defaultCwd?: string): Promise<BubbleSdkInstance> {
   if (!sdkInstance) {
     const { BubbleSdk } = await loadBubbleSdk();
-    sdkInstance = new BubbleSdk(defaultCwd ? { defaultCwd } : undefined);
+    const instance = new BubbleSdk(defaultCwd ? { defaultCwd } : undefined);
+    installBubbleSessionReader(instance);
+    sdkInstance = instance;
   }
   return sdkInstance;
 }

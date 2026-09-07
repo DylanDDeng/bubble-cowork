@@ -1,3 +1,4 @@
+import { assertBubbleSessionReader } from '../bubble-session-reader';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
@@ -584,6 +585,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         ...(model ? { model } : {}),
         signal: abortController.signal,
         onStart: (info) => {
+          assertBubbleSessionReader(prompt, info.tools, id);
           model = info.model || model;
         },
       });
@@ -778,6 +780,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
         signal: abortController.signal,
         onStart: (info) => {
+          assertBubbleSessionReader(prompt, info.tools, session.threadId);
           session.model = info.model || session.model;
           // Bubble's TokenUsage has no context window; resolve it from the
           // registry catalog so the composer context indicator has a ceiling.

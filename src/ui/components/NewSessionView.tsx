@@ -8,6 +8,7 @@ import {
   type MutableRefObject,
 } from 'react';
 import { toast } from 'sonner';
+import { getSessionReferenceCapabilityError } from '../../shared/session-links';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
@@ -214,6 +215,8 @@ export function NewSessionView() {
 
   const handleStart = async () => {
     if (!prompt.trim() && attachments.length === 0) return;
+    const referenceError = getSessionReferenceCapabilityError(prompt, agentSelection.provider);
+    if (referenceError) { toast.error(referenceError); return; }
     if (agentSelection.modelSetup) {
       toast.error(agentSelection.modelSetup.title);
       openModelSetup();

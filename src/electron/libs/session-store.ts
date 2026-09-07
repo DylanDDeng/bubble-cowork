@@ -2289,6 +2289,37 @@ export function copySessionHistory(sourceSessionId: string, destSessionId: strin
 }
 
 // 获取会话历史消息
+export function getSessionReferencePage(sessionId: string, cursor?: string, limit = 10): {
+  messages: StreamMessage[]; nextCursor: string | null;
+} {
+  let anchor: { sessionId: string; sort: number; created: number; id: string } | undefined;
+  if (cursor) {
+    try {
+      anchor = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+      if (!anchor || anchor.sessionId !== sessionId || !Number.isFinite(anchor.sort) ||
+          !Number.isFinite(anchor.created) || typeof anchor.id !== 'string') throw new Error();
+    } catch { throw new Error('Invalid history cursor for this conversation.'); }
+  }
+  const count = Math.max(1, Math.min(20, Math.floor(limit)));
+  const rows = getDb().prepare(`
+    SELECT id, data, created_at, COALESCE(sort_key, created_at) AS sort_value FROM messages
+    WHERE session_id = ? ${anchor ? 'AND (COALESCE(sort_key, created_at), created_at, id) < (?, ?, ?)' : ''}
+    ORDER BY COALESCE(sort_key, created_at) DESC, created_at DESC, id DESC LIMIT ?
+  `).all(...[sessionId, ...(anchor ? [anchor.sort, anchor.created, anchor.id] : []), count + 1]) as
+    Array<{ id: string; data: string; created_at: number; sort_value: number }>;
+  const page = rows.slice(0, count);
+  const last = page.at(-1);
+  return {
+    messages: page.map(row => {
+      try { return readStoredMessagePayload(row.data, row.created_at); }
+      catch { return buildUnavailableStoredMessage(row.created_at, 'Unable to read stored message'); }
+    }),
+    nextCursor: rows.length > count && last ? Buffer.from(JSON.stringify({
+      sessionId, sort: last.sort_value, created: last.created_at, id: last.id,
+    })).toString('base64url') : null,
+  };
+}
+
 export function getSessionHistory(sessionId: string): StreamMessage[] {
   const stmt = getDb().prepare(`
     SELECT data, created_at FROM messages WHERE session_id = ? ORDER BY COALESCE(sort_key, created_at) ASC, created_at ASC

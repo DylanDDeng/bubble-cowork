@@ -1,3 +1,4 @@
+import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
 import { createServer } from 'net';
 import {
   loadOpenCodeSdk,
@@ -151,12 +152,13 @@ export class OpenCodeServeManager {
     const hostname = '127.0.0.1';
     const port = await findAvailablePort(hostname);
     this.abortController = new AbortController();
+    const reader = await getSessionReaderHttpConfig();
     const server = await sdk.createOpencodeServer({
       hostname,
       port,
       signal: this.abortController.signal,
       timeout: 15_000,
-      config: buildDefaultOpenCodeConfig(),
+      config: { ...buildDefaultOpenCodeConfig(), mcp: { [SESSION_MCP_SERVER_NAME]: { type: 'remote', url: reader.url, headers: reader.headers, enabled: true } } },
     });
     return { sdk, v2Sdk, server };
   }

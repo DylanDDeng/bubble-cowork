@@ -1,3 +1,5 @@
+import { extractSessionLinks } from '../../shared/session-links';
+
 export interface KnownSiteLinkToken {
   /** The exact matched text, preserved verbatim for serialization. */
   raw: string;
@@ -239,7 +241,12 @@ export function extractKnownSiteLinkTokens(text: string): KnownSiteLinkToken[] {
     });
   }
 
-  return tokens;
+  for (const reference of extractSessionLinks(text)) {
+    // Do not overlap an external URL which happens to contain a session URI.
+    if (tokens.some(token => reference.start < token.end && reference.end > token.start)) continue;
+    tokens.push({ ...reference, site: 'aegis-session', label: `Conversation ${reference.sessionId.slice(0, 8)}`, url: reference.raw });
+  }
+  return tokens.sort((a, b) => a.start - b.start);
 }
 
 export type KnownSiteLinkTextSegment =

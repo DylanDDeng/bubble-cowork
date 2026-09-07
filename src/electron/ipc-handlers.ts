@@ -1,3 +1,4 @@
+import { disposeSessionHttpServer } from './libs/session-http-server';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher, promises as fsPromises } from 'fs';
@@ -9,6 +10,8 @@ import { fileURLToPath } from 'url';
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
+import { setupSessionLinksIPC, openSessionLink, flushSessionLink } from './ipc/session-links';
+import { appendSessionReferences } from './libs/session-reference';
 import { setupSessionTitleIPC } from './ipc/session-title';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
 import {
@@ -5169,6 +5172,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   setupSessionTitleIPC((event) => broadcast(mainWindow, event));
+  setupSessionLinksIPC((event) => {
+    if (event.type === 'session.open') handleSessionList(mainWindow);
+    broadcast(mainWindow, event);
+  });
 
   // Board/background starts need the real persisted session id without
   // routing through a renderer draft. `handleSessionStart` can still return
@@ -8689,6 +8696,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('open-external-url', async (_event, url: string) => {
+    try { if (openSessionLink(url)) return { ok: true }; }
+    catch (error) { return { ok: false, message: String(error) }; }
     const externalUrl = normalizeExternalUrl(url);
     if (!externalUrl) {
       return { ok: false, message: 'Only HTTP, HTTPS, and mailto links can be opened.' };
@@ -8730,6 +8739,7 @@ async function handleClientEvent(
   switch (event.type) {
     case 'session.list':
       handleSessionList(mainWindow);
+      flushSessionLink();
       break;
 
     case 'session.start':
@@ -8992,6 +9002,7 @@ async function handleSessionStart(
     });
     return null;
   }
+  const referenceContext = appendSessionReferences('', prompt, undefined, provider || 'claude');
   const chosenProvider = provider || 'claude';
   const normalizedProjectCwd = projectCwd?.trim() || sessionCwd || null;
   const normalizedEnvMode = envMode === 'worktree' ? 'worktree' : 'local';
@@ -9040,7 +9051,7 @@ async function handleSessionStart(
     ? outgoingPrompt
     : (effectivePrompt ?? sourcePrompt).trim();
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
-    await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt, sessionCwd),
+    await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt + referenceContext, sessionCwd),
   );
   const selectedModel = normalizeProviderModel(chosenProvider, model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
@@ -9411,6 +9422,9 @@ async function handleSessionContinue(
     return false;
   }
 
+  // Validate references before altering handoff/workspace state.
+  const referenceContext = appendSessionReferences('', prompt, sessionId, provider || session.provider || 'claude');
+
   // Steer lock (docs/delegate-mcp-plan.md): while a delegated agent runs in
   // this session's working directory, "lead blocked on the tool call = single
   // writer" must hold — refuse mid-turn sends. This is the chokepoint every
@@ -9546,7 +9560,7 @@ async function handleSessionContinue(
     sessions.clearSessionHandoffPending(sessionId);
   }
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
-    await buildRunnerPromptWithMemory(nextProvider, effectiveRunnerPrompt, session.cwd || undefined),
+    await buildRunnerPromptWithMemory(nextProvider, effectiveRunnerPrompt + referenceContext, session.cwd || undefined),
     historyBeforeContinue
   );
   const previousOpenCodePermissionMode = normalizeOpenCodePermissionMode(session.opencode_permission_mode);
@@ -12118,6 +12132,7 @@ export function cleanup(): void {
   stopClaudeRunnerReaper();
   disposeTerminalTransportServer();
   disposeDelegateHttpServer();
+  disposeSessionHttpServer();
   disposeTerminalRuntime();
   // 停止所有运行中的 runner
   for (const [, entry] of runnerHandles) {

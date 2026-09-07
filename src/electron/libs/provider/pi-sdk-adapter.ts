@@ -1,3 +1,4 @@
+import { createPiSessionReader } from '../session-native-tool';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
@@ -335,7 +336,8 @@ export class PiSdkAdapter implements ProviderAdapter {
       agentDir: resolvePiAgentDir(),
       modelRuntime,
       sessionManager,
-      tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'],
+      tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'read_session'],
+      customTools: [createPiSessionReader()],
       ...(selectedModel ? { model: selectedModel } : {}),
     });
 

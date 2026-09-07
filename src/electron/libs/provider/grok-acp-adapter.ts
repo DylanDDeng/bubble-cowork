@@ -1,3 +1,4 @@
+import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
 import { readFileSync, writeFileSync } from 'fs';
@@ -410,9 +411,10 @@ export class GrokAcpAdapter implements ProviderAdapter {
     // Built-in browser use: hand grok the loopback HTTP MCP server when the
     // feature is on (ACP session/new mcpServers, http variant).
     const browserUseDescriptor = getBrowserUseMcpDescriptor();
-    const mcpServers = browserUseDescriptor
-      ? [createGrokAcpHttpMcpServer('aegis-browser', browserUseDescriptor)]
-      : [];
+    const mcpServers = [
+      createGrokAcpHttpMcpServer(SESSION_MCP_SERVER_NAME, await getSessionReaderHttpConfig()),
+      ...(browserUseDescriptor ? [createGrokAcpHttpMcpServer('aegis-browser', browserUseDescriptor)] : []),
+    ];
     const sessionResult = await rpc
       .request(input.resumeSessionId ? 'session/resume' : 'session/new', {
         ...(input.resumeSessionId ? { sessionId: input.resumeSessionId } : {}),

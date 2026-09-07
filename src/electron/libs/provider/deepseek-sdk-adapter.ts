@@ -1,3 +1,4 @@
+import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -614,6 +615,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     const entry = resolveDeepseekRuntimeEntry(profileDir);
     let disposeBrowserDescriptor = () => {};
     const servers = getDeepseekMcpServers(cwd);
+    servers[SESSION_MCP_SERVER_NAME] = await getSessionReaderHttpConfig();
     delete servers[BROWSER_USE_SERVER_NAME];
     if (isBrowserUseEnabled()) {
       const descriptor = await createBrowserUseSessionMcpDescriptor(threadId);

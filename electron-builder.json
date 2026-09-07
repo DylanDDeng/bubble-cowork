@@ -1,5 +1,6 @@
 {
   "appId": "com.aegis.desktop",
+  "protocols": [{ "name": "Aegis conversations", "schemes": ["aegis"] }],
   "productName": "Aegis",
   "directories": {
     "output": "release",

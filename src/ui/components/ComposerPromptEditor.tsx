@@ -10,6 +10,8 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
+import { parseSessionLink } from '../../shared/session-links';
+import { useAppStore } from '../store/useAppStore';
 import { getFileTypeIconVisual } from './FileTypeIcon';
 import { extractProjectFileMentions } from '../utils/project-file-mentions';
 import { extractKnownSiteLinkTokens } from '../utils/known-site-links';
@@ -401,9 +403,20 @@ function createLinkNode(url: string, labelText: string, rawText: string): HTMLSp
   chip.title = rawText;
   chip.className = 'composer-inline-chip composer-inline-chip--link';
 
+  const referencedSessionId = parseSessionLink(url);
+  if (referencedSessionId) {
+    chip.dataset.sessionReference = referencedSessionId;
+    const session = useAppStore.getState().sessions[referencedSessionId];
+    labelText = session?.title || labelText;
+    const icon = document.createElement('span');
+    icon.className = 'composer-inline-chip__icon';
+    icon.textContent = '↗';
+    icon.setAttribute('aria-hidden', 'true');
+    chip.append(icon);
+  }
   let hostname = '';
   try {
-    hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    hostname = referencedSessionId ? '' : new URL(url).hostname.toLowerCase().replace(/^www\./, '');
   } catch {
     // Malformed URLs render without an icon.
   }

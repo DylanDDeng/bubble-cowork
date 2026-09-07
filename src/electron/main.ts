@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, dialog, shell, ipcMain, nativeTheme, session } from 'electron';
+import { queueSessionLink } from './ipc/session-links';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -81,6 +82,22 @@ function configureUserDataPath(): void {
 configureUserDataPath();
 
 let mainWindow: BrowserWindow | null = null;
+// Queue cold-start links until the renderer requests its initial session list.
+app.on('open-url', (event, url) => {
+  if (queueSessionLink(url)) {
+    event.preventDefault();
+    if (app.isReady()) showMainWindow();
+  }
+});
+for (const arg of process.argv) queueSessionLink(arg);
+if (app.isPackaged && !process.env.AEGIS_USER_DATA_DIR) {
+  if (!app.requestSingleInstanceLock()) app.quit();
+  app.on('second-instance', (_event, argv) => {
+    for (const arg of argv) queueSessionLink(arg);
+    showMainWindow();
+  });
+  app.setAsDefaultProtocolClient('aegis');
+}
 let updaterInitialized = false;
 let devFileWatcher: fs.FSWatcher | null = null;
 let updateCheckStarted = false;
@@ -606,12 +623,14 @@ function createWindow(): void {
   // Links from the renderer (target=_blank / window.open) must never spawn a
   // bare Electron popup — hand them to the system default browser instead.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (queueSessionLink(url)) return { action: 'deny' };
     if (/^https?:/i.test(url)) {
       void shell.openExternal(url);
     }
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (queueSessionLink(url)) { event.preventDefault(); return; }
     // Keep the SPA shell in place; dragged/中键 links go to the system browser.
     if (/^https?:/i.test(url) && !(isDev() && url.startsWith(DEV_SERVER_URL))) {
       event.preventDefault();

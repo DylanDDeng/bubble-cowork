@@ -22,6 +22,7 @@ import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { resolveCodexModel } from '../utils/codex-model';
 import { AssistantCopyAction, MessageCard, getAssistantMarkdownToCopy } from './MessageCard';
 import { ChatOutlineRail } from './ChatOutlineRail';
+import { SessionActionsMenu } from './SessionActionsMenu';
 import { SessionTitleEditor } from './SessionTitleEditor';
 import { buildSessionUserPromptSummaries } from '../../shared/outline-summary';
 import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
@@ -1863,6 +1864,7 @@ export function ChatPane({
                 <SessionTitleEditor session={session} className="font-medium text-[var(--text-primary)]" />
               </div>
               <div className="flex shrink-0 items-center gap-1">
+                <SessionActionsMenu session={session} />
                 {headerActions}
                 {onClose ? (
                   <button

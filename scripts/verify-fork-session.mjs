@@ -55,16 +55,16 @@ assert.ok(
   'forkSessionToPane must call the IPC, build a SessionView, and open it in a pane'
 );
 
-// Right-click context menu on the sidebar session row (in-app Base UI menu),
-// gated to providers whose runtime can fork.
+// Both native menu entry points share the provider-gated action hook.
 const tree = read('src/ui/components/FolderTreeView.tsx');
+const header = read('src/ui/components/SessionActionsMenu.tsx');
+const menu = read('src/ui/hooks/useSessionActionsMenu.ts');
 assert.ok(
-  tree.includes('forkSessionToPane(session.id)') &&
-    tree.includes('canFork') &&
-    tree.includes('providerSupportsFork') &&
-    tree.includes("session.provider === 'claude'") &&
-    tree.includes("session.provider === 'kimi'"),
-  'sidebar session items must offer Fork via the in-app context menu, gated to fork-capable providers (incl. kimi)'
+  tree.includes('useSessionActionsMenu(session)') && header.includes('useSessionActionsMenu(session)') &&
+    menu.includes('forkSessionToPane(session.id)') && menu.includes('canFork') &&
+    menu.includes("['claude', 'codex', 'opencode', 'kimi']") &&
+    menu.includes("session.provider === 'kimi' && session.status === 'running'"),
+  'both native menus must share the fork action and Kimi running guard'
 );
 
 // Kimi wiring: dispatch includes kimi, the provider thread id round-trips

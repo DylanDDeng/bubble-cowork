@@ -1,3 +1,4 @@
+import { createSessionSdkMcpServer, SESSION_MCP_SERVER_NAME } from './session-mcp';
 import type {
   McpServerConfig as SDKMcpServerConfig,
   PermissionMode as ClaudeSdkPermissionMode,
@@ -798,6 +799,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             'aegis-memory': await createAegisMemoryMcpServer(session.cwd ?? undefined),
           }
         : providerMcpServers;
+      (mcpServers as Record<string, unknown>)[SESSION_MCP_SERVER_NAME] = await createSessionSdkMcpServer();
       // Cross-agent delegation: every top-level Claude session can be a lead.
       // Delegate execution sessions don't get the server — combined with the
       // server-side caller check this enforces the one-level depth limit.

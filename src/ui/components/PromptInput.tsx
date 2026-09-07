@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { ArrowElbowRight, CornerDownRight, Plus, Square, Trash2 } from './icons';
 import { toast } from 'sonner';
+import { getSessionReferenceCapabilityError } from '../../shared/session-links';
 import { useAppStore } from '../store/useAppStore';
 import {
   claimQueueFlushOwner,
@@ -719,6 +720,8 @@ export function PromptInput({
 
   const handleSend = async () => {
     if (!prompt.trim() && attachments.length === 0) return;
+    const referenceError = getSessionReferenceCapabilityError(prompt, runtimeProvider, activeSession?.id);
+    if (referenceError) { toast.error(referenceError); return; }
     if (agentSelection.modelSetup) {
       toast.error(agentSelection.modelSetup.title);
       openModelSetup();

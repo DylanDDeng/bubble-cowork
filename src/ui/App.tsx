@@ -42,6 +42,7 @@ import { ensureBoardSessionSync, useBoardStore } from './store/useBoardStore';
 import { useTabsStore, type TabView } from './store/useTabsStore';
 import { AppTabBar } from './components/AppTabBar';
 import { NewSessionView } from './components/NewSessionView';
+import { SessionActionsMenu } from './components/SessionActionsMenu';
 import { SessionTitleEditor } from './components/SessionTitleEditor';
 import { LogoShimmer } from './components/LogoShimmer';
 import { SessionHandoffProviderRoute } from './components/SessionHandoffIndicator';
@@ -1072,6 +1073,7 @@ export function App() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center justify-end gap-1 pr-10">
+                {activeSession ? <SessionActionsMenu session={activeSession} /> : null}
                 <div className="aegis-header-editor-actions">
                   <EnvironmentEditorPicker context={environmentContext} />
                 </div>

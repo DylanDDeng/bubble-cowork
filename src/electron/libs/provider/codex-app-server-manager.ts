@@ -1,3 +1,4 @@
+import { getSessionReaderCodexArgs, SESSION_TOKEN_ENV_VAR } from '../session-http-server';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
 import { existsSync, promises as fsPromises, readFileSync } from 'fs';
@@ -365,13 +366,22 @@ export class CodexAppServerManager extends EventEmitter {
 
     this.generation += 1;
     const gen = this.generation;
+    const epoch = this.lifecycleEpoch;
+    const signal = this.spawnAbortController?.signal;
+    // Capture launch settings before awaiting the app-tool endpoint. Other
+    // managers can start while it binds; they must not alter this launch.
+    const launchEnv = { ...process.env };
+    const configArgs = buildCodexMcpConfigOverrideArgs({ computerUsePolicy: this.computerUsePolicy });
+    const readerArgs = await getSessionReaderCodexArgs();
+    if (epoch !== this.lifecycleEpoch || signal?.aborted) throw new CodexRpcTransportError('stopped', 'initialize');
+    launchEnv[SESSION_TOKEN_ENV_VAR] = process.env[SESSION_TOKEN_ENV_VAR];
 
     const child = spawn(
       this.binaryPath,
-      ['app-server', ...buildCodexMcpConfigOverrideArgs({ computerUsePolicy: this.computerUsePolicy })],
+      ['app-server', ...configArgs, ...readerArgs],
       {
       cwd,
-      env: { ...process.env },
+      env: launchEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: process.platform === 'win32',
     });

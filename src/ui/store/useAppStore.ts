@@ -1019,6 +1019,11 @@ export const useAppStore = create<Store>()(
     // keeps the coalescer decoupled from store construction order.
     streamDeltaCoalescer.setEmitter((payload) => handleStreamMessage(payload, set, get));
     switch (event.type) {
+      case 'session.open':
+        get().setActiveWorkspace('chat');
+        get().setActiveSession(event.payload.sessionId);
+        break;
+
       case 'session.list':
         handleSessionList(event.payload.sessions, set, get);
         break;
