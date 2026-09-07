@@ -1210,6 +1210,25 @@ export interface GitPullRequestSummary {
   url: string;
 }
 
+/** App-owned task association; independent of the currently checked-out branch. */
+export interface SessionPullRequest extends GitPullRequestSummary {
+  repoRoot: string;
+  headBranch: string;
+  attachedAt: number;
+}
+
+export interface SessionPullRequestView extends SessionPullRequest {
+  lookupStatus: GitPullRequestLookupStatus | 'cached';
+}
+
+export interface AttachSessionPullRequestInput {
+  sessionId: string;
+  cwd: string;
+  repoRoot: string;
+  headBranch: string;
+  url: string;
+}
+
 export interface GitRepositoryInfo {
   root: string | null;
   originUrl: string | null;

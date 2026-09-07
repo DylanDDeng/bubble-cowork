@@ -121,6 +121,7 @@ function buildAegisWorktreeBranch(baseBranch: string): string {
 export function SessionWorkspaceControl({
   session,
   sessionId,
+  currentBranch,
   onWorkspaceGitChanged,
   variant = 'header',
 }: {
@@ -128,6 +129,7 @@ export function SessionWorkspaceControl({
   sessionId: string;
   onWorkspaceGitChanged?: () => Promise<void>;
   variant?: 'header' | 'panel';
+  currentBranch: string | null;
 }) {
   const createDraftSession = useAppStore((state) => state.createDraftSession);
   const projectCwd = session.projectCwd || session.cwd || null;
@@ -147,6 +149,7 @@ export function SessionWorkspaceControl({
       const result = await window.electron.applyWorktreeChanges(session.id);
       if (result.ok) {
         toast.success('Squash-merged — changes are staged in your project for review.');
+        await onWorkspaceGitChanged?.();
       } else {
         toast.error(result.message || 'Squash-merge failed.');
       }
@@ -169,6 +172,7 @@ export function SessionWorkspaceControl({
       const result = await window.electron.discardWorktreeChanges(session.id);
       if (result.ok) {
         toast.success('Worktree removed — thread is back on the project.');
+        await onWorkspaceGitChanged?.();
       } else {
         toast.error(result.message || 'Could not remove the worktree.');
       }
@@ -212,10 +216,6 @@ export function SessionWorkspaceControl({
     }
   }, [effectiveCwd, projectCwd]);
 
-  useEffect(() => {
-    void refreshBranches();
-  }, [refreshBranches]);
-
   const refreshWorkspaceGit = useCallback(async () => {
     await refreshBranches();
     await onWorkspaceGitChanged?.();
@@ -236,13 +236,6 @@ export function SessionWorkspaceControl({
       return a.name.localeCompare(b.name);
     });
   }, [branches]);
-
-  const currentBranch =
-    branches.find((entry) => entry.current && !entry.remote)?.name ||
-    branches.find((entry) => entry.current)?.name ||
-    session.associatedWorktreeBranch ||
-    session.associatedWorktreeRef ||
-    'HEAD';
 
   useEffect(() => {
     if (!worktreeDialogOpen) return;
@@ -391,6 +384,7 @@ export function SessionWorkspaceControl({
   }, [sessionId]);
 
   const createNewWorktree = useCallback((includeChanges: boolean) => {
+    if (!currentBranch) return;
     setWorktreeDialogOpen(false);
     if (isRunning) {
       void createWorktreeAndOpenThread(currentBranch, {
@@ -474,12 +468,12 @@ export function SessionWorkspaceControl({
   // branch-list refresh on dropdown open must not flash it into a spinner.
   const BusyIcon = busyAction ? Loader2 : null;
   const panelVariant = variant === 'panel';
-  const wrapperClass = panelVariant ? 'flex flex-col gap-1.5' : 'flex min-w-0 items-center gap-1';
+  const wrapperClass = panelVariant ? 'flex flex-col gap-0.5' : 'flex min-w-0 items-center gap-1';
   const rowButtonClass = panelVariant
-    ? 'flex h-8 w-full items-center gap-2 rounded-md px-2 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50'
+    ? 'environment-summary-row'
     : 'inline-flex h-6 max-w-[112px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]';
   const branchButtonClass = panelVariant
-    ? 'flex h-8 w-full items-center gap-2 rounded-md px-2 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50'
+    ? 'environment-summary-row'
     : 'inline-flex h-6 max-w-[150px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]';
   const environmentHubLayerProps = panelVariant ? { 'data-environment-hub-layer': true } : {};
 
@@ -490,11 +484,10 @@ export function SessionWorkspaceControl({
           <button
             type="button"
             className={rowButtonClass}
-            disabled={busyAction !== null}
+            disabled={busyAction !== null || !currentBranch}
             title={isWorktree ? session.worktreePath || 'Worktree' : projectCwd}
           >
             {BusyIcon ? <BusyIcon className="h-3.5 w-3.5 animate-spin" /> : isWorktree ? <GitFork className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
-            {panelVariant ? <span className="text-[var(--text-muted)]">Workspace</span> : null}
             <span className="min-w-0 flex-1 truncate text-left">{isWorktree ? 'Worktree' : 'Local'}</span>
             <ChevronDown className="h-3 w-3 shrink-0" />
           </button>
@@ -882,7 +875,7 @@ export function SessionWorkspaceControl({
         </Dialog.Portal>
       </Dialog.Root>
 
-      <DropdownMenu.Root modal={!panelVariant} onOpenChange={(open) => { if (open) void refreshBranches(); }}>
+      {currentBranch ? <DropdownMenu.Root modal={!panelVariant} onOpenChange={(open) => { if (open) void refreshBranches(); }}>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
@@ -891,9 +884,8 @@ export function SessionWorkspaceControl({
             title={currentBranch}
           >
             <GitBranch className="h-3.5 w-3.5 shrink-0" />
-            {panelVariant ? <span className="text-[var(--text-muted)]">Branch</span> : null}
-            <span className="min-w-0 flex-1 truncate text-left">{currentBranch}</span>
-            <ChevronDown className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left">{currentBranch === 'HEAD' ? 'Detached HEAD' : currentBranch}</span>
+            {BusyIcon ? <BusyIcon className="h-3 w-3 shrink-0 animate-spin" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
@@ -929,7 +921,7 @@ export function SessionWorkspaceControl({
             )}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+      </DropdownMenu.Root> : null}
     </div>
   );
 }

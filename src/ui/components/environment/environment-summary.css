@@ -1,0 +1,57 @@
+.environment-summary-row {
+  display: flex;
+  min-height: 28px;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  text-align: left;
+  color: var(--text-primary);
+  transition: background-color 120ms;
+}
+
+button.environment-summary-row:hover:not(:disabled) {
+  background: var(--sidebar-item-hover);
+}
+
+.environment-summary-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.environment-summary-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.environment-summary-section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  padding: 10px 6px 0;
+}
+
+.environment-summary-section::before {
+  content: '';
+  position: absolute;
+  inset: 0 14px auto;
+  height: 0.5px;
+  background: var(--border);
+}
+
+/* With no Git section, task-specific content starts at the top of the card. */
+.environment-summary-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.environment-summary-section:first-child::before {
+  display: none;
+}

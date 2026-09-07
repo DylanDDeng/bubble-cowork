@@ -1010,6 +1010,15 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-working-tree-summary', cwd);
   },
 
+  listSessionPullRequests: (sessionId: string, refresh?: boolean) => ipcRenderer.invoke('list-session-pull-requests', sessionId, refresh),
+  attachSessionPullRequest: (input: import('../shared/types').AttachSessionPullRequestInput) => ipcRenderer.invoke('attach-session-pull-request', input),
+  detachSessionPullRequest: (sessionId: string, url: string, attachedAt: number) => ipcRenderer.invoke('detach-session-pull-request', sessionId, url, attachedAt),
+  onSessionPullRequestsChanged: (callback: (sessionId: string) => void) => {
+    const listener = (_event: unknown, sessionId: string) => callback(sessionId);
+    ipcRenderer.on('session-pull-requests-changed', listener);
+    return () => ipcRenderer.removeListener('session-pull-requests-changed', listener);
+  },
+
   getGitOverview: (cwd: string) => {
     return ipcRenderer.invoke('get-git-overview', cwd);
   },

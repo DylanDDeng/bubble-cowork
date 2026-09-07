@@ -26,7 +26,7 @@ assert.ok(
 
 // 2. The card is absolutely positioned against that wrapper, directly
 //    below the trigger and aligned to its right edge.
-const panelClass = hub.match(/className="no-drag ([^"]*)w-\[318px\][^"]*"/);
+const panelClass = hub.match(/className="no-drag ([^"]*)w-\[300px\][^"]*"/);
 assert.ok(panelClass, 'EnvironmentHub: could not locate the card container className');
 assert.ok(
   panelClass[1].includes('absolute'),

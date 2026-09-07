@@ -48,7 +48,7 @@ export function EnvironmentComputerUseSection({
   };
 
   return (
-    <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
+    <section className="environment-summary-section">
       <div className="flex items-center gap-1.5 px-2 text-[11px] font-medium text-[var(--text-muted)]">
         <Monitor className="h-3 w-3" />
         <span>Computer Use</span>
@@ -89,7 +89,7 @@ export function EnvironmentComputerUseSection({
               type="button"
               title={frame.label}
               onClick={() => openShot(sha)}
-              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)]"
+              className="environment-summary-row"
             >
               <FileTypeIcon name={fileName} className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 flex-1 truncate">{fileName}</span>

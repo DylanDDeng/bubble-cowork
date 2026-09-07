@@ -1,41 +1,28 @@
+import { useSessionPullRequests } from './useSessionPullRequests';
+import { EnvironmentPullRequestsSection } from './EnvironmentPullRequestsSection';
+import './environment-summary.css';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
-  ArrowsSplit,
   BrandGithubFilled,
   ChevronDown,
   Code2,
   Copy,
   ExternalLink,
   FileDiff,
-  Monitor,
-  RefreshCw,
-  X,
+  MoreHorizontal,
 } from '../icons';
 import { SessionWorkspaceControl } from '../ChatPane';
 import type { EnvironmentEditorLauncher } from '../../../shared/types';
 import type { ActiveEnvironmentContext } from './useActiveEnvironmentContext';
 import type { GitEnvironmentState } from './useGitEnvironment';
 import { EnvironmentGitActionsSection } from './EnvironmentGitActionsSection';
-import { EnvironmentComputerUseSection } from './EnvironmentComputerUseSection';
+import { EnvironmentComputerUseSection, environmentHasComputerUseSection } from './EnvironmentComputerUseSection';
 import { useAppStore } from '../../store/useAppStore';
 import { deriveSubagentSummaries } from '../../utils/subagent-registry';
 import { SubagentAvatar } from '../SubagentAvatar';
 import { Users } from '../icons';
 import * as DropdownMenu from '../ui/dropdown-menu';
-
-function getPathLeaf(path: string): string {
-  const segments = path.split(/[\\/]+/).filter(Boolean);
-  return segments.at(-1) || path;
-}
-
-function formatTime(value: number | null): string {
-  if (!value) return 'not refreshed';
-  const seconds = Math.max(0, Math.floor((Date.now() - value) / 1000));
-  if (seconds < 5) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  return `${Math.floor(seconds / 60)}m ago`;
-}
 
 function EnvironmentListIcon() {
   return (
@@ -62,6 +49,7 @@ function SectionRow({
   iconClassName,
   label,
   detail,
+  title,
   trailing,
   disabled,
   onClick,
@@ -70,6 +58,7 @@ function SectionRow({
   iconClassName?: string;
   label: string;
   detail?: string;
+  title?: string;
   trailing?: ReactNode;
   disabled?: boolean;
   onClick?: () => void;
@@ -78,8 +67,9 @@ function SectionRow({
     <button
       type="button"
       disabled={disabled}
+      title={title}
       onClick={onClick}
-      className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+      className="environment-summary-row"
     >
       <Icon className={`h-3.5 w-3.5 shrink-0 ${iconClassName ?? 'text-[var(--text-muted)]'}`} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -280,89 +270,6 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
   );
 }
 
-// worktree 收尾动作（对照参考 app 的"工作树"卡：动作平铺可见，不藏在下拉里）
-function WorktreeActions({
-  sessionId,
-  branch,
-  isRunning,
-  onDone,
-}: {
-  sessionId: string;
-  branch: string | null;
-  isRunning: boolean;
-  onDone: () => void;
-}) {
-  const [busy, setBusy] = useState<'apply' | 'discard' | null>(null);
-  const buttonClass =
-    'inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[11px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-45';
-
-  const squashMerge = async () => {
-    setBusy('apply');
-    try {
-      const result = await window.electron.applyWorktreeChanges(sessionId);
-      if (result.ok) {
-        toast.success('Squash-merged — changes are staged in your project for review.');
-        onDone();
-      } else {
-        toast.error(result.message || 'Squash-merge failed.');
-      }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const discard = async () => {
-    if (
-      !window.confirm(
-        `Remove this worktree${branch ? ` and delete branch ${branch}` : ''}? All uncommitted changes in it are lost. The conversation stays.`
-      )
-    ) {
-      return;
-    }
-    setBusy('discard');
-    try {
-      const result = await window.electron.discardWorktreeChanges(sessionId);
-      if (result.ok) {
-        toast.success('Worktree removed — thread is back on the project.');
-        onDone();
-      } else {
-        toast.error(result.message || 'Could not remove the worktree.');
-      }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="grid grid-cols-2 gap-1.5 px-2 pt-1.5">
-      <button
-        type="button"
-        disabled={isRunning || busy !== null}
-        onClick={() => void squashMerge()}
-        title={
-          isRunning
-            ? 'Wait for the agent to finish first'
-            : 'git merge --squash into your project — the result lands in the staging area for review'
-        }
-        className={buttonClass}
-      >
-        <ArrowsSplit className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">{busy === 'apply' ? 'Merging…' : 'Squash-merge'}</span>
-      </button>
-      <button
-        type="button"
-        disabled={isRunning || busy !== null}
-        onClick={() => void discard()}
-        title="Remove the worktree and delete its branch"
-        className={buttonClass}
-      >
-        <X className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">{busy === 'discard' ? 'Removing…' : 'Discard worktree'}</span>
-      </button>
-    </div>
-  );
-}
-
 export function EnvironmentHub({
   context,
   git,
@@ -372,12 +279,17 @@ export function EnvironmentHub({
   git: GitEnvironmentState;
   onOpenProjectPanel: (view: 'files' | 'changes') => void;
 }) {
+  const prs = useSessionPullRequests(context, git);
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const overview = git.overview;
   const previewSessionId = useAppStore((s) => s.computerUsePreviewSessionId);
   const previewOpen = Boolean(context.sessionId) && previewSessionId === context.sessionId;
+  const knownNonGit = !context.unavailableReason && !overview.hasRepo && (overview.error === 'not-a-repo' || overview.ok);
+  const subagents = useMemo(() => context.session ? deriveSubagentSummaries(context.session.messages) : [], [context.session?.messages]);
+  const hasComputerUse = environmentHasComputerUseSection({ frames: context.session?.computerUseFrames, grants: context.session?.computerUseGrants });
+
 
   useEffect(() => {
     if (!open) return;
@@ -427,6 +339,10 @@ export function EnvironmentHub({
   };
 
 
+  // A plain directory has no Git environment to summarize. Other task
+  // sections remain available independently when they contain information.
+  if (knownNonGit && !hasComputerUse && subagents.length === 0 && prs.items.length === 0 && !prs.error) return null;
+
   return (
     <div className="relative">
       <button
@@ -451,89 +367,107 @@ export function EnvironmentHub({
         // utility panel shrinks the chat pane.
         <div
           ref={panelRef}
-          className="no-drag absolute right-0 top-full z-[70] mt-1.5 max-h-[min(680px,calc(100vh-64px))] w-[318px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
+          className="no-drag absolute right-0 top-full z-[70] mt-1.5 max-h-[min(680px,calc(100vh-64px))] w-[300px] max-w-[calc(100vw-24px)] overflow-hidden rounded-[20px] bg-[var(--popover-bg)] shadow-[var(--popover-shadow-lg)]"
         >
-          <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="text-[13px] font-normal text-[var(--text-secondary)]">Environment</div>
-            <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={() => void git.refresh()}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                title={`Refresh · ${formatTime(git.lastUpdatedAt)}`}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${git.loading ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-          </div>
-          <div className="scrollbar-slim max-h-[calc(min(680px,100vh-64px)-58px)] overflow-y-auto pb-2">
-            {context.unavailableReason ? (
-              <div className="border-t border-[var(--border)] px-4 py-4 text-[12px] leading-5 text-[var(--text-muted)]">
-                {context.unavailableReason}
+          <div className="scrollbar-slim max-h-[min(680px,calc(100vh-64px))] overflow-y-auto py-2.5">
+            {!knownNonGit ? <>
+            <div className="flex items-center gap-2 px-3.5 pb-1">
+              <div className="flex min-h-7 min-w-0 flex-1 items-center text-[12px] font-medium text-[var(--text-secondary)]">
+                Environment
               </div>
-            ) : (
+              {!context.unavailableReason ? (
+                <DropdownMenu.Root modal={false}>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Environment options"
+                      title="Environment options"
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content data-environment-hub-layer align="end" sideOffset={6} className="min-w-[220px] max-w-[280px]">
+                      <DropdownMenu.Item
+                        disabled={!context.effectiveCwd}
+                        onSelect={() => void copyPath(context.effectiveCwd)}
+                        title={context.effectiveCwd || undefined}
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[highlighted]:bg-[var(--sidebar-item-hover)] data-[disabled]:opacity-45"
+                      >
+                        <Copy className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                        <span>Copy workspace path</span>
+                      </DropdownMenu.Item>
+                      {overview.repository?.webUrl ? (
+                        <DropdownMenu.Item
+                          onSelect={() => void openRepository()}
+                          title={overview.repository.fullName || undefined}
+                          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+                        >
+                          <BrandGithubFilled className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                          <span className="min-w-0 flex-1 truncate">Open repository</span>
+                          <ExternalLink className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
+                        </DropdownMenu.Item>
+                      ) : null}
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              ) : null}
+            </div>
+            <div>
+              {context.unavailableReason ? (
+                <div className="px-3.5 py-2 text-[12px] leading-5 text-[var(--text-muted)]">
+                  {context.unavailableReason}
+                </div>
+              ) : (
+                <>
+                  <section className="flex flex-col gap-0.5 px-1.5">
+                    {overview.hasRepo ? (
+                      <SectionRow
+                        icon={FileDiff}
+                        label="Changes"
+                        onClick={() => onOpenProjectPanel('changes')}
+                        trailing={
+                          <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums">
+                            <span className="text-emerald-600">+{overview.insertions}</span>
+                            <span className="text-[var(--error)]">-{overview.deletions}</span>
+                          </span>
+                        }
+                      />
+                    ) : null}
+                    {overview.hasRepo && context.session && context.sessionId ? (
+                      <SessionWorkspaceControl
+                        key={context.contextKey}
+                        session={context.session}
+                        sessionId={context.sessionId}
+                        currentBranch={overview.branch}
+                        onWorkspaceGitChanged={git.refresh}
+                        variant="panel"
+                      />
+                    ) : null}
+                    {git.loading && !overview.hasRepo ? (
+                      <div role="status" className="px-2 py-1 text-[12px] text-[var(--text-muted)]">Checking environment…</div>
+                    ) : overview.error && overview.error !== 'not-a-repo' ? (
+                      <div role="status" className="px-2 py-1 text-[12px] leading-5 text-[var(--text-muted)]">{overview.error === 'git-error' ? 'Unable to read Git status. Try refreshing.' : overview.error}</div>
+                    ) : null}
+                  </section>
+                  {overview.hasRepo ? <EnvironmentGitActionsSection context={context} git={git} prs={prs} /> : null}
+
+                </>
+              )}
+            </div>
+            </> : null}
+            {!context.unavailableReason ? (
               <>
-                <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
-                  <div className="px-2 text-[11px] font-medium text-[var(--text-muted)]">Workspace</div>
-                  {context.session && context.sessionId ? (
-                    <SessionWorkspaceControl
-                      session={context.session}
-                      sessionId={context.sessionId}
-                      onWorkspaceGitChanged={git.refresh}
-                      variant="panel"
-                    />
-                  ) : null}
-                  {context.session &&
-                  context.sessionId &&
-                  context.session.envMode === 'worktree' &&
-                  context.session.worktreePath ? (
-                    <WorktreeActions
-                      sessionId={context.sessionId}
-                      branch={context.session.associatedWorktreeBranch || null}
-                      isRunning={context.session.status === 'running'}
-                      onDone={() => void git.refresh()}
-                    />
-                  ) : null}
-                  <SectionRow
-                    icon={FileDiff}
-                    label="Changes"
-                    onClick={() => onOpenProjectPanel('changes')}
-                    trailing={
-                      <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums">
-                        <span className="text-emerald-600">+{overview.insertions}</span>
-                        <span className="text-[var(--error)]">-{overview.deletions}</span>
-                      </span>
-                    }
-                  />
-                </section>
-                <EnvironmentGitActionsSection context={context} git={git} />
-                <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
-                  <div className="px-2 text-[11px] font-medium text-[var(--text-muted)]">Source</div>
-                  <SectionRow
-                    icon={overview.repository?.webUrl ? BrandGithubFilled : Monitor}
-                    iconClassName={overview.repository?.webUrl ? 'text-[var(--text-primary)]' : undefined}
-                    label={overview.repository?.fullName || 'No source'}
-                    detail={overview.repository?.defaultBranch || undefined}
-                    disabled={!overview.repository?.webUrl}
-                    onClick={openRepository}
-                    trailing={overview.repository?.webUrl ? <ExternalLink className="h-3 w-3 text-[var(--text-muted)]" /> : null}
-                  />
-                  <SectionRow
-                    icon={Copy}
-                    label="Copy workspace path"
-                    detail={context.effectiveCwd ? getPathLeaf(context.effectiveCwd) : undefined}
-                    disabled={!context.effectiveCwd}
-                    onClick={() => void copyPath(context.effectiveCwd)}
-                  />
-                </section>
+                <EnvironmentPullRequestsSection prs={prs} />
                 <EnvironmentComputerUseSection
                   session={context.session}
                   sessionId={context.sessionId}
                   previewOpen={previewOpen}
                 />
-                <EnvironmentSubagentSection onNavigate={() => setOpen(false)} />
+                <EnvironmentSubagentSection session={context.session} summaries={subagents} onNavigate={() => setOpen(false)} />
               </>
-            )}
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -542,22 +476,20 @@ export function EnvironmentHub({
 }
 
 /**
- * Navigation index of the active session's top-level subagents. Not a third
- * place to read a trace — a list that opens the roomy detail panel. Reads the
- * active session directly from the store so it needs no prop threading.
+ * Navigation index for this pane's subagents. Uses the same summaries as the
+ * hub's visibility check, including when no Git environment section exists.
  */
-function EnvironmentSubagentSection({ onNavigate }: { onNavigate: () => void }) {
-  const session = useAppStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] ?? null : null));
+function EnvironmentSubagentSection({ session, summaries, onNavigate }: {
+  session: ActiveEnvironmentContext['session'];
+  summaries: ReturnType<typeof deriveSubagentSummaries>;
+  onNavigate: () => void;
+}) {
   const openSubagentPanel = useAppStore((s) => s.openSubagentPanel);
-  const summaries = useMemo(
-    () => (session ? deriveSubagentSummaries(session.messages) : []),
-    [session?.messages]
-  );
 
   if (summaries.length === 0) return null;
 
   return (
-    <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
+    <section className="environment-summary-section">
       <div className="flex items-center gap-1.5 px-2 text-[11px] font-medium text-[var(--text-muted)]">
         <Users className="h-3 w-3" />
         <span>Subagents</span>
@@ -574,7 +506,7 @@ function EnvironmentSubagentSection({ onNavigate }: { onNavigate: () => void }) 
               onNavigate();
             }}
             title={s.persona.functionalName}
-            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)]"
+            className="environment-summary-row"
           >
             <SubagentAvatar id={s.id} hue={s.persona.colorHue} size={14} />
             <span className="shrink-0">{s.persona.persona}</span>

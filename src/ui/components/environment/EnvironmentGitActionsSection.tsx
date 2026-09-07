@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { SessionPullRequestsState } from './useSessionPullRequests';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
 import { toast } from 'sonner';
 import {
-  CloudUpload,
   ExternalLink,
   GitCommit,
   GitPullRequest,
@@ -62,9 +62,11 @@ function createFallbackCommitMessage(files: string[]): string {
 export function useEnvironmentGitActions({
   context,
   git,
+  onPrCreated,
 }: {
   context: ActiveEnvironmentContext;
   git: GitEnvironmentState;
+  onPrCreated?: (url: string) => Promise<void>;
 }) {
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [commitSnapshot, setCommitSnapshot] = useState<GitEnvironmentSnapshot | null>(null);
@@ -84,6 +86,7 @@ export function useEnvironmentGitActions({
   const mutatingDisabledReason =
     context.unavailableReason ||
     (!overview.hasRepo ? 'Not a Git repository.' : null) ||
+    (!overview.branch ? 'Checking current branch.' : null) ||
     (context.isRunning ? 'The active task is running.' : null) ||
     (overview.branch === 'HEAD' ? 'Detached HEAD is not supported for this action.' : null);
 
@@ -246,8 +249,8 @@ export function useEnvironmentGitActions({
       await window.electron.openExternalUrl(overview.pr.url);
       return;
     }
-    if (overview.totalChanges > 0 || overview.aheadCount === 0 || overview.behindCount > 0) {
-      toast.error('Push committed changes before creating a pull request.');
+    if (overview.isDefaultBranch || !overview.hasUpstream || overview.totalChanges > 0 || overview.aheadCount > 0 || overview.behindCount > 0) {
+      toast.error('Publish a clean feature branch before creating a pull request.');
       return;
     }
 
@@ -260,6 +263,7 @@ export function useEnvironmentGitActions({
         return;
       }
       toast.success('Pull request created.');
+      await onPrCreated?.(result.url);
       await window.electron.openExternalUrl(result.url);
       await git.refresh();
     } catch (error) {
@@ -268,7 +272,7 @@ export function useEnvironmentGitActions({
     } finally {
       setPrLoading(false);
     }
-  }, [git, mutatingDisabledReason, overview.aheadCount, overview.behindCount, overview.isGitHubRemote, overview.pr, overview.prStatus, overview.totalChanges, validateSnapshot]);
+  }, [git, onPrCreated, mutatingDisabledReason, overview.aheadCount, overview.behindCount, overview.hasUpstream, overview.isDefaultBranch, overview.isGitHubRemote, overview.pr, overview.prStatus, overview.totalChanges, validateSnapshot]);
 
   const runOpenPr = useCallback(async () => {
     if (!overview.pr?.url) return;
@@ -342,22 +346,27 @@ export function useEnvironmentGitActions({
       !mutatingDisabledReason &&
       overview.hasOriginRemote &&
       overview.totalChanges === 0 &&
-      overview.aheadCount > 0 &&
+      (!overview.hasUpstream || overview.aheadCount > 0) &&
       !diverged;
     const canCreatePr =
       !busy &&
       !mutatingDisabledReason &&
       overview.isGitHubRemote &&
       overview.prStatus === 'not_found' &&
+      !overview.isDefaultBranch &&
+      overview.hasUpstream &&
       overview.totalChanges === 0 &&
-      overview.aheadCount > 0 &&
+      overview.aheadCount === 0 &&
       overview.behindCount === 0;
 
     return { canCommit, canSync, canPush, canCreatePr };
-  }, [busy, diverged, hasChanges, mutatingDisabledReason, overview.aheadCount, overview.behindCount, overview.hasOriginRemote, overview.isDefaultBranch, overview.isGitHubRemote, overview.prStatus, overview.totalChanges]);
+  }, [busy, diverged, hasChanges, mutatingDisabledReason, overview.aheadCount, overview.behindCount, overview.hasOriginRemote, overview.hasUpstream, overview.isDefaultBranch, overview.isGitHubRemote, overview.prStatus, overview.totalChanges]);
 
   return {
     busy,
+    operationLabel: commitLoading ? 'Committing…' : pushLoading ? 'Pushing…' : null,
+    syncLoading,
+    prLoading,
     actionState,
     mutatingDisabledReason,
     openCommitDialog,
@@ -455,23 +464,35 @@ export function useEnvironmentGitActions({
 function ActionButton({
   icon: Icon,
   label,
+  detail,
+  title,
   disabled,
+  loading,
+  trailing,
   onClick,
 }: {
   icon: typeof GitCommit;
   label: string;
+  detail?: string;
+  title?: string;
   disabled?: boolean;
+  loading?: boolean;
+  trailing?: ReactNode;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
+      title={title}
+      aria-busy={loading || undefined}
       onClick={onClick}
-      className="inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[11px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-45"
+      className="environment-summary-row"
     >
-      <Icon className="h-3.5 w-3.5 shrink-0" />
-      <span className="truncate">{label}</span>
+      {loading ? <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Icon className="h-3.5 w-3.5 shrink-0" />}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {detail ? <span className="shrink-0 text-[11px] text-[var(--text-muted)]">{detail}</span> : null}
+      {trailing}
     </button>
   );
 }
@@ -479,41 +500,87 @@ function ActionButton({
 export function EnvironmentGitActionsSection({
   context,
   git,
+  prs,
 }: {
   context: ActiveEnvironmentContext;
   git: GitEnvironmentState;
+  prs: SessionPullRequestsState;
 }) {
-  const actions = useEnvironmentGitActions({ context, git });
+  const actions = useEnvironmentGitActions({ context, git, onPrCreated: prs.attach });
   const overview = git.overview;
-  const pushLabel = overview.hasUpstream ? 'Push' : 'Publish';
-  const prLabel = overview.pr?.url ? 'View PR' : overview.prStatus === 'unknown' ? 'PR unknown' : 'Create PR';
+  const { canCommit, canPush, canSync, canCreatePr } = actions.actionState;
+  const hasChanges = overview.totalChanges > 0;
+  const diverged = overview.aheadCount > 0 && overview.behindCount > 0;
+  const primaryReason = actions.mutatingDisabledReason ||
+    (hasChanges ? 'Review and commit local changes.' :
+      diverged ? 'Branch has diverged. Rebase or merge before pushing.' :
+      !overview.hasOriginRemote ? 'No origin remote is configured.' :
+      !overview.hasUpstream ? 'Publish this branch.' :
+      overview.aheadCount > 0 ? 'Push local commits.' :
+      overview.behindCount > 0 ? 'Sync remote changes first.' : 'No local changes or commits to push.');
+  const syncReason = actions.mutatingDisabledReason ||
+    (hasChanges ? 'Commit or discard local changes before syncing.' :
+      diverged ? 'Branch has diverged. Rebase or merge before syncing.' : 'Sync remote changes.');
+  const pr = overview.pr;
 
   return (
-    <section className="space-y-2 border-t border-[var(--border)] px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-[12px] font-medium text-[var(--text-primary)]">
-          <CloudUpload className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-          <span>Commit and Push</span>
-        </div>
-        {actions.mutatingDisabledReason ? (
-          <span className="truncate text-[10px] text-[var(--text-muted)]">{actions.mutatingDisabledReason}</span>
-        ) : null}
-      </div>
-      <div className="grid grid-cols-2 gap-1.5">
-        <ActionButton icon={GitCommit} label="Commit..." disabled={!actions.actionState.canCommit} onClick={() => actions.openCommitDialog('commit')} />
-        <ActionButton icon={Upload} label={pushLabel} disabled={!actions.actionState.canPush} onClick={() => void actions.runPush()} />
-        <ActionButton icon={RefreshCw} label="Sync" disabled={!actions.actionState.canSync} onClick={() => void actions.runSync()} />
+    <section className="flex flex-col gap-0.5 px-1.5">
+      <ActionButton
+        icon={hasChanges || !canPush ? GitCommit : Upload}
+        label={actions.operationLabel || 'Commit or push'}
+        detail={!actions.busy && !hasChanges && overview.aheadCount > 0 ? `${overview.aheadCount} to push` : undefined}
+        title={primaryReason}
+        disabled={git.loading || (!canCommit && !canPush)}
+        loading={Boolean(actions.operationLabel)}
+        onClick={() => hasChanges ? actions.openCommitDialog('commit') : void actions.runPush()}
+      />
+      {overview.behindCount > 0 ? (
         <ActionButton
-          icon={overview.pr?.url ? ExternalLink : GitPullRequest}
-          label={prLabel}
-          disabled={!overview.pr?.url && !actions.actionState.canCreatePr}
-          onClick={() => overview.pr?.url ? void actions.runOpenPr() : void actions.runCreatePr()}
+          icon={RefreshCw}
+          label={actions.syncLoading ? 'Syncing…' : 'Sync'}
+          loading={actions.syncLoading}
+          detail={`${overview.behindCount} behind`}
+          title={syncReason}
+          disabled={git.loading || !canSync}
+          onClick={() => void actions.runSync()}
         />
-      </div>
-      {overview.aheadCount > 0 && overview.behindCount > 0 ? (
-        <div className="text-[11px] leading-4 text-[var(--text-muted)]">
-          Branch has diverged. Rebase or merge manually before syncing.
+      ) : null}
+      {actions.mutatingDisabledReason ? (
+        <p className="px-2 py-1 text-[11px] leading-4 text-[var(--text-muted)]">{actions.mutatingDisabledReason}</p>
+      ) : diverged ? (
+        <p className="px-2 py-1 text-[11px] leading-4 text-[var(--text-muted)]">Branch has diverged. Rebase or merge before syncing.</p>
+      ) : null}
+      {pr?.url ? (prs.items.some(item => item.url.toLowerCase() === pr.url.toLowerCase()) ? null :
+        <div className="flex items-center">
+          <ActionButton
+            icon={GitPullRequest}
+            label="Existing pull request"
+            detail={`#${pr.number}`}
+            title={`${pr.title} · ${pr.state}`}
+            onClick={() => void actions.runOpenPr()}
+          />
+          <button
+            className="h-7 shrink-0 rounded-md px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] disabled:opacity-50"
+            disabled={!prs.canAttach || git.loading}
+            onClick={() => void prs.attach(pr.url)}
+          >{prs.busy ? 'Attaching…' : 'Attach'}</button>
         </div>
+      ) : overview.isGitHubRemote && overview.prStatus === 'unknown' ? (
+        <ActionButton
+          icon={GitPullRequest}
+          label="Pull request status unavailable"
+          title="Retry the lookup. If it still fails, check GitHub authentication."
+          trailing={<RefreshCw className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />}
+          onClick={() => void git.refresh()}
+        />
+      ) : canCreatePr || actions.prLoading ? (
+        <ActionButton
+          icon={GitPullRequest}
+          label={actions.prLoading ? 'Creating pull request…' : 'Create pull request'}
+          disabled={git.loading || actions.prLoading}
+          loading={actions.prLoading}
+          onClick={() => void actions.runCreatePr()}
+        />
       ) : null}
       {actions.dialog}
     </section>

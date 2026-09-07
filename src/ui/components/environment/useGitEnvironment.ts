@@ -54,9 +54,19 @@ function signatureFor(overview: GitOverviewResult): string {
 }
 
 export function useGitEnvironment(cwd: string | null, contextKey: string): GitEnvironmentState {
-  const [overview, setOverview] = useState<GitOverviewResult>(EMPTY_GIT_OVERVIEW);
-  const [loading, setLoading] = useState(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [result, setResult] = useState({
+    cwd,
+    contextKey,
+    overview: EMPTY_GIT_OVERVIEW,
+    lastUpdatedAt: null as number | null,
+  });
+  const [pending, setPending] = useState(false);
+  // A different workspace must never inherit the previous workspace's branch,
+  // even for the render before its refresh effect starts.
+  const isCurrent = result.cwd === cwd && result.contextKey === contextKey;
+  const overview = isCurrent ? result.overview : EMPTY_GIT_OVERVIEW;
+  const lastUpdatedAt = isCurrent ? result.lastUpdatedAt : null;
+  const loading = Boolean(cwd) && (!isCurrent || pending);
   const requestSeqRef = useRef(0);
   const latestRef = useRef({
     cwd,
@@ -75,12 +85,12 @@ export function useGitEnvironment(cwd: string | null, contextKey: string): GitEn
     requestSeqRef.current = requestId;
 
     if (!trimmedCwd) {
-      setOverview(EMPTY_GIT_OVERVIEW);
-      setLastUpdatedAt(null);
+      setResult({ cwd, contextKey, overview: EMPTY_GIT_OVERVIEW, lastUpdatedAt: null });
+      setPending(false);
       return;
     }
 
-    setLoading(true);
+    setPending(true);
     try {
       const next = await window.electron.getGitOverview(trimmedCwd);
       if (
@@ -90,16 +100,14 @@ export function useGitEnvironment(cwd: string | null, contextKey: string): GitEn
       ) {
         return;
       }
-      setOverview(next);
-      setLastUpdatedAt(Date.now());
+      setResult({ cwd, contextKey, overview: next, lastUpdatedAt: Date.now() });
     } catch {
       if (requestSeqRef.current === requestId) {
-        setOverview({ ...EMPTY_GIT_OVERVIEW, error: 'git-error' });
-        setLastUpdatedAt(Date.now());
+        setResult({ cwd, contextKey, overview: { ...EMPTY_GIT_OVERVIEW, error: 'git-error' }, lastUpdatedAt: Date.now() });
       }
     } finally {
       if (requestSeqRef.current === requestId) {
-        setLoading(false);
+        setPending(false);
       }
     }
   }, [contextKey, cwd]);
@@ -116,6 +124,7 @@ export function useGitEnvironment(cwd: string | null, contextKey: string): GitEn
     window.addEventListener('focus', handleFocus);
 
     return () => {
+      requestSeqRef.current += 1;
       window.clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };

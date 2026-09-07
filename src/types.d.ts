@@ -378,6 +378,10 @@ declare global {
     unwatchProjectFile: (cwd: string, filePath: string) => Promise<boolean>;
     getGitChanges: (cwd: string) => Promise<{ ok: boolean; error: string | null; entries: import('./shared/types').GitChangeEntry[] }>;
     getGitWorkingTreeSummary: (cwd: string) => Promise<{ ok: boolean; error: string | null; insertions: number; deletions: number }>;
+    listSessionPullRequests: (sessionId: string, refresh?: boolean) => Promise<import('./shared/types').SessionPullRequestView[]>;
+    attachSessionPullRequest: (input: import('./shared/types').AttachSessionPullRequestInput) => Promise<{ created: boolean; pr: import('./shared/types').SessionPullRequest }>;
+    detachSessionPullRequest: (sessionId: string, url: string, attachedAt: number) => Promise<void>;
+    onSessionPullRequestsChanged: (callback: (sessionId: string) => void) => () => void;
     getGitOverview: (cwd: string) => Promise<import('./shared/types').GitOverviewResult>;
     getGitPatch: (
       cwd: string,

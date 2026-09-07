@@ -1,3 +1,4 @@
+import type { SessionPullRequest } from '../../shared/types';
 import Database from 'better-sqlite3';
 import { app } from 'electron';
 import { createHash } from 'crypto';
@@ -460,6 +461,14 @@ export function initialize(): void {
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS session_pull_requests (
+      session_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      PRIMARY KEY (session_id, url),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS session_environment_notes (
@@ -1165,6 +1174,22 @@ function getDb(): Database.Database {
     throw new Error('Database not initialized');
   }
   return db;
+}
+
+export function listSessionPullRequests(sessionId: string): SessionPullRequest[] {
+  const rows = getDb().prepare('SELECT data_json FROM session_pull_requests WHERE session_id = ? ORDER BY rowid').all(sessionId) as { data_json: string }[];
+  return rows.map(row => JSON.parse(row.data_json) as SessionPullRequest);
+}
+
+export function attachSessionPullRequest(sessionId: string, pr: SessionPullRequest): boolean {
+  return getDb().prepare('INSERT OR IGNORE INTO session_pull_requests (session_id, url, data_json) VALUES (?, ?, ?)')
+    .run(sessionId, pr.url, JSON.stringify(pr)).changes > 0;
+}
+
+export function detachSessionPullRequest(sessionId: string, url: string, attachedAt: number): void {
+  // A delayed Undo must not delete a newer association of the same PR.
+  getDb().prepare("DELETE FROM session_pull_requests WHERE session_id = ? AND url = ? AND json_extract(data_json, '$.attachedAt') = ?")
+    .run(sessionId, url, attachedAt);
 }
 
 // 创建会话
