@@ -1,0 +1,307 @@
+.effort-picker {
+  --effort-accent: var(--accent);
+  padding: 0 6px 2px;
+}
+.effort-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.effort-picker-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.effort-picker-control {
+  position: relative;
+  display: block;
+  height: 32px;
+  padding: 0;
+  margin-top: 4px;
+  background: transparent !important;
+}
+.effort-picker-rail {
+  position: absolute;
+  inset: 4px 14px;
+  border-radius: 100px;
+  background: transparent;
+}
+.effort-picker-fill {
+  position: absolute;
+  inset: 0 auto 0 -14px;
+  box-sizing: content-box;
+  padding-left: 14px;
+  border-radius: 12px 0 0 12px;
+  background: var(--effort-accent);
+  overflow: hidden;
+}
+.effort-picker-rail[data-unset] .effort-picker-fill {
+  opacity: 0;
+}
+.effort-picker-stops {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.effort-picker-stops i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-primary) 25%, transparent);
+}
+.effort-picker-thumb-position {
+  position: absolute;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+}
+.effort-picker-thumb {
+  display: block;
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 0.5px solid #0000000a;
+  border-radius: 50%;
+  box-shadow:
+    0 1px 2px #00000012,
+    0 0 1px #0000001a;
+}
+.effort-picker-control input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  opacity: 0;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.effort-picker-control input:disabled {
+  cursor: default;
+}
+.effort-picker-control:has(input:focus-visible) .effort-picker-thumb {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+.effort-picker-flow {
+  position: absolute;
+  inset: -15px;
+  background: linear-gradient(
+    115deg,
+    var(--effort-accent),
+    color-mix(in srgb, var(--effort-accent) 65%, var(--bg-primary)),
+    var(--effort-accent),
+    color-mix(in srgb, var(--effort-accent) 40%, var(--bg-primary)),
+    var(--effort-accent)
+  );
+  background-size: 250% 100%;
+  animation: effort-flow 3s ease-in-out infinite alternate;
+}
+.effort-picker-speed {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    100deg,
+    transparent 0 12px,
+    #fff9 13px 16px,
+    transparent 17px 30px
+  );
+  animation: effort-speed 800ms linear infinite;
+}
+@keyframes effort-flow {
+  to {
+    background-position: 100% 50%;
+  }
+}
+@keyframes effort-speed {
+  to {
+    transform: translateX(30px);
+  }
+}
+.effort-model-views {
+  position: relative;
+  overflow: hidden;
+  transition: height 320ms cubic-bezier(0.19, 1, 0.22, 1);
+}
+.effort-model-view {
+  width: 100%;
+  transition:
+    opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
+    transform 320ms cubic-bezier(0.19, 1, 0.22, 1);
+  transition-delay: 40ms;
+}
+.effort-model-view[aria-hidden='true'] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition-delay: 0ms;
+}
+.effort-model-view[data-view='models'][aria-hidden='true'] {
+  transform: translateY(-10px);
+}
+.effort-model-views[data-ready='false'],
+.effort-model-views[data-ready='false'] .effort-model-view {
+  transition: none;
+}
+.effort-model-views[data-reduced-motion='true'],
+.effort-model-views[data-reduced-motion='true'] .effort-model-view {
+  transition: none;
+}
+.effort-picker[data-reduced-motion='true'] *,
+.effort-model-view[inert] * {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .effort-picker *,
+  .effort-model-views,
+  .effort-model-view {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.effort-picker-control input {
+  appearance: none;
+  padding: 0;
+}
+.effort-picker-control input::-webkit-slider-thumb {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+}
+.effort-picker-control input::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border: 0;
+}
+[data-side='top'] .effort-model-view[aria-hidden='true'] {
+  transform: translateY(-10px);
+}
+[data-side='top'] .effort-model-view[data-view='models'][aria-hidden='true'] {
+  transform: translateY(10px);
+}
+
+.effort-picker-burst {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--effort-accent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* Compact picker: the effort is primary, with the model directly underneath. */
+.effort-picker-toolbar {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: start;
+  height: 40px;
+  padding-top: 2px;
+}
+.effort-picker-toolbar-slot {
+  display: flex;
+  justify-content: center;
+}
+.effort-picker-icon-button {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-top: 1px;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+.effort-picker-icon-button svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5;
+}
+.effort-picker-icon-button[data-active] {
+  color: var(--effort-accent);
+}
+.effort-picker-icon-button[data-disabled] {
+  opacity: 0.35;
+}
+.effort-picker-model-button {
+  display: flex;
+  flex-direction: column;
+  justify-self: center;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 4px;
+  border-radius: 5px;
+  line-height: 1.2;
+}
+.effort-picker-selected-effort {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--effort-accent);
+}
+.effort-picker-selected-effort svg {
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+  stroke-width: 1.5;
+}
+.effort-picker-model-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.effort-picker-rail::before {
+  content: '';
+  position: absolute;
+  inset: 0 -14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--border);
+}
+.effort-picker-stops i[data-filled] {
+  background: #ffffff66;
+}
+
+.popover-surface:has(> .effort-model-views) {
+  border-radius: 16px;
+  box-shadow:
+    0 4px 12px #00000008,
+    0 12px 24px #00000006;
+}
+
+.effort-picker-icon-button {
+  background: transparent;
+}
+.effort-picker-icon-button:hover:not([data-disabled]) {
+  background: var(--bg-secondary);
+}
+.effort-picker-icon-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Closed composer trigger: model is primary; effort is supporting text. */
+.composer-model-effort-label {
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 400;
+}
+.composer-model-name { color: var(--text-primary); }
+.composer-model-effort { color: var(--text-muted); }
+.composer-model-effort[data-maximum] { color: var(--accent); }

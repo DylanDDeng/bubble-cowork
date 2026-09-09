@@ -54,7 +54,6 @@ import {
 import {
   getDefaultCodexReasoningEffort,
   getCodexReasoningOptions,
-  loadPreferredCodexReasoningEffort,
   savePreferredCodexReasoningEffort,
 } from '../utils/codex-reasoning';
 import {
@@ -871,7 +870,6 @@ export function useComposerAgentSelection(input?: {
           ...selection,
           codexReasoningEffort:
             overrides.codexReasoningEffort ||
-            loadPreferredCodexReasoningEffort(nextModel) ||
             getDefaultCodexReasoningEffort(codexModelConfig, nextModel),
           codexFastMode:
             overrides.codexFastMode !== undefined
@@ -1186,8 +1184,6 @@ export function useComposerAgentSelection(input?: {
   const [codexReasoningEffort, setCodexReasoningEffortState] = useState<CodexReasoningEffort | null>(() => {
     if (provider !== 'codex' || !model) return null;
     if (input?.codexReasoningEffort) return input.codexReasoningEffort;
-    const preferred = loadPreferredCodexReasoningEffort(model);
-    if (preferred) return preferred;
     return getDefaultCodexReasoningEffort(codexModelConfig, model) || null;
   });
 
@@ -1213,13 +1209,8 @@ export function useComposerAgentSelection(input?: {
   // Sync reasoning effort when model changes
   useEffect(() => {
     if (provider === 'codex' && model) {
-      const preferred = loadPreferredCodexReasoningEffort(model);
-      if (preferred) {
-        setCodexReasoningEffortState(preferred);
-      } else {
-        const defaultEffort = getDefaultCodexReasoningEffort(codexModelConfig, model);
-        setCodexReasoningEffortState(defaultEffort || null);
-      }
+      const defaultEffort = getDefaultCodexReasoningEffort(codexModelConfig, model);
+      setCodexReasoningEffortState(defaultEffort || null);
     } else {
       setCodexReasoningEffortState(null);
     }

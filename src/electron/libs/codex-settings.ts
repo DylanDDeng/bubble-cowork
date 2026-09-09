@@ -22,10 +22,16 @@ const CODEX_MODELS_CACHE_PATH = join(homedir(), '.codex', 'models_cache.json');
 // Authoritative model catalog pushed by the codex app-server (model/list),
 // keyed by model slug. Empty until a live process exists — getCodexModelConfig
 // falls back to the models_cache heuristic for the first frame (P0-3).
-const runtimeModelCatalog = new Map<string, { supportsFastMode: boolean; fastTierName?: string }>();
+const runtimeModelCatalog = new Map<string, {
+  supportsFastMode: boolean;
+  fastTierName?: string;
+  supportedReasoningLevels?: CodexReasoningLevelOption[];
+  defaultReasoningEffort?: CodexReasoningEffort | null;
+}>();
 
 /**
- * Ingest a `model_catalog_updated` push. Fast eligibility follows
+ * Ingest a `model_catalog_updated` push, including authoritative effort tiers
+ * and their native default. Fast eligibility follows
  * `resolveFastTier`: a labeled Fast/priority tier, otherwise the unique
  * non-default service tier.
  */
@@ -38,6 +44,8 @@ export function setCodexRuntimeModelCatalog(models: unknown[]): void {
       id?: unknown;
       serviceTiers?: unknown;
       defaultServiceTier?: unknown;
+      supportedReasoningEfforts?: unknown;
+      defaultReasoningEffort?: unknown;
     };
     const slug =
       (typeof entry.model === 'string' && entry.model) ||
@@ -58,7 +66,16 @@ export function setCodexRuntimeModelCatalog(models: unknown[]): void {
       .filter((tier): tier is { id: string; name?: string } => Boolean(tier));
     const defaultTier = typeof entry.defaultServiceTier === 'string' ? entry.defaultServiceTier : null;
     const fastTier = resolveFastTier({ serviceTiers: tiers, defaultServiceTier: defaultTier });
+    const supportedReasoningLevels = Array.isArray(entry.supportedReasoningEfforts)
+      ? normalizeSupportedReasoningLevels(entry.supportedReasoningEfforts.map((level) =>
+          typeof level === 'string' ? { effort: level } : level))
+      : undefined;
     runtimeModelCatalog.set(slug, {
+      supportedReasoningLevels,
+      ...(entry.defaultReasoningEffort !== undefined ? {
+        defaultReasoningEffort: normalizeCodexReasoningEffort(
+          typeof entry.defaultReasoningEffort === 'string' ? entry.defaultReasoningEffort : null),
+      } : {}),
       supportsFastMode: Boolean(fastTier),
       ...(fastTier && typeof fastTier.name === 'string' ? { fastTierName: fastTier.name } : {}),
     });
@@ -311,8 +328,11 @@ export function getCodexModelConfig(): CodexModelConfig {
     const rememberedReasoningLevels = normalizeSupportedReasoningLevels(
       remembered?.supportedReasoningLevels
     );
-    const supportedReasoningLevels =
-      cachedReasoningLevels.length > 0 ? cachedReasoningLevels : rememberedReasoningLevels;
+    const runtimeEntry = runtimeModelCatalog.get(name);
+    // Live model/list wins, including an explicitly empty supported set.
+    // Cache/memory are startup fallbacks, never a union of obsolete effort tiers.
+    const supportedReasoningLevels = runtimeEntry?.supportedReasoningLevels ??
+      (Array.isArray(cached?.supported_reasoning_levels) ? cachedReasoningLevels : rememberedReasoningLevels);
     const priority =
       (typeof cached?.priority === 'number' ? cached.priority : null) ??
       (typeof remembered?.priority === 'number' ? remembered.priority : null) ??
@@ -322,7 +342,6 @@ export function getCodexModelConfig(): CodexModelConfig {
     // non-default serviceTier — P0-3). The models_cache priority heuristic
     // below is only the first-frame fallback until a live process pushes the
     // real catalog.
-    const runtimeEntry = runtimeModelCatalog.get(name);
     const supportsFastMode = runtimeEntry
       ? runtimeEntry.supportsFastMode
       : cached?.supported_in_api === true &&
@@ -337,10 +356,11 @@ export function getCodexModelConfig(): CodexModelConfig {
       label: displayName || undefined,
       enabled: !localHidden.has(name),
       isDefault: defaultModel === name,
-      defaultReasoningEffort:
-        normalizeCodexReasoningEffort(cached?.default_reasoning_level) ||
-        normalizeCodexReasoningEffort(remembered?.defaultReasoningEffort) ||
-        defaultReasoningEffort,
+      defaultReasoningEffort: runtimeEntry?.defaultReasoningEffort !== undefined
+        ? runtimeEntry.defaultReasoningEffort
+        : normalizeCodexReasoningEffort(cached?.default_reasoning_level) ||
+          normalizeCodexReasoningEffort(remembered?.defaultReasoningEffort) ||
+          defaultReasoningEffort,
       supportedReasoningLevels,
       supportsFastMode,
       priority,

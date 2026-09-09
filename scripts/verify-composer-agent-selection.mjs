@@ -22,7 +22,7 @@ assert.ok(
 assert.ok(
   controls.includes("const fullModelLabelTriggerClassName = 'w-max max-w-none shrink-0 whitespace-nowrap';") &&
     (controls.match(/className=\{`\$\{triggerClassName\} \$\{fullModelLabelTriggerClassName\}`\}/g) ?? []).length === 2 &&
-    controls.includes('<span className="whitespace-nowrap">{modelLabel}{effortSuffix}</span>') &&
+    controls.includes('<ModelEffortLabel model={modelLabel} effort={effortSuffix}') &&
     !controls.includes('<span className="min-w-0 truncate">{modelLabel}{effortSuffix}</span>'),
   'composer model triggers must reserve their full content width without truncating the reasoning label'
 );

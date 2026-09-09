@@ -61,7 +61,7 @@ function testUnsupportedConfigEffortFallsBackToModelDefault() {
   assert.equal(getDefaultCodexReasoningEffort(makeConfig(), 'gpt-5.4'), 'medium');
 }
 
-function testNoMetadataFallsBackToFirstFallbackOption() {
+function testNoMetadataDoesNotInventEfforts() {
   const config = makeConfig({
     defaultReasoningEffort: null,
     availableModels: [
@@ -74,13 +74,18 @@ function testNoMetadataFallsBackToFirstFallbackOption() {
       },
     ],
   });
-  assert.equal(getDefaultCodexReasoningEffort(config, 'gpt-x-unknown'), 'low');
+  assert.equal(getDefaultCodexReasoningEffort(config, 'gpt-x-unknown'), undefined);
+  assert.deepEqual(getCodexReasoningOptions(config, 'gpt-x-unknown'), []);
+  assert.deepEqual(getCodexReasoningOptions(config, 'not-in-catalog'), []);
+  const custom = makeConfig();
+  custom.availableModels[0].supportedReasoningLevels = [{effort:'turbo',description:'Provider tier'}, {effort:'low',description:'Low'}];
+  assert.deepEqual(getCodexReasoningOptions(custom, 'gpt-5.6-sol').map(o=>o.effort), ['turbo','low']);
 }
 
 function testEffortLabelsAreGeneric() {
   assert.equal(formatCodexReasoningEffortLabel('low'), 'Low');
   assert.equal(formatCodexReasoningEffortLabel('medium'), 'Medium');
-  assert.equal(formatCodexReasoningEffortLabel('xhigh'), 'X-High');
+  assert.equal(formatCodexReasoningEffortLabel('xhigh'), 'Extra High');
   assert.equal(formatCodexReasoningEffortLabel('max'), 'Max');
   assert.equal(formatCodexReasoningEffortLabel('ultra'), 'Ultra');
   // A hypothetical future level still renders sensibly with no code change.
@@ -90,6 +95,6 @@ function testEffortLabelsAreGeneric() {
 testOptionsPassThroughCacheLevelsIncludingUltra();
 testConfigUltraWinsOverPerModelDefault();
 testUnsupportedConfigEffortFallsBackToModelDefault();
-testNoMetadataFallsBackToFirstFallbackOption();
+testNoMetadataDoesNotInventEfforts();
 testEffortLabelsAreGeneric();
 console.log('codex-reasoning-effort.test.ts: ok');

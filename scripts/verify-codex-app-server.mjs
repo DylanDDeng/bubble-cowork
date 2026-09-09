@@ -1403,18 +1403,19 @@ async function testEffortOpenVocabulary() {
   const { manager, outbound, responders } = createCapturingManager();
   seedSession(manager, 't1', 'p1');
   responders.set('turn/start', () => ({ result: { turn: { id: `turn-${outbound.length}` } } }));
-  await manager.sendTurn('t1', 'x', undefined, undefined, undefined, { codexReasoningEffort: 'ultra' });
-  manager.sessions.get('t1').status = 'ready';
-  manager.sessions.get('t1').activeTurnId = undefined;
-  // Junk slug: open vocabulary forwards it verbatim (model-side validation),
-  // and the turn must still dispatch rather than wedge.
-  await manager.sendTurn('t1', 'x', undefined, undefined, undefined, { codexReasoningEffort: 'totally-new-tier' });
+  const efforts = ['ultra', 'xhigh', 'max', 'totally-new-tier'];
+  for (const effort of efforts) {
+    await manager.sendTurn('t1', 'x', undefined, undefined, undefined, { codexReasoningEffort: effort });
+    manager.sessions.get('t1').status = 'ready';
+    manager.sessions.get('t1').activeTurnId = undefined;
+  }
   const turnStarts = outbound.filter((m) => m.method === 'turn/start');
-  assert.equal(turnStarts.length, 2);
-  assert.equal(turnStarts[0].params.effort, 'ultra');
-  assert.equal(turnStarts[0].params.collaborationMode?.settings?.reasoning_effort, 'ultra');
-  assert.equal(turnStarts[1].params.effort, 'totally-new-tier');
-  ok("'ultra' and junk slugs pass through sendTurn to turn/start (no whitelist)");
+  assert.equal(turnStarts.length, efforts.length);
+  efforts.forEach((effort, index) => {
+    assert.equal(turnStarts[index].params.effort, effort);
+    assert.equal(turnStarts[index].params.collaborationMode?.settings?.reasoning_effort, effort);
+  });
+  ok('raw effort IDs pass unchanged through both turn/start fields');
 }
 
 // ── Source-level pins for electron-bound modules ──────────────────────────

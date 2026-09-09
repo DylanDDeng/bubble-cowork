@@ -5,17 +5,13 @@ import type { CodexModelConfig, CodexReasoningEffort, CodexReasoningLevelOption 
 const STORAGE_KEY = 'cowork.preferredCodexReasoningEfforts';
 
 /**
- * Human label for an effort slug without a hardcoded per-level map, so new
- * Codex levels render sensibly with no code change ("ultra" → "Ultra").
+ * Codex display labels are presentation only; selection and requests retain
+ * the original effort ID. Unknown future tiers still get a readable label.
  */
 export function formatCodexReasoningEffortLabel(effort: CodexReasoningEffort): string {
   const normalized = effort.trim().toLowerCase();
   if (!normalized) return effort;
-  if (normalized.startsWith('x') && normalized.length > 1) {
-    // "xhigh" → "X-High" (matches Codex's own picker wording).
-    const rest = normalized.slice(1);
-    return `X-${rest.charAt(0).toUpperCase()}${rest.slice(1)}`;
-  }
+  if (normalized === 'xhigh') return 'Extra High';
   return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 }
 
@@ -75,28 +71,23 @@ export function getCodexReasoningOptions(
   model: string | null
 ): CodexReasoningLevelOption[] {
   const matched = config.availableModels.find((entry) => entry.name === model);
-  if (matched?.supportedReasoningLevels && matched.supportedReasoningLevels.length > 0) {
+  if (matched?.supportedReasoningLevels) {
     return matched.supportedReasoningLevels;
   }
 
-  // Fallback only for models with no cached level metadata at all.
-  return [
-    { effort: 'low', description: 'Fast responses with lighter reasoning' },
-    { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
-    { effort: 'high', description: 'Greater reasoning depth for complex problems' },
-    { effort: 'xhigh', description: 'Extra high reasoning depth for complex problems' },
-  ];
+  // No catalog metadata means no advertised choices. Let Codex use its native default.
+  return [];
 }
 
 export function getDefaultCodexReasoningEffort(
   config: CodexModelConfig,
   model: string | null
-): CodexReasoningEffort {
+): CodexReasoningEffort | undefined {
   const options = getCodexReasoningOptions(config, model);
-  const supports = (effort: CodexReasoningEffort | null | undefined): effort is CodexReasoningEffort =>
-    Boolean(effort && (options.length === 0 || options.some((option) => option.effort === effort)));
-
   const matched = config.availableModels.find((entry) => entry.name === model);
+  const supports = (effort: CodexReasoningEffort | null | undefined): effort is CodexReasoningEffort =>
+    Boolean(effort && (matched?.supportedReasoningLevels == null || options.some((option) => option.effort === effort)));
+
   // The user's explicit choices win over model metadata: per-model preference
   // saved in Aegis, then ~/.codex/config.toml `model_reasoning_effort` (what
   // Codex Desktop honors), then the model's own default from models_cache.
@@ -111,5 +102,5 @@ export function getDefaultCodexReasoningEffort(
     }
   }
 
-  return options[0]?.effort || 'medium';
+  return undefined;
 }
