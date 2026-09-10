@@ -1118,6 +1118,13 @@ contextBridge.exposeInMainWorld('electron', {
 
 
 
+  getSessionGoal: (sessionId: string) => ipcRenderer.invoke('get-session-goal', sessionId),
+  changeSessionGoal: (sessionId: string, action: import('../shared/session-goal').GoalAction, settings?: import('../shared/session-goal').GoalSettings) => ipcRenderer.invoke('change-session-goal', sessionId, action, settings),
+  onSessionGoalChanged: (callback: (snapshot: import('../shared/session-goal').SessionGoalSnapshot) => void) => {
+    const listener = (_event: unknown, snapshot: import('../shared/session-goal').SessionGoalSnapshot) => callback(snapshot);
+    ipcRenderer.on('session-goal-changed', listener);
+    return () => ipcRenderer.removeListener('session-goal-changed', listener);
+  },
   showSessionMenu: (request: SessionMenuRequest): Promise<SessionMenuAction | null> => ipcRenderer.invoke('show-session-menu', request),
   copySessionValue: (sessionId: string, target: 'link' | 'cwd'): Promise<void> => ipcRenderer.invoke('copy-session-value', sessionId, target),
   openExternalUrl: (url: string) => {

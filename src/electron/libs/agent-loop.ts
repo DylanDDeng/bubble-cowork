@@ -163,6 +163,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       threadId,
       cwd: options.session.cwd || process.cwd(),
       prompt: options.prompt,
+      codexGoal: options.codexGoal,
       attachments: options.attachments,
       model: options.model,
       resumeSessionId: options.resumeSessionId,

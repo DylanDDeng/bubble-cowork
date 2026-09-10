@@ -121,7 +121,7 @@ assert.equal(
 // and a doomed/one-shot runner is only retired once the queue is drained —
 // aborting earlier would drop a persisted queued prompt without a result.
 assert.equal(
-  ipcSource.includes("hasQueuedTurns ? 'running' : turnStatus"),
+  ipcSource.includes("hasQueuedTurns || pursuingGoal ? 'running' : turnStatus"),
   true,
   'a result with queued turns must keep the session status running'
 );

@@ -2165,6 +2165,28 @@ export function deleteSession(sessionId: string): void {
   invalidateClaudeUsageReportCache();
 }
 
+export function getStoredMessage(sessionId: string, id: string): StreamMessage | null {
+  const row = getDb().prepare('SELECT data, created_at FROM messages WHERE session_id = ? AND id = ?')
+    .get(sessionId, id) as { data: string; created_at: number } | undefined;
+  return row ? readStoredMessagePayload(row.data, row.created_at) : null;
+}
+
+/** Resolve once on completion, then persist the reply UUID with the goal result. */
+export function findGoalCompletionAnswer(sessionId: string, startedAt: number, completedAt: number): string | undefined {
+  const rows = getDb().prepare(`
+    SELECT id, data, created_at FROM messages
+    WHERE session_id = ? AND message_type = 'assistant' AND created_at >= ? AND created_at <= ?
+    ORDER BY created_at DESC, rowid DESC
+  `).iterate(sessionId, startedAt, completedAt) as Iterable<{ id: string; data: string; created_at: number }>;
+  for (const row of rows) {
+    const message = readStoredMessagePayload(row.data, row.created_at);
+    if (message.type === 'assistant' && !message.streaming && !message.parentToolUseId
+      && !message.sourceProvider && message.message.content.some(block => block.type === 'text' && block.text.trim()))
+      return message.uuid;
+  }
+  return undefined;
+}
+
 // 添加消息
 export function addMessage(sessionId: string, message: StreamMessage): void {
   const sourceOrigin = getSessionSourceOrigin(sessionId);

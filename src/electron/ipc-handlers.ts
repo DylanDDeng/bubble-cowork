@@ -1,3 +1,8 @@
+import { setupSessionGoalIPC, getCachedSessionGoal, publishSessionGoal, rejectSessionGoalStart } from './ipc/session-goal';
+import type { GoalAction } from '../shared/session-goal';
+import { parseGoalInput } from '../shared/session-goal';
+import { getClaudeGoalController, readClaudeGoalState, awaitClaudeGoalSet, removeClaudeGoalState } from './libs/claude-goal-manager';
+import { validateClaudeGoalObjective } from './libs/claude-goal';
 import { getGitPullRequestInfo, parseGitHubRepoFromRemote } from './libs/git-pull-requests';
 import { setupSessionPullRequestsIPC } from './ipc/session-pull-requests';
 import { disposeSessionHttpServer } from './libs/session-http-server';
@@ -4761,6 +4766,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // it feeds fast-mode eligibility enrichment (P0-3).
   ensureProviderService();
   getProviderService().events.on('event', (event) => {
+    if (event.type === 'goal_changed') publishSessionGoal(event.threadId, event.goal, true, event.resumeConfirmation);
+    if (event.type === 'status_change' && event.status === 'running' && getCachedSessionGoal(event.threadId)?.goal?.status === 'active') {
+      sessions.updateSessionStatus(event.threadId, 'running');
+      broadcast(mainWindow, { type: 'session.status', payload: { sessionId: event.threadId, status: 'running' } });
+    }
     if (event.type === 'model_catalog_updated') {
       if (event.provider === 'qoder') {
         // Qoder's catalog only exists after a session boots; persist it so
@@ -5090,6 +5100,77 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   setupSessionPullRequestsIPC();
+  setupSessionGoalIPC({
+    changeClaudeGoal: async (sessionId, action, settings) => {
+      const session = sessions.getSession(sessionId);
+      if (!session || session.provider !== 'claude') throw new Error('Claude task not found.');
+      if (action.type === 'set' && action.tokenBudget != null)
+        throw new Error('Claude Goal mode does not support a token budget.');
+      const saved = readClaudeGoalState(sessionId);
+      const objective = action.type === 'set' && action.status !== 'paused'
+        ? validateClaudeGoalObjective(action.objective ?? saved.goal?.displayObjective ?? saved.goal?.objective ?? '') : undefined;
+      if (action.type === 'clear' && !saved.goal && !session.claude_session_id) return saved;
+
+      // Use the existing stop bookkeeping so an interrupted result belongs to
+      // the old turn and cannot finish a subsequently resumed goal.
+      const entry = runnerHandles.get(sessionId);
+      if (entry?.provider === 'claude' && (entry.inFlightTurns ?? 0) > 0) {
+        handleSessionStop(mainWindow, sessionId);
+      }
+      let controller = getClaudeGoalController(sessionId);
+      if (controller && entry && (entry.inFlightTurns ?? 0) > 0) {
+        try {
+          await controller.change({ type: 'set', status: 'paused' });
+        } catch (error) {
+          // Some CLI versions close the SDK stream when a queued turn is
+          // interrupted. Reopen only for the local clear preflight, never
+          // retry an inference turn or silently reactivate its old goal.
+          if (!controller.isClosed) throw error;
+          retireSessionRunner(sessionId);
+          controller = undefined;
+        }
+      }
+
+      if (objective !== undefined) {
+        try { return await awaitClaudeGoalSet(sessionId, objective, async () => {
+          const started = await handleSessionContinue(mainWindow, {
+            sessionId, prompt: `/goal ${objective}`, provider: 'claude',
+            model: settings.model || session.model || undefined,
+            claudeAccessMode: settings.claudeAccessMode || normalizeClaudeAccessMode(session.claude_access_mode),
+            claudeExecutionMode: 'execute',
+            claudeReasoningEffort: settings.claudeReasoningEffort || normalizeClaudeReasoningEffort(session.claude_reasoning_effort),
+          }, { hideGoalPrompt: !settings.appendTranscript });
+          if (!started) throw new Error('Claude could not start this goal.');
+        }); } catch (error) {
+          handleSessionStop(mainWindow, sessionId);
+          throw error;
+        }
+      }
+      if (!controller) {
+        // Empty prewarm: only the native clear command runs, without inference.
+        startRunner(mainWindow, session, '', session.claude_session_id || undefined,
+          undefined, 'claude', session.model || undefined, session.compatible_provider_id || undefined,
+          parseStoredBetas(session.betas), normalizeClaudeAccessMode(session.claude_access_mode),
+          normalizeClaudeExecutionMode(session.claude_execution_mode), normalizeClaudeReasoningEffort(session.claude_reasoning_effort),
+          undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+          undefined, undefined, undefined, undefined, undefined, false, true);
+        controller = getClaudeGoalController(sessionId);
+      }
+      if (!controller) throw new Error('Claude runtime is not available.');
+      await controller.change(action);
+      return controller.snapshot;
+    },
+    startGoalRunner: (session, action, settings) => {
+      startRunner(mainWindow, session, '', session.codex_session_id || undefined, undefined, 'codex',
+        settings.model || session.model || undefined, undefined, undefined, undefined, undefined, undefined,
+        'execute', settings.codexPermissionMode || normalizeCodexPermissionMode(session.codex_permission_mode),
+        settings.codexReasoningEffort || normalizeCodexReasoningEffort(session.codex_reasoning_effort),
+        settings.codexFastMode ?? normalizeCodexFastMode(session.codex_fast_mode),
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        false, false, undefined, undefined, undefined, undefined, undefined, undefined, action);
+    },
+    broadcast: event => broadcast(mainWindow, event),
+  });
   setupSessionTitleIPC((event) => broadcast(mainWindow, event));
   setupSessionLinksIPC((event) => {
     if (event.type === 'session.open') handleSessionList(mainWindow);
@@ -8959,7 +9040,9 @@ async function handleSessionStart(
     }
   }
   const sourcePrompt = prompt.trim();
-  const longPromptAttachment = await maybeConvertLongPromptToAttachment({
+  const longPromptAttachment = chosenProvider === 'claude' && parseGoalInput(sourcePrompt, false).isGoal
+    ? { prompt: sourcePrompt, attachments: attachments ?? [], converted: false }
+    : await maybeConvertLongPromptToAttachment({
     cwd: sessionCwd,
     prompt: sourcePrompt,
     attachments,
@@ -8969,7 +9052,7 @@ async function handleSessionStart(
   const effectiveRunnerPrompt = longPromptAttachment.converted
     ? outgoingPrompt
     : (effectivePrompt ?? sourcePrompt).trim();
-  const runnerPrompt = augmentPromptForLiveWidgetProtocol(
+  const runnerPrompt = chosenProvider === 'claude' && parseGoalInput(sourcePrompt, false).isGoal ? sourcePrompt : augmentPromptForLiveWidgetProtocol(
     await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt + referenceContext, sessionCwd),
   );
   const selectedModel = normalizeProviderModel(chosenProvider, model);
@@ -9290,7 +9373,8 @@ async function handleSessionStart(
     selectedBubblePermissionMode,
     selectedDeepseekPermissionMode,
     selectedDeepseekReasoningEffort,
-    selectedBubbleThinkingLevel
+    selectedBubbleThinkingLevel,
+    payload.codexGoal
   );
   return session.id;
 }
@@ -9298,7 +9382,8 @@ async function handleSessionStart(
 // 继续会话
 async function handleSessionContinue(
   mainWindow: BrowserWindow,
-  payload: SessionContinuePayload
+  payload: SessionContinuePayload,
+  internal?: { hideGoalPrompt: boolean },
 ): Promise<boolean> {
   const {
     sessionId,
@@ -9360,11 +9445,9 @@ async function handleSessionContinue(
     return false;
   }
 
-  const longPromptAttachment = await maybeConvertLongPromptToAttachment({
-    cwd: session.cwd,
-    prompt,
-    attachments,
-  });
+  const longPromptAttachment = (provider || session.provider) === 'claude' && parseGoalInput(prompt, false).isGoal
+    ? { prompt, attachments: attachments ?? [], converted: false }
+    : await maybeConvertLongPromptToAttachment({ cwd: session.cwd, prompt, attachments });
   const outgoingPrompt = longPromptAttachment.prompt;
   const outgoingAttachments = longPromptAttachment.attachments;
   let effectiveRunnerPrompt = longPromptAttachment.converted
@@ -9478,7 +9561,7 @@ async function handleSessionContinue(
   if (session.handoff_pending === 1) {
     sessions.clearSessionHandoffPending(sessionId);
   }
-  const runnerPrompt = augmentPromptForLiveWidgetProtocol(
+  const runnerPrompt = nextProvider === 'claude' && parseGoalInput(prompt, false).isGoal ? prompt.trim() : augmentPromptForLiveWidgetProtocol(
     await buildRunnerPromptWithMemory(nextProvider, effectiveRunnerPrompt + referenceContext, session.cwd || undefined),
     historyBeforeContinue
   );
@@ -9639,7 +9722,8 @@ async function handleSessionContinue(
 
   // 更新状态
   sessions.updateSessionStatus(sessionId, 'running');
-  sessions.updateLastPrompt(sessionId, outgoingPrompt);
+  const hideGoalPrompt = internal?.hideGoalPrompt && nextProvider === 'claude' && parseGoalInput(prompt, false).isGoal;
+  if (!hideGoalPrompt) sessions.updateLastPrompt(sessionId, outgoingPrompt);
 
   // 广播状态
   broadcast(mainWindow, {
@@ -9677,19 +9761,21 @@ async function handleSessionContinue(
   });
 
   // 广播用户 prompt（在运行时检查之前，让用户消息立即显示）
-  const createdAt = Date.now();
-  broadcast(mainWindow, {
-    type: 'stream.user_prompt',
-    payload: { sessionId, prompt: outgoingPrompt, attachments: outgoingAttachments, createdAt },
-  });
+  if (!hideGoalPrompt) {
+    const createdAt = Date.now();
+    broadcast(mainWindow, {
+      type: 'stream.user_prompt',
+      payload: { sessionId, prompt: outgoingPrompt, attachments: outgoingAttachments, createdAt },
+    });
 
-  // 保存 user_prompt
-  sessions.addMessage(sessionId, {
-    type: 'user_prompt',
-    prompt: outgoingPrompt,
-    attachments: outgoingAttachments,
-    createdAt,
-  });
+    // 保存 user_prompt
+    sessions.addMessage(sessionId, {
+      type: 'user_prompt',
+      prompt: outgoingPrompt,
+      attachments: outgoingAttachments,
+      createdAt,
+    });
+  }
 
   // 检查运行时状态（在会话状态已设为 running 之后，以便前端立即显示 spinning 效果）
   if (nextProvider === 'claude') {
@@ -10063,7 +10149,8 @@ function startRunner(
   bubblePermissionMode?: import('../shared/types').BubblePermissionMode,
   deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode,
   deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort,
-  bubbleThinkingLevel?: string
+  bubbleThinkingLevel?: string,
+  codexGoal?: GoalAction
 ): void {
   if (!session) return;
 
@@ -10145,6 +10232,7 @@ function startRunner(
   }
 
   const handle = runAgentLoop({
+    codexGoal: provider === 'codex' ? codexGoal : undefined,
     prompt,
     attachments,
     session: runnerSession,
@@ -10513,7 +10601,8 @@ function startRunner(
           provider === 'claude' &&
           entryForPrompt?.handle === handle &&
           (entryForPrompt.inFlightTurns ?? 1) > 1;
-        const liveStatus: SessionStatus = hasQueuedTurns ? 'running' : turnStatus;
+        const pursuingGoal = provider === 'codex' && turnStatus === 'completed' && getCachedSessionGoal(session.id)?.goal?.status === 'active';
+        const liveStatus: SessionStatus = hasQueuedTurns || pursuingGoal ? 'running' : turnStatus;
         const status: SessionStatus = stoppedByUser ? 'idle' : liveStatus;
         // A user-stopped turn's result writes and broadcasts NO status at
         // all: the stop already reported 'idle' synchronously, and anything
@@ -10677,6 +10766,7 @@ function startRunner(
       }
     },
     onError: (error) => {
+      if (codexGoal) rejectSessionGoalStart(session.id, error instanceof Error ? error : new Error(String(error)));
       const message = error instanceof Error ? error.message : String(error);
       console.error('Runner error:', error);
       // Delegate executions surface their failure reason to the lead through
@@ -11620,6 +11710,7 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
 
   // 删除数据库记录
   sessions.deleteSession(sessionId);
+  removeClaudeGoalState(sessionId);
 
   // worktree 回收（clean 且无其它 session 引用才回收，dirty 保留）
   if (session?.worktree_path) {

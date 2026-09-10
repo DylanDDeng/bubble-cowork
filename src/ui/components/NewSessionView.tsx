@@ -1,3 +1,6 @@
+import { useSessionGoal } from '../hooks/useSessionGoal';
+import { GoalModePill } from './SessionGoal';
+import { buildGoalObjective, parseGoalInput, supportsGoalUI, isClaudeGoalClearObjective } from '../../shared/session-goal';
 import {
   useState,
   useEffect,
@@ -82,6 +85,7 @@ export function NewSessionView() {
   const hasSelectedCwd = cwd.trim().length > 0;
   const agentSelection = useComposerAgentSelection({ selectionKey: '__new_session__' });
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
+  const sessionGoal = useSessionGoal(undefined, supportsGoalUI(agentSelection.provider));
   const capabilityMenu = useComposerCapabilityMenu({
     enabled: true,
     enableSkills: true,
@@ -92,10 +96,21 @@ export function NewSessionView() {
     setPrompt,
     setCursorIndex,
     onCommandSelect: (command, nextPrompt) => {
+      if (command.name === 'goal' && supportsGoalUI(agentSelection.provider)) {
+        if (agentSelection.provider === 'claude') agentSelection.setClaudeExecutionMode('execute');
+        else agentSelection.setCodexExecutionMode('execute');
+        sessionGoal.setDraft(true);
+        const next = removeSelectedSlashCommandPrompt(nextPrompt, command.name);
+        setPrompt(next.prompt);
+        setCursorIndex(next.cursorIndex);
+        return true;
+      }
+
       if (command.name !== 'plan') {
         return false;
       }
 
+      sessionGoal.setDraft(false);
       if (agentSelection.provider === 'claude') {
         agentSelection.setClaudeExecutionMode('plan');
       } else if (agentSelection.provider === 'codex') {
@@ -185,7 +200,7 @@ export function NewSessionView() {
       return false;
     }
 
-    if (value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
+    if ((supportsGoalUI(agentSelection.provider) && parseGoalInput(value, sessionGoal.drafting).isGoal) || value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
       setPrompt(value);
       setCursorIndex(nextCursorIndex);
       return false;
@@ -211,9 +226,25 @@ export function NewSessionView() {
     setCursorIndex(0);
     window.requestAnimationFrame(() => editorRef.current?.focus());
     return true;
-  }, [attachments, cwd]);
+  }, [attachments, cwd, agentSelection.provider, sessionGoal.drafting]);
 
   const handleStart = async () => {
+    const goalInput = parseGoalInput(prompt, sessionGoal.drafting);
+    const isGoal = supportsGoalUI(agentSelection.provider) && goalInput.isGoal;
+    if (isGoal && agentSelection.provider === 'claude' && isClaudeGoalClearObjective(goalInput.objective) && attachments.length === 0) {
+      sessionGoal.setDraft(false);
+      setPrompt(''); setCursorIndex(0);
+      return;
+    }
+    if (isGoal && !goalInput.objective && attachments.length === 0) {
+      sessionGoal.setDraft(true);
+      if (agentSelection.provider === 'claude') agentSelection.setClaudeExecutionMode('execute');
+      else agentSelection.setCodexExecutionMode('execute');
+      setPrompt(''); setCursorIndex(0);
+      window.requestAnimationFrame(() => editorRef.current?.focus());
+      return;
+    }
+
     if (!prompt.trim() && attachments.length === 0) return;
     const referenceError = getSessionReferenceCapabilityError(prompt, agentSelection.provider);
     if (referenceError) { toast.error(referenceError); return; }
@@ -234,13 +265,13 @@ export function NewSessionView() {
 
     setPendingStart(true);
 
-    const displayPrompt = prompt.trim();
+    const displayPrompt = isGoal ? goalInput.objective : prompt.trim();
     const normalizedPrompt = await buildDispatchPrompt(dispatchCwd);
     if (normalizedPrompt === null) {
       setPendingStart(false);
       return;
     }
-    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+    const promptWithAttachment = isGoal ? { prompt: displayPrompt, attachments, converted: false, reason: undefined } : await maybeConvertLongPromptToAttachment({
       cwd: dispatchCwd,
       prompt: displayPrompt,
       attachments,
@@ -261,11 +292,13 @@ export function NewSessionView() {
     const tempTitle = tempTitleSource.slice(0, 30) + (tempTitleSource.length > 30 ? '...' : '');
     const channelId = activeChannelByProject[dispatchCwd] || DEFAULT_WORKSPACE_CHANNEL_ID;
 
+    if (isGoal) sessionGoal.setDraft(false);
     sendEvent({
       type: 'session.start',
       payload: {
         title: tempTitle,
-        prompt: outgoingPrompt,
+        codexGoal: isGoal && agentSelection.provider === 'codex' ? { type: 'set', status: 'active', objective: buildGoalObjective(parseGoalInput(normalizedPrompt, true).objective, outgoingAttachments) } : undefined,
+        prompt: isGoal ? (agentSelection.provider === 'claude' ? `/goal ${buildGoalObjective(parseGoalInput(normalizedPrompt, true).objective, outgoingAttachments)}` : `/goal ${outgoingPrompt}`) : outgoingPrompt,
         effectivePrompt: outgoingEffectivePrompt,
         cwd: dispatchCwd || undefined,
         channelId,
@@ -283,7 +316,7 @@ export function NewSessionView() {
             : undefined,
         claudeExecutionMode:
           agentSelection.provider === 'claude'
-            ? agentSelection.claudeExecutionMode
+            ? (isGoal ? 'execute' : agentSelection.claudeExecutionMode)
             : undefined,
         claudeReasoningEffort:
           agentSelection.provider === 'claude'
@@ -291,7 +324,7 @@ export function NewSessionView() {
             : undefined,
         ...codexReferences,
         codexExecutionMode:
-          agentSelection.provider === 'codex' ? agentSelection.codexExecutionMode : undefined,
+          agentSelection.provider === 'codex' ? (isGoal ? 'execute' : agentSelection.codexExecutionMode) : undefined,
         codexPermissionMode:
           agentSelection.provider === 'codex'
             ? agentSelection.codexPermissionMode
@@ -448,6 +481,7 @@ export function NewSessionView() {
   const handleLongPaste = useCallback((
     context: { text: string; start: number; end: number }
   ): boolean => {
+    if (supportsGoalUI(agentSelection.provider) && (sessionGoal.drafting || parseGoalInput(prompt || context.text, false).isGoal)) return false;
     const pastedText = context.text.trim();
     if (pastedText.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
       return false;
@@ -501,7 +535,7 @@ export function NewSessionView() {
     })();
 
     return true;
-  }, [attachments, cwd, prompt]);
+  }, [attachments, cwd, prompt, agentSelection.provider, sessionGoal.drafting]);
 
   const canStartTask =
     (prompt.trim().length > 0 || attachments.length > 0) &&
@@ -637,7 +671,7 @@ export function NewSessionView() {
                     isComposingRef.current = false;
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="Message the agent..."
+                  placeholder={sessionGoal.drafting ? 'Describe a goal to keep pursuing' : 'message to agent'}
                   className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none no-drag min-h-[56px] max-h-[200px]"
                   autoFocus
                 />
@@ -658,6 +692,7 @@ export function NewSessionView() {
                     >
                       <PlusIcon />
                     </button>
+                    {sessionGoal.drafting && <GoalModePill onExit={() => sessionGoal.setDraft(false)} disabled={pendingStart} />}
                     {agentSelection.provider === 'codex' && (
                       <PermissionModePicker
                         value={agentSelection.codexPermissionMode}

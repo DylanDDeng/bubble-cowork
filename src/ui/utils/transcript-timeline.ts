@@ -1,4 +1,5 @@
 import type { ContentBlock, StreamMessage } from '../types';
+import type { ThreadGoal } from '../../shared/session-goal';
 import {
   getMessageContentBlocks,
   isAnyToolResultBlockType,
@@ -25,6 +26,7 @@ export type TranscriptTimelineItem =
       originalIndex: number;
       assistantPresentation?: AssistantTimelinePresentation;
       inlineWorkGroup?: TimelineWorkGroup;
+      completedGoals?: ThreadGoal[];
     }
   | {
       type: 'work';
@@ -461,6 +463,7 @@ function collapseWorkBeforeTerminalAnswers(
   const chunks: Chunk[] = [];
   let currentTurnItems: TranscriptTimelineItem[] = [];
   let currentTurnStartedAt: number | undefined;
+  let endedGoalTurn = false;
 
   const flushTurn = () => {
     if (currentTurnItems.length === 0) {
@@ -468,12 +471,21 @@ function collapseWorkBeforeTerminalAnswers(
     }
     chunks.push({ kind: 'turn', items: currentTurnItems, startedAt: currentTurnStartedAt });
     currentTurnItems = [];
+    endedGoalTurn = false;
   };
 
   let currentRunBoundaryKey: string | null = null;
   let hasAssistantRunBoundary = false;
 
   for (const item of items) {
+    // An autonomous goal can finish without another visible user prompt.
+    // Preserve that answer when subsequent native work starts in the same chat.
+    if (endedGoalTurn && (item.type === 'work' || item.message.type === 'assistant')) {
+      flushTurn();
+      currentTurnStartedAt = undefined;
+      currentRunBoundaryKey = null;
+      hasAssistantRunBoundary = false;
+    }
     if (item.type === 'message' && item.message.type === 'user_prompt') {
       flushTurn();
       currentTurnStartedAt = getMessageCreatedAt(item.message);
@@ -497,6 +509,7 @@ function collapseWorkBeforeTerminalAnswers(
     }
 
     currentTurnItems.push(item);
+    if (item.type === 'message' && item.completedGoals?.length) endedGoalTurn = true;
   }
 
   flushTurn();
@@ -610,7 +623,7 @@ export function deriveTranscriptTimelineItems(
   for (let originalIndex = 0; originalIndex < messages.length; originalIndex += 1) {
     const message = messages[originalIndex];
 
-    if (message.type === 'stream_event' || isToolResultOnlyMessage(message)) {
+    if (message.type === 'stream_event' || message.type === 'goal_completed' || isToolResultOnlyMessage(message)) {
       continue;
     }
 
@@ -677,8 +690,44 @@ export function deriveTranscriptTimelineItems(
 
   flushPendingWork();
   markAssistantMessagePresentation(items);
-  return collapseWorkBeforeTerminalAnswers(items, {
+  attachCompletedGoals(items, messages);
+  const timeline = collapseWorkBeforeTerminalAnswers(items, {
     ...options,
     resolvedToolUseIds: collectResolvedToolUseIds(messages),
   });
+  return timeline;
+}
+
+/** Native completion time pins a summary to its answer, including late events
+ * arriving after the next prompt. Stored summaries survive later goals/clears. */
+function attachCompletedGoals(items: TranscriptTimelineItem[], messages: StreamMessage[]) {
+  const completions = new Map<string, Extract<StreamMessage, { type: 'goal_completed' }>>();
+  for (const message of messages) {
+    if (message.type === 'goal_completed' && !message.parentToolUseId)
+      completions.set(message.uuid, message);
+  }
+  for (const { goal, afterMessageId } of completions.values()) {
+    if (goal.status !== 'complete') continue;
+    const completedAt = goal.updatedAt * 1000;
+    const startedAt = goal.createdAt * 1000;
+    let target: Extract<TranscriptTimelineItem, { type: 'message' }> | undefined;
+    let latest = -Infinity;
+    for (const item of items) {
+      if (item.type !== 'message' || item.message.type !== 'assistant'
+        || item.message.streaming || item.message.parentToolUseId || item.message.sourceProvider) continue;
+      if (afterMessageId) {
+        if (item.message.uuid === afterMessageId) target = item;
+        continue;
+      }
+      const at = item.message.createdAt;
+      if (typeof at !== 'number' || at < startedAt || at > completedAt || at < latest) continue;
+      if (!getMessageContentBlocks(item.message).some(isTextBlock)) continue;
+      target = item;
+      latest = at;
+    }
+    if (target) {
+      (target.completedGoals ??= []).push(goal);
+      target.assistantPresentation = 'answer';
+    }
+  }
 }

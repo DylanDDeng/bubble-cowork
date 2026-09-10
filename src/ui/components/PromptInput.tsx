@@ -1,3 +1,7 @@
+import { confirmDialog } from './ui/confirm-dialog';
+import { useSessionGoal } from '../hooks/useSessionGoal';
+import { GoalModePill, SessionGoal } from './SessionGoal';
+import { buildGoalObjective, parseGoalInput, supportsGoalUI, isClaudeGoalClearObjective } from '../../shared/session-goal';
 import {
   useState,
   useRef,
@@ -165,6 +169,8 @@ export function PromptInput({
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
   const targetSessionId = sessionId ?? activeSessionId;
+  const goalTargetRef = useRef(targetSessionId);
+  goalTargetRef.current = targetSessionId;
   const activeSession = useAppStore((s) =>
     targetSessionId ? s.sessions[targetSessionId] ?? null : null
   );
@@ -290,6 +296,8 @@ export function PromptInput({
     onSelectionChange: handleSessionAgentSelectionChange,
   });
   const runtimeProvider = agentSelection.provider;
+  const sessionGoal = useSessionGoal(activeSession?.id, supportsGoalUI(runtimeProvider), !activeSession?.isDraft);
+  const [goalSubmitting, setGoalSubmitting] = useState(false);
   const selectedModel = agentSelection.model;
 
   // P3: speculative Claude runner prewarm. The first keystroke for an idle
@@ -568,10 +576,21 @@ export function PromptInput({
     setPrompt,
     setCursorIndex,
     onCommandSelect: (command, nextPrompt) => {
+      if (command.name === 'goal' && supportsGoalUI(agentSelection.provider)) {
+        if (agentSelection.provider === 'claude') agentSelection.setClaudeExecutionMode('execute');
+        else agentSelection.setCodexExecutionMode('execute');
+        sessionGoal.setDraft(true);
+        const next = removeSelectedSlashCommandPrompt(nextPrompt, command.name);
+        setPrompt(next.prompt);
+        setCursorIndex(next.cursorIndex);
+        return true;
+      }
+
       if (command.name !== 'plan' || !activeSession) {
         return false;
       }
 
+      sessionGoal.setDraft(false);
       if (runtimeProvider === 'claude') {
         agentSelection.setClaudeExecutionMode('plan');
         setSessionClaudeMode(activeSession.id, agentSelection.claudePermissionMode, 'plan');
@@ -690,7 +709,7 @@ export function PromptInput({
       return false;
     }
 
-    if (value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
+    if ((supportsGoalUI(runtimeProvider) && parseGoalInput(value, sessionGoal.drafting).isGoal) || value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
       setPrompt(value);
       setCursorIndex(nextCursorIndex);
       return false;
@@ -716,9 +735,31 @@ export function PromptInput({
     setCursorIndex(0);
     window.requestAnimationFrame(() => editorRef.current?.focus());
     return true;
-  }, [activeSession?.cwd, attachments]);
+  }, [activeSession?.cwd, attachments, runtimeProvider, sessionGoal.drafting]);
 
   const handleSend = async () => {
+    const goalInput = parseGoalInput(prompt, sessionGoal.drafting);
+    const isGoal = supportsGoalUI(agentSelection.provider) && goalInput.isGoal;
+    if (isGoal && agentSelection.provider === 'claude' && isClaudeGoalClearObjective(goalInput.objective) && attachments.length === 0) {
+      if (goalSubmitting) return;
+      setGoalSubmitting(true);
+      try {
+        if (activeSession && !activeSession.isDraft) await sessionGoal.change({ type: 'clear' });
+        sessionGoal.setDraft(false);
+        resetComposer();
+      } catch (error) { toast.error(error instanceof Error ? error.message : 'Failed to clear goal'); }
+      finally { setGoalSubmitting(false); }
+      return;
+    }
+    if (isGoal && !goalInput.objective && attachments.length === 0) {
+      sessionGoal.setDraft(true);
+      if (agentSelection.provider === 'claude') agentSelection.setClaudeExecutionMode('execute');
+      else agentSelection.setCodexExecutionMode('execute');
+      setPrompt(''); setCursorIndex(0);
+      window.requestAnimationFrame(() => editorRef.current?.focus());
+      return;
+    }
+
     if (!prompt.trim() && attachments.length === 0) return;
     const referenceError = getSessionReferenceCapabilityError(prompt, runtimeProvider, activeSession?.id);
     if (referenceError) { toast.error(referenceError); return; }
@@ -762,12 +803,12 @@ export function PromptInput({
       return;
     }
 
-    const displayPrompt = prompt.trim();
+    const displayPrompt = isGoal ? goalInput.objective : prompt.trim();
     const normalizedPrompt = await buildDispatchPrompt();
     if (normalizedPrompt === null) {
       return;
     }
-    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+    const promptWithAttachment = isGoal ? { prompt: displayPrompt, attachments, converted: false, reason: undefined } : await maybeConvertLongPromptToAttachment({
       cwd: activeSession?.cwd || null,
       prompt: displayPrompt,
       attachments,
@@ -798,12 +839,41 @@ export function PromptInput({
       runtimeProvider === 'codex'
         ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
         : {};
+    if (isGoal && !activeSession.isDraft) {
+      if (goalSubmitting) return;
+      if (sessionGoal.goal && sessionGoal.goal.status !== 'complete' && !(await confirmDialog({
+        title: 'Replace current goal?',
+        description: `This will keep the chat but replace the saved goal with your current composer text.\n\n${displayPrompt}`,
+        confirmLabel: 'Replace goal', cancelLabel: 'Cancel', tone: 'default',
+      }))) return;
+      setGoalSubmitting(true);
+      try {
+        await sessionGoal.change({ type: 'set', status: 'active', objective: buildGoalObjective(parseGoalInput(normalizedPrompt, true).objective, outgoingAttachments) }, {
+          appendTranscript: true,
+          claudeAccessMode: agentSelection.claudePermissionMode, claudeReasoningEffort: agentSelection.claudeReasoningEffort || undefined,
+          model: selectedModel || undefined, codexPermissionMode: agentSelection.codexPermissionMode,
+          codexReasoningEffort: agentSelection.codexReasoningEffort || undefined, codexFastMode: agentSelection.codexFastMode,
+        });
+        if (agentSelection.provider === 'claude') {
+          agentSelection.setClaudeExecutionMode('execute');
+          setSessionClaudeMode(activeSession.id, agentSelection.claudePermissionMode, 'execute');
+        } else {
+          agentSelection.setCodexExecutionMode('execute');
+          setSessionCodexExecutionMode(activeSession.id, 'execute');
+        }
+        sessionGoal.setDraft(false);
+        if (goalTargetRef.current === activeSession.id) resetComposer();
+      } catch (error) { toast.error(error instanceof Error ? error.message : 'Failed to set goal'); }
+      finally { setGoalSubmitting(false); }
+      return;
+    }
     if (activeSession.isDraft) {
       if (!activeSession.cwd?.trim()) {
         toast.error('Select a project folder before starting a task.');
         return;
       }
 
+      if (isGoal) sessionGoal.setDraft(false);
       setPendingStart(true);
       useAppStore.setState({ pendingDraftSessionId: activeSession.id });
       const projectKey = (activeSession.cwd || '').trim() || '__no_project__';
@@ -816,7 +886,8 @@ export function PromptInput({
         payload: {
           title: activeSession.title || 'New Chat',
           skipTitleGeneration: activeSession.draftTitleEdited || undefined,
-          prompt: outgoingPrompt,
+          codexGoal: isGoal && agentSelection.provider === 'codex' ? { type: 'set', status: 'active', objective: buildGoalObjective(parseGoalInput(normalizedPrompt, true).objective, outgoingAttachments) } : undefined,
+          prompt: isGoal ? (runtimeProvider === 'claude' ? `/goal ${buildGoalObjective(parseGoalInput(normalizedPrompt, true).objective, outgoingAttachments)}` : `/goal ${outgoingPrompt}`) : outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
           cwd: activeSession.cwd,
           projectCwd: activeSession.projectCwd ?? activeSession.cwd ?? null,
@@ -840,7 +911,7 @@ export function PromptInput({
               : undefined,
           claudeExecutionMode:
             runtimeProvider === 'claude'
-              ? agentSelection.claudeExecutionMode
+              ? (isGoal ? 'execute' : agentSelection.claudeExecutionMode)
               : undefined,
           claudeReasoningEffort:
             runtimeProvider === 'claude'
@@ -848,7 +919,7 @@ export function PromptInput({
               : undefined,
           ...codexReferences,
           codexExecutionMode:
-            runtimeProvider === 'codex' ? agentSelection.codexExecutionMode : undefined,
+            runtimeProvider === 'codex' ? (isGoal ? 'execute' : agentSelection.codexExecutionMode) : undefined,
           codexPermissionMode:
             runtimeProvider === 'codex'
               ? agentSelection.codexPermissionMode
@@ -1182,6 +1253,7 @@ export function PromptInput({
   const handleLongPaste = useCallback((
     context: { text: string; start: number; end: number }
   ): boolean => {
+    if (supportsGoalUI(runtimeProvider) && (sessionGoal.drafting || parseGoalInput(prompt || context.text, false).isGoal)) return false;
     const pastedText = context.text.trim();
     if (pastedText.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
       return false;
@@ -1235,7 +1307,7 @@ export function PromptInput({
     })();
 
     return true;
-  }, [activeSession?.cwd, attachments, prompt]);
+  }, [activeSession?.cwd, attachments, prompt, runtimeProvider, sessionGoal.drafting]);
 
   // ArrowUp on the first visual line ENTERS history browsing; while a browse
   // is active the arrows always step (terminal-style) — recalled multiline
@@ -1474,6 +1546,11 @@ export function PromptInput({
             ))}
           </div>
         ) : null}
+        {sessionGoal.goal && sessionGoal.goal.status !== 'complete' && <SessionGoal key={activeSession?.id} sessionId={activeSession!.id} goal={sessionGoal.goal} resumeConfirmation={sessionGoal.snapshot?.resumeConfirmation} onDismissResume={sessionGoal.dismissResume} onChange={action => sessionGoal.change(action, {
+          claudeAccessMode: agentSelection.claudePermissionMode, claudeReasoningEffort: agentSelection.claudeReasoningEffort || undefined,
+          model: selectedModel || undefined, codexPermissionMode: agentSelection.codexPermissionMode,
+          codexReasoningEffort: agentSelection.codexReasoningEffort || undefined, codexFastMode: agentSelection.codexFastMode,
+        })} />}
         <div className={composerOuterClass}>
           {projectFileMentions.hasMentionQuery ? (
             <div className="absolute inset-x-0 bottom-full z-40">
@@ -1540,7 +1617,9 @@ export function PromptInput({
             }}
             onKeyDown={handleKeyDown}
             placeholder={
-              approvalPending
+              sessionGoal.drafting
+                ? 'Describe a goal to keep pursuing'
+                : approvalPending
                 ? 'Resolve this approval request to continue'
                 : isStopping
                 ? 'Stopping…'
@@ -1550,7 +1629,7 @@ export function PromptInput({
                 ? 'Press Enter to stop...'
                 : pendingStart
                 ? 'Starting session...'
-                : 'Message the agent...'
+                : 'message to agent'
             }
             disabled={pendingStart || approvalPending}
             className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"
@@ -1571,6 +1650,10 @@ export function PromptInput({
               >
                 <Plus className="h-4 w-4" />
               </button>
+              {(sessionGoal.drafting || (sessionGoal.goal && sessionGoal.goal.status !== 'complete')) && <GoalModePill onExit={() => {
+                if (sessionGoal.snapshot?.goal) void sessionGoal.change({ type: 'clear' }).then(() => sessionGoal.setDraft(false)).catch(error => toast.error(String(error)));
+                else sessionGoal.setDraft(false);
+              }} disabled={goalSubmitting} />}
               {agentSelection.provider === 'codex' && (
                 <PermissionModePicker
                   value={agentSelection.codexPermissionMode}
@@ -1780,6 +1863,7 @@ export function PromptInput({
               <button
                 onClick={handleSend}
                 disabled={
+                  goalSubmitting ||
                   (!prompt.trim() && attachments.length === 0) ||
                   modelSetupRequired ||
                   pendingStart ||

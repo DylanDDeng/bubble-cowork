@@ -316,7 +316,7 @@ function shouldPreserveStreamingStateForMessage(
 ): boolean {
   // Subagent (Task) messages commit while the top-level agent may still be
   // streaming its own partial — they must not reset that buffer.
-  if (message.parentToolUseId) {
+  if (message.parentToolUseId || message.type === 'goal_completed') {
     return true;
   }
   // Grok interleaves tool calls, tool results and command-list pushes with the

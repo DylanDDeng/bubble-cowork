@@ -1,3 +1,6 @@
+import { materializeGoalObjective, readGoalObjective } from '../codex-goal-objective';
+import { normalizeCodexReasoningEffort } from '../../../shared/codex-reasoning';
+import { validateGoalAction, type GoalAction, type ThreadGoal } from '../../../shared/session-goal';
 import { getSessionReaderCodexArgs, SESSION_TOKEN_ENV_VAR } from '../session-http-server';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
@@ -123,10 +126,13 @@ interface CodexSession {
   activeTurnId?: string;
   status: 'connecting' | 'ready' | 'running' | 'interrupting' | 'error';
   lastError?: string;
+  goal?: ThreadGoal | null;
+  goalRevision?: number;
   model?: string;
   codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
+  nativeReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   /** Session+model keys that already produced a fast-unavailable notice. */
   fastModeNoticeKeys?: Set<string>;
@@ -1130,6 +1136,7 @@ export class CodexAppServerManager extends EventEmitter {
       codexExecutionMode: options.codexExecutionMode,
       codexPermissionMode: options.codexPermissionMode,
       codexReasoningEffort: options.codexReasoningEffort,
+      nativeReasoningEffort: normalizeCodexReasoningEffort(typeof response.reasoningEffort === 'string' ? response.reasoningEffort : null) ?? undefined,
       codexFastMode: options.codexFastMode,
     });
     this.lastActiveThreadId = threadId;
@@ -1355,6 +1362,80 @@ export class CodexAppServerManager extends EventEmitter {
    * through the normal lifecycle handlers, so no extra turn registration is
    * needed here.
    */
+  async readGoal(providerThreadId: string, cwd: string): Promise<ThreadGoal | null> {
+    await this.ensureSpawned(cwd);
+    const threadId = this.findThreadByProviderThreadId(providerThreadId);
+    const session = threadId ? this.sessions.get(threadId) : undefined;
+    const revision = session?.goalRevision;
+    const response = await this.sendRequest('thread/goal/get', { threadId: providerThreadId }, REQUEST_TIMEOUT_MS) as { goal: ThreadGoal | null };
+    if (session && session.goalRevision !== revision) return session.goal ?? null;
+    const goal = response.goal ? { ...response.goal, displayObjective: readGoalObjective(response.goal.objective) } : null;
+    if (threadId) this.recordGoal(threadId, goal);
+    return goal;
+  }
+
+  private recordGoal(threadId: string, goal: ThreadGoal | null): void {
+    if (goal && !goal.displayObjective) goal = { ...goal, displayObjective: readGoalObjective(goal.objective) };
+    const session = this.sessions.get(threadId);
+    if (session) { session.goal = goal; session.goalRevision = (session.goalRevision ?? 0) + 1; }
+    this.emit('goal_changed', { threadId, goal });
+  }
+
+  async changeGoal(threadId: string, rawAction: GoalAction, options: CodexRunOptions = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<ThreadGoal | null> {
+    const action = validateGoalAction(rawAction);
+    const session = this.requireCommandSession(threadId, 'thread/goal/set');
+    // Native autonomous turns use thread settings, not the last turn/start
+    // payload. Commit the current model/effort/permissions BEFORE activation.
+    if (action.type === 'set' && (action.status === 'active' || action.objective !== undefined)) {
+      const model = options.model || session.model;
+      const effort = options.codexReasoningEffort || session.codexReasoningEffort || session.nativeReasoningEffort;
+      const permission = options.codexPermissionMode || session.codexPermissionMode;
+      await this.sendRequest('thread/settings/update', {
+        threadId: session.providerThreadId,
+        cwd: session.cwd,
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        // Always leave Plan. Preserve the server's effective effort when the
+        // picker has no override; null is the native default for no effort.
+        collaborationMode: { mode: 'default', settings: { model, reasoning_effort: effort ?? null, developer_instructions: null } },
+        ...this.buildTurnPermissionOptions(session.cwd, permission, 'execute'),
+        serviceTier: null,
+        ...(await this.resolveServiceTierParam(threadId, model, options.codexFastMode ?? session.codexFastMode)),
+      }, REQUEST_TIMEOUT_MS);
+      session.model = model;
+      session.codexReasoningEffort = effort;
+      session.codexPermissionMode = permission;
+      session.codexExecutionMode = 'execute';
+      session.codexFastMode = options.codexFastMode ?? session.codexFastMode;
+    }
+    const revision = session.goalRevision;
+    const goal = await this.changeSavedGoal(session.providerThreadId, session.cwd, action, timeoutMs);
+    if (session.goalRevision !== revision) return session.goal ?? null;
+    this.recordGoal(threadId, goal);
+    return goal;
+  }
+
+  /** Pausing/clearing an unloaded goal must not resume its conversation. */
+  async changeSavedGoal(providerThreadId: string, cwd: string, rawAction: GoalAction, timeoutMs = REQUEST_TIMEOUT_MS): Promise<ThreadGoal | null> {
+    const action = validateGoalAction(rawAction);
+    await this.ensureSpawned(cwd);
+    if (action.type === 'clear') {
+      await this.sendRequest('thread/goal/clear', { threadId: providerThreadId }, timeoutMs);
+      return null;
+    }
+    const { type: _, ...params } = action;
+    const materialized = params.objective !== undefined ? materializeGoalObjective(params.objective) : null;
+    try {
+      const response = await this.sendRequest('thread/goal/set', { threadId: providerThreadId, ...params, ...(materialized ? { objective: materialized.objective } : {}) }, timeoutMs) as { goal: ThreadGoal };
+      return { ...response.goal, displayObjective: readGoalObjective(response.goal.objective) };
+    } catch (error) {
+      // A timeout/disconnect may occur after the server saved the reference.
+      // Delete only on a definitive RPC rejection.
+      if (error instanceof CodexRpcError) materialized?.discard();
+      throw error;
+    }
+  }
+
   async compactThread(threadId: string): Promise<void> {
     const session = this.requireCommandSession(threadId, 'thread/compact/start');
     this.lastActiveThreadId = threadId;
@@ -1407,6 +1488,18 @@ export class CodexAppServerManager extends EventEmitter {
         noTurn: true,
       });
       return;
+    }
+
+    // Stop also pauses native continuation, including the gap between turns.
+    if (session.goal?.status === 'active') {
+      try { await this.changeGoal(threadId, { type: 'set', status: 'paused' }, {}, 500); }
+      catch (error) {
+        // A failed pause must not let an autonomous task immediately restart
+        // after interrupt. This process belongs to this thread only.
+        this.emit('goal_pause_failed', { threadId, error });
+        this.stop();
+        return;
+      }
     }
 
     // No live turn → nothing to confirm; clean up and settle immediately so
@@ -2200,6 +2293,12 @@ export class CodexAppServerManager extends EventEmitter {
     const params = notification.params || {};
 
     switch (method) {
+      case 'thread/goal/updated':
+      case 'thread/goal/cleared': {
+        const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
+        if (threadId) this.recordGoal(threadId, method === 'thread/goal/cleared' ? null : params.goal as ThreadGoal);
+        break;
+      }
       case 'turn/started': {
         const turnObj = params.turn as Record<string, unknown> | undefined;
         const turnId = this.readString(turnObj, 'id');

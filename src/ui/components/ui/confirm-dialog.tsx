@@ -83,12 +83,6 @@ export function ConfirmDialogHost() {
         <Dialog.Overlay className="fixed inset-0 z-[200] bg-black/25 backdrop-blur-[2px] transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <Dialog.Content
           className="fixed left-1/2 top-1/2 z-[201] w-[420px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-[18px] border border-[var(--popover-border)] bg-[var(--popover-bg)] p-6 shadow-[var(--popover-shadow-lg)] outline-none transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0"
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.isDefaultPrevented()) {
-              event.preventDefault();
-              settle(true);
-            }
-          }}
         >
           <Dialog.Close
             className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
@@ -97,11 +91,11 @@ export function ConfirmDialogHost() {
             <X className="h-4 w-4" aria-hidden="true" />
           </Dialog.Close>
 
-          <Dialog.Title className="pr-8 text-[17px] font-semibold leading-snug tracking-tight text-[var(--text-primary)]">
+          <Dialog.Title className="break-words pr-8 text-[17px] font-semibold leading-snug tracking-tight text-[var(--text-primary)]">
             {active.title}
           </Dialog.Title>
           {active.description ? (
-            <Dialog.Description className="mt-2 text-[13px] leading-[1.55] text-[var(--text-secondary)]">
+            <Dialog.Description className="mt-2 whitespace-pre-line break-words text-[13px] leading-[1.55] text-[var(--text-secondary)]">
               {active.description}
             </Dialog.Description>
           ) : null}

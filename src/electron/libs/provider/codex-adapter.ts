@@ -1,3 +1,4 @@
+import { goalCanResume, type GoalAction, type GoalSettings, type ThreadGoal } from '../../../shared/session-goal';
 import { EventEmitter } from 'events';
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
@@ -411,6 +412,12 @@ export class CodexAdapter implements ProviderAdapter {
         listener(payload);
       });
     };
+    on('goal_changed', ({ threadId, goal }) => {
+      this.emit({ type: 'goal_changed', threadId, goal });
+    });
+    on('goal_pause_failed', ({ threadId }) => {
+      this.emitLocalNotice(threadId, 'Codex could not save the paused goal. The task runtime was stopped. Check the saved goal before resuming.');
+    });
     // Forward manager events as ProviderRuntimeEvents
     on('text_delta', ({ threadId, text }) => {
       this.enqueueStreamingTextDelta(threadId, text);
@@ -870,7 +877,10 @@ export class CodexAdapter implements ProviderAdapter {
       if (typeof turnId !== 'string' || !turnId) {
         return;
       }
+      this.finalizedStreamingText.delete(threadId);
+      this.reportedErrorTurnKeys.delete(threadId);
       this.imageGenerationItems.delete(threadId);
+      this.updateSessionStatus(threadId, 'running');
       const message: StreamMessage = {
         type: 'turn_started',
         uuid: `codex-turn:${threadId}:${turnId}`,
@@ -1548,7 +1558,7 @@ export class CodexAdapter implements ProviderAdapter {
       model,
     };
     this.sessions.set(input.threadId, session);
-    this.lastStartInput.set(input.threadId, input);
+    this.lastStartInput.set(input.threadId, { ...input, codexGoal: undefined });
 
     // Emit system init
     this.emit({
@@ -1569,9 +1579,19 @@ export class CodexAdapter implements ProviderAdapter {
       );
     }
 
+    if (input.codexGoal) {
+      await manager.changeGoal(input.threadId, input.codexGoal, input);
+    } else if (input.resumeSessionId) {
+      // Hydration is read-only and remains compatible with older Codex CLIs.
+      try {
+        const goal = await manager.readGoal(providerThreadId, input.cwd);
+        if (goal && goalCanResume(goal.status)) this.emit({ type: 'goal_changed', threadId: input.threadId, goal, resumeConfirmation: true });
+      } catch { /* optional native feature */ }
+    }
+
     // Send initial prompt if provided. A Codex skill/plugin-only turn may have
     // an empty text prompt but still needs a structured input item.
-	    if (input.prompt || input.codexSkills?.length || input.codexMentions?.length || input.attachments?.length) {
+	    if (!input.codexGoal && (input.prompt || input.codexSkills?.length || input.codexMentions?.length || input.attachments?.length)) {
 	      await this.sendTurn({
 	        threadId: input.threadId,
 	        prompt: input.prompt,
@@ -1593,6 +1613,28 @@ export class CodexAdapter implements ProviderAdapter {
       status: 'running',
       model,
     };
+  }
+
+  hasActiveGoalTurn(threadId: string): boolean {
+    return this.runtimeManagers.get(threadId)?.hasActiveTurn(threadId) ?? false;
+  }
+
+  async readGoal(threadId: string, providerThreadId: string, cwd: string): Promise<ThreadGoal | null> {
+    const manager = this.runtimeManagers.get(threadId) ?? this.manager;
+    return manager.readGoal(providerThreadId, cwd);
+  }
+
+  async changeGoal(threadId: string, action: GoalAction, settings: GoalSettings = {}): Promise<ThreadGoal | null> {
+    const threadEpoch = this.threadLifecycleEpochs.get(threadId);
+    const adapterEpoch = this.adapterLifecycleEpoch;
+    return this.runThreadLifecycle(threadId, async () => {
+      if (this.threadLifecycleEpochs.get(threadId) !== threadEpoch || this.adapterLifecycleEpoch !== adapterEpoch) throw new Error('Goal change cancelled because the task stopped.');
+      return this.runtimeManagerForThread(threadId).changeGoal(threadId, action, settings);
+    });
+  }
+
+  async changeUnloadedGoal(providerThreadId: string, cwd: string, action: GoalAction): Promise<ThreadGoal | null> {
+    return this.manager.changeSavedGoal(providerThreadId, cwd, action);
   }
 
   async forkThread(input: { cwd: string; providerThreadId: string }): Promise<string> {

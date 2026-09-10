@@ -74,6 +74,7 @@ export interface ProviderAdapterCapabilities {
 // ── Session Lifecycle Input ────────────────────────────────────────────────
 
 export interface ProviderSessionStartInput {
+  codexGoal?: import('../../../shared/session-goal').GoalAction;
   provider: ProviderKind;
   threadId: string;
   cwd: string;
@@ -145,6 +146,7 @@ export type ProviderSessionStatus = 'connecting' | 'running' | 'completed' | 'er
 // ── Runtime Events ─────────────────────────────────────────────────────────
 
 export type ProviderRuntimeEvent =
+  | { type: 'goal_changed'; threadId: string; goal: import('../../../shared/session-goal').ThreadGoal | null; resumeConfirmation?: boolean }
   | { type: 'message'; threadId: string; message: StreamMessage }
   // Incremental stdout/stderr from a running tool call. Transient display
   // data for the live tool card — never enters the transcript.

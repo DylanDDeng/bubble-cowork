@@ -113,6 +113,7 @@ export interface DerivedSummaryRow {
 
 // Runner 相关类型
 export interface RunnerOptions {
+  codexGoal?: import('../shared/session-goal').GoalAction;
   prompt: string;
   attachments?: import('../shared/types').Attachment[];
   session: SessionRow;

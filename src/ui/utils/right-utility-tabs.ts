@@ -51,6 +51,7 @@ export function getSideChatSessionId(target: ProjectUtilityPanelTarget): string 
 export function getRightUtilityTabKind(
   target: ProjectUtilityPanelTarget
 ): ProjectUtilityPanelKind {
+  if (target.startsWith('goal:')) return 'goal';
   if (isRightUtilityFileTab(target)) return 'files';
   if (isRightUtilityBrowserTab(target)) return 'browser';
   if (isRightUtilitySubagentTab(target)) return 'subagent';

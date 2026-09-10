@@ -90,6 +90,10 @@ import type {
 
 declare global {
   interface ElectronAPI {
+    getSessionGoal: (sessionId: string) => Promise<import('./shared/session-goal').SessionGoalSnapshot>;
+    changeSessionGoal: (sessionId: string, action: import('./shared/session-goal').GoalAction, settings?: import('./shared/session-goal').GoalSettings) => Promise<import('./shared/session-goal').SessionGoalSnapshot>;
+    onSessionGoalChanged: (callback: (snapshot: import('./shared/session-goal').SessionGoalSnapshot) => void) => () => void;
+
     onServerEvent: (callback: (event: ServerEvent) => void) => () => void;
     sendClientEvent: (event: ClientEvent) => void;
     onTerminalEvent: (callback: (event: TerminalEventPayload) => void) => () => void;

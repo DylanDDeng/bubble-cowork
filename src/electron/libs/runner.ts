@@ -1,3 +1,4 @@
+import { createClaudeGoalController, releaseClaudeGoalController, rejectClaudeGoalSet } from './claude-goal-manager';
 import { createSessionSdkMcpServer, SESSION_MCP_SERVER_NAME } from './session-mcp';
 import type {
   McpServerConfig as SDKMcpServerConfig,
@@ -529,6 +530,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   } = options;
 
   const abortController = new AbortController();
+  const goalController = createClaudeGoalController(session.id, Boolean(resumeSessionId));
   const inputQueue = new AsyncMessageQueue<SDKUserMessage>();
   let currentSessionId = resumeSessionId || '';
   let enqueueChain: Promise<void> = Promise.resolve();
@@ -638,6 +640,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     const seq = promptCancellation.issueSeq();
     enqueueChain = enqueueChain
       .then(async () => {
+        if (await promptCancellation.race(goalController.ready.then(() => true)) === null) return;
         if (abortController.signal.aborted || promptCancellation.isCancelled(seq)) {
           return;
         }
@@ -695,6 +698,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         ) {
           return;
         }
+        const prepared = await promptCancellation.race(goalController.prepare(trimmed));
+        if (prepared === null || abortController.signal.aborted || promptCancellation.isCancelled(seq)) return;
+        if (/^\s*\/goal(?:\s|$)/i.test(trimmed)) message.message.content = [{ type: 'text', text: prepared }];
+        goalController.submitted(prepared);
         inputQueue.push(message);
 
         // The SDK does not echo streaming-input user prompts back on the
@@ -722,6 +729,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       })
       .catch((error) => {
         const err = error instanceof Error ? error : new Error(String(error));
+        rejectClaudeGoalSet(session.id, err);
         onError?.(err);
       })
       .finally(() => {
@@ -861,6 +869,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           // Compaction runs silently (no stream messages until the boundary),
           // so surface its start to the UI for a live "Compacting…" status.
           hooks: {
+            UserPromptSubmit: [{ hooks: [async (input) => {
+              if (input.hook_event_name === 'UserPromptSubmit')
+                await goalController.attachTranscript(input.transcript_path);
+              return { continue: true };
+            }] }],
             PreCompact: [
               {
                 hooks: [
@@ -974,6 +987,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                 const filePath = updatedInput.file_path as string | undefined;
                 if (filePath) {
                   const normalized = normalizeToolFilePath(session.cwd, filePath);
+                  if (normalized && toolName === 'Read' && goalController.ownsObjectiveFile(normalized.resolved)) {
+                    return { behavior: 'allow' as const, updatedInput: { ...updatedInput, file_path: normalized.resolved } };
+                  }
                   if (normalized && !normalized.isWithin) {
                     if (isFullAccess) {
                       return {
@@ -1107,6 +1123,15 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         },
       });
       activeQuery = result;
+      // Initialization and stream consumption must proceed together: a resumed
+      // session's hidden /goal clear waits for its result on this same stream.
+      void goalController.initialize({
+        commands: () => result.supportedCommands(),
+        send: (text) => inputQueue.push({ type: 'user', uuid: uuidv4() as SDKUserMessage['uuid'], session_id: currentSessionId,
+          parent_tool_use_id: null, message: { role: 'user', content: text } }),
+        interrupt: () => result.interrupt(),
+        abort: () => { abortController.abort(); inputQueue.close(); },
+      }).catch(error => { rejectClaudeGoalSet(session.id, error); onError?.(error); });
 
       if (typeof thinkingOptions.legacyMaxThinkingTokens === 'number') {
         try {
@@ -1143,6 +1168,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         if (abortController.signal.aborted) {
           break;
         }
+        if (await goalController.receive(message as unknown as Parameters<typeof goalController.receive>[0])) continue;
 
         // 转换 SDK 消息为内部格式并发送
         const streamMessage = convertSDKMessage(message as SDKMessage);
@@ -1309,8 +1335,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         return;
       }
       const err = error instanceof Error ? error : new Error(String(error));
+      rejectClaudeGoalSet(session.id, err);
       onError?.(err);
     } finally {
+      releaseClaudeGoalController(session.id, goalController);
       inputQueue.close();
     }
   })();
@@ -1318,6 +1346,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   return {
     abort: () => {
       abortController.abort();
+      releaseClaudeGoalController(session.id, goalController);
       inputQueue.close();
     },
     send: (text, promptAttachments, requestedModel) =>
@@ -1326,7 +1355,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       if (!activeQuery) {
         throw new Error('Session is not active.');
       }
-      await activeQuery.interrupt();
+      if (goalController.snapshot.goal && goalController.snapshot.goal?.status !== 'complete')
+        await goalController.interrupt();
+      else await activeQuery.interrupt();
     },
     cancelPendingPrompts: () => {
       // Everything issued so far that has not settled is dropped before it

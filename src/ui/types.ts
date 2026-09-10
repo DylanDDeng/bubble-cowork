@@ -194,11 +194,12 @@ export interface SessionStreamingState {
 export type ActiveWorkspace = 'chat' | 'skills' | 'automations' | 'prs' | 'board';
 export type ChatSidebarView = 'threads' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
-export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
+export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent' | 'goal';
 export type ProjectUtilityPanelTarget =
   | ProjectUtilityPanelKind
   | `files:${string}`
   | `browser:${string}`
+  | `goal:${string}`
   // One top-level tab PER subagent (the tool_use id after the colon) — there
   // is no wrapper "subagent" tab; each subagent is its own strip tab.
   | `subagent:${string}`

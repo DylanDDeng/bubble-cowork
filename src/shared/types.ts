@@ -1024,6 +1024,7 @@ export type ServerEvent =
 
 // Payload 类型
 export interface SessionStartPayload {
+  codexGoal?: import('./session-goal').GoalAction;
   title: string;
   prompt: string;
   effectivePrompt?: string;
@@ -1640,6 +1641,13 @@ export interface AvailableCommand {
 
 export type StreamMessage =
   | (StreamMessageBase & { type: 'user_prompt'; prompt: string; attachments?: Attachment[] })
+  | (StreamMessageBase & {
+      /** Durable, native completion metadata; never sent to the model as a prompt. */
+      type: 'goal_completed';
+      uuid: string;
+      afterMessageId?: string;
+      goal: import('./session-goal').ThreadGoal;
+    })
   | (StreamMessageBase & {
       type: 'system';
       subtype: 'init';

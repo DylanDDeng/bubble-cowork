@@ -18,6 +18,7 @@ const DEFAULT_COMMAND_DEFINITIONS: Record<
   string,
   { title: string; description: string; submitOnSelect?: boolean }
 > = {
+  goal: { title: '/goal', description: 'Set a goal to keep working toward' },
   compact: {
     title: '/compact',
     description: 'Compact the current conversation context',
@@ -127,6 +128,7 @@ const CODEX_COMMAND_DEFINITIONS: Record<
   string,
   { title: string; description: string; submitOnSelect?: boolean; inputHint?: string }
 > = {
+  goal: { title: '/goal', description: 'Set a goal to keep pursuing' },
   compact: {
     title: '/compact',
     description: 'Summarize the conversation to free up context',

@@ -1,3 +1,4 @@
+import { GoalEditorPanel } from './components/SessionGoal';
 import { useEffect, useRef, useMemo, useState, useCallback, type ReactNode } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
@@ -23,6 +24,7 @@ import {
   Plus,
   Sparkles,
   SquareTerminal,
+  Target,
   ChevronDown,
   RefreshCw,
   Upload,
@@ -147,6 +149,7 @@ function getProjectUtilitySubagentId(target: ProjectUtilityPanelTarget): string 
 }
 
 function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUtilityPanelKind {
+  if (target.startsWith('goal:')) return 'goal';
   if (isProjectUtilityFileTab(target)) return 'files';
   if (isProjectUtilityBrowserTab(target)) return 'browser';
   if (isProjectUtilitySubagentTab(target)) return 'subagent';
@@ -702,6 +705,7 @@ export function App() {
     const workspaceLeaf = getPathLeaf(activeSession?.cwd || projectCwd || '');
     return rightUtilityTabs.map((tab) => {
       const kind = getProjectUtilityTabKind(tab);
+      if (kind === 'goal') return { id: tab, kind, label: 'Edit goal' };
       if (kind === 'files') {
         return { id: tab, kind, label: activeProjectFileTabs[tab]?.name || 'Files' };
       }
@@ -1192,6 +1196,9 @@ export function App() {
               onToggleFullscreen={toggleFilesPanelFullscreen}
             />
           ))}
+          {rightUtilityTabs.filter(tab => tab.startsWith('goal:')).map(tab => (
+            <GoalEditorPanel key={tab} sessionId={tab.slice(5)} hidden={activeRightUtilityTab !== tab} />
+          ))}
           {rightUtilityTabs.includes('review') ? (
             <AegisDiffPanel
               key={`${activeSessionId ?? 'new'}:review`}
@@ -1332,6 +1339,7 @@ export function App() {
 }
 
 function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
+  if (target === 'goal') return Target;
   if (target === 'terminal') return SquareTerminal;
   if (target === 'browser') return Globe;
   if (target === 'side-chat') return MessageCircle;
@@ -1751,7 +1759,7 @@ function RightUtilityTabStrip({
 // 'subagent' is a valid active panel (opened programmatically from the inline
 // board / environment list), but it is intentionally NOT offered in the
 // launcher menu — it only exists when the main agent has spawned subagents.
-type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
+type PanelLauncherKind = 'launcher' | ProjectUtilityPanelKind;
 
 function BottomTerminalToggleIcon() {
   return (

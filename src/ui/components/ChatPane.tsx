@@ -1385,7 +1385,7 @@ export function ChatPane({
         }
 
         const markdownToCopy = getAssistantMarkdownToCopy(item.message);
-        if (!markdownToCopy.trim()) {
+        if (!markdownToCopy.trim() || item.completedGoals?.length) {
           continue;
         }
 
@@ -2101,6 +2101,7 @@ export function ChatPane({
                           subagentMessagesByParent={subagentMessagesByParent}
                           assistantPresentation={item.assistantPresentation}
                           hideAssistantCopyBar={hideAssistantCopyBar}
+                          completedGoals={item.completedGoals}
                           userPromptActions={
                             item.message.type === 'user_prompt' &&
                             session.readOnly !== true &&

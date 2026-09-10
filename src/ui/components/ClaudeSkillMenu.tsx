@@ -11,6 +11,7 @@ import {
   SkillStack,
   Terminal,
   Trash2,
+  Target,
   Workflow,
   Zap,
 } from './icons';
@@ -103,8 +104,9 @@ function commandTitle(command: ClaudeSlashCommand): string {
       return 'Extensions';
     case 'rewind':
       return 'Rewind';
-    case 'loop':
     case 'goal':
+      return 'Goal';
+    case 'loop':
       return 'Automation';
     default:
       return command.name
@@ -142,9 +144,10 @@ function commandIcon(command: ClaudeSlashCommand): LucideIcon {
     case 'plan':
     case 'view-plan':
     case 'show-plan':
-    case 'goal':
     case 'loop':
       return ListTodo;
+    case 'goal':
+      return Target;
     case 'review':
     case 'code-review':
       return Bug;

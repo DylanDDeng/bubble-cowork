@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Copy, Check, History, Pencil, RotateCcw } from './icons';
+import { ChevronRight, Copy, Check, History, Pencil, RotateCcw, TargetArrow } from './icons';
+import { parseGoalInput, supportsGoalUI, isClaudeGoalClearObjective } from '../../shared/session-goal';
+import type { ThreadGoal } from '../../shared/session-goal';
+import { formatDurationLabel } from '../utils/format-duration';
 import { cn } from '@/ui/lib/utils';
 import { useAppStore } from '../store/useAppStore';
 import { AttachmentChips } from './AttachmentChips';
@@ -40,6 +43,7 @@ interface MessageCardProps {
   subagentMessagesByParent?: Map<string, StreamMessage[]>;
   assistantPresentation?: 'answer' | 'progress';
   hideAssistantCopyBar?: boolean;
+  completedGoals?: ThreadGoal[];
   userPromptActions?: {
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
@@ -56,6 +60,7 @@ export function MessageCard({
   subagentMessagesByParent,
   assistantPresentation = 'answer',
   hideAssistantCopyBar = false,
+  completedGoals,
   userPromptActions,
 }: MessageCardProps) {
   switch (message.type) {
@@ -88,6 +93,7 @@ export function MessageCard({
           subagentMessagesByParent={subagentMessagesByParent}
           presentation={assistantPresentation}
           hideCopyBar={hideAssistantCopyBar}
+          completedGoals={completedGoals}
         />
       );
 
@@ -246,6 +252,12 @@ function UserPromptCard({
 
   const currentSessionId = sessionId ?? activeSessionId;
   const activeSession = currentSessionId ? sessions[currentSessionId] : null;
+  // Goal prompts retain their command token in history for replay. Present
+  // the objective in the bubble and the mode as metadata beneath it.
+  const goalInput = parseGoalInput(prompt, false);
+  const sentAsGoal = supportsGoalUI(activeSession?.provider) && goalInput.isGoal &&
+    !(activeSession?.provider === 'claude' && isClaudeGoalClearObjective(goalInput.objective));
+  const displayPrompt = sentAsGoal ? goalInput.objective : prompt;
   const activeSessionMessages = activeSession?.messages || [];
   // Same shared catalog the composer chips use (codex/kimi/qoder), so a
   // token that rendered as a skill chip while typing keeps that look after
@@ -267,6 +279,7 @@ function UserPromptCard({
     [activeSession?.provider, activeSessionMessages]
   );
   const promptPrefixDisplay = useMemo<UserPromptPrefixDisplay | null>(() => {
+    if (sentAsGoal) return null;
     // Kimi skill invocations are literal `/skill:<name>` tokens; render them
     // with the same skill chip the composer showed (never the generic
     // command style), even when the catalog fetch hasn't landed yet.
@@ -322,7 +335,7 @@ function UserPromptCard({
     }
 
     return null;
-  }, [activeSession?.provider, availableCommands, availableSkills, prompt]);
+  }, [activeSession?.provider, availableCommands, availableSkills, prompt, sentAsGoal]);
 
   useEffect(() => {
     if (!isEditing) {
@@ -343,7 +356,7 @@ function UserPromptCard({
   }, [isEditing]);
 
   const canEditAndRetry = !!actions?.canEditAndRetry && !actions?.isSessionRunning;
-  const hasVisiblePrompt = !!prompt.trim();
+  const hasVisiblePrompt = !!displayPrompt.trim();
 
   const copyTitle = copied ? 'Copied' : 'Copy';
   const editTitle = actions?.isSessionRunning
@@ -459,7 +472,7 @@ function UserPromptCard({
 
                 {(!promptPrefixDisplay || promptPrefixDisplay.remainder) && (
                   <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] align-middle">
-                    {promptPrefixDisplay ? promptPrefixDisplay.remainder : prompt}
+                    {promptPrefixDisplay ? promptPrefixDisplay.remainder : displayPrompt}
                   </span>
                 )}
               </div>
@@ -467,67 +480,75 @@ function UserPromptCard({
           </div>
         )}
 
-        {/* Action bar (appears below bubble) */}
-        <div
-          className={`mt-1 h-6 flex items-center justify-end gap-3 text-xs text-[var(--text-muted)] transition-opacity ${
-            isEditing
-              ? 'opacity-100 pointer-events-auto'
-              : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto'
-          }`}
-        >
-          {timestampLabel && <span className="tabular-nums">{timestampLabel}</span>}
+        {/* The sent mode remains visible alongside the hover-only actions. */}
+        <div className="mt-1 min-h-6 max-w-full flex items-center justify-end gap-3 text-xs text-[var(--text-muted)]">
+          <div
+            className={`min-w-0 h-6 flex items-center justify-end gap-3 transition-opacity ${
+              isEditing
+                ? 'opacity-100 pointer-events-auto'
+                : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto'
+            }`}
+          >
+            {timestampLabel && <span className="tabular-nums">{timestampLabel}</span>}
 
-          {isEditing ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleCancelEdit}
-                className="inline-flex items-center rounded-[var(--radius-xl)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                title="Cancel"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveAndRetry}
-                disabled={!draft.trim()}
-                className="inline-flex items-center gap-1.5 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] shadow-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Send"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Send
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              {actions?.onRewind ? (
-                <IconButton
-                  onClick={() => actions.onRewind?.()}
-                  title={actions.isSessionRunning ? 'Stop the session to rewind' : 'Rewind to before this message'}
-                  ariaLabel="Rewind to before this message"
-                  disabled={actions.isSessionRunning}
+            {isEditing ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCancelEdit}
+                  className="inline-flex items-center rounded-[var(--radius-xl)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  title="Cancel"
                 >
-                  <History className="w-3.5 h-3.5" />
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveAndRetry}
+                  disabled={!draft.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] shadow-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Send"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Send
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                {actions?.onRewind ? (
+                  <IconButton
+                    onClick={() => actions.onRewind?.()}
+                    title={actions.isSessionRunning ? 'Stop the session to rewind' : 'Rewind to before this message'}
+                    ariaLabel="Rewind to before this message"
+                    disabled={actions.isSessionRunning}
+                  >
+                    <History className="w-3.5 h-3.5" />
+                  </IconButton>
+                ) : null}
+                <IconButton
+                  onClick={handleRetry}
+                  title={retryTitle}
+                  ariaLabel="Retry"
+                  disabled={!actions || !canEditAndRetry}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
                 </IconButton>
-              ) : null}
-              <IconButton
-                onClick={handleRetry}
-                title={retryTitle}
-                ariaLabel="Retry"
-                disabled={!actions || !canEditAndRetry}
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </IconButton>
-              <IconButton
-                onClick={handleEdit}
-                title={editTitle}
-                ariaLabel="Edit"
-                disabled={!actions || !canEditAndRetry}
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </IconButton>
-              <IconButton onClick={handleCopy} title={copyTitle} ariaLabel="Copy">
-                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              </IconButton>
-            </div>
+                <IconButton
+                  onClick={handleEdit}
+                  title={editTitle}
+                  ariaLabel="Edit"
+                  disabled={!actions || !canEditAndRetry}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </IconButton>
+                <IconButton onClick={handleCopy} title={copyTitle} ariaLabel="Copy">
+                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                </IconButton>
+              </div>
+            )}
+          </div>
+          {sentAsGoal && !isEditing && (
+            <span className="inline-flex shrink-0 items-center gap-2 pr-1 font-normal leading-5 select-none">
+              <TargetArrow className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+              <span>Sent as goal</span>
+            </span>
           )}
         </div>
       </div>
@@ -588,10 +609,12 @@ export function AssistantCopyAction({
   text,
   className,
   inline = false,
+  completedGoals = [],
 }: {
   text: string;
   className?: string;
   inline?: boolean;
+  completedGoals?: ThreadGoal[];
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -614,7 +637,8 @@ export function AssistantCopyAction({
     <div
       className={cn(
         inline ? 'flex items-center justify-start' : 'mt-1 flex items-center justify-start',
-        'opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto',
+        'opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto motion-reduce:transition-none',
+        completedGoals.length > 0 && 'flex-wrap gap-y-1',
         className
       )}
     >
@@ -625,7 +649,25 @@ export function AssistantCopyAction({
       >
         {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
       </IconButton>
+      {completedGoals.map((goal) => <GoalCompletionBadge key={`${goal.createdAt}:${goal.objective}`} goal={goal} />)}
     </div>
+  );
+}
+
+function GoalCompletionBadge({ goal }: { goal: ThreadGoal }) {
+  const duration = Number.isFinite(goal.timeUsedSeconds) && goal.timeUsedSeconds > 0
+    ? formatDurationLabel(Math.floor(goal.timeUsedSeconds) * 1000) : null;
+  const details = [
+    goal.displayObjective ?? goal.objective,
+    goal.claude ? `${goal.claude.iterations} ${goal.claude.iterations === 1 ? 'check' : 'checks'}` : null,
+    goal.claude?.lastReason ? `Last check: ${goal.claude.lastReason}` : null,
+  ].filter(Boolean).join('\n\n');
+  return (
+    <span className="goal-completion-summary ml-1.5 inline-flex items-center gap-1.5 text-xs leading-5 text-[var(--text-muted)]" title={details}>
+      <span className="h-3 border-l border-[var(--border)]" aria-hidden="true" />
+      <TargetArrow className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>{duration ? `Goal achieved in ${duration}` : 'Goal achieved'}</span>
+    </span>
   );
 }
 
@@ -638,6 +680,7 @@ function AssistantCard({
   subagentMessagesByParent,
   presentation,
   hideCopyBar,
+  completedGoals,
 }: {
   message: AssistantMessage;
   toolStatusMap: Map<string, ToolStatus>;
@@ -645,6 +688,7 @@ function AssistantCard({
   subagentMessagesByParent?: Map<string, StreamMessage[]>;
   presentation: 'answer' | 'progress';
   hideCopyBar?: boolean;
+  completedGoals?: ThreadGoal[];
 }) {
   const isStreaming = message.streaming === true;
   const isProgress = presentation === 'progress';
@@ -721,7 +765,7 @@ function AssistantCard({
       {!isProgress && memoryCitationBlocks.map((block, idx) => (
         <MemoryCitationsBlock key={`memory-citations-${idx}`} block={block} />
       ))}
-      {showCopyBar ? <AssistantCopyAction text={markdownToCopy} /> : null}
+      {showCopyBar ? <AssistantCopyAction text={markdownToCopy} completedGoals={completedGoals} /> : null}
     </div>
   );
 }
