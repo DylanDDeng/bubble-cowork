@@ -3597,7 +3597,6 @@ button.aegis-mdx-metadata-key:hover {
 
 .aegis-new-thread-composer-tray {
   border-radius: var(--new-thread-composer-radius, 24px);
-  background: var(--bg-secondary);
 }
 
 .aegis-new-thread-composer-surface {
@@ -3620,7 +3619,11 @@ button.aegis-mdx-metadata-key:hover {
   min-width: 0;
   align-items: center;
   gap: 0;
-  padding: 6px 8px;
+  margin-inline: 14px;
+  margin-bottom: -12px;
+  padding: 6px 6px 18px;
+  border-radius: 18px 18px 0 0;
+  background: color-mix(in srgb, var(--text-primary) 4%, var(--bg-primary));
 }
 
 .aegis-composer-context-pill {

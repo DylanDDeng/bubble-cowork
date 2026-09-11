@@ -64,12 +64,21 @@ app.whenReady().then(async()=>{
  const shot=async name=>{await delay(200);fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});fs.writeFileSync(path.join(process.env.QA_CAPTURE,name+'.png'),(await win.webContents.capturePage()).toPNG());};
  const rect=selector=>js('document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect().toJSON()');
  const measure=async()=>({composer:await rect('.aegis-new-thread-composer'),heading:await rect('h1'),height:await js('innerHeight')});
+ const checkContextTray=async()=>{
+  const row=await rect('.aegis-composer-context-row');const surface=await rect('.aegis-new-thread-composer-surface');
+  assert(row.top<surface.top,'environment controls are above the input');
+  assert.equal(row.left-surface.left,14,'tray is inset on the left');
+  assert.equal(surface.right-row.right,14,'tray is inset on the right');
+  assert.equal(row.bottom-surface.top,12,'input overlaps the tray');
+  assert(await js('Array.from(document.querySelectorAll(".aegis-composer-context-row button")).every(b=>b.getBoundingClientRect().bottom<=document.querySelector(".aegis-new-thread-composer-surface").getBoundingClientRect().top)'),'input does not cover environment controls');
+ };
  const select=async(entrance,destination)=>{await click(entrance);assert.equal(await js('document.activeElement.getAttribute("aria-label")'),'Search projects');await js('Array.from(document.querySelectorAll("[cmdk-item][title]")).find(x=>x.title===qa.'+destination+').click()');await delay(250);};
  try{
   await win.loadURL(process.env.QA_URL);await until('!!window.qa && !!document.querySelector("[role=textbox]")','initial composer');
   await until('document.querySelector("h1").innerText.includes("build in")','git heading');
   const initial=await measure();assert(Math.abs(initial.height-initial.composer.bottom-16)<2,'composer is 16px from bottom');
   assert(initial.composer.top-initial.heading.bottom>100,'hero is separate from composer');
+  await checkContextTray();
   const logo=await rect('.aegis-new-thread-logo');
   assert.equal(logo.width,56);assert.equal(logo.height,56);
   assert(Math.abs(initial.heading.top-logo.bottom-24)<1,'logo has 24px title gap');
@@ -97,6 +106,7 @@ app.whenReady().then(async()=>{
   await shot('long-project');
   win.setContentSize(390,700);await delay(200);
   const narrow=await measure();assert(Math.abs(narrow.height-narrow.composer.bottom-16)<2);
+  await checkContextTray();
   assert(narrow.heading.height>48,'long title wraps');
   assert.equal(await js('document.documentElement.scrollWidth>innerWidth'),false);
   assert(await js('Array.from(document.querySelectorAll(".aegis-composer-toolbar button,.aegis-composer-context-row button")).every(b=>{const r=b.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})'),'all controls remain inside viewport');
@@ -145,6 +155,7 @@ app.whenReady().then(async()=>{
   await select('[aria-label^="Switch project:"]','Alpha');
   assert((await js('document.querySelector("[role=textbox]").textContent')).includes('Draft session text'));
   await shot('draft-task-light');
+  await checkContextTray();
   assert.equal(await js('document.querySelectorAll(".aegis-new-thread-logo").length'),1,'draft entry uses the same home logo');
   const draft=await measure();assert(Math.abs(draft.height-draft.composer.bottom-16)<2);
   // Clearing the folder restores the projectless heading and leaves a chooser.

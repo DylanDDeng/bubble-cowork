@@ -3,7 +3,7 @@ import { Popover } from '@base-ui-components/react/popover';
 import { Command } from 'cmdk';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
-import { Check, ChevronDown, Folder, Plus, Search } from './icons';
+import { Check, Folder, Plus, Search } from './icons';
 
 export function ComposerProjectPicker({ cwd, onSelect, disabled = false, variant = 'control', projectName: label }: {
   cwd: string;
@@ -67,7 +67,6 @@ export function ComposerProjectPicker({ cwd, onSelect, disabled = false, variant
           {variant === 'hero' ? `${projectName}?` : <>
             <Folder className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 truncate">{projectName || 'Choose project'}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
           </>}
         </Popover.Trigger>
         <Popover.Portal>

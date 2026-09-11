@@ -3,7 +3,7 @@ import { ComposerProjectPicker } from './ComposerProjectPicker';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import * as Dialog from '@/ui/components/ui/dialog';
 import { toast } from 'sonner';
-import { GitBranch, GitFork, ChevronDown, Check, Monitor, Plus, Search, X } from './icons';
+import { GitBranch, GitFork, Check, Monitor, Plus, Search, X } from './icons';
 import { useGitBranches } from '../hooks/useGitBranches';
 
 export const CONTEXT_PILL_CLASS = 'aegis-composer-context-pill';
@@ -137,7 +137,6 @@ export function ComposerContextPills({
               <span className="min-w-0 truncate">
                 {startMode === 'worktree' ? 'New worktree' : 'Local'}
               </span>
-              <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
@@ -147,20 +146,15 @@ export function ComposerContextPills({
               sideOffset={6}
               className="z-50 w-[300px] rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
             >
-              <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
-                Start mode
+              <div className="px-2 py-1 text-[12px] font-normal text-[var(--text-muted)]">
+                Work in
               </div>
               <DropdownMenu.Item
                 onSelect={() => onStartModeChange('local')}
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 outline-none data-[highlighted]:bg-[var(--bg-tertiary)]"
               >
                 <Monitor className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] text-[var(--text-primary)]">Local</span>
-                  <span className="block text-[11px] text-[var(--text-muted)]">
-                    Run in the project working tree
-                  </span>
-                </span>
+                <span className="min-w-0 flex-1 text-[13px] text-[var(--text-primary)]">Local</span>
                 {startMode !== 'worktree' ? (
                   <Check className="h-4 w-4 shrink-0 text-[var(--accent)]" />
                 ) : null}
@@ -170,12 +164,7 @@ export function ComposerContextPills({
                 className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 outline-none data-[highlighted]:bg-[var(--bg-tertiary)]"
               >
                 <GitFork className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] text-[var(--text-primary)]">New worktree</span>
-                  <span className="block text-[11px] text-[var(--text-muted)]">
-                    Isolated checkout on its own branch; squash-merge back when done
-                  </span>
-                </span>
+                <span className="min-w-0 flex-1 text-[13px] text-[var(--text-primary)]">New worktree</span>
                 {startMode === 'worktree' ? (
                   <Check className="h-4 w-4 shrink-0 text-[var(--accent)]" />
                 ) : null}
@@ -199,7 +188,6 @@ export function ComposerContextPills({
                     <GitBranch className="h-3.5 w-3.5" />
                   </span>
                   <span className="min-w-0 truncate">{branch}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
                 </button>
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>

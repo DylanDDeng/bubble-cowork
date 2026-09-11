@@ -118,10 +118,10 @@ export function PromptInput({
    * chat and new-thread composers both use 'top'. */
   menuSide?: 'top' | 'bottom';
   /** 'chat' is the bottom composer (large rounded pill, no tray). 'landing'
-   * wraps the input in a subtle gray tray that also holds `footer`, matching
+   * places the context controls (`footer`) above the input on an inset tray, matching
    * the new-thread first-entry composer. */
   composerSurface?: 'chat' | 'landing';
-  /** Content rendered inside the composer tray, below the input (landing only) —
+  /** Content rendered inside the inset tray, above the input (landing only) —
    * e.g. the project / branch context pills. */
   footer?: ReactNode;
 } = {}) {
@@ -1593,6 +1593,7 @@ export function PromptInput({
               />
             </div>
           ) : null}
+          {footer && isLandingSurface ? footer : null}
           {approvalPending && approvalPanel ? (
             approvalPanel
           ) : (
@@ -1905,7 +1906,6 @@ export function PromptInput({
           </div>
           </div>
           )}
-          {footer && isLandingSurface ? footer : null}
         </div>
       </div>
     </div>

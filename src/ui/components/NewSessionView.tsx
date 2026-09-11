@@ -627,6 +627,16 @@ export function NewSessionView() {
                 </div>
               ) : null}
 
+              <ComposerContextPills
+                cwd={cwd || null}
+                projectName={projectName}
+                hasSelectedCwd={hasSelectedCwd}
+                disabled={pendingStart}
+                onSelectRecent={handleCwdChange}
+                startMode={startMode}
+                onStartModeChange={setStartMode}
+              />
+
               <div {...attachmentImport.dropProps} data-composer-drop-zone onMouseDown={focusComposerFromSurface} className="aegis-new-thread-composer-surface">
                 {attachmentImport.isImporting && <div role="status" className="px-4 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
                 {attachments.length > 0 && (
@@ -842,16 +852,6 @@ export function NewSessionView() {
                   </div>
                 </div>
               </div>
-
-              <ComposerContextPills
-                cwd={cwd || null}
-                projectName={projectName}
-                hasSelectedCwd={hasSelectedCwd}
-                disabled={pendingStart}
-                onSelectRecent={handleCwdChange}
-                startMode={startMode}
-                onStartModeChange={setStartMode}
-              />
             </div>
       </NewThreadLanding>
     </div>
