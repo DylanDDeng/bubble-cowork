@@ -1,6 +1,7 @@
 import { buildDeepseekPromptBlocks, deepseekImageBlocks, deepseekToolImages, resolveDeepseekAttachmentHome } from './deepseek-images';
 import { deepseekImageInputError } from '../../../shared/deepseek-images';
 import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
+import { getSessionProjectSources } from '../session-store';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -647,6 +648,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
           ELECTRON_RUN_AS_NODE: '1',
           DSH_SESSION_ROOT: resolveDeepseekSessionRoot(profileDir),
           AEGIS_DSH_ATTACHMENT_HOME: resolveDeepseekAttachmentHome(),
+          AEGIS_DSH_PROJECT_ROOTS: JSON.stringify(getSessionProjectSources(threadId, cwd)),
           ...(resumeSessionId ? { AEGIS_DSH_RESUME_SESSION_ID: resumeSessionId } : {}),
         },
         cwd,

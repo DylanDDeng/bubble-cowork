@@ -1,3 +1,5 @@
+import { useSessionOrganization } from '../../store/useSessionOrganizationStore';
+import { Folder } from '../icons';
 import { useSessionPullRequests } from './useSessionPullRequests';
 import { EnvironmentPullRequestsSection } from './EnvironmentPullRequestsSection';
 import './environment-summary.css';
@@ -321,6 +323,10 @@ export function EnvironmentHub({
     void git.refresh();
   }, [context.contextKey, open]);
 
+  const organization = useSessionOrganization();
+  const projectSources = organization.projectSources?.[context.projectCwd || ''] || [];
+  const hasProjectFolders = projectSources.length > 1;
+
   const copyPath = async (path: string | null) => {
     if (!path) return;
     try {
@@ -341,7 +347,7 @@ export function EnvironmentHub({
 
   // A plain directory has no Git environment to summarize. Other task
   // sections remain available independently when they contain information.
-  if (knownNonGit && !hasComputerUse && subagents.length === 0 && prs.items.length === 0 && !prs.error) return null;
+  if (knownNonGit && !hasProjectFolders && !hasComputerUse && subagents.length === 0 && prs.items.length === 0 && !prs.error) return null;
 
   return (
     <div className="relative">
@@ -459,6 +465,18 @@ export function EnvironmentHub({
             </> : null}
             {!context.unavailableReason ? (
               <>
+                {hasProjectFolders ? (
+                  <section className="environment-summary-section" aria-label="Project folders">
+                    <div className="px-2 text-[11px] font-medium text-[var(--text-muted)]">Project folders</div>
+                    {projectSources.map(folder => (
+                      <button key={folder} type="button" className="environment-summary-row" title={folder} onClick={() => void copyPath(folder)}>
+                        <Folder className="h-3.5 w-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">{folder.split(/[\\/]/).filter(Boolean).pop() || folder}</span>
+                        <Copy className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
+                      </button>
+                    ))}
+                  </section>
+                ) : null}
                 <EnvironmentPullRequestsSection prs={prs} />
                 <EnvironmentComputerUseSection
                   session={context.session}

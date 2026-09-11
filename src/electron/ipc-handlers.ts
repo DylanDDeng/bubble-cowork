@@ -3,6 +3,9 @@ import type { GoalAction } from '../shared/session-goal';
 import { parseGoalInput } from '../shared/session-goal';
 import { getClaudeGoalController, readClaudeGoalState, awaitClaudeGoalSet, removeClaudeGoalState } from './libs/claude-goal-manager';
 import { validateClaudeGoalObjective } from './libs/claude-goal';
+import { canonicalProjectPath } from './libs/project-paths';
+import { setupSessionProjectIPC } from './ipc/session-project';
+import { broadcastSessionEvent } from './ipc/session-windows';
 import { getGitPullRequestInfo, parseGitHubRepoFromRemote } from './libs/git-pull-requests';
 import { setupSessionPullRequestsIPC } from './ipc/session-pull-requests';
 import { disposeSessionHttpServer } from './libs/session-http-server';
@@ -3775,6 +3778,8 @@ function flushDeepseekRunners(): void {
  * old checkout. Callers gate on DB status, so the handle is idle; a Claude
  * runner with an in-flight turn (defensive) is doomed like flushClaudeRunners.
  */
+const staleProjectSourceSessions = new Set<string>();
+
 function retireSessionRunner(sessionId: string): void {
   const entry = runnerHandles.get(sessionId);
   if (!entry) return;
@@ -3856,12 +3861,12 @@ function getSessionState(sessionId: string): SessionState {
 }
 
 // 广播事件到渲染进程
+function sendSessionReply(win: BrowserWindow, event: ServerEvent): void {
+  if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('server-event', JSON.stringify(event));
+}
+
 function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
-  // 检查窗口和 webContents 是否已销毁
-  if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
-    return;
-  }
-  mainWindow.webContents.send('server-event', JSON.stringify(event));
+  broadcastSessionEvent(mainWindow, event);
 }
 
 function getAutomationSnapshot() {
@@ -5072,10 +5077,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   // 处理客户端事件
   ipcMain.removeAllListeners('client-event');
-  ipcMainOn('client-event', async (_, eventJson: string) => {
+  ipcMainOn('client-event', async (request, eventJson: string) => {
     try {
       const event: ClientEvent = JSON.parse(eventJson);
-      await handleClientEvent(mainWindow, event);
+      await handleClientEvent(mainWindow, event, BrowserWindow.fromWebContents(request.sender) ?? mainWindow);
     } catch (error) {
       console.error('Error handling client event:', error);
       broadcast(mainWindow, {
@@ -5379,7 +5384,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   }
 
   ipcMainHandle('fork-session', async (_event, sourceSessionId: string, options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }) => {
-    return forkSessionInternal(sourceSessionId, options);
+    const result = await forkSessionInternal(sourceSessionId, options);
+    if (result.ok) handleSessionList(mainWindow);
+    return result;
   });
 
   // Provider handoff: sessions are locked to one agent; switching creates a
@@ -5691,9 +5698,23 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return { ok: true, filesAvailable: result.filesAvailable, files: result.files, removedPrompt };
   });
 
-  // 把现有 thread 本身挪进新 worktree（不 fork 对话，provider 无关）：
-  // 同一个会话继续聊，只是 cwd 换成隔离检出。
   const movesInFlight = new Set<string>();
+  setupSessionProjectIPC({
+    isMoving: id => movesInFlight.has(id),
+    retireRunner: retireSessionRunner,
+    changed: id => broadcastSessionWorkspace(mainWindow, id),
+    sourcesChanged: projectCwd => {
+      for (const row of sessions.listSessions()) {
+        const cwd = row.project_cwd || row.cwd;
+        if (cwd && canonicalProjectPath(cwd) === projectCwd) {
+          if (row.status === 'running') staleProjectSourceSessions.add(row.id);
+          else retireSessionRunner(row.id);
+        }
+      }
+    },
+  });
+
+  // 同一个会话继续聊，只是 cwd 换成隔离检出。
   ipcMainHandle('move-session-to-worktree', async (_event, sessionId: string) => {
     const row = sessions.getSession(sessionId);
     if (!row) return { ok: false, message: 'Session not found.' };
@@ -8730,11 +8751,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 // 处理客户端事件
 async function handleClientEvent(
   mainWindow: BrowserWindow,
-  event: ClientEvent
+  event: ClientEvent,
+  replyWindow: BrowserWindow = mainWindow
 ): Promise<void> {
   switch (event.type) {
     case 'session.list':
-      handleSessionList(mainWindow);
+      handleSessionList(replyWindow, true);
       flushSessionLink();
       break;
 
@@ -8751,7 +8773,7 @@ async function handleClientEvent(
       break;
 
     case 'session.history':
-      handleSessionHistory(mainWindow, event.payload.sessionId);
+      handleSessionHistory(replyWindow, event.payload.sessionId, true);
       break;
 
     case 'session.stop':
@@ -8915,21 +8937,22 @@ function buildSessionInfoFromRow(
 }
 
 // 会话列表
-function handleSessionList(mainWindow: BrowserWindow): void {
+function handleSessionList(mainWindow: BrowserWindow, replyOnly = false): void {
+  const emit = replyOnly ? sendSessionReply : broadcast;
   const rows = sessions.listSessions();
   const latestClaudeModelUsageBySession = sessions.getLatestClaudeModelUsageBySession();
   const sessionInfos: SessionInfo[] = rows.map((row) =>
     buildSessionInfoFromRow(row, latestClaudeModelUsageBySession[row.id])
   );
 
-  broadcast(mainWindow, {
+  emit(mainWindow, {
     type: 'session.list',
     payload: { sessions: sessionInfos },
   });
 
   // 同时发送文件夹列表
   const folders = folderConfig.listFolders();
-  broadcast(mainWindow, {
+  emit(mainWindow, {
     type: 'folder.list',
     payload: { folders },
   });
@@ -9049,7 +9072,7 @@ async function handleSessionStart(
     ? outgoingPrompt
     : (effectivePrompt ?? sourcePrompt).trim();
   const runnerPrompt = chosenProvider === 'claude' && parseGoalInput(sourcePrompt, false).isGoal ? sourcePrompt : augmentPromptForLiveWidgetProtocol(
-    await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt + referenceContext, sessionCwd),
+    await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt + referenceContext + sessions.buildProjectSourcesContext(normalizedProjectCwd, isolated?.worktreePath || normalizedWorktreePath || sessionCwd, Boolean(isolated) || normalizedEnvMode === 'worktree'), sessionCwd),
   );
   const selectedModel = normalizeProviderModel(chosenProvider, model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
@@ -9473,6 +9496,11 @@ async function handleSessionContinue(
     }
   }
 
+  // Apply new shared roots on the next idle turn without interrupting live work.
+  if (staleProjectSourceSessions.has(sessionId) && sessions.getSession(sessionId)?.status !== 'running') {
+    retireSessionRunner(sessionId);
+    staleProjectSourceSessions.delete(sessionId);
+  }
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
@@ -9558,7 +9586,7 @@ async function handleSessionContinue(
     sessions.clearSessionHandoffPending(sessionId);
   }
   const runnerPrompt = nextProvider === 'claude' && parseGoalInput(prompt, false).isGoal ? prompt.trim() : augmentPromptForLiveWidgetProtocol(
-    await buildRunnerPromptWithMemory(nextProvider, effectiveRunnerPrompt + referenceContext, session.cwd || undefined),
+    await buildRunnerPromptWithMemory(nextProvider, effectiveRunnerPrompt + referenceContext + sessions.buildProjectSourcesContext(session.project_cwd || session.cwd, session.cwd, session.env_mode === 'worktree' && Boolean(session.worktree_path)), session.cwd || undefined),
     historyBeforeContinue
   );
   const previousOpenCodePermissionMode = normalizeOpenCodePermissionMode(session.opencode_permission_mode);
@@ -11357,10 +11385,11 @@ async function handleRunnerPrewarm(
 }
 
 // 获取会话历史
-function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): void {
+function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string, replyOnly = false): void {
+  const emit = replyOnly ? sendSessionReply : broadcast;
   const session = sessions.getSession(sessionId);
   if (!session) {
-    broadcast(mainWindow, {
+    emit(mainWindow, {
       type: 'runner.error',
       payload: { message: 'Unknown session', sessionId },
     });
@@ -11377,7 +11406,7 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
         ? sanitizeStoredClaudeHistoryPage(sessionId, messages)
         : messages;
 
-    broadcast(mainWindow, {
+    emit(mainWindow, {
       type: 'session.history',
       payload: {
         sessionId,
@@ -11388,7 +11417,7 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
       },
     });
   })().catch((error) => {
-    broadcast(mainWindow, {
+    emit(mainWindow, {
       type: 'runner.error',
       payload: {
         message: error instanceof Error ? error.message : 'Failed to load session history.',

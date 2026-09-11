@@ -1,4 +1,6 @@
+import { getSessionProjectSources } from './session-store';
 import { createClaudeGoalController, releaseClaudeGoalController, rejectClaudeGoalSet } from './claude-goal-manager';
+import { isWithinProjectPath } from './project-paths';
 import { createSessionSdkMcpServer, SESSION_MCP_SERVER_NAME } from './session-mcp';
 import type {
   McpServerConfig as SDKMcpServerConfig,
@@ -839,6 +841,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             ? { type: 'preset', preset: 'claude_code', append: memoryAppend }
             : { type: 'preset', preset: 'claude_code' },
           cwd: sessionCwd,
+          additionalDirectories: getSessionProjectSources(session.id, sessionCwd).slice(1),
           resume: resumeSessionId,
           abortController,
           includePartialMessages: true,
@@ -990,7 +993,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                   if (normalized && toolName === 'Read' && goalController.ownsObjectiveFile(normalized.resolved)) {
                     return { behavior: 'allow' as const, updatedInput: { ...updatedInput, file_path: normalized.resolved } };
                   }
-                  if (normalized && !normalized.isWithin) {
+                  if (normalized && !getSessionProjectSources(session.id, session.cwd).some(root => isWithinProjectPath(normalized.resolved, root))) {
                     if (isFullAccess) {
                       return {
                         behavior: 'allow' as const,

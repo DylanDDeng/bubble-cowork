@@ -552,7 +552,7 @@ export interface AppActions {
     edge: import('./store/layout-tree').SplitEdge
   ) => void;
   // Fork a session's conversation and open the fork in a new pane.
-  forkSessionToPane: (sessionId: string) => Promise<void>;
+  forkSessionToPane: (sessionId: string, destination?: 'pane' | 'local' | 'worktree') => Promise<void>;
   handoffSessionToProvider: (sessionId: string, targetProvider: AgentProvider) => Promise<void>;
   setSessionAgentSelection: (
     sessionId: string,

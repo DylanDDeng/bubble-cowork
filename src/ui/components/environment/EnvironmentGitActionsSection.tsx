@@ -86,6 +86,7 @@ export function useEnvironmentGitActions({
   const mutatingDisabledReason =
     context.unavailableReason ||
     (!overview.hasRepo ? 'Not a Git repository.' : null) ||
+    (!overview.ok ? 'Git state is unavailable. Refresh and try again.' : null) ||
     (!overview.branch ? 'Checking current branch.' : null) ||
     (context.isRunning ? 'The active task is running.' : null) ||
     (overview.branch === 'HEAD' ? 'Detached HEAD is not supported for this action.' : null);
@@ -530,7 +531,9 @@ export function EnvironmentGitActionsSection({
         label={actions.operationLabel || 'Commit or push'}
         detail={!actions.busy && !hasChanges && overview.aheadCount > 0 ? `${overview.aheadCount} to push` : undefined}
         title={primaryReason}
-        disabled={git.loading || (!canCommit && !canPush)}
+        // Background refresh retains a valid overview. Use its eligibility until
+        // new data arrives; validateSnapshot checks again before any Git write.
+        disabled={!canCommit && !canPush}
         loading={Boolean(actions.operationLabel)}
         onClick={() => hasChanges ? actions.openCommitDialog('commit') : void actions.runPush()}
       />
@@ -541,7 +544,7 @@ export function EnvironmentGitActionsSection({
           loading={actions.syncLoading}
           detail={`${overview.behindCount} behind`}
           title={syncReason}
-          disabled={git.loading || !canSync}
+          disabled={!canSync}
           onClick={() => void actions.runSync()}
         />
       ) : null}
@@ -561,7 +564,7 @@ export function EnvironmentGitActionsSection({
           />
           <button
             className="h-7 shrink-0 rounded-md px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] disabled:opacity-50"
-            disabled={!prs.canAttach || git.loading}
+            disabled={!prs.canAttach || !overview.ok || !overview.branch}
             onClick={() => void prs.attach(pr.url)}
           >{prs.busy ? 'Attaching…' : 'Attach'}</button>
         </div>
@@ -577,7 +580,7 @@ export function EnvironmentGitActionsSection({
         <ActionButton
           icon={GitPullRequest}
           label={actions.prLoading ? 'Creating pull request…' : 'Create pull request'}
-          disabled={git.loading || actions.prLoading}
+          disabled={!canCreatePr}
           loading={actions.prLoading}
           onClick={() => void actions.runCreatePr()}
         />

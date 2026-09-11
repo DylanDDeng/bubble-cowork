@@ -36,6 +36,8 @@ const {Toaster}=await import('sonner');
 const {EnvironmentHub}=await import('/src/ui/components/environment/EnvironmentHub.tsx');
 const {useGitEnvironment}=await import('/src/ui/components/environment/useGitEnvironment.ts');
 const {useAppStore}=await import('/src/ui/store/useAppStore.ts');
+const {useSessionOrganizationStore}=await import('/src/ui/store/useSessionOrganizationStore.ts');
+qa.organization=useSessionOrganizationStore;
 const draft=useAppStore.getState().createDraftSession('/projects/podcast');
 const base={...useAppStore.getState().sessions[draft],id:'fixture',isDraft:false,status:'idle',messages:[]};
 function GitProbe(){
@@ -88,9 +90,14 @@ app.whenReady().then(async()=>{
  await win.loadURL(process.env.QA_URL);
  for(let i=0;i<100;i++){if(await js('!!window.qa?.setMode'))break;await delay(100)}
  assert.equal(await js('!!document.querySelector("button[title=Environment]")'),false,'non-Git without other sections has no empty card');
+ await js('qa.organization.setState({projectSources:{"/projects/podcast":["/projects/podcast","/projects/shared-assets"]}})');await delay(100);
+ await click('Open environment panel');assert.match(await visible(),/Project folders/);assert.match(await visible(),/shared-assets/);await snap('project-folders');
+ await click('shared-assets');assert.equal(await js('qa.copied'),'/projects/shared-assets');await click('Open environment panel');
+ await js('qa.organization.setState({projectSources:{}})');await delay(100);
  await mode('local-extras');await click('Open environment panel');assert.match(await visible(),/Computer Use/);assert.doesNotMatch(await visible(),/Local|Changes|Commit or push/);await snap('non-git-extras');
  await mode('loading');assert.match(await visible(),/Checking environment/);assert.doesNotMatch(await visible(),/HEAD|stale/);
  await mode('branch-loading');assert.doesNotMatch(await visible(),/HEAD|stale|feature/);
+ assert.equal(await js('[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="Commit or push").disabled'),true,'unknown branch cannot enable mutations');
  await js('qa.patch({branch:"master"})');await delay(100);assert.match(await visible(),/master/);assert.equal(await js('qa.branchReads'),0);
  await click('Open environment panel');await click('Open environment panel');assert.match(await visible(),/master/);assert.doesNotMatch(await visible(),/HEAD/);assert.equal(await js('qa.branchReads'),0,'reopening does not refetch branch list');
  await click('master');assert.match(await visible(),/Loading branches/);assert.equal(await js('!!document.querySelector("button[title=master]")'),true);
@@ -116,10 +123,19 @@ app.whenReady().then(async()=>{
  await mode('unknown');assert.match(await visible(),/Pull request status unavailable/);assert.doesNotMatch(await visible(),/PR unknown|Create pull request/);await snap('pr-unavailable');
  const refreshBefore=await js('qa.refreshes');await click('Pull request status unavailable');assert.equal(await js('qa.refreshes'),refreshBefore+1);
  await mode('pr-loading');assert.doesNotMatch(await visible(),/Checking pull request|status unavailable|Create pull request/);await snap('silent-pr-check');
+ assert.equal(await js('[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="Commit or push").disabled'),false,'cached changes stay actionable during refresh');
+ await click('Open environment panel');await click('Open environment panel');
+ assert.equal(await js('[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="Commit or push").disabled'),false,'reopening during refresh keeps eligibility');
+ await click('Commit or push');assert.match(await visible(),/Commit all changes/);await click('Cancel');await delay(450);
+ // Cached push eligibility is usable, but fresh validation must reject a changed branch.
+ await js('qa.patch({totalChanges:0,aheadCount:2});qa.originalOverview=window.electron.getGitOverview;window.electron.getGitOverview=async()=>({...qa.overview,branch:"changed-externally"});true');await delay(100);
+ await click('Commit or push');assert.deepEqual(await js('qa.calls'),[],'stale branch must not reach a Git mutation');
+ await js('window.electron.getGitOverview=qa.originalOverview;qa.patch({totalChanges:0,aheadCount:0})');await delay(100);
+ assert.equal(await js('[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="Commit or push").disabled'),true,'clean synchronized branch stays disabled during refresh');
  await js('qa.patch({prStatus:"found",pr:{number:42,title:"Cached PR",state:"open",url:"https://github.com/aegis/desktop/pull/42"}})');await delay(100);
  assert.match(await visible(),/Existing pull request/,'keep known PR visible during background checks');assert.doesNotMatch(await visible(),/Checking pull request/);
  await js('qa.patch({totalChanges:0,aheadCount:0})');await delay(100);assert.match(await visible(),/Create pull request/);
- assert.equal(await js('[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="Create pull request").disabled'),true,'background refresh cannot enable premature PR creation');
+ assert.equal(await js('[...document.querySelectorAll("button")].find(e=>e.textContent.trim()==="Create pull request").disabled'),false,'known published branch retains PR creation eligibility during refresh');
  await mode('pr');assert.match(await visible(),/Existing pull request/);assert.match(await visible(),/Attach/);await snap('discovered-pr');
  await click('Attach');assert.match(await visible(),/PR #42/);assert.match(await visible(),/Open/);assert.doesNotMatch(await visible(),/Existing pull request/);await snap('attached-pr');
  await click('Undo');assert.match(await visible(),/Existing pull request/);assert.equal(await js('qa.attached.length'),0);

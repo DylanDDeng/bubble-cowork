@@ -418,7 +418,7 @@ function UserPromptCard({
           <div className="w-full flex flex-col items-end gap-2 mb-1">
             <AttachmentPreviewGrid attachments={imageAttachments} />
             {fileAttachments.length > 0 && (
-              <div className="flex justify-end">
+              <div className="flex min-w-0 max-w-full justify-end">
                 <AttachmentChips attachments={fileAttachments} variant="message" />
               </div>
             )}

@@ -1,3 +1,4 @@
+import { setupSessionWindowsIPC, sessionWindows } from './ipc/session-windows';
 import { app, BrowserWindow, Menu, dialog, shell, ipcMain, nativeTheme, session } from 'electron';
 import { queueSessionLink } from './ipc/session-links';
 import { autoUpdater } from 'electron-updater';
@@ -132,10 +133,10 @@ function setPendingProjectEditorDraft(draft: PendingProjectEditorDraft | null): 
 
 // Synchronous close/quit fallback. Only writes existing editable text files
 // inside the current project root.
-function flushPendingProjectEditorDraftSync(): void {
-  const draft = pendingProjectEditorDraft;
+function flushPendingProjectEditorDraftSync(suppliedDraft?: PendingProjectEditorDraft | null): void {
+  const draft = suppliedDraft === undefined ? pendingProjectEditorDraft : suppliedDraft;
   if (!draft) return;
-  pendingProjectEditorDraft = null;
+  if (suppliedDraft === undefined) pendingProjectEditorDraft = null;
   try {
     const root = path.resolve(draft.cwd || '.');
     const resolved = path.resolve(root, draft.filePath || '');
@@ -1032,63 +1033,90 @@ app.whenReady().then(() => {
   ipcMainHandle('get-update-status', async () => {
     return latestUpdateStatus;
   });
-  ipcMainHandle('get-ui-resume-state', async () => {
-    return latestUiResumeState;
+  ipcMainHandle('get-ui-resume-state', async event => {
+    return sessionWindows.has(event.sender.id) ? null : latestUiResumeState;
   });
   ipcMainOn('get-ui-resume-state-sync', (event) => {
-    event.returnValue = latestUiResumeState;
+    event.returnValue = sessionWindows.has(event.sender.id) ? null : latestUiResumeState;
   });
   ipcMainHandle('save-ui-resume-state', async (_event, state: import('../shared/types').UiResumeState) => {
-    saveUiResumeState(state);
+    if (!sessionWindows.has(_event.sender.id)) saveUiResumeState(state);
     return { ok: true };
   });
   ipcMainOn('save-ui-resume-state-sync', (event, state: import('../shared/types').UiResumeState) => {
-    saveUiResumeState(state);
+    if (!sessionWindows.has(event.sender.id)) saveUiResumeState(state);
     event.returnValue = { ok: true };
   });
   // Origin-independent renderer state. The preload snapshots the full map
   // synchronously at page load (mirrors how localStorage hydrates), then
   // forwards writes here.
   ipcMainOn('renderer-state:get-all-sync', (event) => {
-    event.returnValue = loadRendererState();
+    event.returnValue = sessionWindows.get(event.sender.id)?.rendererState ?? loadRendererState();
   });
   ipcMainOn('renderer-state:set', (_event, key: string, value: string) => {
     if (typeof key !== 'string' || typeof value !== 'string') return;
+    const secondary = sessionWindows.get(_event.sender.id);
+    if (secondary) { secondary.rendererState[key] = value; return; }
     loadRendererState()[key] = value;
     scheduleRendererStateWrite();
   });
   ipcMainOn('renderer-state:remove', (_event, key: string) => {
     if (typeof key !== 'string') return;
+    const secondary = sessionWindows.get(_event.sender.id);
+    if (secondary) { delete secondary.rendererState[key]; return; }
     delete loadRendererState()[key];
     scheduleRendererStateWrite();
   });
   // Keep the pending editor draft mirrored in the main process. Normal edits
   // use async IPC; blur/unload paths use sync IPC before the renderer freezes.
   ipcMainOn('project-editor-draft-update', (_event, draft: PendingProjectEditorDraft | null) => {
-    setPendingProjectEditorDraft(draft);
+    if (!sessionWindows.has(_event.sender.id)) setPendingProjectEditorDraft(draft);
   });
   ipcMainOn('project-editor-draft-update-sync', (event, draft: PendingProjectEditorDraft | null) => {
-    setPendingProjectEditorDraft(draft);
+    if (!sessionWindows.has(event.sender.id)) setPendingProjectEditorDraft(draft);
     event.returnValue = { ok: true };
   });
   // Called from beforeunload/pagehide to synchronously finish the file write
   // without depending on close/before-quit ordering or in-flight async IPC.
   ipcMainOn('write-project-text-file-sync', (event, draft: PendingProjectEditorDraft | null) => {
-    setPendingProjectEditorDraft(draft);
-    flushPendingProjectEditorDraftSync();
+    if (sessionWindows.has(event.sender.id)) flushPendingProjectEditorDraftSync(draft);
+    else { setPendingProjectEditorDraft(draft); flushPendingProjectEditorDraftSync(); }
     event.returnValue = { ok: true };
   });
   ipcMainHandle('get-app-version', async () => {
     return app.getVersion();
   });
-  ipcMainHandle('get-window-shell-state', async () => {
-    return mainWindow ? getWindowShellState(mainWindow) : { rounded: process.platform === 'darwin' };
+  ipcMainHandle('get-window-shell-state', async event => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return win ? getWindowShellState(win) : { rounded: process.platform === 'darwin' };
   });
   ipcMainHandle('set-theme', async (_event, theme: 'light' | 'dark' | 'system') => {
     nativeTheme.themeSource = theme;
     mainWindow?.setBackgroundColor(getMainWindowBackgroundColor());
     browserManager.applyThemeBackground();
     return { ok: true };
+  });
+  setupSessionWindowsIPC({
+    backgroundColor: getMainWindowBackgroundColor,
+    rendererState: loadRendererState,
+    onCreate: win => {
+      registerWindowShellState(win);
+      let closing = false;
+      let flushed = false;
+      win.on('close', event => {
+        if (flushed) return;
+        event.preventDefault();
+        if (closing) return;
+        closing = true;
+        void requestProjectEditorFlush(win).then(result => {
+          closing = false;
+          if (win.isDestroyed()) return;
+          if (!result.ok) { void dialog.showMessageBox(win, { type: 'error', message: 'Could not save editor changes', detail: result.message || 'Try closing the window again.' }); return; }
+          flushed = true;
+          win.close();
+        });
+      });
+    },
   });
   createWindow();
   scheduleAutomaticUpdateCheck();

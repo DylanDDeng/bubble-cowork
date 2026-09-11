@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X } from '../icons';
+import { Folder, X } from '../icons';
 import { create } from 'zustand';
 import * as Dialog from '@/ui/components/ui/dialog';
 
@@ -17,6 +17,7 @@ import * as Dialog from '@/ui/components/ui/dialog';
 export interface ConfirmDialogOptions {
   title: string;
   description?: string;
+  folders?: string[];
   confirmLabel?: string;
   cancelLabel?: string;
   /** `danger` paints the confirm button in the error tone. */
@@ -100,6 +101,16 @@ export function ConfirmDialogHost() {
             </Dialog.Description>
           ) : null}
 
+          {active.folders?.length ? (
+            <ul className="mt-3 flex max-h-48 flex-col gap-2 overflow-y-auto">
+              {active.folders.map(folder => (
+                <li key={folder} title={folder} className="flex min-w-0 items-center gap-2 text-[13px] text-[var(--text-primary)]">
+                  <Folder className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 truncate">{folder.split(/[\\/]/).filter(Boolean).pop() || folder}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <div className="mt-6 flex items-center justify-end gap-2">
             <button
               type="button"

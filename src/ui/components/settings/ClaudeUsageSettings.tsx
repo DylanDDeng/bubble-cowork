@@ -1771,7 +1771,12 @@ function getProviderLogoForModel(model: string): string | null {
     return claudeLogo;
   }
 
-  if (normalized.startsWith('glm')) {
+  // Bubble usage keeps provider-qualified model IDs, including Coding Plan aliases.
+  const providerId = normalized.split(/[:/]/, 1)[0];
+  if (
+    normalized.startsWith('glm') ||
+    ['zhipu', 'zhipuai', 'zhipuai-coding-plan', 'zai', 'zai-coding-plan'].includes(providerId)
+  ) {
     return zhipuLogo;
   }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FileText, X } from './icons';
+import { File, FileText, X } from './icons';
 import type { Attachment } from '../types';
 import { FileTypeIcon } from './FileTypeIcon';
 
@@ -139,6 +139,34 @@ function ImageAttachmentThumb({
   );
 }
 
+function FileAttachment({ attachment, onRemove, variant }: {
+  attachment: Attachment;
+  onRemove?: (id: string) => void;
+  variant: 'composer' | 'message';
+}) {
+  const format = attachment.name.split('.').pop()?.toUpperCase() || 'FILE';
+  if (variant === 'message') return (
+    <div data-file-attachment="message" className="inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[var(--border)] bg-transparent px-3 text-[13px] text-[var(--text-primary)]" title={attachment.name}>
+      <File aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" strokeWidth={1.5} />
+      <span className="min-w-0 truncate">{attachment.name}</span>
+    </div>
+  );
+  return (
+    <div data-file-attachment="composer" className="relative flex h-14 w-[220px] max-w-full shrink-0 items-center gap-2.5 rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 pr-7" title={attachment.name}>
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-tertiary)]">
+        <File aria-hidden="true" className="h-6 w-6 text-[var(--text-muted)]" strokeWidth={1.5} />
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-[13px] font-medium text-[var(--text-primary)]">{attachment.name}</div>
+        <div className="mt-0.5 text-xs text-[var(--text-muted)]">{format}</div>
+      </div>
+      {onRemove && <button type="button" onClick={() => onRemove(attachment.id)} aria-label={`Remove attachment: ${attachment.name}`} title="Remove attachment" className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-opacity hover:opacity-75">
+        <X className="h-3 w-3" />
+      </button>}
+    </div>
+  );
+}
+
 export function AttachmentChips({
   attachments,
   onRemove,
@@ -195,7 +223,7 @@ export function AttachmentChips({
     variant === 'composer' ? 'border border-[var(--border)]' : 'border border-[var(--border)]';
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className={`flex min-w-0 max-w-full flex-wrap gap-2 ${variant === 'message' ? 'justify-end' : ''}`}>
       {attachments.map((a) => {
         if (a.uiType === 'pasted_text' && a.previewText) {
           return variant === 'message' ? (
@@ -204,6 +232,8 @@ export function AttachmentChips({
             <PastedTextComposerChip key={a.id} attachment={a} onRemove={onRemove} />
           );
         }
+
+        if (a.kind === 'file') return <FileAttachment key={a.id} attachment={a} onRemove={onRemove} variant={variant} />;
 
         const preview = a.kind === 'image' ? previews[a.id] || undefined : undefined;
 

@@ -1,3 +1,4 @@
+import { setupSessionOrganizationIPC } from './session-organization';
 import { setupSessionMenuIPC } from './session-menu';
 import { clipboard } from 'electron';
 import { createSessionLink, parseSessionLink } from '../../shared/session-links';
@@ -36,6 +37,7 @@ export function openSessionLink(url: string): boolean {
 
 export function setupSessionLinksIPC(emit: (event: ServerEvent) => void): void {
   setupSessionMenuIPC();
+  setupSessionOrganizationIPC();
   emitEvent = emit;
   rendererReady = false;
   ipcMainHandle('copy-session-value', async (_, sessionId: string, target: string) => {

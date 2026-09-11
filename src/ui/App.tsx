@@ -1,3 +1,4 @@
+import { TextInputDialogHost } from './components/ui/text-input-dialog';
 import { GoalEditorPanel } from './components/SessionGoal';
 import { useEffect, useRef, useMemo, useState, useCallback, type ReactNode } from 'react';
 import * as Dialog from '@/ui/components/ui/dialog';
@@ -1319,6 +1320,7 @@ export function App() {
 
       {/* Themed replacement for window.confirm() — see confirmDialog() */}
       <ConfirmDialogHost />
+      <TextInputDialogHost />
       <ProjectFileMatchDialogHost />
 
       {/* Toast notifications */}

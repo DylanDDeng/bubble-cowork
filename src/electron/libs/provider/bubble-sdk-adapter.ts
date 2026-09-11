@@ -1,4 +1,5 @@
 import { assertBubbleSessionReader } from '../bubble-session-reader';
+import { isProjectFileApproval } from './project-access';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
@@ -1194,6 +1195,9 @@ export class BubbleSdkAdapter implements ProviderAdapter {
   ): Promise<BubbleApprovalDecision> {
     if (session.status === 'stopped' || this.sessions.get(session.threadId) !== session) {
       return Promise.resolve({ action: 'reject', feedback: 'Session is no longer active.' });
+    }
+    if (isProjectFileApproval(session.threadId, session.cwd, session.permissionMode, request)) {
+      return Promise.resolve({ action: 'approve' });
     }
     const requestId = uuidv4();
     const input = buildApprovalInput(request);

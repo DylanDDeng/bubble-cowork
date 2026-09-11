@@ -618,9 +618,8 @@ export function Sidebar() {
                     <div className="space-y-0.5">
                       <SidebarNavRow
                         icon={<Columns2 className="h-[15px] w-[15px]" />}
-                        label="Board"
+                        label="KanBan"
                         active={activeWorkspace === 'board'}
-                        badge={boardReviewCount}
                         onClick={() => {
                           setActiveWorkspace('board');
                           setChatSidebarView('threads');

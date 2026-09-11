@@ -10,6 +10,8 @@ const PROJECT_DIR = path.resolve(__dirname, '..');
 const REQUIRED_RUNTIME_PATHS = [
   'runtime-bin.mjs',
   'runtime-resume-shim.mjs',
+  'runtime-project-roots.mjs',
+  'runtime-project-roots-windows.mjs',
   'cordis.yml',
   'package.json',
   'node_modules/@deepseek-ai/dsh-app-boot',

@@ -1,3 +1,5 @@
+import { canonicalProjectPath } from './project-paths';
+import type { SessionOrganizationChange, SessionOrganizationSnapshot } from '../../shared/session-organization';
 import type { SessionPullRequest } from '../../shared/types';
 import Database from 'better-sqlite3';
 import { app } from 'electron';
@@ -461,6 +463,25 @@ export function initialize(): void {
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_sources (
+      project_cwd TEXT NOT NULL,
+      source_path TEXT NOT NULL,
+      PRIMARY KEY (project_cwd, source_path)
+    );
+
+    CREATE TABLE IF NOT EXISTS session_sections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS session_organization (
+      session_id TEXT PRIMARY KEY,
+      archived INTEGER NOT NULL DEFAULT 0,
+      unread INTEGER NOT NULL DEFAULT 0,
+      section_id TEXT,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (section_id) REFERENCES session_sections(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS session_pull_requests (
@@ -1174,6 +1195,111 @@ function getDb(): Database.Database {
     throw new Error('Database not initialized');
   }
   return db;
+}
+
+/** The primary folder remains the project identity; extra roots are shared by all its chats. */
+export function getProjectSources(projectCwd: string | null | undefined): string[] {
+  if (!projectCwd) return [];
+  const primary = canonicalProjectPath(projectCwd);
+  const rows = getDb().prepare('SELECT source_path FROM project_sources WHERE project_cwd = ? ORDER BY rowid').all(primary) as { source_path: string }[];
+  return [...new Set([primary, ...rows.map(row => canonicalProjectPath(row.source_path))])];
+}
+
+/** Runtime roots replace the primary checkout with the worktree, keeping extra project folders. */
+export function getSessionProjectSources(sessionId: string, cwd: string): string[] {
+  const row = db ? getSession(sessionId) : undefined;
+  if (!row) return [canonicalProjectPath(cwd)];
+  const sources = getProjectSources(row.project_cwd || row.cwd);
+  const replacePrimary = row.env_mode === 'worktree' && Boolean(row.worktree_path);
+  return [...new Set([canonicalProjectPath(cwd), ...sources.slice(replacePrimary ? 1 : 0)])];
+}
+
+export function buildProjectSourcesContext(projectCwd: string | null | undefined, cwd: string | null | undefined, replacePrimary = false): string {
+  const sources = getProjectSources(projectCwd);
+  if (sources.length < 2) return '';
+  const roots = [...new Set([cwd ? canonicalProjectPath(cwd) : sources[0], ...sources.slice(replacePrimary ? 1 : 0)])];
+  return '\n\n<project_folders>\n' +
+    'Folders attached to this project (absolute paths; additional folders are shared across its chats):\n' +
+    JSON.stringify(roots) + '\nUse absolute paths for files outside the current working directory. Provider permission and plan-mode rules still apply.\n</project_folders>';
+}
+
+export function moveSessionWithProjectSources(sessionId: string, projectCwd: string, sources: string[]): void {
+  getDb().transaction(() => {
+    const insert = getDb().prepare('INSERT OR IGNORE INTO project_sources (project_cwd, source_path) VALUES (?, ?)');
+    const row = getSession(sessionId);
+    const previous = row?.project_cwd || row?.cwd;
+    if (previous) {
+      const primary = canonicalProjectPath(previous);
+      insert.run(primary, primary);
+    }
+    insert.run(projectCwd, projectCwd);
+    for (const source of sources) insert.run(projectCwd, source);
+    updateSessionWorkspace(sessionId, {
+      projectCwd, envMode: 'local', worktreePath: null,
+      associatedWorktreePath: null, associatedWorktreeBranch: null, associatedWorktreeRef: null,
+    });
+  })();
+}
+
+export function getSessionOrganization(): SessionOrganizationSnapshot {
+  const entries = getDb().prepare('SELECT * FROM session_organization').all() as { session_id: string; archived: number; unread: number; section_id: string | null }[];
+  const sections = getDb().prepare('SELECT id, name FROM session_sections ORDER BY rowid').all() as SessionOrganizationSnapshot['sections'];
+  const roots = getDb().prepare('SELECT DISTINCT project_cwd FROM project_sources').all() as { project_cwd: string }[];
+  const projectSources = Object.fromEntries(roots.map(row => [row.project_cwd, getProjectSources(row.project_cwd)]));
+  // UI sessions may still use an alias (e.g. /var versus /private/var).
+  for (const row of listSessions()) {
+    const cwd = row.project_cwd || row.cwd;
+    if (cwd && projectSources[canonicalProjectPath(cwd)]) projectSources[cwd] = projectSources[canonicalProjectPath(cwd)];
+  }
+  return { projectSources, sessions: Object.fromEntries(entries.map(row => [row.session_id, {
+    archived: !!row.archived, unread: !!row.unread, sectionId: row.section_id,
+  }])), sections };
+}
+
+export function changeSessionOrganization(change: SessionOrganizationChange): SessionOrganizationSnapshot {
+  return getDb().transaction(() => {
+    if (!change || typeof change !== 'object') throw new Error('Invalid task organization change.');
+    if ('sessionId' in change) {
+      const session = typeof change.sessionId === 'string' ? getSession(change.sessionId) : null;
+      if (!session || session.hidden_from_threads) throw new Error('This task is no longer available.');
+      if (change.kind === 'archive' && change.archived && session.status === 'running') throw new Error('Stop the task before archiving it.');
+      getDb().prepare('INSERT OR IGNORE INTO session_organization (session_id) VALUES (?)').run(change.sessionId);
+    }
+    const name = () => {
+      const value = 'name' in change && typeof change.name === 'string' ? change.name.replace(/\s+/g, ' ').trim() : '';
+      if (!value || value.length > 80) throw new Error('Use a section name between 1 and 80 characters.');
+      return value;
+    };
+    switch (change.kind) {
+      case 'archive':
+        if (typeof change.archived !== 'boolean') throw new Error('Invalid archive state.');
+        getDb().prepare('UPDATE session_organization SET archived = ? WHERE session_id = ?').run(+change.archived, change.sessionId);
+        break;
+      case 'unread':
+        if (typeof change.unread !== 'boolean') throw new Error('Invalid read state.');
+        getDb().prepare('UPDATE session_organization SET unread = ? WHERE session_id = ?').run(+change.unread, change.sessionId);
+        break;
+      case 'section':
+        if (change.sectionId !== null && (typeof change.sectionId !== 'string' || !getDb().prepare('SELECT id FROM session_sections WHERE id = ?').get(change.sectionId))) throw new Error('This section no longer exists.');
+        getDb().prepare('UPDATE session_organization SET section_id = ? WHERE session_id = ?').run(change.sectionId, change.sessionId);
+        break;
+      case 'create-section': {
+        const id = uuidv4();
+        getDb().prepare('INSERT INTO session_sections (id, name) VALUES (?, ?)').run(id, name());
+        getDb().prepare('UPDATE session_organization SET section_id = ? WHERE session_id = ?').run(id, change.sessionId);
+        break;
+      }
+      case 'rename-section':
+        if (typeof change.sectionId !== 'string' || !getDb().prepare('UPDATE session_sections SET name = ? WHERE id = ?').run(name(), change.sectionId).changes) throw new Error('This section no longer exists.');
+        break;
+      case 'remove-section':
+        if (typeof change.sectionId !== 'string') throw new Error('Invalid section.');
+        getDb().prepare('DELETE FROM session_sections WHERE id = ?').run(change.sectionId);
+        break;
+      default: throw new Error('Unknown organization action.');
+    }
+    return getSessionOrganization();
+  })();
 }
 
 export function listSessionPullRequests(sessionId: string): SessionPullRequest[] {

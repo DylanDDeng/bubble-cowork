@@ -1,3 +1,4 @@
+import { useSessionOrganizationStore, changeSessionOrganization } from './useSessionOrganizationStore';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { rendererStateStorage } from '../utils/renderer-state-storage';
@@ -1366,6 +1367,9 @@ export const useAppStore = create<Store>()(
   },
 
   setActiveSession: (sessionId) => {
+    if (sessionId && useSessionOrganizationStore.getState().sessions[sessionId]?.unread) {
+      void changeSessionOrganization({ kind: 'unread', sessionId, unread: false }).catch(error => toast.error(String(error)));
+    }
     // Load the session into the focused leaf (works for single or N-pane).
     set((state) => {
       const active = tree.getActiveLeaf(state.workspaceLayout);
@@ -1678,7 +1682,7 @@ export const useAppStore = create<Store>()(
     persistUiResumeStateSnapshot(get());
   },
 
-  forkSessionToPane: async (sessionId) => {
+  forkSessionToPane: async (sessionId, destination = 'pane') => {
     const result = await window.electron.forkSession(sessionId);
     if (!result?.ok || !result.session) {
       if (result?.message) toast.error(result.message);
@@ -1686,6 +1690,20 @@ export const useAppStore = create<Store>()(
     }
     const view = freshSessionViewFromInfo(result.session);
     set((state) => ({ sessions: { ...state.sessions, [view.id]: view } }));
+    if (destination !== 'pane') {
+      get().setActiveSession(view.id);
+      if (destination === 'worktree') {
+        try {
+          const moved = await window.electron.moveSessionToWorktree(view.id);
+          if (!moved.ok) throw new Error(moved.message || 'Could not create worktree');
+        } catch (error) {
+          toast.error(`Fork created locally, but worktree creation failed: ${error instanceof Error ? error.message : error}`);
+          return;
+        }
+      }
+      toast.success(destination === 'worktree' ? 'Forked into a new worktree' : 'Conversation forked');
+      return;
+    }
     // Open the fork beside the focused pane (or fill it if the pane is empty).
     const active = tree.getActiveLeaf(get().workspaceLayout);
     if (active.sessionId === null) {

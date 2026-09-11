@@ -18,10 +18,16 @@ export function useIPC() {
       return;
     }
 
+    let initialWindowSession = new URLSearchParams(window.location.search).get('sessionWindow');
     // 订阅服务器事件
     const unsubscribe = window.electron.onServerEvent((event: ServerEvent) => {
       try {
         handleServerEvent(event);
+        if (event.type === 'session.list' && initialWindowSession) {
+          const id = initialWindowSession;
+          initialWindowSession = null;
+          if (useAppStore.getState().sessions[id]) useAppStore.getState().setActiveSession(id);
+        }
       } catch (error) {
         console.error('[IPC] Server event handling error:', error);
         // 错误不会传播到 React，防止全局崩溃

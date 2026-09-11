@@ -102,6 +102,8 @@ assert.deepEqual(
 for (const relativePath of [
   'runtime-bin.mjs',
   'runtime-resume-shim.mjs',
+  'runtime-project-roots.mjs',
+  'runtime-project-roots-windows.mjs',
   'cordis.yml',
   'node_modules/@deepseek-ai/dsh-app-boot',
   'node_modules/@deepseek-ai/dsh-sdk-jsonrpc-server',

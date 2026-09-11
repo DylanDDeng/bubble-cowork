@@ -1,3 +1,4 @@
+import { useAttachmentImport } from '../hooks/useAttachmentImport';
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AttachmentChips } from './AttachmentChips';
@@ -105,6 +106,8 @@ export const TaskFollowUpEditor = forwardRef<
     [setAttachments]
   );
 
+  const attachmentImport = useAttachmentImport(session?.id || null, sending, mergeAttachments);
+
   const capabilityMenu = useComposerCapabilityMenu({
     enabled: Boolean(session),
     enableSkills: true,
@@ -135,10 +138,7 @@ export const TaskFollowUpEditor = forwardRef<
     focusAt(next.cursorIndex);
   };
 
-  const addAttachments = async () => {
-    const selected = await window.electron.selectAttachments();
-    if (selected && selected.length > 0) mergeAttachments(selected);
-  };
+  const addAttachments = () => attachmentImport.choose();
 
   const handlePasteImages = async (
     images: { mimeType: string; data: Uint8Array; name?: string }[]
@@ -199,6 +199,7 @@ export const TaskFollowUpEditor = forwardRef<
   };
 
   const submit = async () => {
+    if (attachmentImport.pending.current > 0) return;
     const displayPrompt = value.trim();
     if ((!displayPrompt && attachments.length === 0) || sending) return;
     setSending(true);
@@ -244,7 +245,8 @@ export const TaskFollowUpEditor = forwardRef<
   const menuPosition = menuSide === 'top' ? 'bottom-full' : 'top-full';
 
   return (
-    <div className="relative">
+    <div className="relative" {...attachmentImport.dropProps} data-composer-drop-zone>
+      {attachmentImport.isImporting && <div role="status" className="px-4 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
       {projectFileMentions.hasMentionQuery ? (
         <div className={`absolute inset-x-0 z-40 ${menuPosition}`}>
           <ProjectFileMentionMenu
@@ -289,6 +291,8 @@ export const TaskFollowUpEditor = forwardRef<
           setCursorIndex(nextCursorIndex);
         }}
         onPasteText={handleLongPaste}
+        onPasteFiles={attachmentImport.files}
+        onPasteNativeFiles={attachmentImport.pasteNative}
         onPasteImages={handlePasteImages}
         onCompositionStart={() => {
           isComposingRef.current = true;

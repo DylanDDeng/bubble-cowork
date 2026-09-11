@@ -1,6 +1,7 @@
 import { materializeGoalObjective, readGoalObjective } from '../codex-goal-objective';
 import { normalizeCodexReasoningEffort } from '../../../shared/codex-reasoning';
 import { validateGoalAction, type GoalAction, type ThreadGoal } from '../../../shared/session-goal';
+import { getSessionProjectSources } from '../session-store';
 import { getSessionReaderCodexArgs, SESSION_TOKEN_ENV_VAR } from '../session-http-server';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
@@ -1337,7 +1338,8 @@ export class CodexAppServerManager extends EventEmitter {
         ...this.buildTurnPermissionOptions(
           session.cwd,
           options.codexPermissionMode || session.codexPermissionMode,
-          options.codexExecutionMode || session.codexExecutionMode
+          options.codexExecutionMode || session.codexExecutionMode,
+          getSessionProjectSources(threadId, session.cwd)
         ),
         ...(await this.resolveServiceTierParam(
           threadId,
@@ -1398,7 +1400,7 @@ export class CodexAppServerManager extends EventEmitter {
         // Always leave Plan. Preserve the server's effective effort when the
         // picker has no override; null is the native default for no effort.
         collaborationMode: { mode: 'default', settings: { model, reasoning_effort: effort ?? null, developer_instructions: null } },
-        ...this.buildTurnPermissionOptions(session.cwd, permission, 'execute'),
+        ...this.buildTurnPermissionOptions(session.cwd, permission, 'execute', getSessionProjectSources(threadId, session.cwd)),
         serviceTier: null,
         ...(await this.resolveServiceTierParam(threadId, model, options.codexFastMode ?? session.codexFastMode)),
       }, REQUEST_TIMEOUT_MS);
@@ -1687,7 +1689,8 @@ export class CodexAppServerManager extends EventEmitter {
   private buildTurnPermissionOptions(
     cwd: string,
     mode: CodexPermissionMode | undefined,
-    executionMode: CodexExecutionMode | undefined
+    executionMode: CodexExecutionMode | undefined,
+    workspaceRoots?: string[]
   ): Record<string, unknown> {
     if (this.normalizeCodexExecutionMode(executionMode) === 'plan') {
       return {
@@ -1715,7 +1718,7 @@ export class CodexAppServerManager extends EventEmitter {
         approvalsReviewer: 'auto_review',
         sandboxPolicy: {
           type: 'workspaceWrite',
-          writableRoots: [cwd || process.cwd()],
+          writableRoots: workspaceRoots ?? [cwd || process.cwd()],
           readOnlyAccess: { type: 'fullAccess' },
           networkAccess: false,
           excludeTmpdirEnvVar: false,
@@ -1729,7 +1732,7 @@ export class CodexAppServerManager extends EventEmitter {
       approvalsReviewer: 'user',
       sandboxPolicy: {
         type: 'workspaceWrite',
-        writableRoots: [cwd || process.cwd()],
+        writableRoots: workspaceRoots ?? [cwd || process.cwd()],
         readOnlyAccess: { type: 'fullAccess' },
         networkAccess: false,
         excludeTmpdirEnvVar: false,

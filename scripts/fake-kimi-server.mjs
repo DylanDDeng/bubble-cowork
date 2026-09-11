@@ -116,6 +116,15 @@ const server = createServer((req, res) => {
       return;
     }
 
+    const modeRoute = /^\/api\/v1\/sessions\/([^/]+)\/(status|profile)$/.exec(url.pathname);
+    if (modeRoute) {
+      const session = sessions.get(modeRoute[1]);
+      if (!session) { respond(40401, null); return; }
+      if (req.method === 'POST') session.planMode = json.agent_config.plan_mode;
+      respond(0, { plan_mode: session.planMode ?? false });
+      return;
+    }
+
     const skillsMatch = /^\/api\/v1\/sessions\/([^/]+)\/skills$/.exec(url.pathname);
     if (skillsMatch && req.method === 'GET') {
       respond(0, {

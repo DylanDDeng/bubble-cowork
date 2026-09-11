@@ -9,11 +9,13 @@ import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { installDeepseekSdkResumeShim } from './runtime-resume-shim.mjs';
+import { installProjectRoots } from './runtime-project-roots.mjs';
 
 const NAME = 'aegis-dsh-sdk-runtime';
 installFailLoud(NAME);
 loadEnv(NAME);
 process.env.AEGIS_DSH_ATTACHMENT_HOME ||= join(homedir(), '.aegis', 'deepseek');
+installProjectRoots();
 installDeepseekSdkResumeShim({ HarnessSdkJsonRpcServer, SessionId });
 // SDK 0.1.5 launches `dshBin --profile sdk --patch <config>`. Aegis owns
 // the complete composition (including temporary MCP rows), so this single

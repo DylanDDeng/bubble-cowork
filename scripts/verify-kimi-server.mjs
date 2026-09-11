@@ -228,6 +228,12 @@ function makeFakeFetch(state) {
     if (u.pathname === '/api/v1/models') {
       return respond(0, { items: [{ model: 'kimi-for-coding', max_context_size: 262144 }] });
     }
+    const modeRoute = /^\/api\/v1\/sessions\/([^/]+)\/(status|profile)$/.exec(u.pathname);
+    if (modeRoute) {
+      state.planModes ||= {};
+      if (method === 'POST') state.planModes[modeRoute[1]] = body.agent_config.plan_mode;
+      return respond(0, { plan_mode: state.planModes[modeRoute[1]] ?? false });
+    }
     if (/\/prompts:steer$/.test(u.pathname)) {
       if (state.steerRaceLost) return respond(40402, null);
       return respond(0, { steered: true, prompt_ids: body.prompt_ids });

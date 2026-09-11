@@ -1139,6 +1139,17 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('session-goal-changed', listener);
     return () => ipcRenderer.removeListener('session-goal-changed', listener);
   },
+  getSessionOrganization: () => ipcRenderer.invoke('get-session-organization'),
+  changeSessionOrganization: (change: import('../shared/session-organization').SessionOrganizationChange) => ipcRenderer.invoke('change-session-organization', change),
+  onSessionOrganizationChanged: (callback: (snapshot: import('../shared/session-organization').SessionOrganizationSnapshot) => void) => {
+    const listener = (_event: unknown, snapshot: import('../shared/session-organization').SessionOrganizationSnapshot) => callback(snapshot);
+    ipcRenderer.on('session-organization-changed', listener);
+    return () => ipcRenderer.removeListener('session-organization-changed', listener);
+  },
+  exportSessionMarkdown: (sessionId: string, share: boolean) => ipcRenderer.invoke('export-session-markdown', sessionId, share),
+  copySessionMarkdown: (sessionId: string) => ipcRenderer.invoke('copy-session-markdown', sessionId),
+  moveSessionProject: (sessionId: string, cwd: string, approvalToken?: string) => ipcRenderer.invoke('move-session-project', sessionId, cwd, approvalToken),
+  openSessionWindow: (sessionId: string) => ipcRenderer.invoke('open-session-window', sessionId),
   showSessionMenu: (request: SessionMenuRequest): Promise<SessionMenuAction | null> => ipcRenderer.invoke('show-session-menu', request),
   copySessionValue: (sessionId: string, target: 'link' | 'cwd'): Promise<void> => ipcRenderer.invoke('copy-session-value', sessionId, target),
   openExternalUrl: (url: string) => {

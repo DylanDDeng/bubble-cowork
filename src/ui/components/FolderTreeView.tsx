@@ -1,3 +1,6 @@
+import { toast } from 'sonner';
+import { useSessionOrganization, useSessionOrganizationStore, changeSessionOrganization } from '../store/useSessionOrganizationStore';
+import { textInputDialog } from './ui/text-input-dialog';
 import { useSessionActionsMenu } from '../hooks/useSessionActionsMenu';
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Tooltip as TooltipPrimitive } from '@base-ui-components/react/tooltip';
@@ -209,6 +212,8 @@ export function FolderTreeView({
     sidebarActivityView,
     setProjectCwd,
   } = useAppStore();
+  const organization = useSessionOrganization();
+  const [showArchived, setShowArchived] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const [expandedSessionGroups, setExpandedSessionGroups] = useState<Set<string>>(
     () => new Set()
@@ -247,7 +252,7 @@ export function FolderTreeView({
   // view 时整组重置。
   const stickyActivityIdsRef = useRef<Set<string>>(new Set());
 
-  const { activitySessions, pinnedSessions, projectGroups, timeGroups } = useMemo(() => {
+  const { activitySessions, pinnedSessions, projectGroups, timeGroups, archivedSessions, sectionGroups } = useMemo(() => {
     let sessionList = Object.values(sessions).filter(
       (session) => !session.hiddenFromThreads && session.scope !== 'dm'
     );
@@ -260,6 +265,15 @@ export function FolderTreeView({
           session.cwd?.toLowerCase().includes(query)
       );
     }
+
+    const archivedSessions = sessionList.filter(session => organization.sessions[session.id]?.archived)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+    sessionList = sessionList.filter(session => !organization.sessions[session.id]?.archived);
+    const sectionGroups = organization.sections.map(section => ({
+      ...section, sessions: sessionList.filter(session => organization.sessions[session.id]?.sectionId === section.id)
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    }));
+    sessionList = sessionList.filter(session => !organization.sessions[session.id]?.sectionId);
 
     // Activity view（对齐 Codex）：把有活动的会话——正在运行的、后台跑完还没
     // 查看的——抽出来置顶成独立分组，其余分组里不再重复出现
@@ -356,8 +370,8 @@ export function FolderTreeView({
       }
     }
 
-    return { activitySessions, pinnedSessions, projectGroups, timeGroups };
-  }, [projectCwd, sessions, sidebarSearchQuery, sidebarActivityView]);
+    return { activitySessions, pinnedSessions, projectGroups, timeGroups, archivedSessions, sectionGroups };
+  }, [projectCwd, sessions, sidebarSearchQuery, sidebarActivityView, organization]);
 
   const createDraftSession = useAppStore((s) => s.createDraftSession);
 
@@ -431,6 +445,25 @@ export function FolderTreeView({
     });
   };
 
+  const renderOrganizedSession = (session: SessionView) => <SessionItem
+    key={session.id} session={session} isActive={isChatWorkspaceActive && openSessionIds.has(session.id)}
+    runtimeBadge={session.runtimeNotice || (session.status === 'running' ? 'running' : null)} depth={0}
+    onClick={() => onSessionClick(session.id)}
+    onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+  />;
+  const editSection = async (id: string, name: string, remove = false) => {
+    try {
+      if (remove) {
+        if (await confirmDialog({ title: `Remove ${name}?`, description: 'Conversations return to their project groups.', confirmLabel: 'Remove section' })) {
+          await changeSessionOrganization({ kind: 'remove-section', sectionId: id });
+        }
+      } else {
+        const next = await textInputDialog({ title: 'Rename section', label: 'Section name', value: name, maxLength: 80 });
+        if (next) await changeSessionOrganization({ kind: 'rename-section', sectionId: id, name: next });
+      }
+    } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+  };
+
   return (
     <div>
       {activitySessions.length > 0 && (
@@ -491,6 +524,22 @@ export function FolderTreeView({
           })}
         </section>
       )}
+
+      {sectionGroups.filter(group => !sidebarSearchQuery || group.sessions.length > 0).map(group => (
+        <section key={group.id} className="mb-4">
+          <div className="group/section mb-1 flex items-center px-2 text-[13px] text-[var(--text-muted)]">
+            <button className="min-w-0 flex-1 truncate text-left" aria-expanded={isExpanded(group.id)} onClick={() => toggleGroupExpanded(group.id)}>{group.name}</button>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<button aria-label={`Manage ${group.name}`} className="flex h-6 w-6 items-center justify-center opacity-0 group-hover/section:opacity-100 focus:opacity-100"><MoreHorizontal className="h-3.5 w-3.5" /></button>} />
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => void editSection(group.id, group.name)}>Rename…</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void editSection(group.id, group.name, true)}>Remove section…</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          {isExpanded(group.id) && (group.sessions.length ? group.sessions.map(renderOrganizedSession) : <div className="px-2 py-1 text-[12px] text-[var(--text-muted)]">No threads yet</div>)}
+        </section>
+      ))}
 
       {sidebarActivityView &&
         timeGroups.map((group) => (
@@ -729,7 +778,12 @@ export function FolderTreeView({
         );
       })}
 
-      {(sidebarActivityView
+      {archivedSessions.length > 0 && <section className="mt-4">
+        <button className="mb-1 px-2 text-[13px] text-[var(--text-muted)]" aria-expanded={showArchived} onClick={() => setShowArchived(value => !value)}>Archived</button>
+        {(showArchived || sidebarSearchQuery.trim()) && archivedSessions.map(renderOrganizedSession)}
+      </section>}
+
+      {sectionGroups.every(group => group.sessions.length === 0) && archivedSessions.length === 0 && (sidebarActivityView
         ? timeGroups.length === 0 && activitySessions.length === 0
         : projectGroups.length === 0 && pinnedSessions.length === 0) && (
           <div className="text-center text-[var(--text-muted)] py-8 text-[13px]">
@@ -759,6 +813,7 @@ function SessionItem({
   onClick: () => void;
   onTogglePin: () => void;
 }) {
+  const unread = useSessionOrganizationStore(s => s.sessions[session.id]?.unread);
   const rowRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!isActive || !session.isDraft) return;
@@ -889,6 +944,7 @@ function SessionItem({
                 <ProviderGlyph provider={session.provider} />
               )}
               <ScrollingTitle title={session.title} className="flex-1 text-[13px] font-normal leading-[1.3]" />
+              {unread && <span aria-label="Unread conversation" title="Unread conversation" className="h-2 w-2 shrink-0 rounded-full bg-[var(--accent)]" />}
               {worktreeAction ? (
                 <span className="flex-shrink-0" title={WORKTREE_ACTION_LABELS[worktreeAction]}>
                   <Loader2

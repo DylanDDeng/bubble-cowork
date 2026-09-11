@@ -22,6 +22,7 @@ import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { resolveCodexModel } from '../utils/codex-model';
 import { AssistantCopyAction, MessageCard, getAssistantMarkdownToCopy } from './MessageCard';
 import { ChatOutlineRail } from './ChatOutlineRail';
+import { JumpToLatestButton } from './JumpToLatestButton';
 import { SessionTitleActions } from './SessionTitleActions';
 import { buildSessionUserPromptSummaries } from '../../shared/outline-summary';
 import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
@@ -1068,6 +1069,7 @@ export function ChatPane({
             tool_use_id: normalizedResult.tool_use_id,
             content: normalizedResult.content,
             is_error: normalizedResult.is_error,
+            ...(normalizedResult.images ? { images: normalizedResult.images } : {}),
             ...(normalizedResult.mediaRefs ? { mediaRefs: normalizedResult.mediaRefs } : {}),
           });
         }
@@ -1638,17 +1640,18 @@ export function ChatPane({
     sessionId,
   ]);
 
-  useEffect(() => {
+  const jumpToLatestTurn = useCallback(() => {
     const container = scrollContainerRef.current;
-    if (!container) return;
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      if (scrollPositionKey) {
-        rememberChatScrollPosition(scrollPositionKey, container);
-      }
-      container.removeEventListener('scroll', handleScroll);
-    };
-  }, [handleScroll, scrollPositionKey]);
+    if (!container || !scrollPositionKey) return;
+    // An explicit jump supersedes a pending history lookup/prepend anchor.
+    if (historyNavigationTarget?.sessionId === sessionId) {
+      setHistoryNavigationTarget(null);
+    }
+    scrollHeightBeforeLoadRef.current = 0;
+    shouldStickToBottomRef.current = true;
+    container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
+    rememberChatScrollPosition(scrollPositionKey, container);
+  }, [historyNavigationTarget, scrollPositionKey, sessionId, setHistoryNavigationTarget]);
 
   useEffect(() => {
     if (!historyNavigationTarget || !sessionId || historyNavigationTarget.sessionId !== sessionId) {
@@ -1901,7 +1904,12 @@ export function ChatPane({
               }
             />
           ) : null}
-          <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
+          <div
+            ref={scrollContainerRef}
+            data-chat-scroll-container
+            onScroll={handleScroll}
+            className="flex-1 overflow-auto p-4 relative"
+          >
             {isActive ? <InSessionSearch /> : null}
 
             {showSideChatEmptyState ? (
@@ -2217,6 +2225,12 @@ export function ChatPane({
               <div />
             </div>
           </div>
+          <JumpToLatestButton
+            key={scrollPositionKey}
+            scrollContainerRef={scrollContainerRef}
+            threshold={CHAT_SCROLL_BOTTOM_THRESHOLD_PX}
+            onJump={jumpToLatestTurn}
+          />
           </div>
 
           {session.readOnly ? null : (

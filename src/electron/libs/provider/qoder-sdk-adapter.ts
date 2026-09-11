@@ -1,3 +1,4 @@
+import { getSessionProjectSources } from '../session-store';
 import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
@@ -1538,6 +1539,7 @@ export class QoderSdkAdapter implements ProviderAdapter {
     const machineCli = findMachineQoderCli();
     const options: QoderQueryOptions = {
       cwd,
+      additionalDirectories: getSessionProjectSources(input.threadId, cwd).slice(1),
       includePartialMessages: true,
       // Reuse the machine's `qodercli login` state (~/.qoder);
       // QODER_PERSONAL_ACCESS_TOKEN is honored by the SDK when set.

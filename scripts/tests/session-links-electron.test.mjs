@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const qaRoot = path.join(root, '.aegis-design-qa');
+const qaRoot = path.join(root, 'dev-fixtures');
 await mkdir(qaRoot, { recursive: true });
 const tmp = await mkdtemp(path.join(qaRoot, 'session-links-'));
 const harness = `
@@ -13,6 +13,8 @@ import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Tooltip} from '@base-ui-components/react/tooltip';
 import {Toaster} from 'sonner';
+import {TextInputDialogHost} from '/src/ui/components/ui/text-input-dialog.tsx';
+import {ConfirmDialogHost} from '/src/ui/components/ui/confirm-dialog.tsx';
 import {SessionTitleActions} from '/src/ui/components/SessionTitleActions.tsx';
 import {FolderTreeView} from '/src/ui/components/FolderTreeView.tsx';
 import {ComposerPromptEditor} from '/src/ui/components/ComposerPromptEditor.tsx';
@@ -29,9 +31,9 @@ function Harness(){
  window.qa.value=value;window.qa.setValue=text=>{setValue(text);setCursor(text.length)};
  return <Tooltip.Provider><div style={{display:'flex',height:'100vh',background:'var(--bg-primary)'}}>
  <aside style={{width:260,padding:12,background:'var(--sidebar-bg)'}}><h3>Aegis</h3><FolderTreeView projectCwd="/projects/test" onSessionClick={s.setActiveSession} onSelectProjectFolder={()=>{}} onNewSessionForProject={()=>{}} /></aside>
- <main style={{flex:1,padding:24}}><header style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><SessionTitleActions session={active} className="text-[13px] font-medium"/></header>
+ <main style={{flex:1,padding:24}}><header style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>{active && <SessionTitleActions session={active} className="text-[13px] font-medium"/>}</header>
  <div style={{marginTop:180,border:'1px solid var(--border)',borderRadius:16,padding:20}}><ComposerPromptEditor value={value} cursorIndex={cursor} onChange={(v,c)=>{setValue(v);setCursor(c)}} placeholder="Paste a conversation link" /></div>
- <button id="outside">Outside</button></main><Toaster/></div></Tooltip.Provider>;
+ <button id="outside">Outside</button></main><Toaster/><TextInputDialogHost/><ConfirmDialogHost/></div></Tooltip.Provider>;
 }
 createRoot(document.getElementById('root')).render(<Harness/>);
 `;
@@ -56,14 +58,18 @@ app.whenReady().then(async()=>{
  const win=new BrowserWindow({width:1060,height:700,show:true,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs')}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message)});
  ipc.setupSessionLinksIPC(e=>win.webContents.send('server-event',JSON.stringify(e)));
- ipcMain.on('get-ui-resume-state-sync',e=>{e.returnValue=null});ipcMain.on('renderer-state:get-all-sync',e=>{e.returnValue={}});ipcMain.on('save-ui-resume-state-sync',e=>{e.returnValue=true});ipcMain.handle('set-theme',()=>{});
+ require(path.join(root,'dist-electron/electron/ipc/session-title.js')).setupSessionTitleIPC(e=>win.webContents.send('server-event',JSON.stringify(e)));
+ ipcMain.on('get-ui-resume-state-sync',e=>{e.returnValue=null});ipcMain.on('renderer-state:get-all-sync',e=>{e.returnValue={}});ipcMain.on('save-ui-resume-state-sync',e=>{e.returnValue=true});ipcMain.handle('set-theme',()=>{});ipcMain.handle('get-environment-editor-launchers',()=>[]);
+ const moveCalls=[];const destination=path.join(__dirname,'destination');fs.mkdirSync(destination);
+ require(path.join(root,'dist-electron/electron/ipc/session-project.js')).setupSessionProjectIPC({isMoving:()=>false,retireRunner:id=>moveCalls.push(id),changed:()=>{}});
+ ipcMain.handle('select-directory',()=>destination);
  const js=code=>win.webContents.executeJavaScript(code,true);
- const click=async(selector,button='left')=>{const p=await js('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');if(!e)throw Error("Missing selector");const r=e.getBoundingClientRect();return{x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()');win.webContents.sendInputEvent({type:'mouseDown',button,clickCount:1,...p});win.webContents.sendInputEvent({type:'mouseUp',button,clickCount:1,...p});await delay(150)};
+ const click=async(selector,button='left')=>{win.focus();win.webContents.focus();const p=await js('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');if(!e)throw Error("Missing selector");const r=e.getBoundingClientRect();return{x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()');win.webContents.sendInputEvent({type:'mouseDown',button,clickCount:1,...p});win.webContents.sendInputEvent({type:'mouseUp',button,clickCount:1,...p});await delay(150)};
  const originalPopup=Menu.prototype.popup;
  let openedMenu=null;let popupOptions=null;
  Menu.prototype.popup=function(options){openedMenu=this;popupOptions=options;if(process.env.QA_NATIVE)return originalPopup.call(this,options)};
  const dismiss=async()=>{const callback=popupOptions?.callback;openedMenu=null;popupOptions=null;callback?.();await delay(120)};
- const key=async keyCode=>{win.webContents.sendInputEvent({type:'keyDown',keyCode});win.webContents.sendInputEvent({type:'keyUp',keyCode});await delay(120);if(keyCode==='Escape')await dismiss()};
+ const key=async keyCode=>{win.focus();win.webContents.focus();win.webContents.sendInputEvent({type:'keyDown',keyCode});if(keyCode==='Enter')win.webContents.sendInputEvent({type:'char',keyCode:String.fromCharCode(13)});win.webContents.sendInputEvent({type:'keyUp',keyCode});await delay(120);if(keyCode==='Escape')await dismiss()};
  const flatten=menu=>menu.items.flatMap(item=>[item,...item.submenu?flatten(item.submenu):[]]);
  const select=async label=>{const item=flatten(openedMenu).find(item=>item.label===label);assert.ok(item,'Missing native menu item: '+label);assert.equal(item.enabled,true);item.click();await dismiss();await delay(170)};
  const shape=menu=>menu.items.map(item=>({label:item.label,type:item.type,enabled:item.enabled,submenu:item.submenu?shape(item.submenu):undefined}));
@@ -197,7 +203,7 @@ app.whenReady().then(async()=>{
     await new Promise(r=>setTimeout(r,process.env.QA_NATIVE==='1'?90000:Number(process.env.QA_NATIVE)));
     console.log(JSON.stringify({ok:true,preview:true}));http.close();sessions.close();app.exit(0);return;
   }
-  await click('[aria-label="Conversation actions"]');const headerShape=shape(openedMenu);assert.equal(openedMenu.items.filter(i=>i.type==='separator').length,2);assert.ok(openedMenu.items.find(i=>i.label==='Copy')?.submenu);for(const item of flatten(openedMenu).filter(i=>i.type!=='separator')){if(process.platform==='darwin')assert.equal(item.icon.isEmpty(),false,item.label+' missing icon')}
+  await click('[aria-label="Conversation actions"]');const headerShape=shape(openedMenu);assert.equal(openedMenu.items.filter(i=>i.type==='separator').length,5);assert.ok(openedMenu.items.find(i=>i.label==='Copy')?.submenu);for(const item of flatten(openedMenu).filter(i=>i.type!=='separator')){if(process.platform==='darwin')assert.equal(item.icon.isEmpty(),false,item.label+' missing icon')}
   await select('Conversation link');assert.equal(clipboard.readText(),links.createSessionLink(target.id));
   // Right click the source while a different conversation is active.
   await js('(()=>{const e=[...document.querySelectorAll("[data-session-id]")].find(e=>e.dataset.sessionId===qa.ids[0]);if(!e)throw Error("Source row missing");e.dataset.qaSource="true"})()');
@@ -219,11 +225,86 @@ app.whenReady().then(async()=>{
   assert.equal(flatten(openedMenu).find(i=>i.id==='move-worktree').enabled,false);await dismiss();
   await js('qa.store.setState(s=>({sessions:{...s.sessions,[qa.ids[0]]:{...s.sessions[qa.ids[0]],provider:"bubble",status:"idle"}}}))');
   await click('[aria-label="Conversation actions"]');assert.equal(flatten(openedMenu).some(i=>i.id==='fork'),false);await dismiss();
+  // Persistent read state and archive/restore are renderer actions on the target row.
+  const beforeUnread = await js('JSON.stringify({activeSessionId:qa.store.getState().activeSessionId,showNewSession:qa.store.getState().showNewSession,workspaceLayout:qa.store.getState().workspaceLayout,sessionIds:Object.keys(qa.store.getState().sessions)})');
+  await click('[aria-label="Conversation actions"]');await select('Mark as unread');
+  assert.equal(sessions.getSessionOrganization().sessions[source.id].unread,true);
+  assert.equal(await js('JSON.stringify({activeSessionId:qa.store.getState().activeSessionId,showNewSession:qa.store.getState().showNewSession,workspaceLayout:qa.store.getState().workspaceLayout,sessionIds:Object.keys(qa.store.getState().sessions)})'),beforeUnread,'Mark unread must preserve the current conversation, layout and drafts');
+  assert.equal(await js('[...document.querySelectorAll("[aria-label]")].filter(e=>e.getAttribute("aria-label")==="Unread conversation").length'),1);
+  await click('[data-qa-source]','right');await select('Mark as read');
+  assert.equal(sessions.getSessionOrganization().sessions[source.id].unread,false);
+  await click('[data-qa-source]','right');await select('Mark as unread');
+  assert.equal(await js('qa.store.getState().activeSessionId'),source.id);
+  await click('[aria-label="Conversation actions"]');await select('Mark as read');
+  await click('[data-session-id="'+target.id+'"]','right');await select('Mark as unread');
+  assert.equal(sessions.getSessionOrganization().sessions[target.id].unread,true);
+  assert.equal(await js('qa.store.getState().activeSessionId'),source.id,'Marking another row unread must not navigate');
+  await click('[data-session-id="'+target.id+'"]','right');await select('Mark as read');
+  await click('[data-qa-source]','right');await select('Mark as unread');
+  await click('[data-qa-source]');await delay(100);
+  assert.equal(sessions.getSessionOrganization().sessions[source.id].unread,false);
+  await click('[aria-label="Conversation actions"]');await select('Archive');
+  assert.equal(sessions.getSessionOrganization().sessions[source.id].archived,true);
+  assert.equal(await js('document.querySelector("[data-qa-source]")'),null);
+  await js('(()=>{[...document.querySelectorAll("button")].find(e=>e.textContent==="Archived").click()})()');await delay(100);
+  await click('[data-session-id="'+source.id+'"]','right');await select('Unarchive');
+  assert.equal(sessions.getSessionOrganization().sessions[source.id].archived,false);
+  await click('[data-session-id="'+source.id+'"]','right');await select('Conversation as Markdown');
+  assert.ok(clipboard.readText().includes('message-0'));assert.ok(clipboard.readText().includes('new arrival'));
+  await click('[data-session-id="'+source.id+'"]','right');await select('New section…');await screenshot('new-section-dialog');
+  await js('(()=>{const input=document.querySelector("input[aria-label]");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;setter.call(input,"Research");input.dispatchEvent(new Event("input",{bubbles:true}))})()');await delay(100);
+  await js('(()=>{document.querySelector("form").requestSubmit()})()');await delay(200);
+  await screenshot('custom-section');
+  const section=sessions.getSessionOrganization().sections.find(s=>s.name==='Research');assert.ok(section);
+  assert.equal(sessions.getSessionOrganization().sessions[source.id].sectionId,section.id);
+  assert.equal(await js('[...document.querySelectorAll("[data-session-id]")].filter(e=>e.dataset.sessionId===qa.ids[0]).length'),1);
+  await click('[data-session-id="'+source.id+'"]','right');await select('None');
+  assert.equal(sessions.getSessionOrganization().sessions[source.id].sectionId,null);
+  await click('[data-session-id="'+source.id+'"]');
+  await click('[aria-label="Conversation actions"]');await select('Rename…');
+  assert.equal(await js('document.querySelector("input[aria-label]").value'),'Source conversation');
+  await js('(()=>{const input=document.querySelector("input[aria-label]");const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;setter.call(input,"Renamed conversation");input.dispatchEvent(new Event("input",{bubbles:true}))})()');await delay(100);
+  await js('(()=>{document.querySelector("form").requestSubmit()})()');await delay(200);
+  assert.equal(sessions.getSession(source.id).title,'Renamed conversation');
+  assert.equal(await js('qa.store.getState().sessions[qa.ids[0]].title'),'Renamed conversation');
+  // Only adding missing project folders requires confirmation, from either menu.
+  const originalCwd=path.join(__dirname,'source-project');fs.mkdirSync(originalCwd);
+  sessions.updateSessionWorkspace(source.id,{projectCwd:originalCwd});
+  await js('qa.store.setState(s=>({sessions:{...s.sessions,[qa.ids[0]]:{...s.sessions[qa.ids[0]],cwd:'+JSON.stringify(originalCwd)+',projectCwd:'+JSON.stringify(originalCwd)+'}}}))');
+  await js('qa.store.getState().setProjectCwd('+JSON.stringify(destination)+');true');await delay(100);
+  const waitForDialogClose=async()=>{for(let i=0;i<100;i++){if(!await js('Boolean(document.querySelector("[role=dialog]"))'))return;await delay(30)}throw Error('Confirmation dialog did not close: '+await js('JSON.stringify({dialogs:[...document.querySelectorAll("[role=dialog]")].map(e=>({html:e.outerHTML.slice(0,900),text:e.textContent})),focus:document.activeElement?.outerHTML,visibility:document.visibilityState})'))};
+  const chooseProject=async()=>{await waitForDialogClose();await click('[data-session-id="'+source.id+'"]','right');for(let i=0;i<100&&!openedMenu;i++)await delay(30);assert.ok(openedMenu,'Project menu should open after dialog dismissal');await select(flatten(openedMenu).find(i=>i.id==='project:0').label)};
+  await chooseProject();
+  assert.equal(moveCalls.length,0);assert.equal(sessions.getSession(source.id).cwd,originalCwd);
+  assert.ok(await js('document.querySelector("[role=dialog]").textContent.includes("Add folders to destination?")'));
+  assert.ok(await js('document.querySelector("[role=dialog]").textContent.includes("source-project")'));
+  await screenshot('move-project-confirmation');
+  await js('(()=>{[...document.querySelectorAll("[role=dialog] button")].find(b=>b.textContent==="Cancel").click()})()');await delay(200);
+  assert.equal(moveCalls.length,0);
+  await chooseProject();await key('Escape');assert.equal(moveCalls.length,0);
+  await chooseProject();await click('[role=dialog] [aria-label=Close]');assert.equal(moveCalls.length,0);
+  await chooseProject();
+  await js('(()=>{[...document.querySelectorAll("[role=dialog] button")].find(b=>b.textContent==="Cancel").focus()})()');await key('Enter');
+  await waitForDialogClose();assert.equal(moveCalls.length,0,'Enter on Cancel must cancel');
+  await click('[aria-label="Conversation actions"]');await select('Choose folder…');
+  assert.equal(moveCalls.length,0);
+  await js('(()=>{[...document.querySelectorAll("[role=dialog] button")].find(b=>b.textContent==="Continue").click()})()');await delay(200);
+  assert.deepEqual(moveCalls,[source.id]);assert.equal(sessions.getSession(source.id).cwd,fs.realpathSync(destination));
+  assert.equal(await js('qa.store.getState().activeSessionId'),source.id);
+  assert.deepEqual(sessions.getProjectSources(destination),[fs.realpathSync(destination),fs.realpathSync(originalCwd)]);
+  // Another chat from the same source project moves immediately, without a modal.
+  sessions.updateSessionWorkspace(target.id,{projectCwd:originalCwd});
+  await js('qa.store.setState(s=>({sessions:{...s.sessions,[qa.ids[1]]:{...s.sessions[qa.ids[1]],cwd:'+JSON.stringify(originalCwd)+',projectCwd:'+JSON.stringify(originalCwd)+'}}}))');
+  await waitForDialogClose();
+  await click('[data-session-id="'+target.id+'"]','right');await select('Choose folder…');
+  assert.deepEqual(moveCalls,[source.id,target.id]);
+  assert.equal(await js('Boolean(document.querySelector("[role=dialog]"))'),false);
+  assert.equal(await js('qa.store.getState().activeSessionId'),source.id);
   // Drafts have no stable persisted link.
   await js('qa.store.setState(s=>({sessions:{...s.sessions,[qa.ids[0]]:{...s.sessions[qa.ids[0]],isDraft:true}}}))');
   await click('[aria-label="Conversation actions"]');assert.equal(flatten(openedMenu).find(i=>i.id==='copy-link').enabled,false);await key('Escape');
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({ok:true,checks:['identical native menu entry points and SF icons','clipboard identity and cwd','menu dismissal','paste chip and deletion','reference validation','keyset pagination during writes','bounded content','real MCP read_session','Bubble actual native tool loop and older history','Pi native tool catalog','no user config writes','all provider prompt contracts','deep-link navigation','draft disabled']}));
+  console.log(JSON.stringify({ok:true,checks:['identical native menu entry points and SF icons','clipboard identity and cwd','menu dismissal','paste chip and deletion','reference validation','keyset pagination during writes','bounded content','real MCP read_session','Bubble actual native tool loop and older history','Pi native tool catalog','no user config writes','all provider prompt contracts','deep-link navigation','draft disabled','read and unread persistence','archive and restore','full Markdown copy','create and leave sections','menu rename dialog','missing project folders require confirmation; covered folders move immediately','Cancel Escape close and keyboard cancellation']}));
   http.close();sessions.close();app.exit(0);
  }catch(e){console.error(e);console.error(errors);await screenshot('failure');http?.close();app.exit(1)}
 });

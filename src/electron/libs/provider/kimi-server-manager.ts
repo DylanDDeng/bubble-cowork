@@ -758,6 +758,22 @@ export class KimiServerManager extends EventEmitter {
       plan_mode?: boolean;
     }
   ): Promise<{ prompt_id: string; status: string }> {
+    // Kimi 0.34 accepts plan_mode on /prompts but does not apply it. The
+    // session profile is the native mode setter; verify it before submitting
+    // any work, including when resuming a session that was previously in Plan.
+    if (typeof payload.plan_mode === 'boolean') {
+      const statusPath = `/sessions/${sessionId}/status`;
+      const status = await this.request<Record<string, unknown>>('GET', statusPath);
+      if (status?.plan_mode !== payload.plan_mode) {
+        await this.request('POST', `/sessions/${sessionId}/profile`, {
+          agent_config: { plan_mode: payload.plan_mode },
+        });
+        const updated = await this.request<Record<string, unknown>>('GET', statusPath);
+        if (updated?.plan_mode !== payload.plan_mode) {
+          throw new KimiServerTransportError('http_error', 'Kimi did not apply the requested Plan mode. No prompt was submitted.');
+        }
+      }
+    }
     const data = await this.request<Record<string, unknown>>(
       'POST',
       `/sessions/${sessionId}/prompts`,

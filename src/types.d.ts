@@ -458,6 +458,13 @@ declare global {
     gitCreatePr: (cwd: string) => Promise<{ ok: boolean; message?: string; url?: string }>;
     getEnvironmentEditorLaunchers: () => Promise<import('./shared/types').EnvironmentEditorLauncher[]>;
     openInEditor: (input: import('./shared/types').OpenInEditorInput) => Promise<{ ok: boolean; message?: string }>;
+    getSessionOrganization: () => Promise<import('./shared/session-organization').SessionOrganizationSnapshot>;
+    changeSessionOrganization: (change: import('./shared/session-organization').SessionOrganizationChange) => Promise<import('./shared/session-organization').SessionOrganizationSnapshot>;
+    onSessionOrganizationChanged: (callback: (snapshot: import('./shared/session-organization').SessionOrganizationSnapshot) => void) => () => void;
+    exportSessionMarkdown: (sessionId: string, share: boolean) => Promise<void>;
+    copySessionMarkdown: (sessionId: string) => Promise<void>;
+    moveSessionProject: (sessionId: string, cwd: string, approvalToken?: string) => Promise<import('./shared/session-project').SessionProjectMoveResult>;
+    openSessionWindow: (sessionId: string) => Promise<void>;
     showSessionMenu: (request: SessionMenuRequest) => Promise<SessionMenuAction | null>;
     copySessionValue: (sessionId: string, target: 'link' | 'cwd') => Promise<void>;
     openExternalUrl: (url: string) => Promise<{ ok: boolean; message?: string }>;

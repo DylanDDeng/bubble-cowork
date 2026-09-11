@@ -1,3 +1,4 @@
+import { isProjectDirectoryApproval } from './project-access';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
 import { pathToFileURL } from 'url';
@@ -1108,15 +1109,6 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     session.emittedPermissionIds.add(permissionId);
     session.pendingRequests.set(permissionId, { kind: 'permission-legacy' });
 
-    if (session.permissionMode === 'fullAccess') {
-      void this.respondToOpenCodePermission(session, permissionId, 'always').then(() => {
-        session.pendingRequests.delete(permissionId);
-      }).catch((error) => {
-        console.warn('[OpenCodeSdkAdapter] failed to auto-approve legacy permission:', error);
-      });
-      return;
-    }
-
     const title = getString(permission.title) || 'OpenCode is requesting permission';
     const toolName = inferToolName(getString(permission.type) || title);
     const input: AcpPermissionInput = {
@@ -1133,6 +1125,24 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
         metadata: permission.metadata,
       },
     };
+
+    const projectDirectory = isProjectDirectoryApproval(
+      session.threadId, session.cwd, permission.type, (Array.isArray(permission.pattern) ? permission.pattern : [permission.pattern])
+    );
+    if (session.permissionMode === 'fullAccess' || projectDirectory) {
+      // A once reply grants this directory check only; native tool/Plan/deny
+      // rules still decide the actual operation. Never persist an allow rule.
+      void this.respondToOpenCodePermission(session, permissionId,
+        projectDirectory ? 'once' : 'always').then(() => {
+        session.pendingRequests.delete(permissionId);
+      }).catch((error) => {
+        console.warn('[OpenCodeSdkAdapter] directory permission reply failed:', error);
+        if (!session.pendingRequests.has(permissionId)) return;
+        this.emit({ type: 'permission_request', threadId: session.threadId,
+          requestId: permissionId, toolName, input });
+      });
+      return;
+    }
 
     this.emit({
       type: 'permission_request',
@@ -1156,15 +1166,6 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     }
     session.emittedPermissionIds.add(permissionId);
     session.pendingRequests.set(permissionId, { kind: 'permission' });
-
-    if (session.permissionMode === 'fullAccess') {
-      void this.respondToOpenCodePermissionReply(session, permissionId, 'always').then(() => {
-        session.pendingRequests.delete(permissionId);
-      }).catch((error) => {
-        console.warn('[OpenCodeSdkAdapter] failed to auto-approve permission:', error);
-      });
-      return;
-    }
 
     const permission = getString(properties.permission) || 'permission';
     const patterns = Array.isArray(properties.patterns)
@@ -1190,6 +1191,24 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       },
     };
 
+    const projectDirectory = isProjectDirectoryApproval(
+      session.threadId, session.cwd, properties.permission, properties.patterns
+    );
+    if (session.permissionMode === 'fullAccess' || projectDirectory) {
+      // A once reply grants this directory check only; native tool/Plan/deny
+      // rules still decide the actual operation. Never persist an allow rule.
+      void this.respondToOpenCodePermissionReply(session, permissionId,
+        projectDirectory ? 'once' : 'always').then(() => {
+        session.pendingRequests.delete(permissionId);
+      }).catch((error) => {
+        console.warn('[OpenCodeSdkAdapter] directory permission reply failed:', error);
+        if (!session.pendingRequests.has(permissionId)) return;
+        this.emit({ type: 'permission_request', threadId: session.threadId,
+          requestId: permissionId, toolName, input });
+      });
+      return;
+    }
+
     this.emit({
       type: 'permission_request',
       threadId: session.threadId,
@@ -1213,15 +1232,6 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     session.emittedPermissionIds.add(permissionId);
     session.pendingRequests.set(permissionId, { kind: 'permission-v2' });
 
-    if (session.permissionMode === 'fullAccess') {
-      void this.respondToOpenCodePermissionV2(session, permissionId, 'always').then(() => {
-        session.pendingRequests.delete(permissionId);
-      }).catch((error) => {
-        console.warn('[OpenCodeSdkAdapter] failed to auto-approve v2 permission:', error);
-      });
-      return;
-    }
-
     const action = getString(properties.action) || 'perform an action';
     const resources = describeResources(properties.resources);
     const title = resources
@@ -1243,6 +1253,24 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
         source: properties.source,
       },
     };
+
+    const projectDirectory = isProjectDirectoryApproval(
+      session.threadId, session.cwd, properties.action, properties.resources
+    );
+    if (session.permissionMode === 'fullAccess' || projectDirectory) {
+      // A once reply grants this directory check only; native tool/Plan/deny
+      // rules still decide the actual operation. Never persist an allow rule.
+      void this.respondToOpenCodePermissionV2(session, permissionId,
+        projectDirectory ? 'once' : 'always').then(() => {
+        session.pendingRequests.delete(permissionId);
+      }).catch((error) => {
+        console.warn('[OpenCodeSdkAdapter] directory permission reply failed:', error);
+        if (!session.pendingRequests.has(permissionId)) return;
+        this.emit({ type: 'permission_request', threadId: session.threadId,
+          requestId: permissionId, toolName, input });
+      });
+      return;
+    }
 
     this.emit({
       type: 'permission_request',
