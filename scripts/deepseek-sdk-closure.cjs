@@ -1,7 +1,7 @@
 // electron-builder collects node_modules by walking `dependencies` /
 // `optionalDependencies` edges from the root package (npm list _dependencies);
-// it never follows peerDependencies. @deepseek-ai/dsh-sdk-client declares its
-// whole runtime graph as peers, so every package reachable through a peer edge
+// it never follows peerDependencies. The SDK/CLI graph includes peer-only
+// runtime edges, so every package reachable only through such a peer edge
 // must be declared as a direct dependency or app.asar silently omits it.
 const SDK_CLIENT = '@deepseek-ai/dsh-sdk-client';
 
@@ -22,7 +22,12 @@ function resolveLockPath(lockPackages, fromPath, name) {
 // set of reachable package names. Optional edges (optionalDependencies, or
 // peers flagged optional in peerDependenciesMeta) may be absent from the
 // lockfile; any other unresolvable edge means the lockfile is stale and throws.
-function walkLockGraph(lockPackages, roots, { followPeers }) {
+function walkLockGraph(lockPackages, roots, {
+  followPeers,
+  platform = process.platform,
+  arch = process.arch,
+  returnPaths = false,
+}) {
   const seenPaths = new Set();
   const names = new Set();
   const queue = roots.map((name) => ({ name, fromPath: '', optional: false, from: '<root>' }));
@@ -35,10 +40,17 @@ function walkLockGraph(lockPackages, roots, { followPeers }) {
         `package-lock.json cannot resolve ${name} (required by ${from}); run npm install`
       );
     }
+    const entry = lockPackages[lockPath];
+    // The lock records optional native binaries for every platform. Only the
+    // target's packages are installed/collected, including in cross builds.
+    const matches = (values, target) => !values || (
+      !values.includes(`!${target}`) &&
+      (!values.some((value) => !value.startsWith('!')) || values.includes('any') || values.includes(target))
+    );
+    if (optional && (!matches(entry.os, platform) || !matches(entry.cpu, arch))) continue;
     if (seenPaths.has(lockPath)) continue;
     seenPaths.add(lockPath);
     names.add(name);
-    const entry = lockPackages[lockPath];
     const meta = entry.peerDependenciesMeta ?? {};
     const push = (deps, optionalEdge) => {
       for (const dep of Object.keys(deps ?? {})) {
@@ -49,15 +61,28 @@ function walkLockGraph(lockPackages, roots, { followPeers }) {
     push(entry.optionalDependencies, () => true);
     if (followPeers) push(entry.peerDependencies, (dep) => meta[dep]?.optional === true);
   }
-  return names;
+  return returnPaths ? seenPaths : names;
 }
 
-function deepseekSdkClosure(lockPackages) {
-  return walkLockGraph(lockPackages, [SDK_CLIENT], { followPeers: true });
+function deepseekSdkClosure(lockPackages, target = {}) {
+  return walkLockGraph(lockPackages, [SDK_CLIENT], { ...target, followPeers: true });
 }
 
 function electronBuilderCollected(lockPackages, rootDependencies) {
   return walkLockGraph(lockPackages, Object.keys(rootDependencies ?? {}), { followPeers: false });
 }
 
-module.exports = { SDK_CLIENT, walkLockGraph, deepseekSdkClosure, electronBuilderCollected };
+function deepseekSdkPackagePaths(lockPackages, target = {}) {
+  return walkLockGraph(lockPackages, [SDK_CLIENT], { ...target, followPeers: true, returnPaths: true });
+}
+
+function electronBuilderPackagePaths(lockPackages, rootDependencies, target = {}) {
+  return walkLockGraph(lockPackages, Object.keys(rootDependencies ?? {}), {
+    ...target, followPeers: false, returnPaths: true,
+  });
+}
+
+module.exports = {
+  SDK_CLIENT, walkLockGraph, deepseekSdkClosure, electronBuilderCollected,
+  deepseekSdkPackagePaths, electronBuilderPackagePaths,
+};

@@ -15,6 +15,7 @@ function agentOptions(server) {
   return {
     provider: server.provider,
     model: server.model,
+    ...(server.reasoningEffort === undefined ? {} : { reasoningEffort: server.reasoningEffort }),
     ...(server.maxTokens === undefined ? {} : { maxTokens: server.maxTokens }),
   };
 }
@@ -36,7 +37,7 @@ export async function openSessionWithNativeResume({
   const persistence = server.ctx.get('sessionPersistence');
   const stored = persistence === undefined
     ? undefined
-    : (await persistence.list()).find((header) => header.id === id);
+    : (await persistence.stat(id))?.header;
 
   if (stored === undefined) {
     if (expectedResumeSessionId === sessionId) {

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-const { deepseekSdkClosure, electronBuilderCollected } = createRequire(import.meta.url)(
+const { deepseekSdkPackagePaths, electronBuilderPackagePaths } = createRequire(import.meta.url)(
   './deepseek-sdk-closure.cjs'
 );
 
@@ -47,7 +47,7 @@ assert.ok(
   afterPack.includes('verifyPackagedDeepseekSdk') &&
     afterPack.includes("'app.asar'") &&
     afterPack.includes("'app.asar.unpacked'") &&
-    afterPack.includes('deepseekSdkClosure('),
+    afterPack.includes('deepseekSdkPackagePaths('),
   'each packaged app must verify the DeepSeek SDK client graph inside app.asar'
 );
 
@@ -71,8 +71,8 @@ assert.ok(
 // declared as direct dependencies.
 const rootLock = JSON.parse(read('package-lock.json'));
 const lockPackages = rootLock.packages ?? {};
-const sdkClosure = deepseekSdkClosure(lockPackages);
-const collectedByElectronBuilder = electronBuilderCollected(lockPackages, rootPackage.dependencies);
+const sdkClosure = deepseekSdkPackagePaths(lockPackages);
+const collectedByElectronBuilder = electronBuilderPackagePaths(lockPackages, rootPackage.dependencies);
 const uncollected = [...sdkClosure].filter((name) => !collectedByElectronBuilder.has(name));
 assert.deepEqual(
   uncollected,
@@ -81,7 +81,7 @@ assert.deepEqual(
 );
 for (const name of sdkClosure) {
   assert.ok(
-    fs.existsSync(path.join(root, 'node_modules', name, 'package.json')),
+    fs.existsSync(path.join(root, name, 'package.json')),
     `DeepSeek SDK dependency ${name} is not installed`
   );
 }
@@ -107,6 +107,9 @@ for (const relativePath of [
   'node_modules/@deepseek-ai/dsh-sdk-jsonrpc-server',
   'node_modules/@deepseek-ai/dsh-llm-deepseek',
   'node_modules/@deepseek-ai/dsh-mcp-client',
+  'node_modules/@deepseek-ai/dsh-attachment-local',
+  'node_modules/sharp',
+  `node_modules/@img/sharp-${process.platform}-${process.arch}`,
 ]) {
   assert.ok(
     fs.existsSync(path.join(profileDir, relativePath)),

@@ -594,6 +594,8 @@ export const ComposerPromptEditor = forwardRef<
     onChange: (value: string, cursorIndex: number) => void;
     onPasteText?: (context: ComposerPasteContext) => boolean | void | Promise<boolean | void>;
     onPasteImages?: (images: ComposerPasteImage[]) => boolean | void | Promise<boolean | void>;
+    onPasteFiles?: (files: File[]) => void;
+    onPasteNativeFiles?: () => boolean;
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
     onCompositionStart?: () => void;
     onCompositionEnd?: () => void;
@@ -841,11 +843,24 @@ export const ComposerPromptEditor = forwardRef<
 
     const imageFiles: File[] = [];
     const dt = event.clipboardData;
+    const files = Array.from(dt.files || []);
+    if (!files.length) for (const item of Array.from(dt.items || [])) {
+      if (item.kind === 'file') { const file = item.getAsFile(); if (file) files.push(file); }
+    }
+    if (files.length && props.onPasteFiles) {
+      event.preventDefault();
+      props.onPasteFiles(files);
+      return;
+    }
+    if (!files.length && props.onPasteNativeFiles?.()) {
+      event.preventDefault();
+      return;
+    }
     if (dt) {
       if (dt.files && dt.files.length > 0) {
         for (let i = 0; i < dt.files.length; i += 1) {
           const f = dt.files.item(i);
-          if (f && /^image\/(png|jpe?g)$/i.test(f.type)) {
+          if (f && /^image\/(png|jpe?g|webp|gif)$/i.test(f.type)) {
             imageFiles.push(f);
           }
         }
@@ -853,7 +868,7 @@ export const ComposerPromptEditor = forwardRef<
       if (imageFiles.length === 0 && dt.items && dt.items.length > 0) {
         for (let i = 0; i < dt.items.length; i += 1) {
           const item = dt.items[i];
-          if (item.kind === 'file' && /^image\/(png|jpe?g)$/i.test(item.type)) {
+          if (item.kind === 'file' && /^image\/(png|jpe?g|webp|gif)$/i.test(item.type)) {
             const f = item.getAsFile();
             if (f) imageFiles.push(f);
           }

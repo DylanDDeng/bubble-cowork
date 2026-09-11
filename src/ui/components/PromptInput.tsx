@@ -1,3 +1,5 @@
+import { useDeepseekSessionCost } from '../hooks/useDeepseekSessionCost';
+import { deepseekImageInputError } from '../../shared/deepseek-images';
 import { confirmDialog } from './ui/confirm-dialog';
 import { useSessionGoal } from '../hooks/useSessionGoal';
 import { GoalModePill, SessionGoal } from './SessionGoal';
@@ -26,6 +28,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
+import { useAttachmentImport } from '../hooks/useAttachmentImport';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
@@ -463,6 +466,17 @@ export function PromptInput({
   const bubbleContextModel = isBubbleContextVisible ? selectedModel || activeSession?.model || null : null;
   const qoderContextModel = isQoderContextVisible ? selectedModel || activeSession?.model || null : null;
 
+  const latestDeepseekResult = useMemo(() => {
+    if (!isDeepseekContextVisible) return undefined;
+    for (let index = activeSession.messages.length - 1; index >= 0; index -= 1) {
+      if (activeSession.messages[index].type === 'result') return activeSession.messages[index];
+    }
+    return undefined;
+  }, [isDeepseekContextVisible, activeSession?.messages]);
+  const deepseekSessionCost = useDeepseekSessionCost(
+    isDeepseekContextVisible ? activeSession.id : undefined, latestDeepseekResult
+  );
+
   const codexContextSnapshot = useMemo(
     () =>
       isCodexContextVisible || isKimiContextVisible || isGrokContextVisible || isDeepseekContextVisible
@@ -537,6 +551,16 @@ export function PromptInput({
     [activeSession?.status, activeSession?.messages]
   );
   const isBusy = isEffectivelyRunning || isStopping || pendingStart || approvalPending;
+  const attachmentImport = useAttachmentImport(targetSessionId, isBusy, (created) => {
+    setAttachments((previous) => {
+      const paths = new Set(previous.map(attachment => attachment.path));
+      return [...previous, ...created.filter(attachment => {
+        if (paths.has(attachment.path)) return false;
+        paths.add(attachment.path);
+        return true;
+      })];
+    });
+  });
   // Codex app-server supports turn/steer: a message sent while a turn is
   // streaming is injected into that turn instead of waiting for it to finish,
   // so the composer stays live for codex sessions while they run.
@@ -760,7 +784,12 @@ export function PromptInput({
       return;
     }
 
+    if (attachmentImport.pending.current > 0) return;
     if (!prompt.trim() && attachments.length === 0) return;
+    if (runtimeProvider === 'deepseek') {
+      const imageError = deepseekImageInputError(attachments, agentSelection.model, agentSelection.deepseekModelConfig);
+      if (imageError) { toast.error(imageError); return; }
+    }
     const referenceError = getSessionReferenceCapabilityError(prompt, runtimeProvider, activeSession?.id);
     if (referenceError) { toast.error(referenceError); return; }
     if (agentSelection.modelSetup) {
@@ -1163,22 +1192,7 @@ export function PromptInput({
     }
   };
 
-  const handleAddAttachments = async () => {
-    if (isBusy) return;
-    const selected = await window.electron.selectAttachments();
-    if (!selected || selected.length === 0) return;
-
-    setAttachments((prev) => {
-      const existingPaths = new Set(prev.map((a) => a.path));
-      const next = [...prev];
-      for (const a of selected) {
-        if (!existingPaths.has(a.path)) {
-          next.push(a);
-        }
-      }
-      return next;
-    });
-  };
+  const handleAddAttachments = () => attachmentImport.choose();
 
   const handleSelectProjectFile = useCallback(
     async (file: { path: string; relativePath?: string }) => {
@@ -1244,7 +1258,7 @@ export function PromptInput({
     }
 
     if (failed > 0) {
-      toast.error(`Failed to paste ${failed} image(s). Only PNG/JPEG up to 10MB are supported.`);
+      toast.error(`Failed to paste ${failed} image(s). PNG, JPEG, WebP and GIF up to 10 MB are supported.`);
     }
 
     return created.length > 0;
@@ -1582,7 +1596,12 @@ export function PromptInput({
           {approvalPending && approvalPanel ? (
             approvalPanel
           ) : (
-          <div className={composerInnerClass}>
+          <div
+            className={composerInnerClass}
+            data-composer-drop-zone
+            {...attachmentImport.dropProps}
+          >
+          {attachmentImport.isImporting && <div role="status" className="px-5 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips
@@ -1606,6 +1625,8 @@ export function PromptInput({
             onPasteText={(context) => {
               return handleLongPaste(context);
             }}
+            onPasteFiles={attachmentImport.files}
+            onPasteNativeFiles={attachmentImport.pasteNative}
             onPasteImages={(images) => {
               void handlePasteImages(images);
             }}
@@ -1775,7 +1796,7 @@ export function PromptInput({
                 />
               ) : null}
               {codexContextSnapshot ? (
-                <CodexContextIndicator snapshot={codexContextSnapshot} />
+                <CodexContextIndicator snapshot={codexContextSnapshot} cost={deepseekSessionCost} />
               ) : null}
               {isOpenCodeContextVisible ? (
                 <OpenCodeContextIndicator
@@ -1864,6 +1885,7 @@ export function PromptInput({
                 onClick={handleSend}
                 disabled={
                   goalSubmitting ||
+                  attachmentImport.isImporting ||
                   (!prompt.trim() && attachments.length === 0) ||
                   modelSetupRequired ||
                   pendingStart ||

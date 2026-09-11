@@ -1,8 +1,7 @@
 # DeepSeek Harness SDK runtime for Aegis: dsh-sdk-jsonrpc-server over stdio,
 # driven per-thread by the Electron main process through
-# @deepseek-ai/dsh-sdk-client. Composition merges the upstream
-# examples/jsonrpc-agent runtime with the sandboxed bash/fs stack from
-# examples/acp-agent. AEGIS_DSH_AGENT_PRESET selects one of the four official
+# @deepseek-ai/dsh-sdk-client. Aegis explicitly composes the SDK runtime
+# with the sandboxed bash/fs stack. AEGIS_DSH_AGENT_PRESET selects one of the four official
 # Web UI mode semantics at process spawn: standard, code (PTC), minimal, or
 # cordis (Creator). stdout is reserved for JSON-RPC; no console logger.
 
@@ -21,8 +20,42 @@
     thinking: enabled
     reasoningEffort: !!js "process.env.DSH_REASONING_EFFORT ?? 'max'"
     models:
-      - id: deepseek-v4-flash
+      # Official API catalog verified 2026-09-10. The legacy Flash id now
+      # routes to V4.1 Flash. maxTokens retains the Harness default (256K);
+      # the API supports up to 384K but Aegis does not raise request limits.
+      - id: deepseek-flash
+        name: DeepSeek V4.1 Flash
+        description: Current Flash model with image understanding.
+        contextWindow: 1000000
+        maxTokens: 256000
+        inputModalities: [text, image]
+        imagePixelBudget: 640000
+        imageMaxBytes: 1048576
+        systemPromptUpdate: in-history
       - id: deepseek-v4-pro
+        name: DeepSeek V4 Pro
+        description: Text-only Harness configuration for complex reasoning and coding.
+        contextWindow: 1000000
+        maxTokens: 256000
+        inputModalities: [text]
+      # Keep the alias available to saved sessions; the picker hides it when
+      # deepseek-flash is configured. The first entry is the new-session default.
+      - id: deepseek-v4-flash
+        name: DeepSeek V4.1 Flash (legacy)
+        description: Legacy Flash alias, served by V4.1 Flash.
+        contextWindow: 1000000
+        maxTokens: 256000
+        inputModalities: [text, image]
+        imagePixelBudget: 640000
+        imageMaxBytes: 1048576
+        systemPromptUpdate: in-history
+
+# Native validation, normalization and durable image references. This home is
+# owned by Aegis and does not replace the user's DSH_HOME or CLI configuration.
+- id: attachments
+  name: '@deepseek-ai/dsh-attachment-local'
+  config:
+    dshHome: !!js "process.env.AEGIS_DSH_ATTACHMENT_HOME"
 
 # Sandbox stack (acp-agent pattern): bash AND filesystem tools confined by the
 # mode below. DSH_PERMISSION_MODE: workspace-write (default) or
@@ -53,22 +86,117 @@
   config:
     policy: never
 
-- id: agent-spine
-  name: '@deepseek-ai/dsh-agent-spine-demo'
+# Explicit service composition replaces the removed agent-spine-demo package.
+- id: timer
+  name: '@deepseek-ai/cordis-plugin-timer'
+
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: session
+  name: '@deepseek-ai/dsh-session'
+
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: deepseek-llm-api-extensions
+  name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
+
+- id: session-log-deepseek
+  name: '@deepseek-ai/dsh-session-log-deepseek'
+
+- id: agent
+  name: '@deepseek-ai/dsh-agent'
+
+- id: llm-retry
+  name: '@deepseek-ai/dsh-llm-retry'
+
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+
+- id: jobs-local
+  name: '@deepseek-ai/dsh-jobs-local'
+
+- id: invariants
+  name: '@deepseek-ai/dsh-invariants'
+
+- id: session-invariant
+  name: '@deepseek-ai/dsh-session/invariant'
+
+- id: agent-invariant
+  name: '@deepseek-ai/dsh-agent/invariant'
+
+- id: scope-invariant
+  name: '@deepseek-ai/dsh-scope/invariant'
+
+- id: agent-loop-invariant
+  name: '@deepseek-ai/dsh-agent-loop/invariant'
+
+- id: session-title
+  name: '@deepseek-ai/dsh-session-title'
+  config:
+    fallbackMaxWords: 5
+    fallbackMaxBytes: 40
+    maxTitleBytes: 80
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
   config:
     includeHarnessIdentity: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
     includeRuntimeContext: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
-    persona: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? 'You are a helpful software engineer assistant.' : (process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'cordis' ? 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. You can inspect and experiment with the live Cordis runtime to help create custom agent compositions. Verify your work and keep answers factual.' : 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug. Verify your work by running the code or tests. Keep answers brief and factual.'"
-    tools:
-      mode: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'code' ? 'code' : 'native'"
-    workspaceContext: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? false : { maxBytes: 65536 }"
-    skills:
-      enabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
-    toolBash: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? false : { enableRunInBackground: true }"
-    toolJobs: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? false : {}"
-    goals: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? false : {}"
+    personaPrefix: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? 'You are a helpful software engineer assistant.' : (process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'cordis' ? 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. You can inspect and experiment with the live Cordis runtime to help create custom agent compositions. Verify your work and keep answers factual.' : 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug. Verify your work by running the code or tests. Keep answers brief and factual.'"
 
-# PTC / Code mode exposes the spine's registered tools through the generated
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+  config:
+    # Keep Aegis's persisted `code` preset id; the SDK calls its mode `ptc`.
+    mode: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'code' ? 'ptc' : 'native'"
+
+- id: skill
+  name: '@deepseek-ai/dsh-skill'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: goal-round-driver
+  name: '@deepseek-ai/dsh-goal-round-driver'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: shell-env
+  name: '@deepseek-ai/dsh-shell-env'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+  config:
+    enableRunInBackground: true
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  disabled: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal'"
+  config:
+    maxBytes: 65536
+
+# PTC / Code mode exposes the registered tools through the generated
 # TypeScript SDK and the single run_code transport. The runtime remains loaded
 # in other modes so the composition shape is stable; native presentation never
 # exposes it to the model.

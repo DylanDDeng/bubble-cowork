@@ -1,6 +1,8 @@
+import { deepseekImageInputError } from '../../shared/deepseek-images';
 import { useSessionGoal } from '../hooks/useSessionGoal';
 import { GoalModePill } from './SessionGoal';
 import { buildGoalObjective, parseGoalInput, supportsGoalUI, isClaudeGoalClearObjective } from '../../shared/session-goal';
+import { useAttachmentImport } from '../hooks/useAttachmentImport';
 import {
   useState,
   useEffect,
@@ -82,6 +84,15 @@ export function NewSessionView() {
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
   const cwd = projectCwd || '';
+  const attachmentImport = useAttachmentImport(cwd, pendingStart, (created) => {
+    setAttachments(previous => {
+      const paths = new Set(previous.map(attachment => attachment.path));
+      return [...previous, ...created.filter(attachment => {
+        if (paths.has(attachment.path)) return false;
+        paths.add(attachment.path); return true;
+      })];
+    });
+  });
   const hasSelectedCwd = cwd.trim().length > 0;
   const agentSelection = useComposerAgentSelection({ selectionKey: '__new_session__' });
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
@@ -245,7 +256,12 @@ export function NewSessionView() {
       return;
     }
 
+    if (attachmentImport.pending.current > 0) return;
     if (!prompt.trim() && attachments.length === 0) return;
+    if (agentSelection.provider === 'deepseek') {
+      const imageError = deepseekImageInputError(attachments, agentSelection.model, agentSelection.deepseekModelConfig);
+      if (imageError) { toast.error(imageError); return; }
+    }
     const referenceError = getSessionReferenceCapabilityError(prompt, agentSelection.provider);
     if (referenceError) { toast.error(referenceError); return; }
     if (agentSelection.modelSetup) {
@@ -392,22 +408,7 @@ export function NewSessionView() {
     setProjectCwd(next || null);
   };
 
-  const handleAddAttachments = async () => {
-    if (pendingStart) return;
-    const selected = await window.electron.selectAttachments();
-    if (!selected || selected.length === 0) return;
-
-    setAttachments((prev) => {
-      const existingPaths = new Set(prev.map((a) => a.path));
-      const next = [...prev];
-      for (const a of selected) {
-        if (!existingPaths.has(a.path)) {
-          next.push(a);
-        }
-      }
-      return next;
-    });
-  };
+  const handleAddAttachments = () => attachmentImport.choose();
 
   const handleSelectProjectFile = useCallback(
     async (file: { path: string; relativePath?: string }) => {
@@ -472,7 +473,7 @@ export function NewSessionView() {
     }
 
     if (failed > 0) {
-      toast.error(`Failed to paste ${failed} image(s). Only PNG/JPEG up to 10MB are supported.`);
+      toast.error(`Failed to paste ${failed} image(s). PNG, JPEG, WebP and GIF up to 10 MB are supported.`);
     }
 
     return created.length > 0;
@@ -540,6 +541,7 @@ export function NewSessionView() {
   const canStartTask =
     (prompt.trim().length > 0 || attachments.length > 0) &&
     !pendingStart &&
+    !attachmentImport.isImporting &&
     !modelSetupRequired;
 
   const projectName = cwd ? cwd.split('/').filter(Boolean).pop() || cwd : '';
@@ -637,7 +639,8 @@ export function NewSessionView() {
                 </div>
               ) : null}
 
-              <div className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_4px_16px_rgba(15,23,42,0.08)]">
+              <div {...attachmentImport.dropProps} data-composer-drop-zone className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_4px_16px_rgba(15,23,42,0.08)]">
+                {attachmentImport.isImporting && <div role="status" className="px-4 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
                 {attachments.length > 0 && (
                   <div className="px-4 pt-4">
                     <AttachmentChips
@@ -661,6 +664,8 @@ export function NewSessionView() {
                   onPasteText={(context) => {
                     return handleLongPaste(context);
                   }}
+                  onPasteFiles={attachmentImport.files}
+                  onPasteNativeFiles={attachmentImport.pasteNative}
                   onPasteImages={(images) => {
                     void handlePasteImages(images);
                   }}

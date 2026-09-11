@@ -113,6 +113,8 @@ export function SubagentPanel({
             tool_use_id: result.tool_use_id,
             content: result.content,
             is_error: result.is_error,
+            ...(result.images ? { images: result.images } : {}),
+            ...(result.mediaRefs ? { mediaRefs: result.mediaRefs } : {}),
           });
         }
       }

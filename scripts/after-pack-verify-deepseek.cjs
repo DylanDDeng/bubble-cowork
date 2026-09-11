@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Arch } = require('builder-util');
 const asar = require('@electron/asar');
-const { deepseekSdkClosure } = require('./deepseek-sdk-closure.cjs');
+const { deepseekSdkPackagePaths } = require('./deepseek-sdk-closure.cjs');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 
@@ -16,6 +16,8 @@ const REQUIRED_RUNTIME_PATHS = [
   'node_modules/@deepseek-ai/dsh-sdk-jsonrpc-server',
   'node_modules/@deepseek-ai/dsh-llm-deepseek',
   'node_modules/@deepseek-ai/dsh-mcp-client',
+  'node_modules/@deepseek-ai/dsh-attachment-local',
+  'node_modules/sharp',
 ];
 
 function verifyPackagedDeepseekRuntime(resourcesDir, platform, arch) {
@@ -24,8 +26,13 @@ function verifyPackagedDeepseekRuntime(resourcesDir, platform, arch) {
   if (platform && arch) {
     requiredPaths.push(
       `node_modules/@koromix/koffi-${platform}-${arch}`,
-      `node_modules/@vscode/ripgrep-${platform}-${arch}`
+      `node_modules/@vscode/ripgrep-${platform}-${arch}`,
+      `node_modules/@img/sharp-${platform}-${arch}`
     );
+    if (platform === 'darwin' || platform === 'linux') {
+      requiredPaths.push(`node_modules/@deepseek-ai/node-addon-system-${platform}-${arch}`);
+      requiredPaths.push(`node_modules/@img/sharp-libvips-${platform}-${arch}`);
+    }
   }
   for (const relativePath of requiredPaths) {
     assert.ok(
@@ -37,36 +44,36 @@ function verifyPackagedDeepseekRuntime(resourcesDir, platform, arch) {
 }
 
 // The main process imports @deepseek-ai/dsh-sdk-client from app.asar. That
-// package declares its runtime graph as peerDependencies, which electron-builder
-// does not follow when collecting node_modules — assert the whole graph shipped.
+// package's runtime graph includes peerDependencies, which electron-builder
+// does not follow when collecting node_modules — assert every resolved path shipped.
 // A package may legitimately live in app.asar.unpacked instead (smartUnpack
 // moves anything with native binaries there), so accept either location.
-function verifyPackagedDeepseekSdk(resourcesDir, projectDir) {
+function verifyPackagedDeepseekSdk(resourcesDir, projectDir, platform, arch) {
   const asarPath = path.join(resourcesDir, 'app.asar');
   assert.ok(fs.existsSync(asarPath), `packaged app is missing ${asarPath}`);
   const lock = JSON.parse(fs.readFileSync(path.join(projectDir, 'package-lock.json'), 'utf8'));
-  const required = [...deepseekSdkClosure(lock.packages ?? {})];
+  const required = [...deepseekSdkPackagePaths(lock.packages ?? {}, { platform, arch })];
   const entries = new Set(asar.listPackage(asarPath).map((entry) => entry.replace(/\\/g, '/')));
   const unpackedDir = path.join(resourcesDir, 'app.asar.unpacked');
-  for (const name of required) {
-    const asarEntry = `/node_modules/${name}/package.json`;
+  for (const packagePath of required) {
+    const asarEntry = `/${packagePath}/package.json`;
     // @electron/asar resolves entries by splitting on path.sep, so the lookup
     // key must use the host separator (backslashes on Windows).
     const asarLookup = asarEntry.slice(1).split('/').join(path.sep);
-    const unpackedFile = path.join(unpackedDir, 'node_modules', name, 'package.json');
+    const unpackedFile = path.join(unpackedDir, packagePath, 'package.json');
     let manifest;
     if (entries.has(asarEntry)) {
       manifest = asar.extractFile(asarPath, asarLookup).toString('utf8');
     } else if (fs.existsSync(unpackedFile)) {
       manifest = fs.readFileSync(unpackedFile, 'utf8');
     }
-    assert.ok(manifest, `packaged app.asar is missing DeepSeek SDK package ${name}`);
-    const expected = lock.packages?.[`node_modules/${name}`]?.version;
+    assert.ok(manifest, `packaged app.asar is missing DeepSeek SDK package ${packagePath}`);
+    const expected = lock.packages?.[packagePath]?.version;
     const actual = JSON.parse(manifest).version;
     assert.equal(
       actual,
       expected,
-      `packaged DeepSeek SDK package ${name} is ${actual}, lockfile expects ${expected}`
+      `packaged DeepSeek SDK package ${packagePath} is ${actual}, lockfile expects ${expected}`
     );
   }
   console.log(
@@ -87,7 +94,7 @@ async function afterPack(context) {
         )
       : path.join(context.appOutDir, 'resources');
   verifyPackagedDeepseekRuntime(resourcesDir, platform, arch);
-  verifyPackagedDeepseekSdk(resourcesDir, context.packager.projectDir);
+  verifyPackagedDeepseekSdk(resourcesDir, context.packager.projectDir, platform, arch);
 }
 
 module.exports = afterPack;
@@ -98,5 +105,5 @@ if (require.main === module) {
   const resourcesDir = process.argv[2];
   assert.ok(resourcesDir, 'usage: node scripts/after-pack-verify-deepseek.cjs <resources-dir>');
   verifyPackagedDeepseekRuntime(path.resolve(resourcesDir), process.argv[3], process.argv[4]);
-  verifyPackagedDeepseekSdk(path.resolve(resourcesDir), PROJECT_DIR);
+  verifyPackagedDeepseekSdk(path.resolve(resourcesDir), PROJECT_DIR, process.argv[3], process.argv[4]);
 }

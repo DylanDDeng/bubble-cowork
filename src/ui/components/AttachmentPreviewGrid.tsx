@@ -11,7 +11,7 @@ import {
 } from './ui/dialog';
 import { useBrowserNativeOverlayRegistration } from './browser/browser-native-overlay';
 
-export function AttachmentPreviewGrid({ attachments }: { attachments: Attachment[] }) {
+export function AttachmentPreviewGrid({ attachments, align = 'end' }: { attachments: Attachment[]; align?: 'start' | 'end' }) {
   const imageAttachments = useMemo(
     () => attachments.filter((a) => a.kind === 'image'),
     [attachments]
@@ -93,7 +93,7 @@ export function AttachmentPreviewGrid({ attachments }: { attachments: Attachment
 
   return (
     <>
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className={`flex flex-wrap gap-2 ${align === 'start' ? 'justify-start' : 'justify-end'}`}>
         {imageAttachments.map((a) => {
           const preview = previews[a.id] || undefined;
           return preview ? (

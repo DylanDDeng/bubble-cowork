@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, chmodSync }
 import { homedir } from 'os';
 import path from 'path';
 import { safeStorage } from 'electron';
+import { parseDocument } from 'yaml';
 import type {
   DeepseekAgentPreset,
   DeepseekModelConfig,
@@ -186,54 +187,46 @@ export function buildDeepseekEnv(options: {
   return env;
 }
 
-/**
- * Model catalog from the profile's cordis.yml: the llm-deepseek plugin's
- * `models` id list; the first listed model is the default (the model itself
- * travels per session over the SDK initialize handshake). The profile file is
- * the single source of truth — add models there, not here. Tolerant
- * line-scan instead of a YAML parser because the file uses app-defined
- * `!!js` tags.
- */
+/** Read model capabilities without executing the profile's !!js expressions. */
+export function parseDeepseekModelConfig(raw: string): DeepseekModelConfig {
+  const document = parseDocument(raw, {
+    customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
+  });
+  if (document.errors.length) return { defaultModel: null, options: [], imageModels: [] };
+  const rows: unknown = document.toJS({ maxAliasCount: 100 });
+  const plugin = Array.isArray(rows) ? rows.find((row) => row?.name === '@deepseek-ai/dsh-llm-deepseek') : null;
+  const models = Array.isArray(plugin?.config?.models) ? plugin.config.models : [];
+  const options: string[] = [];
+  const imageModels: string[] = [];
+  const availableModels: NonNullable<DeepseekModelConfig['availableModels']> = [];
+  const positiveInt = (value: unknown, fallback: number) =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : fallback;
+  for (const model of models) {
+    const id = typeof model?.id === 'string' ? model.id.trim() : '';
+    if (!id || options.includes(id)) continue;
+    options.push(id);
+    const supportsImages = Array.isArray(model.inputModalities) && model.inputModalities.includes('image');
+    if (supportsImages) imageModels.push(id);
+    availableModels.push({
+      id,
+      name: typeof model.name === 'string' && model.name.trim() ? model.name.trim() : id,
+      description: typeof model.description === 'string' ? model.description.trim() || undefined : undefined,
+      inputModalities: supportsImages ? ['text', 'image'] : ['text'],
+      contextWindow: positiveInt(model.contextWindow, positiveInt(plugin.config.defaultContextWindow, 1_000_000)),
+      maxOutputTokens: positiveInt(model.maxTokens, positiveInt(plugin.config.maxTokens, 256_000)),
+      reasoningEfforts: plugin.config.thinking === 'disabled' ? ['off'] : ['off', 'low', 'high', 'max'],
+    });
+  }
+  return { defaultModel: options[0] || null, options, imageModels, availableModels };
+}
+
+/** The runtime profile is the single source of truth for model input support. */
 export function getDeepseekModelConfig(): DeepseekModelConfig {
   const profileDir = resolveDeepseekProfileDir();
-  if (!profileDir) {
-    return { defaultModel: null, options: [] };
-  }
-  let raw: string;
   try {
-    raw = readFileSync(path.join(profileDir, 'cordis.yml'), 'utf8');
-  } catch {
-    return { defaultModel: null, options: [] };
-  }
-
-  const options: string[] = [];
-  let inLlmDeepseek = false;
-  let inModels = false;
-  for (const line of raw.split(/\r?\n/)) {
-    if (/^- id:/.test(line)) {
-      inLlmDeepseek = false;
-      inModels = false;
-    }
-    if (/name:\s*'@deepseek-ai\/dsh-llm-deepseek'/.test(line)) {
-      inLlmDeepseek = true;
-      continue;
-    }
-    if (!inLlmDeepseek) continue;
-    if (/^\s+models:/.test(line)) {
-      inModels = true;
-      continue;
-    }
-    if (inModels) {
-      const entry = line.match(/^\s+-\s+id:\s*(\S+)/);
-      if (entry) {
-        options.push(entry[1]);
-      } else if (line.trim() && !/^\s{6,}/.test(line)) {
-        inModels = false;
-      }
-    }
-  }
-
-  return { defaultModel: options[0] || null, options };
+    if (profileDir) return parseDeepseekModelConfig(readFileSync(path.join(profileDir, 'cordis.yml'), 'utf8'));
+  } catch { /* Missing or invalid profile is handled by runtime setup. */ }
+  return { defaultModel: null, options: [], imageModels: [] };
 }
 
 export function buildDeepseekSetupCommand(): string {

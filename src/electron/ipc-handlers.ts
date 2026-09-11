@@ -20,6 +20,8 @@ import * as sessions from './libs/session-store';
 import { setupSessionLinksIPC, openSessionLink, flushSessionLink } from './ipc/session-links';
 import { appendSessionReferences } from './libs/session-reference';
 import { setupSessionTitleIPC } from './ipc/session-title';
+import { setupAttachmentIPC } from './ipc/attachments';
+import { ATTACHMENT_MIME_TYPES, MAX_ATTACHMENT_BYTES, attachmentSizeLimit } from '../shared/attachment-policy';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
 import {
   forkClaudeAgentSession,
@@ -301,7 +303,6 @@ import {
   stashWorkingTree,
 } from './libs/git-service';
 
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
 const MAX_STREAMING_PDF_PREVIEW_BYTES = 200 * 1024 * 1024; // 200MB
 const DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS = 20_000;
@@ -345,20 +346,6 @@ function getDirectMessageRuntimeCwd(): string {
   return runtimeCwd;
 }
 
-const ATTACHMENT_MIME_TYPES: Record<string, string> = {
-  '.txt': 'text/plain',
-  '.md': 'text/markdown',
-  '.json': 'application/json',
-  '.log': 'text/plain',
-  '.pdf': 'application/pdf',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.mp3': 'audio/mpeg',
-  '.wav': 'audio/wav',
-  '.m4a': 'audio/mp4',
-};
 const MARKDOWN_IMAGE_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -3401,7 +3388,7 @@ function toAttachment(filePath: string): Attachment | null {
     if (!stat.isFile()) {
       return null;
     }
-    if (stat.size > MAX_ATTACHMENT_BYTES) {
+    if (stat.size > attachmentSizeLimit(filePath)) {
       return null;
     }
 
@@ -3427,12 +3414,12 @@ async function toProjectAttachment(cwd: string, filePath: string): Promise<Attac
 
   try {
     const stat = await fsPromises.stat(validation.targetReal);
-    if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) {
+    if (!stat.isFile() || stat.size > attachmentSizeLimit(filePath)) {
       return null;
     }
 
     const ext = extname(validation.targetReal).toLowerCase();
-    const isImage = ext === '.png' || ext === '.jpg' || ext === '.jpeg';
+    const isImage = ATTACHMENT_MIME_TYPES[ext]?.startsWith('image/') === true;
 
     return {
       id: uuidv4(),
@@ -3457,6 +3444,10 @@ async function createInlineImageAttachment(
     ext = '.png';
   } else if (normalizedMime === 'image/jpeg' || normalizedMime === 'image/jpg') {
     ext = '.jpg';
+  } else if (normalizedMime === 'image/webp') {
+    ext = '.webp';
+  } else if (normalizedMime === 'image/gif') {
+    ext = '.gif';
   } else {
     return null;
   }
@@ -5176,6 +5167,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (event.type === 'session.open') handleSessionList(mainWindow);
     broadcast(mainWindow, event);
   });
+  setupAttachmentIPC(mainWindow);
 
   // Board/background starts need the real persisted session id without
   // routing through a renderer draft. `handleSessionStart` can still return
@@ -5980,6 +5972,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   // RPC: 任意 provider 的 usage 报表(kimi/grok/pi 走 Claude 协议报表)
+  ipcMainHandle('get-deepseek-session-cost', async (_, sessionId: string) => {
+    return sessions.getDeepseekSessionCost(sessionId);
+  });
+
   ipcMainHandle('get-agent-usage-report', async (_, provider: AgentProvider, days?: ClaudeUsageRangeDays) => {
     return sessions.getAgentUsageReport(provider, days);
   });

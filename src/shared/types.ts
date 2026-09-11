@@ -219,6 +219,17 @@ export interface GrokModelConfig {
 export interface DeepseekModelConfig {
   defaultModel: string | null;
   options: string[];
+  imageModels?: string[];
+  availableModels?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    inputModalities: Array<'text' | 'image'>;
+    contextWindow: number;
+    /** Effective Harness request cap, not the API's maximum supported output. */
+    maxOutputTokens: number;
+    reasoningEfforts: DeepseekReasoningEffort[];
+  }>;
 }
 
 /** Settings-page view of the effective DeepSeek Harness API key. */
@@ -1730,6 +1741,9 @@ export type StreamMessage =
       modelUsage?: Record<string, ClaudeModelUsage>;
       /** Provider-specific usage fold version for safe historical repair. */
       usageAccounting?: string;
+      costEstimate?: ProviderCostEstimate;
+      /** Allows reports to preserve request-time estimates across rate boundaries. */
+      costAccounting?: string;
     })
   | (StreamMessageBase & {
       type: 'plan_update';
@@ -1768,7 +1782,7 @@ export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'thinking'; thinking: string; signature?: string; durationMs?: number }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; mediaRefs?: ComputerUseMediaRef[] }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; mediaRefs?: ComputerUseMediaRef[]; images?: Attachment[] }
   | { type: 'memory_citations'; citations: MemoryCitation[] };
 
 export interface MemoryCitation {
@@ -1815,6 +1829,11 @@ export interface Usage {
   total_tokens?: number | null;
 }
 
+export interface ProviderCostEstimate {
+  /** null means no verified price is available; never interpret it as free. */
+  usd: number | null;
+}
+
 export interface CodexContextUsage {
   inputTokens: number;
   cachedInputTokens: number;
@@ -1822,6 +1841,7 @@ export interface CodexContextUsage {
   reasoningOutputTokens: number;
   totalTokens: number;
   contextWindow: number;
+  turnCostEstimate?: ProviderCostEstimate;
 }
 
 export interface ClaudeModelUsage {
@@ -1894,7 +1914,7 @@ export interface ClaudeUsageDailyPoint {
 
 export interface ClaudeUsageReport {
   rangeDays: ClaudeUsageRangeDays;
-  costMode?: 'actual' | 'estimated' | 'unavailable';
+  costMode?: 'actual' | 'estimated' | 'partial' | 'unavailable';
   note?: string;
   totals: {
     inputTokens: number;

@@ -67,17 +67,16 @@ const timer = setTimeout(() => {
 }, 240_000);
 
 await using harness = new DeepSeekHarness({
-  launch: {
-    command: process.execPath,
-    args: [join(profileDir, 'runtime-bin.mjs'), join(profileDir, 'cordis.yml')],
-    cwd: profileDir,
-    env: {
-      ...process.env,
-      DEEPSEEK_API_KEY: apiKey,
-      DSH_CWD: cwd,
-      DSH_PERMISSION_MODE: 'workspace-write',
-      ELECTRON_RUN_AS_NODE: '1',
-    },
+  dshBin: join(profileDir, 'runtime-bin.mjs'),
+  profile: 'sdk',
+  patches: [join(profileDir, 'cordis.yml')],
+  processCwd: profileDir,
+  env: {
+    ...process.env,
+    DEEPSEEK_API_KEY: apiKey,
+    DSH_CWD: cwd,
+    DSH_PERMISSION_MODE: 'workspace-write',
+    ELECTRON_RUN_AS_NODE: '1',
   },
   provider: 'deepseek-official',
   cwd,

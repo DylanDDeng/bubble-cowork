@@ -134,6 +134,10 @@ export interface ComposerModelOption {
   label: string;
   description?: string;
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
+  details?: string;
+  /** Keep saved model selections resolvable without offering duplicate aliases. */
+  hiddenFromPicker?: boolean;
+  deepseekReasoningEfforts?: DeepseekReasoningEffort[];
 }
 
 export interface ComposerModelSetupState {
@@ -415,14 +419,20 @@ function buildDeepseekModelOptions(config: ReturnType<typeof useDeepseekModelCon
     key: 'deepseek:default',
     value: '',
     label: 'Default',
-    description: config.defaultModel ? `Use ${config.defaultModel}` : 'Use DeepSeek default model',
   };
-  const explicitOptions = config.options.map((name) => ({
-    key: `deepseek:${name}`,
-    value: name,
-    label: name,
-    description: config.defaultModel === name ? 'Configured default' : undefined,
-  }));
+  const explicitOptions = config.options.map((id) => {
+    const model = config.availableModels?.find((entry) => entry.id === id);
+    return {
+      key: `deepseek:${id}`,
+      value: id,
+      label: model?.name || id,
+      hiddenFromPicker: id === 'deepseek-v4-flash' && config.options.includes('deepseek-flash'),
+      details: [id, model?.description, model ? 'Output is the configured Harness limit.' : undefined].filter(Boolean).join('\n'),
+      deepseekReasoningEfforts: model?.reasoningEfforts,
+    };
+  });
+  defaultOption.deepseekReasoningEfforts = explicitOptions.find((option) => option.value === config.defaultModel)?.deepseekReasoningEfforts;
+
   return [defaultOption, ...explicitOptions];
 }
 
@@ -1440,9 +1450,11 @@ export function useComposerAgentSelection(input?: {
   const [deepseekAgentPreset, setDeepseekAgentPresetState] = useState<DeepseekAgentPreset>(() =>
     input?.deepseekAgentPreset || loadPreferredDeepseekAgentPreset()
   );
-  const [deepseekReasoningEffort, setDeepseekReasoningEffortState] = useState<DeepseekReasoningEffort>(() =>
+  const [preferredDeepseekReasoningEffort, setDeepseekReasoningEffortState] = useState<DeepseekReasoningEffort>(() =>
     loadPreferredDeepseekReasoningEffort()
   );
+  const deepseekReasoningEffort: DeepseekReasoningEffort = deepseekModelConfig.availableModels?.[0]?.reasoningEfforts.length === 1
+    ? 'off' : preferredDeepseekReasoningEffort;
   // Bubble picker preference (default/full-access) is composer-owned like
   // qoder; plan is a separate execution-mode axis like claude/codex, seeded
   // and resynced from the session's live mode so plan approval flips it back.
@@ -1658,6 +1670,7 @@ export function useComposerAgentSelection(input?: {
     selectModel,
     selectAgentConfiguration,
     codexModelConfig,
+    deepseekModelConfig,
     codexModels,
     grokModels,
     bubbleModels,

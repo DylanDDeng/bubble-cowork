@@ -17,7 +17,11 @@ function normalizeDeepseekModelConfig(
         .filter((value): value is string => Boolean(value))
     )
   );
-  return { defaultModel, options };
+  return {
+    defaultModel, options,
+    imageModels: (raw?.imageModels || []).filter((model) => options.includes(model)),
+    availableModels: (raw?.availableModels || []).filter((model) => options.includes(model.id)),
+  };
 }
 
 export function useDeepseekModelConfig() {

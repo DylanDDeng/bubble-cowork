@@ -50,6 +50,7 @@ export function getToolSummary(name: string, input: unknown): string {
     case 'bash':
       return getStringField(input, 'command') || '';
     case 'read':
+    case 'read_image':
     case 'write':
     case 'edit':
     case 'delete':
@@ -117,6 +118,7 @@ const TOOL_VERBS: Record<string, VerbPair> = {
   TodoWrite: ['Updating', 'Updated'],
   NotebookEdit: ['Editing', 'Edited'],
   read: ['Reading', 'Read'],
+  read_image: ['Reading image', 'Read image'],
   write: ['Writing', 'Wrote'],
   edit: ['Editing', 'Edited'],
   delete: ['Deleting', 'Deleted'],
@@ -456,7 +458,7 @@ function detectBashKind(command: string | null | undefined): CanonicalToolKind {
 
 export function classifyToolUse(toolName: string, input: unknown): CanonicalToolKind {
   const normalized = toolName.trim().toLowerCase();
-  if (normalized === 'read') return 'file_read';
+  if (normalized === 'read' || normalized === 'read_image') return 'file_read';
   if (['write', 'edit', 'multiedit', 'delete', 'notebookedit'].includes(normalized)) {
     return 'file_change';
   }

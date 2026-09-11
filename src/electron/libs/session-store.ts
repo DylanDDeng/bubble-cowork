@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { normalizeCodexReasoningEffort } from '../../shared/codex-reasoning';
 import { normalizeDeepseekAgentPreset } from '../../shared/deepseek-agent-preset';
-import { estimateDeepseekUsageCost } from './deepseek-pricing';
+import { DEEPSEEK_COST_ACCOUNTING, estimateDeepseekUsageCost } from './deepseek-pricing';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type { ArtifactRow, DerivedSummaryRow } from '../types';
 import type {
@@ -3145,6 +3145,45 @@ function resolveUsageRowModel(
   return USAGE_PROVIDER_MODEL_FALLBACK[provider] || 'Unknown';
 }
 
+/** Same historical repair and request-time pricing as the Usage report. */
+function getStoredDeepseekResultCost(
+  result: StoredClaudeResultMessage,
+  model: string,
+  createdAt: number
+): number | null {
+  if (result.costAccounting === DEEPSEEK_COST_ACCOUNTING && result.costEstimate) {
+    return result.costEstimate.usd;
+  }
+  const scale = result.usageAccounting === 'deepseek-step-last-wins-v1' ? 1 : 0.5;
+  return estimateDeepseekUsageCost(model, {
+    inputTokens: Math.round(toNumber(result.usage?.input_tokens) * scale),
+    outputTokens: Math.round(toNumber(result.usage?.output_tokens) * scale),
+    cacheReadTokens: Math.round(toNumber(result.usage?.cache_read_input_tokens) * scale),
+  }, createdAt);
+}
+
+/** Full-session total, independent of the renderer's paginated history. */
+export function getDeepseekSessionCost(sessionId: string): { usd: number | null } {
+  const session = getSession(sessionId);
+  if (!session || session.provider !== 'deepseek') return { usd: null };
+  const rows = getDb().prepare(`
+    SELECT data, created_at FROM messages
+    WHERE session_id = ? AND message_type = 'result'
+  `).all(sessionId) as Array<{ data: string; created_at: number }>;
+  let usd = 0;
+  for (const row of rows) {
+    let message: StreamMessage;
+    try { message = readStoredMessagePayload(row.data, row.created_at); }
+    catch { return { usd: null }; }
+    if (message.type !== 'result') continue;
+    const cost = getStoredDeepseekResultCost(message,
+      resolveUsageRowModel('deepseek', session.model, message.model), row.created_at);
+    if (cost === null) return { usd: null };
+    usd += cost;
+  }
+  return { usd };
+}
+
 // Builds a usage report for any provider whose runner stores Claude-shaped
 // `result` messages (claude itself plus kimi/grok/pi).
 function getClaudeProtocolUsageReport(
@@ -3190,6 +3229,8 @@ function getClaudeProtocolUsageReport(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCostUsd = 0;
+  let pricedResults = 0;
+  let unpricedResults = 0;
   let totalCacheReadTokens = 0;
   let totalCacheCreationTokens = 0;
 
@@ -3219,7 +3260,7 @@ function getClaudeProtocolUsageReport(
     const outputTokens = scaleUsage(result.usage?.output_tokens);
     const cacheReadTokens = scaleUsage(result.usage?.cache_read_input_tokens);
     const cacheCreationTokens = scaleUsage(result.usage?.cache_creation_input_tokens);
-    const totalTokens = inputTokens + outputTokens;
+    const totalTokens = inputTokens + outputTokens + (provider === 'deepseek' ? cacheReadTokens : 0);
     const dateKey = formatDateKey(row.created_at);
     const dayBucket = dailyMap.get(dateKey);
 
@@ -3273,18 +3314,16 @@ function getClaudeProtocolUsageReport(
     );
     const resultCostUsd =
       provider === 'deepseek'
-        ? estimateDeepseekUsageCost(
-            fallbackModel,
-            { inputTokens, outputTokens, cacheReadTokens },
-            row.created_at
-          )
+        ? getStoredDeepseekResultCost(result, fallbackModel, row.created_at)
         : toNumber(result.total_cost_usd);
-    totalCostUsd += resultCostUsd;
+    if (resultCostUsd === null) unpricedResults += 1;
+    else pricedResults += 1;
+    totalCostUsd += resultCostUsd ?? 0;
     const summary = modelSummaries.get(fallbackModel) || emptyModelSummary(fallbackModel);
     summary.inputTokens += inputTokens;
     summary.outputTokens += outputTokens;
     summary.totalTokens += totalTokens;
-    summary.totalCostUsd += resultCostUsd;
+    summary.totalCostUsd += resultCostUsd ?? 0;
     summary.cacheReadTokens += cacheReadTokens;
     modelSummaries.set(fallbackModel, summary);
 
@@ -3297,7 +3336,7 @@ function getClaudeProtocolUsageReport(
       dayBucket.totalTokens += totalTokens;
       dayBucket.byModel[fallbackModel] = (dayBucket.byModel[fallbackModel] || 0) + totalTokens;
       dayBucket.byModelCostUsd[fallbackModel] =
-        (dayBucket.byModelCostUsd[fallbackModel] || 0) + resultCostUsd;
+        (dayBucket.byModelCostUsd[fallbackModel] || 0) + (resultCostUsd ?? 0);
     }
   }
 
@@ -3318,17 +3357,19 @@ function getClaudeProtocolUsageReport(
     rangeDays: safeDays,
     // Non-claude runners compute costs against provider-specific pricing the
     // SDK may not know exactly; surface those as estimates.
-    ...(provider === 'claude' ? {} : { costMode: 'estimated' as const }),
+    ...(provider === 'claude' ? {} : {
+      costMode: unpricedResults > 0 ? pricedResults > 0 ? 'partial' as const : 'unavailable' as const : 'estimated' as const,
+    }),
     ...(provider === 'deepseek'
       ? {
           note:
-            'Cost is estimated from official DeepSeek API list prices, including cache-hit pricing and the August 16, 2026 peak/off-peak schedule.',
+            `Estimated USD cost of reported main-agent usage at official DeepSeek API prices (verified September 10, 2026), including cache discounts and weekday UTC peak hours. Background requests without reported usage are excluded. Actual bills may differ.${unpricedResults ? ` ${unpricedResults} result(s) have no verified price and are excluded from cost totals.` : ''}`,
         }
       : {}),
     totals: {
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
-      totalTokens: totalInputTokens + totalOutputTokens,
+      totalTokens: totalInputTokens + totalOutputTokens + (provider === 'deepseek' ? totalCacheReadTokens : 0),
       totalCostUsd,
       sessionCount: sessionIds.size,
       cacheReadTokens: totalCacheReadTokens,

@@ -4,7 +4,7 @@
 // tool surface without using credentials or incurring API cost.
 
 import http from 'node:http';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,11 +29,15 @@ function closeServer(server) {
 
 async function capturePreset(preset) {
   let requestBody;
+  let requestCount = 0;
+  const cwd = mkdtempSync(join(tmpdir(), `aegis-dsh-${preset}-probe-`));
+  writeFileSync(join(cwd, 'ptc.txt'), 'AEGIS_PTC_READ_OK');
   const server = http.createServer((request, response) => {
     const chunks = [];
     request.on('data', (chunk) => chunks.push(chunk));
     request.on('end', () => {
       requestBody = JSON.parse(Buffer.concat(chunks).toString());
+      requestCount += 1;
       const chunk = (delta, finishReason = null, usage) => ({
         id: 'aegis-preset-probe',
         object: 'chat.completion.chunk',
@@ -43,6 +47,19 @@ async function capturePreset(preset) {
         ...(usage ? { usage } : {}),
       });
       response.writeHead(200, { 'content-type': 'text/event-stream' });
+      if (preset === 'code' && requestCount === 1) {
+        response.write(`data: ${JSON.stringify(chunk({ role: 'assistant', tool_calls: [{
+          index: 0, id: 'ptc-read', type: 'function', function: {
+            name: 'run_code', arguments: JSON.stringify({
+              code: `return await tools.read({ file_path: ${JSON.stringify(join(cwd, 'ptc.txt'))} });`,
+              description: 'Read the PTC regression fixture file',
+            }),
+          },
+        }] }))}\n\n`);
+        response.write(`data: ${JSON.stringify(chunk({}, 'tool_calls'))}\n\n`);
+        response.end('data: [DONE]\n\n');
+        return;
+      }
       response.write(`data: ${JSON.stringify(chunk({ role: 'assistant', content: 'ok' }))}\n\n`);
       response.write(
         `data: ${JSON.stringify(
@@ -68,26 +85,25 @@ async function capturePreset(preset) {
     throw new Error('mock DeepSeek server did not bind a TCP port');
   }
 
-  const cwd = mkdtempSync(join(tmpdir(), `aegis-dsh-${preset}-probe-`));
   const sessionRoot = mkdtempSync(join(tmpdir(), `aegis-dsh-${preset}-sessions-`));
   const harness = new DeepSeekHarness({
-    launch: {
-      command: process.execPath,
-      args: [runtimePath, configPath],
-      cwd: profileDir,
-      env: {
-        ...process.env,
-        DEEPSEEK_API_KEY: 'local-preset-probe',
-        DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
-        DSH_CWD: cwd,
+    dshBin: runtimePath,
+    profile: 'sdk',
+    patches: [configPath],
+    processCwd: profileDir,
+    env: {
+      ...process.env,
+      DEEPSEEK_API_KEY: 'local-preset-probe',
+      DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
+      DSH_CWD: cwd,
         DSH_SESSION_ROOT: sessionRoot,
-        DSH_PERMISSION_MODE: 'workspace-write',
-        DSH_REASONING_EFFORT: 'max',
-        AEGIS_DSH_AGENT_PRESET: preset,
-        ELECTRON_RUN_AS_NODE: '1',
-      },
-      requestTimeoutMs: 20_000,
+        DSH_HOME: join(sessionRoot, 'home'),
+      DSH_PERMISSION_MODE: 'workspace-write',
+      DSH_REASONING_EFFORT: 'max',
+      AEGIS_DSH_AGENT_PRESET: preset,
+      ELECTRON_RUN_AS_NODE: '1',
     },
+    requestTimeoutMs: 20_000,
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
     cwd,
@@ -97,6 +113,13 @@ async function capturePreset(preset) {
     const result = await harness.run('Reply with ok.');
     if (result.finalResponse !== 'ok' || !requestBody) {
       throw new Error(`${preset}: mock turn did not complete`);
+    }
+    if (preset === 'code' && (requestCount !== 2 || !requestBody.messages?.some(
+      (message) => message.role === 'tool' && JSON.stringify(message).includes('AEGIS_PTC_READ_OK')
+    ))) {
+      throw new Error(`PTC did not return its nested read result: ${JSON.stringify(
+        requestBody.messages?.filter((message) => message.role === 'tool')
+      )}`);
     }
     const systemPrompt = requestBody.messages?.find((message) => message.role === 'system')?.content || '';
     return {

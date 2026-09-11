@@ -318,7 +318,6 @@ export function ClaudeUsageSettingsContent() {
 
   const activeProviderCard = providers.find((provider) => provider.id === activeProvider) || providers[0];
   const activeReport = activeProviderCard.report;
-  const estimatedCost = activeReport?.costMode === 'estimated';
   const stats = useMemo(() => (activeReport ? computeUsageStats(activeReport) : null), [activeReport]);
   // Sessions ran but every result summed to zero tokens: the provider's CLI
   // does not report token counts (qodercli through 1.1.1 only exposes a
@@ -341,7 +340,7 @@ export function ClaudeUsageSettingsContent() {
         ? null
         : renderUsageState(activeProviderCard) || (
             <>
-              <UsageStatStrip stats={stats!} estimatedCost={estimatedCost} />
+              <UsageStatStrip stats={stats!} costMode={activeReport?.costMode} note={activeReport?.note} />
 
               <TokenActivitySection daily={activeReport!.daily} />
 
@@ -512,11 +511,20 @@ function computeUsageStats(report: ClaudeUsageReport): UsageStats {
   };
 }
 
-function UsageStatStrip({ stats, estimatedCost }: { stats: UsageStats; estimatedCost: boolean }) {
+function UsageStatStrip({ stats, costMode, note }: {
+  stats: UsageStats;
+  costMode: ClaudeUsageReport['costMode'];
+  note?: string;
+}) {
+  const estimatedCost = costMode === 'estimated' || costMode === 'partial';
   const cells = [
     { value: formatCompactNumber(stats.totalTokens), label: 'Total tokens' },
     { value: formatCompactNumber(stats.peakDayTokens), label: 'Peak day tokens' },
-    { value: formatCurrency(stats.totalCostUsd, estimatedCost), label: 'Total cost' },
+    {
+      value: costMode === 'unavailable' ? 'Unavailable' : formatCurrency(stats.totalCostUsd, estimatedCost),
+      label: costMode === 'partial' ? 'Priced usage only' : estimatedCost ? 'Estimated cost' : 'Total cost',
+      note,
+    },
     { value: `${stats.currentStreak}d`, label: 'Current streak' },
     { value: `${stats.longestStreak}d`, label: 'Longest streak' },
   ];
@@ -524,7 +532,7 @@ function UsageStatStrip({ stats, estimatedCost }: { stats: UsageStats; estimated
   return (
     <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-[var(--border)] sm:grid-cols-3 lg:grid-cols-5 lg:divide-x lg:divide-[var(--border)]">
       {cells.map((cell) => (
-        <div key={cell.label} className="px-4 py-4 text-center">
+        <div key={cell.label} title={cell.note} className="px-4 py-4 text-center">
           <div className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
             {cell.value}
           </div>
@@ -1813,6 +1821,7 @@ function formatCurrency(value: number, estimated = false): string {
     return '$0.00';
   }
 
+  if (value > 0 && value < 0.0001) return '<$0.0001';
   if (value < 0.01) {
     return `${estimated ? '≈' : ''}$${value.toFixed(4)}`;
   }

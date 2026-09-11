@@ -1,3 +1,5 @@
+import { buildDeepseekPromptBlocks, deepseekImageBlocks, deepseekToolImages, resolveDeepseekAttachmentHome } from './deepseek-images';
+import { deepseekImageInputError } from '../../../shared/deepseek-images';
 import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,7 +12,7 @@ import {
   resolveDeepseekSessionRoot,
 } from '../deepseek-cli';
 import { listDeepseekSkills } from '../deepseek-skills';
-import { estimateDeepseekUsageCost } from '../deepseek-pricing';
+import { DEEPSEEK_COST_ACCOUNTING, estimateDeepseekUsageCost } from '../deepseek-pricing';
 import {
   createDeepseekMcpRuntimeConfig,
   getDeepseekMcpServers,
@@ -36,7 +38,6 @@ import {
 } from './deepseek-subagent-trace';
 import {
   loadDeepseekSdk,
-  type DshContentBlock,
   type DshHarness,
   type DshHarnessNotification,
   type DshHarnessSession,
@@ -54,7 +55,6 @@ import type {
   ProviderSessionStatus,
 } from './types';
 import type {
-  Attachment,
   DeepseekAgentPreset,
   DeepseekPermissionMode,
   DeepseekReasoningEffort,
@@ -74,7 +74,7 @@ import type {
  * and results, per-request usage and context window — which this adapter maps
  * onto the same stream shapes the Grok adapter emits.
  *
- * Contract notes (pre-release wire, pinned 0.1.0-rc.8):
+ * Contract notes (pre-release wire, pinned 0.1.5-rc.1):
  * - No mid-turn cancel on the wire: stop = close the runtime (EOF → SIGTERM →
  *   SIGKILL ladder inside the SDK client). The JSON-RPC server still omits its
  *   core agents.resume() path, so the Aegis runtime bin installs a narrow
@@ -98,7 +98,8 @@ interface TurnState {
   currentText?: { blockIndex: number };
   usage: { input: number; output: number; cacheRead: number; reasoning: number };
   /** The SDK emits the same sample as a usage chunk and committed message. */
-  usageByStep: Map<string, { input: number; output: number; cacheRead: number; reasoning: number }>;
+  usageByStep: Map<string, { input: number; output: number; cacheRead: number; reasoning: number; atMs: number }>;
+  latestUsageKey?: string;
   endReason?: { kind: string; message?: string };
   startedAt: number;
 }
@@ -142,6 +143,8 @@ interface ActiveDeepseekSession {
   turnInFlight?: boolean;
   /** Set by stopSession/disposeSession so a rejected in-flight run stays silent. */
   closed?: boolean;
+  attachmentHome?: string;
+  pendingImageResults?: Set<Promise<void>>;
 }
 
 const CAPABILITIES: ProviderAdapterCapabilities = {
@@ -149,7 +152,7 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
   skillDiscovery: true,
   pluginDiscovery: false,
   mcpServers: true,
-  imageAttachments: false,
+  imageAttachments: true,
   forkThread: false,
   compactThread: false,
   planMode: false,
@@ -183,36 +186,6 @@ function normalizeDeepseekReasoningEffort(value: unknown): DeepseekReasoningEffo
   return value === 'off' || value === 'low' || value === 'high' || value === 'max' ? value : 'max';
 }
 
-/**
- * The runtime takes text content blocks; images are not part of the dsh
- * prompt vocabulary, so attachments flatten to text: previews inline,
- * binaries as path references the agent can open with its sandboxed tools.
- */
-function buildPromptBlocks(prompt: string, attachments?: Attachment[]): DshContentBlock[] {
-  const blocks: DshContentBlock[] = [];
-  if (prompt.trim()) {
-    blocks.push({ type: 'text', text: prompt });
-  }
-  for (const attachment of attachments || []) {
-    if (attachment.kind === 'image') {
-      blocks.push({
-        type: 'text',
-        text: `Image attachment available on disk (this agent cannot view images): ${attachment.path}`,
-      });
-    } else if (attachment.previewText?.trim()) {
-      blocks.push({
-        type: 'text',
-        text: `Attachment: ${attachment.name}\nPath: ${attachment.path}\n\n${attachment.previewText}`,
-      });
-    } else {
-      blocks.push({
-        type: 'text',
-        text: `Attachment available on disk: ${attachment.path}`,
-      });
-    }
-  }
-  return blocks;
-}
 
 function extractUserMessageText(data: Record<string, unknown>): string {
   const message = getRecord(data.message) || data;
@@ -281,10 +254,14 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   }
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
+    const modelConfig = getDeepseekModelConfig();
     const permissionMode = normalizeDeepseekPermissionMode(input.deepseekPermissionMode);
     const agentPreset = normalizeDeepseekAgentPreset(input.deepseekAgentPreset);
-    const reasoningEffort = normalizeDeepseekReasoningEffort(input.deepseekReasoningEffort);
-    const model = input.model?.trim() || getDeepseekModelConfig().defaultModel || undefined;
+    const reasoningEffort = modelConfig.availableModels?.[0]?.reasoningEfforts.length === 1
+      ? 'off' : normalizeDeepseekReasoningEffort(input.deepseekReasoningEffort);
+    const model = input.model?.trim() || modelConfig.defaultModel || undefined;
+    const imageError = deepseekImageInputError(input.attachments, model, modelConfig);
+    if (imageError) throw new Error(imageError);
     setBrowserUseSessionFullAccess(input.threadId, permissionMode === 'danger-full-access');
     let launched: Awaited<ReturnType<DeepseekSdkAdapter['spawnHarness']>>;
     try {
@@ -312,9 +289,14 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     const active: ActiveDeepseekSession = {
       threadId: input.threadId,
       providerSessionId: session.id,
+      attachmentHome: resolveDeepseekAttachmentHome(),
       status: 'running',
       cwd: input.cwd,
       model,
+      // Native resume retains request/context and only emits it if it changes.
+      // Seed from the effective profile so a new adapter can publish fresh
+      // usage immediately; any runtime context event still takes precedence.
+      contextWindow: modelConfig.availableModels?.find((entry) => entry.id === model)?.contextWindow,
       permissionMode,
       agentPreset,
       reasoningEffort,
@@ -363,6 +345,9 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       throw new Error(`No DeepSeek Harness session found for thread "${input.threadId}"`);
     }
 
+    const imageError = deepseekImageInputError(input.attachments, active.model, getDeepseekModelConfig());
+    if (imageError) throw new Error(imageError);
+
     // Steer: while the primary run owns the activity, a follow-up send rides
     // the runtime's inbox instead of a second run(). The spine splices it and
     // consumes it before going idle (verified live: the queued instruction
@@ -370,10 +355,9 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     // settlement covers it and emits the single turn-terminal result.
     if (active.turnInFlight) {
       try {
-        await active.harness.client.prompt(
-          active.providerSessionId,
-          buildPromptBlocks(input.prompt, input.attachments)
-        );
+        const blocks = await buildDeepseekPromptBlocks(input.prompt, input.attachments);
+        if (this.sessions.get(input.threadId) !== active || active.closed) return;
+        await active.harness.client.prompt(active.providerSessionId, blocks);
       } catch (error) {
         if (this.sessions.get(input.threadId) !== active || active.closed) {
           return;
@@ -398,7 +382,10 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     this.emit({ type: 'status_change', threadId: input.threadId, status: 'running' });
 
     try {
-      await active.session.run(buildPromptBlocks(input.prompt, input.attachments));
+      const blocks = await buildDeepseekPromptBlocks(input.prompt, input.attachments);
+      if (this.sessions.get(input.threadId) !== active || active.closed) return;
+      await active.session.run(blocks);
+      while (active.pendingImageResults?.size) await Promise.all(active.pendingImageResults);
       if (this.sessions.get(input.threadId) !== active) {
         return;
       }
@@ -413,18 +400,9 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
           type: 'result',
           subtype: failed ? 'error' : 'success',
           duration_ms: turn ? Date.now() - turn.startedAt : 0,
-          total_cost_usd: turn
-            ? estimateDeepseekUsageCost(
-                active.model,
-                {
-                  inputTokens: turn.usage.input,
-                  outputTokens: turn.usage.output,
-                  cacheReadTokens: turn.usage.cacheRead,
-                  reasoningTokens: turn.usage.reasoning,
-                },
-                turn.startedAt
-              )
-            : 0,
+          total_cost_usd: this.turnCost(active).usd ?? 0,
+          costEstimate: this.turnCost(active),
+          costAccounting: DEEPSEEK_COST_ACCOUNTING,
           usage: {
             input_tokens: turn?.usage.input ?? 0,
             output_tokens: turn?.usage.output ?? 0,
@@ -462,8 +440,16 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
           type: 'result',
           subtype: 'error',
           duration_ms: active.turn ? Date.now() - active.turn.startedAt : 0,
-          total_cost_usd: 0,
-          usage: { input_tokens: 0, output_tokens: 0 },
+          total_cost_usd: this.turnCost(active).usd ?? 0,
+          costEstimate: this.turnCost(active),
+          costAccounting: DEEPSEEK_COST_ACCOUNTING,
+          model: active.model,
+          usage: {
+            input_tokens: active.turn?.usage.input ?? 0,
+            output_tokens: active.turn?.usage.output ?? 0,
+            cache_read_input_tokens: active.turn?.usage.cacheRead ?? 0,
+            reasoning_output_tokens: active.turn?.usage.reasoning ?? 0,
+          },
           usageAccounting: 'deepseek-step-last-wins-v1',
         },
       });
@@ -570,14 +556,17 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     // permission_request is ever emitted and there is nothing to answer.
   }
 
-  /** One-shot text round trip: boot a runtime, run once, reap it. */
+  /** One-shot round trip: boot a runtime, run once, reap it. */
   async runOneShot(
     input: ProviderSessionStartInput
   ): Promise<{ text: string; sessionId?: string; model?: string }> {
     const permissionMode = normalizeDeepseekPermissionMode(input.deepseekPermissionMode);
     const agentPreset = normalizeDeepseekAgentPreset(input.deepseekAgentPreset);
-    const reasoningEffort = normalizeDeepseekReasoningEffort(input.deepseekReasoningEffort);
+    const reasoningEffort = getDeepseekModelConfig().availableModels?.[0]?.reasoningEfforts.length === 1
+      ? 'off' : normalizeDeepseekReasoningEffort(input.deepseekReasoningEffort);
     const model = input.model?.trim() || getDeepseekModelConfig().defaultModel || undefined;
+    const imageError = deepseekImageInputError(input.attachments, model, getDeepseekModelConfig());
+    if (imageError) throw new Error(imageError);
     setBrowserUseSessionFullAccess(input.threadId, permissionMode === 'danger-full-access');
     const { harness, disposeRuntimeConfig } = await this.spawnHarness(
       input.threadId,
@@ -588,7 +577,7 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       reasoningEffort
     );
     try {
-      const result = await harness.run(buildPromptBlocks(input.prompt, input.attachments));
+      const result = await harness.run(await buildDeepseekPromptBlocks(input.prompt, input.attachments));
       return { text: result.finalResponse, sessionId: result.sessionId, model };
     } finally {
       finishBrowserUseTurn(browserManager, input.threadId);
@@ -641,27 +630,28 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       // temporary config and must not inherit the global bearer token.
       delete runtimeEnv[BROWSER_USE_TOKEN_ENV_VAR];
       const harness = new sdk.DeepSeekHarness({
-        launch: {
-          command: process.execPath,
-          args: [entry.binPath, runtimeConfig.configPath],
-          cwd: profileDir,
-          // Stop rides the close ladder (shutdown -> EOF -> SIGTERM -> SIGKILL);
-          // the SDK defaults sum to ~10s worst case, far too slow for the stop
-          // button. A mid-turn runtime holds no state worth a long quiesce —
-          // sessions persist per event — so cut each rung short (~3.5s worst).
-          shutdownTimeoutMs: 500,
-          disposeEofGraceMs: 1500,
-          disposeGraceMs: 1500,
-          env: {
-            ...runtimeEnv,
-            // Electron's process.execPath is Electron itself; run as plain node.
-            ELECTRON_RUN_AS_NODE: '1',
-            DSH_SESSION_ROOT: resolveDeepseekSessionRoot(profileDir),
-            ...(resumeSessionId ? { AEGIS_DSH_RESUME_SESSION_ID: resumeSessionId } : {}),
-          },
+        dshBin: entry.binPath,
+        profile: 'sdk',
+        patches: [runtimeConfig.configPath],
+        processCwd: profileDir,
+        // Stop rides the close ladder (shutdown -> EOF -> SIGTERM -> SIGKILL);
+        // the SDK defaults sum to ~10s worst case, far too slow for the stop
+        // button. A mid-turn runtime holds no state worth a long quiesce —
+        // sessions persist per event — so cut each rung short (~3.5s worst).
+        shutdownTimeoutMs: 500,
+        disposeEofGraceMs: 1500,
+        disposeGraceMs: 1500,
+        env: {
+          ...runtimeEnv,
+          // Electron's process.execPath is Electron itself; run as plain node.
+          ELECTRON_RUN_AS_NODE: '1',
+          DSH_SESSION_ROOT: resolveDeepseekSessionRoot(profileDir),
+          AEGIS_DSH_ATTACHMENT_HOME: resolveDeepseekAttachmentHome(),
+          ...(resumeSessionId ? { AEGIS_DSH_RESUME_SESSION_ID: resumeSessionId } : {}),
         },
         cwd,
         provider: 'deepseek-official',
+        reasoningEffort,
         ...(model ? { model } : {}),
       });
       await harness.start();
@@ -808,6 +798,26 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       case 'tool/result':
         this.handleToolResult(active, sessionId, data, parentToolUseId, createdAt);
         break;
+      case 'tool/ptc-dispatch-start':
+      case 'tool/ptc-dispatch': {
+        // PTC keeps image content in its native nested dispatch log. The
+        // deferred user context is for the model, not a second user upload.
+        const blocks = getArray(data.content);
+        if (data.name !== 'read_image' && deepseekImageBlocks(blocks).length === 0) break;
+        const callId = getString(data.subCallId);
+        if (!callId) break;
+        this.handleToolCall(active, sessionId, {
+          callId, name: data.name,
+          arguments: typeof data.arguments === 'string' ? data.arguments : JSON.stringify(data.arguments || {}),
+        }, parentToolUseId, createdAt, `ptc:${callId}`);
+        if (event.type === 'tool/ptc-dispatch') {
+          this.handleToolResult(active, sessionId, {
+            isError: data.isError,
+            message: { source: { callId }, content: blocks },
+          }, parentToolUseId, createdAt);
+        }
+        break;
+      }
       case 'request/context':
         if (isRoot) {
           active.contextWindow = getNumber(data.contextWindow) || active.contextWindow;
@@ -938,7 +948,8 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     sessionId: string,
     data: Record<string, unknown>,
     parentToolUseId: string | null,
-    createdAt: number
+    createdAt: number,
+    batchId?: string
   ): void {
     const rawCallId = getString(data.callId);
     if (!rawCallId || !sessionId) return;
@@ -961,10 +972,11 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
 
     const turn = getNumber(data.turn);
     const step = getNumber(data.step);
-    const batchKey = `${sessionId}:${turn}:${step}`;
+    const batchKey = `${sessionId}:${batchId ?? `${turn}:${step}`}`;
     const existing = active.toolBatches.get(batchKey);
     const block = { type: 'tool_use' as const, id: displayId, name, input: parsedInput };
     if (existing && existing.parentToolUseId === parentToolUseId) {
+      if (existing.blocks.some((item) => item.id === displayId)) return;
       existing.blocks.push(block);
       this.emit({
         type: 'message',
@@ -1014,11 +1026,11 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     if (!rawCallId || !sessionId) return;
     const displayId = namespaceDeepseekToolId(sessionId, rawCallId);
     const blocks = getArray(message?.content);
-    const isError = blocks.some((block) => getRecord(block)?.isError === true);
+    const isError = data.isError === true || blocks.some((block) => getRecord(block)?.isError === true);
     const text = extractToolResultText(blocks) || 'Done';
     const streamMessage: StreamMessage = {
       type: 'assistant',
-      uuid: `deepseek-tool-result:${active.threadId}:${displayId}:${uuidv4()}`,
+      uuid: `deepseek-tool-result:${active.threadId}:${displayId}`,
       createdAt,
       ...(parentToolUseId ? { parentToolUseId } : {}),
       message: {
@@ -1032,7 +1044,25 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
         ],
       },
     };
-    this.emit({ type: 'message', threadId: active.threadId, message: streamMessage });
+    if (deepseekImageBlocks(blocks).length > 0) {
+      const pending = active.pendingImageResults ??= new Set();
+      const task = (async () => {
+        const resultBlock = streamMessage.message.content[0];
+        if (resultBlock.type !== 'tool_result') return;
+        try {
+          resultBlock.images = await deepseekToolImages(blocks, active.attachmentHome || resolveDeepseekAttachmentHome());
+        } catch (error) {
+          resultBlock.content += `\nImage preview unavailable: ${error instanceof Error ? error.message : String(error)}`;
+        }
+        if (this.sessions.get(active.threadId) === active && !active.closed) {
+          this.emit({ type: 'message', threadId: active.threadId, message: streamMessage });
+        }
+      })();
+      pending.add(task);
+      void task.then(() => pending.delete(task), () => pending.delete(task));
+    } else {
+      this.emit({ type: 'message', threadId: active.threadId, message: streamMessage });
+    }
   }
 
   // ── Usage / context ring ───────────────────────────────────────────────────
@@ -1047,13 +1077,14 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     const eventTurn = getNumber(data.turn);
     const eventStep = getNumber(data.step);
     const key = `${eventTurn}:${eventStep}`;
+    const previous = turn.usageByStep.get(key);
     const next = {
+      atMs: previous?.atMs ?? Date.now(),
       input: getNumber(usage.inputTokens),
       output: getNumber(usage.outputTokens),
       cacheRead: getNumber(usage.cacheReadTokens),
       reasoning: getNumber(usage.reasoningTokens),
     };
-    const previous = turn.usageByStep.get(key);
     if (previous) {
       turn.usage.input -= previous.input;
       turn.usage.output -= previous.output;
@@ -1061,16 +1092,34 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       turn.usage.reasoning -= previous.reasoning;
     }
     turn.usageByStep.set(key, next);
+    if (!previous) turn.latestUsageKey = key;
     turn.usage.input += next.input;
     turn.usage.output += next.output;
     turn.usage.cacheRead += next.cacheRead;
     turn.usage.reasoning += next.reasoning;
+    this.emitTokenUsage(active);
+  }
+
+  private turnCost(active: ActiveDeepseekSession): { usd: number | null } {
+    const turn = active.turn;
+    if (!turn?.usageByStep.size) {
+      return { usd: estimateDeepseekUsageCost(active.model, { inputTokens: 0, outputTokens: 0 }) };
+    }
+    let usd = 0;
+    for (const usage of turn.usageByStep.values()) {
+      const estimate = estimateDeepseekUsageCost(active.model, {
+        inputTokens: usage.input, outputTokens: usage.output, cacheReadTokens: usage.cacheRead,
+      }, usage.atMs);
+      if (estimate === null) return { usd: null };
+      usd += estimate;
+    }
+    return { usd };
   }
 
   /**
    * Codex-style context ring. Occupancy approximates the last request's
    * prompt footprint (fresh input + cache hits); the window comes from the
-   * runtime's request/context event for the routed model.
+   * effective profile until request/context provides the routed model's limit.
    */
   private emitTokenUsage(active: ActiveDeepseekSession): void {
     const turn = active.turn;
@@ -1079,7 +1128,9 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     }
     // reasoningTokens is a subdivision of outputTokens in the Harness usage
     // contract, so adding it again would overstate both occupancy and cost.
-    const contextTokens = turn.usage.input + turn.usage.cacheRead + turn.usage.output;
+    const latest = turn.latestUsageKey ? turn.usageByStep.get(turn.latestUsageKey) : undefined;
+    if (!latest) return;
+    const contextTokens = latest.input + latest.cacheRead + latest.output;
     this.emit({
       type: 'message',
       threadId: active.threadId,
@@ -1090,12 +1141,13 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
         session_id: active.threadId,
         provider: 'deepseek',
         usage: {
-          inputTokens: turn.usage.input,
-          cachedInputTokens: turn.usage.cacheRead,
-          outputTokens: turn.usage.output,
-          reasoningOutputTokens: turn.usage.reasoning,
+          inputTokens: latest.input,
+          cachedInputTokens: latest.cacheRead,
+          outputTokens: latest.output,
+          reasoningOutputTokens: latest.reasoning,
           totalTokens: contextTokens,
           contextWindow: active.contextWindow,
+          turnCostEstimate: this.turnCost(active),
         },
       },
     });

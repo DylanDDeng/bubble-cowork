@@ -1,3 +1,4 @@
+import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
@@ -350,12 +351,15 @@ function StageDetails({
 }) {
   const showErrorFallback =
     stage.status === 'error' && stage.files.length === 0 && stage.commands.length === 0;
+  const images = Array.from(new Map(stage.entries.flatMap((entry) =>
+    entry.type === 'tool' ? entry.result?.images || [] : []).map((image) => [image.id, image])).values());
 
   return (
     <div className="mb-1 ml-1 space-y-2 border-l border-[var(--border)]/50 pl-3">
       {stage.files.length > 0 ? (
         <StageFilesDetail stage={stage} onOpenDiff={onOpenDiff} />
       ) : null}
+      {images.length > 0 ? <AttachmentPreviewGrid attachments={images} align="start" /> : null}
       {stage.commands.length > 0 ? <StageCommandsDetail commands={stage.commands} /> : null}
       {stage.kind === 'computer_use' ? <StageComputerUseDetail entries={stage.entries} /> : null}
       {showErrorFallback ? (
@@ -1145,6 +1149,7 @@ function ToolEntryDetail({
 
   return (
     <div className="my-1 space-y-2 text-[12px]">
+      {entry.result?.images?.length ? <AttachmentPreviewGrid attachments={entry.result.images} align="start" /> : null}
       {entry.result?.mediaRefs && entry.result.mediaRefs.length > 0 ? (
         <ComputerUseScreenshots refs={entry.result.mediaRefs} />
       ) : null}

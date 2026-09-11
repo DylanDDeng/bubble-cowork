@@ -200,6 +200,7 @@ declare global {
       sessionId: string
     ) => Promise<import('./shared/types').SessionUserPromptSummary[]>;
     getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
+    getDeepseekSessionCost: (sessionId: string) => Promise<import('./shared/types').ProviderCostEstimate>;
     getAgentUsageReport: (
       provider: import('./shared/types').AgentProvider,
       days?: ClaudeUsageRangeDays
@@ -329,6 +330,11 @@ declare global {
     startFeishuBridge: () => Promise<FeishuBridgeStatus>;
     stopFeishuBridge: () => Promise<FeishuBridgeStatus>;
     selectDirectory: () => Promise<string | null>;
+    getPathForFile: (file: File) => string;
+    getClipboardFilePaths: () => string[];
+    importAttachments: (paths: string[]) => Promise<import('./shared/attachment-policy').AttachmentImportResult>;
+    chooseAttachments: () => Promise<import('./shared/attachment-policy').AttachmentImportResult>;
+    createFileAttachment: (name: string, data: Uint8Array) => Promise<Attachment>;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
     readComputerUseArtifact: (sessionId: string, sha256: string) => Promise<string | null>;

@@ -14,27 +14,32 @@
  */
 
 export interface DshHarnessClientOptions {
-  command: string;
-  args?: string[];
-  cwd?: string;
+  dshBin?: string;
+  profile?: string;
+  patches?: string[];
+  dshHome?: string;
+  processCwd?: string;
   /** Complete child environment; undefined inherits the parent env verbatim. */
   env?: NodeJS.ProcessEnv;
+  initializeTimeoutMs?: number;
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   disposeEofGraceMs?: number;
   disposeGraceMs?: number;
 }
 
-export interface DshHarnessOptions {
-  launch: DshHarnessClientOptions;
+export interface DshHarnessOptions extends DshHarnessClientOptions {
   /** Workspace cwd recorded on every SDK-created session. */
   cwd?: string;
   provider?: string;
   model?: string;
+  reasoningEffort?: string;
   maxTokens?: number;
 }
 
-export type DshContentBlock = { type: 'text'; text: string } & Record<string, unknown>;
+export type DshContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: import('../../../shared/deepseek-images').DeepseekImageMimeType };
 
 /** Full session-log event envelope (type + seq/time + data payload). */
 export interface DshSessionEvent {

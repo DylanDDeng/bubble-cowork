@@ -1,5 +1,5 @@
 import type { SessionMenuRequest, SessionMenuAction } from '../shared/session-menu';
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 import type {
   AutomationDefinition,
   AutomationSnapshot,
@@ -490,6 +490,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-session-user-prompts', sessionId);
   },
 
+  getDeepseekSessionCost: (sessionId: string) => {
+    return ipcRenderer.invoke('get-deepseek-session-cost', sessionId);
+  },
+
   getAgentUsageReport: (provider: string, days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-agent-usage-report', provider, days);
   },
@@ -819,6 +823,16 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   // 选择附件（文件/图片）
+  getPathForFile: (file: File): string => {
+    try { return webUtils.getPathForFile(file); } catch { return ''; }
+  },
+  getClipboardFilePaths: (): string[] => {
+    const paths = ipcRenderer.sendSync('clipboard-file-paths');
+    return Array.isArray(paths) ? paths : [];
+  },
+  importAttachments: (paths: string[]) => ipcRenderer.invoke('import-attachments', paths),
+  chooseAttachments: () => ipcRenderer.invoke('choose-attachments'),
+  createFileAttachment: (name: string, data: Uint8Array) => ipcRenderer.invoke('create-file-attachment', name, data),
   selectAttachments: () => {
     return ipcRenderer.invoke('select-attachments');
   },

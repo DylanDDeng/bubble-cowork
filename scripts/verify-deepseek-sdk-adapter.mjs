@@ -25,7 +25,7 @@ const profilePkg = JSON.parse(read('dev-fixtures/deepseek-harness/package.json')
 assert.ok(
   profilePkg.dependencies?.['@deepseek-ai/dsh-sdk-jsonrpc-server'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-llm-deepseek'] &&
-    profilePkg.dependencies?.['@deepseek-ai/dsh-mcp-client'] === '0.1.0-rc.8' &&
+    profilePkg.dependencies?.['@deepseek-ai/dsh-mcp-client'] === '0.1.5-rc.1' &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-bash-sandbox'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-fs-sandbox'],
   'deepseek-harness profile must compose the SDK server, DeepSeek/MCP adapters and sandboxed tool stack'
@@ -42,12 +42,13 @@ assert.ok(
   'profile cordis.yml must mount the SDK server, model catalog, env-driven sandbox, and auto-deny approvals'
 );
 assert.ok(
-  /skills:\s*\n\s+enabled:[^\n]*AEGIS_DSH_AGENT_PRESET/.test(cordisYml),
+  cordisYml.includes("name: '@deepseek-ai/dsh-skill-filesystem'") &&
+    cordisYml.includes("name: '@deepseek-ai/dsh-tool-skill'"),
   'profile must mount the Harness filesystem skill provider and native /name invocation tool'
 );
 assert.ok(
   cordisYml.includes('AEGIS_DSH_AGENT_PRESET') &&
-    cordisYml.includes("=== 'code' ? 'code' : 'native'") &&
+    cordisYml.includes("=== 'code' ? 'ptc' : 'native'") &&
     cordisYml.includes("name: '@deepseek-ai/dsh-code-runtime-worker-thread'") &&
     cordisYml.includes("name: '@deepseek-ai/dsh-tool-bash-persistent'") &&
     cordisYml.includes("name: '@deepseek-ai/dsh-tool-str-replace-editor'") &&
@@ -180,12 +181,11 @@ const ipcMcpSource = read('src/electron/ipc-handlers.ts');
 assert.ok(
   mcpSettingsSource.includes("label: 'DeepSeek Harness'") &&
     mcpSettingsSource.includes("id: 'deepseek-global'") &&
-    mcpSettingsSource.includes("id: 'deepseek-project'") &&
     mcpSettingsSource.includes('deepseekGlobalServers: nextServers') &&
     ipcMcpSource.includes('saveDeepseekGlobalMcpServers') &&
     ipcMcpSource.includes('saveDeepseekProjectMcpServers') &&
     ipcMcpSource.includes('flushDeepseekRunners()'),
-  'MCP settings must expose DeepSeek global/project scopes and retire stale runtimes on save'
+  'MCP settings must expose DeepSeek global config, preserve project config APIs, and retire stale runtimes on save'
 );
 assert.ok(
   deepseekMcp.toDeepseekMcpServerName('aegis-browser') === 'aegis-browser' &&
@@ -305,8 +305,8 @@ assert.ok(
 );
 assert.ok(
   sessionStore.includes("provider === 'deepseek'") &&
-    sessionStore.includes('official DeepSeek API list prices') &&
-    sessionStore.includes('peak/off-peak schedule') &&
+    sessionStore.includes('official DeepSeek API prices') &&
+    sessionStore.includes('weekday UTC peak hours') &&
     sessionStore.includes("result.usageAccounting !== 'deepseek-step-last-wins-v1'"),
   'DeepSeek Usage settings must label estimates and repair legacy doubled usage'
 );
@@ -361,7 +361,24 @@ assert.ok(
     estimateDeepseekUsageCost('deepseek-v4-pro', usage, Date.parse('2026-08-17T05:00:00Z')),
     2.662
   );
-  assert.equal(estimateDeepseekUsageCost('unknown-model', usage), 0);
+  assert.equal(estimateDeepseekUsageCost('unknown-model', usage), null);
+  assert.equal(estimateDeepseekUsageCost('deepseek-v4-flash-custom', usage), null);
+  assert.equal(estimateDeepseekUsageCost('deepseek-flash', usage, NaN), null);
+  for (const date of ['2026-09-12T02:00:00Z', '2026-09-13T07:00:00Z']) {
+    assert.equal(isDeepseekPeakPeriod(Date.parse(date)), false, 'weekends are off-peak');
+    closeTo(estimateDeepseekUsageCost('deepseek-flash', usage, Date.parse(date)), 0.753);
+  }
+  for (const model of ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp']) {
+    closeTo(estimateDeepseekUsageCost(model, usage, Date.parse('2026-09-10T02:00:00Z')), 1.506);
+    closeTo(estimateDeepseekUsageCost(model, usage, Date.parse('2026-09-10T05:00:00Z')), 0.753);
+  }
+  closeTo(estimateDeepseekUsageCost('deepseek-v4-flash', usage, Date.parse('2026-09-09T23:59:59Z')), 0.887);
+  closeTo(estimateDeepseekUsageCost('deepseek-v4-flash', usage, Date.parse('2026-09-10T00:00:00Z')), 0.753);
+  closeTo(estimateDeepseekUsageCost('deepseek-v4-pro', usage, Date.parse('2026-09-14T03:59:59Z')), 5.324);
+  closeTo(estimateDeepseekUsageCost('deepseek-v4-pro', usage, Date.parse('2026-09-14T04:00:00Z')), 0.753);
+  closeTo(estimateDeepseekUsageCost('deepseek-v4-pro', usage, Date.parse('2026-09-14T06:00:00Z')), 1.506);
+  assert.equal(estimateDeepseekUsageCost('deepseek-flash', usage, Date.parse('2026-09-09T12:00:00Z')), null);
+
 }
 
 // The SDK publishes the same per-step usage on the streaming usage chunk and
@@ -394,6 +411,8 @@ assert.ok(
     session: {
       id: 'provider-session',
       async run() {
+        notify('request/context', { contextWindow: 1_000_000 });
+        notify('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'usage', usage: { inputTokens: 200, outputTokens: 30, cacheReadTokens: 10 } } });
         notify('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage } });
         notify('assistant/message', { turn: 1, step: 1, message: { content: [] }, usage });
         notify('turn/end', { reason: { kind: 'completed' } });
@@ -408,12 +427,37 @@ assert.ok(
   );
   assert.ok(resultEvent, 'adapter must emit a result carrying priced usage');
   assert.deepEqual(resultEvent.message.usage, {
-    input_tokens: 100,
-    output_tokens: 20,
-    cache_read_input_tokens: 5,
+    input_tokens: 300,
+    output_tokens: 50,
+    cache_read_input_tokens: 15,
     reasoning_output_tokens: 7,
   });
   assert.ok(resultEvent.message.total_cost_usd > 0, 'known DeepSeek models must emit a positive cost');
+  const snapshot = emitted.filter(e => e.message?.subtype === 'token_usage').at(-1).message.usage;
+  assert.equal(snapshot.totalTokens, 125, 'context uses the latest request, not the cumulative billable total');
+  assert.equal(snapshot.turnCostEstimate.usd, resultEvent.message.total_cost_usd);
+  assert.equal(resultEvent.message.costEstimate.usd, resultEvent.message.total_cost_usd);
+  assert.equal(resultEvent.message.usageAccounting, 'deepseek-step-last-wins-v1');
+  const sample = active.turn.usageByStep.get('1:0');
+  const at = sample.atMs;
+  adapterInstance.setUsageSample(active, { turn: 1, step: 0 }, { inputTokens: 200, outputTokens: 30, cacheReadTokens: 10 });
+  assert.equal(active.turn.usageByStep.get('1:0').atMs, at, 'dedup retains the sample pricing time');
+  assert.equal(active.turn.latestUsageKey, '1:1', 'a late duplicate does not replace the latest context');
+  active.turn.usageByStep.get('1:0').atMs = Date.parse('2026-09-10T03:59:59Z');
+  active.turn.usageByStep.get('1:1').atMs = Date.parse('2026-09-10T04:00:00Z');
+  assert(Math.abs(adapterInstance.turnCost(active).usd - ((200*.3+30*1.2+10*.006)+(100*.15+20*.6+5*.003))/1e6) < 1e-12);
+  active.model = 'custom-unknown';
+  emitted.length = 0;
+  await adapterInstance.sendTurn({ threadId: active.threadId, prompt: 'unknown cost' });
+  assert.equal(emitted.find(e => e.message?.type === 'result').message.costEstimate.usd, null);
+  active.model = 'deepseek-flash';
+  active.session.run = async () => { notify('assistant/chunk', { turn: 2, step: 1, chunk: { type: 'usage', usage } }); throw new Error('later request failed'); };
+  emitted.length = 0;
+  await adapterInstance.sendTurn({ threadId: active.threadId, prompt: 'failure after usage' });
+  const failed = emitted.find(e => e.message?.type === 'result').message;
+  assert.equal(failed.subtype, 'error'); assert.equal(failed.usage.input_tokens, 100);
+  assert(failed.costEstimate.usd > 0, 'completed requests are retained even when a later request fails');
+
 }
 
 {
@@ -673,8 +717,8 @@ assert.ok(
   'UI must identify the DeepSeek agent runtime as DeepSeek Harness across picker, onboarding, readiness, composer, MCP and usage settings'
 );
 assert.ok(
-  usage.includes('estimatedCost={estimatedCost}') && !usage.includes('activeReport!.note'),
-  'Usage settings must mark estimated costs without rendering an explanatory note row'
+  usage.includes('costMode={activeReport?.costMode}') && usage.includes("costMode === 'unavailable'"),
+  'Usage settings must distinguish estimated, partial and unavailable costs'
 );
 
 const contextUsage = read('src/ui/utils/context-usage.ts');
@@ -804,7 +848,7 @@ const makeServer = (headers) => {
     model: 'deepseek-v4-pro',
     sessions: new Map(),
     ctx: {
-      get: (name) => name === 'sessionPersistence' ? { list: async () => headers } : undefined,
+      get: (name) => name === 'sessionPersistence' ? { stat: async (id) => { const header = headers.find((value) => value.id === id); return header ? { header, revision: 'test' } : undefined; } } : undefined,
       agents: {
         resume: async (options) => {
           resumed.push(options);
@@ -860,3 +904,35 @@ for (const testCase of [
 }
 
 console.log('deepseek-sdk-adapter: wiring checks passed');
+
+{
+  const { parseDeepseekModelConfig } = require('../dist-electron/electron/libs/deepseek-cli.js');
+  const catalog = parseDeepseekModelConfig(cordisYml);
+  assert.equal(catalog.defaultModel, 'deepseek-flash');
+  assert.deepEqual(catalog.imageModels, ['deepseek-flash', 'deepseek-v4-flash']);
+  assert(catalog.availableModels.every(m => m.contextWindow === 1000000 && m.maxOutputTokens === 256000));
+  assert.deepEqual(catalog.availableModels[0].reasoningEfforts, ['off', 'low', 'high', 'max']);
+  const custom = parseDeepseekModelConfig(`- name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: disabled
+    defaultContextWindow: 80000
+    maxTokens: 8192
+    expression: !!js "throw new Error('must not execute')"
+    models:
+      - id: custom
+      - id: custom-vision
+        name: Custom vision
+        description: My deployment
+        contextWindow: 100000
+        maxTokens: 12000
+        inputModalities: [text, image]
+`);
+  assert.equal(custom.availableModels[0].maxOutputTokens, 8192);
+  assert.equal(custom.availableModels[0].contextWindow, 80000);
+  assert.deepEqual(custom.availableModels[0].reasoningEfforts, ['off']);
+  assert.equal(custom.availableModels[1].name, 'Custom vision');
+  assert.equal(custom.availableModels[1].maxOutputTokens, 12000);
+  assert.equal(custom.availableModels[1].contextWindow, 100000);
+  assert.deepEqual(custom.imageModels, ['custom-vision']);
+}
+console.log('DeepSeek model metadata and temporal pricing checks passed');

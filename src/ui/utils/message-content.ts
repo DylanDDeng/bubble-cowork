@@ -1,4 +1,4 @@
-import type { ContentBlock, StreamMessage } from '../types';
+import type { Attachment, ContentBlock, StreamMessage } from '../types';
 
 function isContentBlock(value: unknown): value is ContentBlock {
   return !!value && typeof value === 'object' && 'type' in value;
@@ -68,6 +68,7 @@ export interface NormalizedToolResultBlock {
   content: string;
   is_error?: boolean;
   originType: string;
+  images?: Attachment[];
   mediaRefs?: import('../../shared/computer-use').ComputerUseMediaRef[];
 }
 
@@ -115,6 +116,8 @@ export function normalizeToolResultBlock(block: unknown): NormalizedToolResultBl
     content: stringifyResultContent(block.content),
     is_error: block.is_error === true,
     originType: type,
+    ...(Array.isArray(block.images) ? { images: block.images.filter((image): image is Attachment =>
+      isObject(image) && image.kind === 'image' && typeof image.id === 'string' && typeof image.path === 'string' && typeof image.mimeType === 'string') } : {}),
     ...(Array.isArray(block.mediaRefs) ? { mediaRefs: block.mediaRefs as NormalizedToolResultBlock['mediaRefs'] } : {}),
   };
 }

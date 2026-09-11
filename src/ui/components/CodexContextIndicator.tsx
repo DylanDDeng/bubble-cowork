@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ProviderCostEstimate } from '../../shared/types';
 import type { CodexContextSnapshot } from '../utils/context-usage';
 import {
   CONTEXT_CRITICAL_PERCENT,
@@ -51,7 +52,7 @@ function UsageRing({ percent, size = 'h-4 w-4' }: { percent: number; size?: stri
   );
 }
 
-export function CodexContextIndicator({ snapshot }: { snapshot: CodexContextSnapshot }) {
+export function CodexContextIndicator({ snapshot, cost }: { snapshot: CodexContextSnapshot; cost?: ProviderCostEstimate }) {
   const [open, setOpen] = useState(false);
   const level = getContextUsageLevel(snapshot.percent);
   const nearLimit = level !== 'safe' && snapshot.total > 0;
@@ -73,7 +74,7 @@ export function CodexContextIndicator({ snapshot }: { snapshot: CodexContextSnap
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-1/2 z-40 mb-1.5 w-[156px] -translate-x-1/2 rounded-[8px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] px-2.5 py-2 text-[13px] font-normal leading-5 text-[var(--text-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
+        <div className={`absolute bottom-full left-1/2 z-40 mb-1.5 ${cost ? 'w-[176px]' : 'w-[156px]'} -translate-x-1/2 rounded-[8px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] px-2.5 py-2 text-[13px] font-normal leading-5 text-[var(--text-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)]`}>
           <div className="flex items-center justify-between gap-2">
             <div className="text-[var(--text-secondary)]">Context window</div>
             <UsageRing percent={snapshot.percent} size="h-[18px] w-[18px]" />
@@ -86,6 +87,16 @@ export function CodexContextIndicator({ snapshot }: { snapshot: CodexContextSnap
             <span className="text-[var(--text-secondary)]">Limit</span>
             <span>{formatCompact(snapshot.total)}</span>
           </div>
+          {cost ? (
+            <div className="mt-2 border-t border-[var(--border)] pt-1.5" data-testid="deepseek-session-cost">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-[var(--text-secondary)]">Cost</span>
+                <span>{cost.usd === null ? 'Unavailable'
+                  : cost.usd > 0 && cost.usd < 0.0001 ? '<$0.0001'
+                  : `≈$${cost.usd.toFixed(cost.usd < 0.01 ? 4 : 2)}`}</span>
+              </div>
+            </div>
+          ) : null}
           {nearLimit ? (
             <div
               className="mt-1.5 rounded-[6px] px-2 py-1.5 text-[11px] leading-4"

@@ -538,23 +538,24 @@ function ModelSubContent({
   const [query, setQuery] = useState('');
   useEffect(() => { if (!active) setQuery(''); }, [active]);
   const normalizedQuery = query.trim().toLowerCase();
+  const visibleOptions = modelOptions.filter((option) => !option.hiddenFromPicker);
   const filteredOptions = normalizedQuery
-    ? modelOptions.filter(
+    ? visibleOptions.filter(
         (option) =>
           option.label.toLowerCase().includes(normalizedQuery) ||
           option.value.toLowerCase().includes(normalizedQuery) ||
           (option.description ?? '').toLowerCase().includes(normalizedQuery)
       )
-    : modelOptions;
+    : visibleOptions;
 
-  if (modelOptions.length === 0) {
+  if (visibleOptions.length === 0) {
     return (
       <div className="px-2.5 py-3 text-[12px] text-[var(--text-muted)]">
         {loadingText || 'No models configured'}
       </div>
     );
   }
-  const showSearch = searchable && modelOptions.length > 8;
+  const showSearch = searchable && visibleOptions.length > 8;
   const list =
     filteredOptions.length === 0 ? (
       <div className="px-2.5 py-3 text-[12px] text-[var(--text-muted)]">No models found</div>
@@ -564,6 +565,7 @@ function ModelSubContent({
         return (
           <DropdownMenu.Item
             key={option.key}
+            title={option.details}
             disabled={!active}
             closeOnClick={!keepOpen}
             onSelect={() => onSelectModel(option)}
@@ -805,7 +807,7 @@ const DeepseekAgentSubContent: FC<{
   onReasoningEffortChange,
 }) => (
   <EffortModelPanel modelOptions={modelOptions} selectedModel={selectedModel} onSelectModel={onSelectModel}
-    efforts={DEEPSEEK_REASONING_EFFORT_OPTIONS} effort={reasoningEffort}
+    efforts={modelOptions.find((option) => option.value === (selectedModel || ''))?.deepseekReasoningEfforts ?? DEEPSEEK_REASONING_EFFORT_OPTIONS} effort={reasoningEffort}
     onEffortChange={onReasoningEffortChange} formatEffort={(effort) => DEEPSEEK_REASONING_EFFORT_LABELS[effort]} />
 );
 
