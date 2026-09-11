@@ -1,3 +1,5 @@
+import { composerEnterAction } from '../../shared/app-preferences';
+import { useAppPreferences } from '../store/useAppPreferences';
 import { focusComposerFromSurface } from '../utils/composer-surface-focus';
 import { deepseekImageInputError } from '../../shared/deepseek-images';
 import { useSessionGoal } from '../hooks/useSessionGoal';
@@ -65,6 +67,7 @@ function isImeComposingEvent(
 }
 
 export function NewSessionView() {
+  const enterBehavior = useAppPreferences(s => s.enterBehavior);
   const {
     pendingStart,
     projectCwd,
@@ -589,7 +592,7 @@ export function NewSessionView() {
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey && canStartTask) {
+    if (composerEnterAction(e, prompt, enterBehavior).send && canStartTask) {
       e.preventDefault();
       handleStart();
     }

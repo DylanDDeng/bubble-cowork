@@ -76,7 +76,7 @@ export function ThemePackEditor({
   };
 
   return (
-    <div className="overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div data-settings-label={title} className="overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -222,7 +222,7 @@ function ThemePackRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
+    <div className="settings-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
       <div className="text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
       <div className="flex items-center justify-end gap-2">{children}</div>
     </div>

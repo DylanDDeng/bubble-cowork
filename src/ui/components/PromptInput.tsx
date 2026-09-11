@@ -1,3 +1,5 @@
+import { composerEnterAction } from '../../shared/app-preferences';
+import { useAppPreferences } from '../store/useAppPreferences';
 import { focusComposerFromSurface } from '../utils/composer-surface-focus';
 import { useDeepseekSessionCost } from '../hooks/useDeepseekSessionCost';
 import { deepseekImageInputError } from '../../shared/deepseek-images';
@@ -547,6 +549,7 @@ export function PromptInput({
   // or errored session is never effectively running — its pending Tasks are
   // dead. Stop still works: the session.stop path hard-aborts the warm
   // runner, killing background tasks and settling status to 'idle'.
+  const preferences = useAppPreferences();
   const isEffectivelyRunning = useMemo(
     () => isSessionEffectivelyBusy(activeSession?.status, activeSession?.messages ?? []),
     [activeSession?.status, activeSession?.messages]
@@ -565,9 +568,8 @@ export function PromptInput({
   // Codex app-server supports turn/steer: a message sent while a turn is
   // streaming is injected into that turn instead of waiting for it to finish,
   // so the composer stays live for codex sessions while they run.
-  // Mid-turn queue+steer needs a runtime that can inject into a running
-  // turn: codex (turn/steer) and the kimi server runtime (prompts:steer).
-  // Legacy-runtime kimi threads keep the immediate-send behavior.
+  // All providers can queue locally; steering requires a runtime that can
+  // inject into a running turn.
   // Steer lock (docs/delegate-mcp-plan.md): while a delegated agent works in
   // this session's directory, mid-turn sends are refused so the "lead blocked
   // on the delegate call = single writer" invariant holds. The main process
@@ -586,6 +588,7 @@ export function PromptInput({
     !approvalPending &&
     !delegationPending &&
     !modelSetupRequired;
+  const canQueueWhileRunning = isRunning && !approvalPending && !delegationPending && !modelSetupRequired;
   const queuedMessages = useComposerQueueStore((state) =>
     selectQueuedMessages(state, targetSessionId)
   );
@@ -762,7 +765,7 @@ export function PromptInput({
     return true;
   }, [activeSession?.cwd, attachments, runtimeProvider, sessionGoal.drafting]);
 
-  const handleSend = async () => {
+  const handleSend = async (invertFollowUp = false) => {
     const goalInput = parseGoalInput(prompt, sessionGoal.drafting);
     const isGoal = supportsGoalUI(agentSelection.provider) && goalInput.isGoal;
     if (isGoal && agentSelection.provider === 'claude' && isClaudeGoalClearObjective(goalInput.objective) && attachments.length === 0) {
@@ -1012,11 +1015,10 @@ export function PromptInput({
       return;
     }
 
-    // While a codex/kimi-server turn is streaming, Enter queues the message
-    // instead of dispatching it (Codex-Desktop-style): the chip above the
-    // composer can steer it into the running turn on demand, otherwise it
-    // auto-sends when the turn completes.
-    if (canSteerWhileRunning) {
+    // Queue locally for all providers, or steer when the runtime supports it.
+    // Queued messages auto-send after successful completion.
+    const shouldSteer = canSteerWhileRunning && ((preferences.followUpBehavior === 'steer') !== invertFollowUp);
+    if (canQueueWhileRunning && !shouldSteer) {
       useComposerQueueStore.getState().enqueue(activeSession.id, {
         id: crypto.randomUUID(),
         displayPrompt: outgoingPrompt,
@@ -1132,7 +1134,7 @@ export function PromptInput({
 
   // Chip action: inject a queued message into the still-running turn.
   const steerQueuedMessage = (itemId: string) => {
-    if (!targetSessionId) return;
+    if (!targetSessionId || approvalPending || (isRunning && !canSteerWhileRunning)) return;
     const item = useComposerQueueStore.getState().takeOne(targetSessionId, itemId);
     if (!item) return;
     sendContinueEvent(targetSessionId, item);
@@ -1443,18 +1445,19 @@ export function PromptInput({
       return;
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
+    const enterAction = composerEnterAction(e, prompt, preferences.enterBehavior);
+    if (enterAction.send) {
       e.preventDefault();
       if (isEffectivelyRunning) {
         // Steer-capable providers queue mid-turn (handleSend routes to the
         // queue); Enter on an empty composer keeps the old stop shortcut.
-        if (canSteerWhileRunning && (prompt.trim() || attachments.length > 0)) {
-          handleSend();
+        if (canQueueWhileRunning && (prompt.trim() || attachments.length > 0)) {
+          handleSend(enterAction.invert);
         } else {
           handleStop();
         }
       } else if (!isBusy && !modelSetupRequired) {
-        handleSend();
+        handleSend(enterAction.invert);
       }
     }
   };
@@ -1534,7 +1537,7 @@ export function PromptInput({
                 <button
                   type="button"
                   onClick={() => steerQueuedMessage(item.id)}
-                  disabled={approvalPending || (delegationPending && isRunning)}
+                  disabled={approvalPending || (isRunning && !canSteerWhileRunning)}
                   title={
                     delegationPending && isRunning
                       ? 'Locked while a delegated agent is working'
@@ -1646,7 +1649,7 @@ export function PromptInput({
                 ? 'Resolve this approval request to continue'
                 : isStopping
                 ? 'Stopping…'
-                : canSteerWhileRunning
+                : canQueueWhileRunning
                 ? 'Ask for follow-up changes'
                 : isEffectivelyRunning
                 ? 'Press Enter to stop...'
@@ -1792,36 +1795,36 @@ export function PromptInput({
             </div>
 
             <div className="aegis-composer-trailing-controls flex shrink-0 items-center gap-2">
-              {claudeContextSnapshot ? (
+              {preferences.showContextUsage && claudeContextSnapshot ? (
                 <ClaudeContextIndicator
                   snapshot={claudeContextSnapshot}
                   modelLabel={selectedModelLabel || claudeContextModel}
                 />
               ) : null}
-              {codexContextSnapshot ? (
+              {preferences.showContextUsage && codexContextSnapshot ? (
                 <CodexContextIndicator snapshot={codexContextSnapshot} cost={deepseekSessionCost} />
               ) : null}
-              {isOpenCodeContextVisible ? (
+              {preferences.showContextUsage && isOpenCodeContextVisible ? (
                 <OpenCodeContextIndicator
                   snapshot={openCodeContextSnapshot}
                   modelLabel={selectedModelLabel || openCodeContextModel}
                 />
               ) : null}
-              {isPiContextVisible ? (
+              {preferences.showContextUsage && isPiContextVisible ? (
                 <OpenCodeContextIndicator
                   snapshot={piContextSnapshot}
                   modelLabel={selectedModelLabel || piContextModel}
                   providerLabel="Pi"
                 />
               ) : null}
-              {isBubbleContextVisible ? (
+              {preferences.showContextUsage && isBubbleContextVisible ? (
                 <OpenCodeContextIndicator
                   snapshot={bubbleContextSnapshot}
                   modelLabel={selectedModelLabel || bubbleContextModel}
                   providerLabel="Bubble"
                 />
               ) : null}
-              {isQoderContextVisible ? (
+              {preferences.showContextUsage && isQoderContextVisible ? (
                 <OpenCodeContextIndicator
                   snapshot={qoderContextSnapshot}
                   modelLabel={selectedModelLabel || qoderContextModel}
@@ -1874,7 +1877,7 @@ export function PromptInput({
                   without stopping the agent. */}
               {isEffectivelyRunning &&
               !approvalPending &&
-              !(canSteerWhileRunning && (prompt.trim() || attachments.length > 0)) ? (
+              !(canQueueWhileRunning && (prompt.trim() || attachments.length > 0)) ? (
                 <button
                   onClick={handleStop}
                   className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105"
@@ -1885,7 +1888,7 @@ export function PromptInput({
                 </button>
               ) : (
               <button
-                onClick={handleSend}
+                onClick={() => void handleSend()}
                 disabled={
                   goalSubmitting ||
                   attachmentImport.isImporting ||
@@ -1893,7 +1896,7 @@ export function PromptInput({
                   modelSetupRequired ||
                   pendingStart ||
                   approvalPending ||
-                  (isEffectivelyRunning && !canSteerWhileRunning)
+                  (isEffectivelyRunning && !canQueueWhileRunning)
                 }
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
                 title="Send"

@@ -7,11 +7,13 @@ export interface NotificationSettings {
   enabled: boolean;
   // 仅在窗口失焦/隐藏时弹（前台工作不打扰）
   onlyWhenUnfocused: boolean;
+  inputRequired: boolean;
+  approvalRequired: boolean;
 }
 
 export type NotificationActivateTarget = { kind: 'session'; sessionId: string };
 
-const DEFAULT_SETTINGS: NotificationSettings = { enabled: true, onlyWhenUnfocused: true };
+const DEFAULT_SETTINGS: NotificationSettings = { enabled: true, onlyWhenUnfocused: true, inputRequired: true, approvalRequired: true };
 
 let cachedSettings: NotificationSettings | null = null;
 let isWindowFocused: () => boolean = () => false;
@@ -28,6 +30,8 @@ export function getNotificationSettings(): NotificationSettings {
     cachedSettings = {
       enabled: parsed.enabled !== false,
       onlyWhenUnfocused: parsed.onlyWhenUnfocused !== false,
+      inputRequired: typeof parsed.inputRequired === 'boolean' ? parsed.inputRequired : parsed.enabled !== false,
+      approvalRequired: typeof parsed.approvalRequired === 'boolean' ? parsed.approvalRequired : parsed.enabled !== false,
     };
   } catch {
     cachedSettings = { ...DEFAULT_SETTINGS };
@@ -36,13 +40,12 @@ export function getNotificationSettings(): NotificationSettings {
 }
 
 export function setNotificationSettings(next: Partial<NotificationSettings>): NotificationSettings {
-  const merged = { ...getNotificationSettings(), ...next };
-  cachedSettings = merged;
-  try {
-    writeFileSync(settingsPath(), JSON.stringify(merged, null, 2), 'utf8');
-  } catch (error) {
-    console.warn('[Notifications] failed to persist settings:', error);
+  const merged = { ...getNotificationSettings() };
+  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof NotificationSettings)[]) {
+    if (typeof next[key] === 'boolean') merged[key] = next[key];
   }
+  writeFileSync(settingsPath(), JSON.stringify(merged, null, 2), 'utf8');
+  cachedSettings = merged;
   return merged;
 }
 
@@ -54,16 +57,18 @@ export function configureNotifications(input: {
   onActivate = input.onActivate;
 }
 
-function shouldNotify(): boolean {
+function shouldNotify(kind: 'done' | 'input' | 'approval'): boolean {
   const settings = getNotificationSettings();
-  if (!settings.enabled) return false;
+  if (kind === 'done' && !settings.enabled) return false;
+  if (kind === 'input' && !settings.inputRequired) return false;
+  if (kind === 'approval' && !settings.approvalRequired) return false;
   if (!Notification.isSupported()) return false;
-  if (settings.onlyWhenUnfocused && isWindowFocused()) return false;
+  if ((kind === 'done' ? settings.onlyWhenUnfocused : true) && isWindowFocused()) return false;
   return true;
 }
 
-function show(title: string, body: string, target: NotificationActivateTarget): void {
-  if (!shouldNotify()) return;
+function show(title: string, body: string, target: NotificationActivateTarget, kind: 'done' | 'input' | 'approval' = 'done'): void {
+  if (!shouldNotify(kind)) return;
   try {
     const notification = new Notification({ title, body, silent: false });
     notification.on('click', () => onActivate?.(target));
@@ -72,6 +77,21 @@ function show(title: string, body: string, target: NotificationActivateTarget): 
     // 通知失败绝不阻塞执行
     console.warn('[Notifications] failed to show notification:', error);
   }
+}
+
+export function isQuestionRequest(toolName: string, input: unknown): boolean {
+  return toolName === 'AskUserQuestion' || toolName === 'Question'
+    || (!!input && typeof input === 'object' && Array.isArray((input as { questions?: unknown }).questions));
+}
+
+const inputNotices = new Set<string>();
+export function notifySessionInput(row: SessionRow, requestId: string, question: boolean): void {
+  const key = `${row.id}:${requestId}`;
+  if (inputNotices.has(key)) return;
+  inputNotices.add(key);
+  if (inputNotices.size > 1000) inputNotices.delete(inputNotices.values().next().value!);
+  show(question ? 'Agent needs your input' : 'Agent needs approval', row.title || 'Untitled thread',
+    { kind: 'session', sessionId: row.id }, question ? 'input' : 'approval');
 }
 
 export function notifySessionDone(row: SessionRow): void {

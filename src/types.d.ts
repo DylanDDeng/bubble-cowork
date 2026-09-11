@@ -143,11 +143,17 @@ declare global {
     deleteAutomation: (automationId: string) => Promise<{ ok: boolean }>;
     setAutomationEnabled: (automationId: string, enabled: boolean) => Promise<AutomationDefinition | null>;
     runAutomationNow: (automationId: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
-    getNotificationSettings: () => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }>;
+    getAppPreferences: () => Promise<import('./shared/app-preferences').AppPreferences>;
+    setAppPreferences: (patch: Partial<import('./shared/app-preferences').AppPreferences>) => Promise<import('./shared/app-preferences').AppPreferences>;
+    getTerminalShellOptions: () => Promise<{ value: string; label: string }[]>;
+    onAppPreferencesChanged: (callback: (preferences: import('./shared/app-preferences').AppPreferences) => void) => () => void;
+    getNotificationSettings: () => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean; inputRequired?: boolean; approvalRequired?: boolean }>;
     setNotificationSettings: (next: {
       enabled?: boolean;
       onlyWhenUnfocused?: boolean;
-    }) => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }>;
+      inputRequired?: boolean;
+      approvalRequired?: boolean;
+    }) => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean; inputRequired?: boolean; approvalRequired?: boolean }>;
     startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number, agentKind?: TerminalAgentKind) => Promise<StartTerminalSessionResult>;
     writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
     resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;

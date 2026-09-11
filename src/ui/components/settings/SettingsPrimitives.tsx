@@ -38,18 +38,19 @@ export function SettingsRow({
   const isCard = variant === 'card';
   return (
     <div
+      data-settings-label={label}
       className={
         isCard
-          ? `grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-4 py-3 ${
+          ? `settings-row grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-4 py-3 ${
               align === 'start' ? 'items-start' : 'items-center'
             }`
-          : `grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] gap-4 border-b border-[var(--border)] py-3.5 last:border-b-0 ${
+          : `settings-row grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] gap-4 border-b border-[var(--border)] py-3.5 last:border-b-0 ${
               align === 'start' ? 'items-start' : 'items-center'
             }`
       }
     >
       <div className="min-w-0">
-        <div className={isCard ? 'text-[13px] font-medium text-[var(--text-primary)]' : 'text-[14px] font-medium text-[var(--text-primary)]'}>
+        <div className="text-[14px] font-medium text-[var(--text-primary)]">
           {label}
         </div>
         {description ? (
@@ -63,7 +64,7 @@ export function SettingsRow({
   );
 }
 
-// Cursor-style grouped card: a small muted label sits above a rounded white
+// A small muted label sits above a rounded theme-aware
 // card that contains setting rows separated by hairline dividers.
 export function SettingsGroup({
   title,
@@ -86,7 +87,7 @@ export function SettingsGroup({
           ) : null}
         </div>
       ) : null}
-      <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)]">
         <div className="divide-y divide-[var(--border)]">{children}</div>
       </div>
     </section>

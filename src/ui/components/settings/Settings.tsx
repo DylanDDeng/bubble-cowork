@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { findSettings, type SettingsSearchEntry } from './settings-search';
+import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Image, Trash2, Globe } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
@@ -10,19 +11,22 @@ import { MCP_RUNTIMES, McpSettingsContent } from './McpSettings';
 import { ProviderIcon } from '../AgentModelPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
-import { SettingsGroup, SettingsRow, SettingsToggle } from './SettingsPrimitives';
-import { primeUserProfileCache } from '../../hooks/useUserProfile';
+import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
+import { GeneralSettingsContent } from './GeneralSettingsContent';
+import { ProfileSettingsGroup } from './ProfileSettingsGroup';
+import { Search } from '../icons';
 import { toast } from 'sonner';
-import type { AppUpdateStatus, ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
+import type { ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
 import { resolveThemeMode, resolveThemePack } from '../../theme/themes';
 
 const SETTINGS_TABS = {
   general: {
     label: 'General',
-    title: 'Workspace Preferences',
-    description: 'Adjust appearance and core workspace behavior.',
+    title: 'General',
+    description: '',
     icon: <SettingsIcon className="w-4 h-4" />,
   },
+  appearance: { label: 'Appearance', title: 'Appearance', description: '', icon: <Sun className="w-4 h-4" /> },
   browser: {
     label: 'Browser',
     title: 'Browser',
@@ -57,12 +61,20 @@ const SETTINGS_TABS = {
 
 type SettingsTabKey = keyof typeof SETTINGS_TABS;
 
+const SETTINGS_NAV_GROUPS: { label: string; tabs: SettingsTabKey[] }[] = [
+  { label: 'Personal', tabs: ['general', 'appearance', 'usage'] },
+  { label: 'Integrations', tabs: ['browser', 'mcp', 'providers', 'bridge'] },
+];
+
 function isSettingsTabKey(value: string): value is SettingsTabKey {
   return Object.prototype.hasOwnProperty.call(SETTINGS_TABS, value);
 }
 
 // Settings 面板
 export function Settings() {
+  const [search, setSearch] = useState('');
+  const [target, setTarget] = useState<SettingsSearchEntry | null>(null);
+
   const {
     showSettings,
     setShowSettings,
@@ -80,10 +92,22 @@ export function Settings() {
     setUiFontFamily,
     chatCodeFontFamily,
     setChatCodeFontFamily,
-    updateStatus,
     mcpSettingsRuntime,
     setMcpSettingsRuntime,
   } = useAppStore();
+
+  useLayoutEffect(() => {
+    if (!showSettings || !target || activeSettingsTab !== target.tab) return;
+    const row = Array.from(document.querySelectorAll<HTMLElement>('[data-settings-label]')).find(row => row.dataset.settingsLabel === target.label)
+      ?? document.querySelector<HTMLElement>('.aegis-settings-content');
+    if (!row) return;
+    row.scrollIntoView({ block: 'center' });
+    row.setAttribute('tabindex', '-1');
+    row.focus({ preventScroll: true });
+    row.dataset.searchMatch = 'true';
+    const timer = setTimeout(() => { delete row.dataset.searchMatch; }, 1800);
+    return () => { clearTimeout(timer); delete row.dataset.searchMatch; row.removeAttribute('tabindex'); };
+  }, [showSettings, target, activeSettingsTab]);
 
   if (!showSettings) return null;
 
@@ -92,72 +116,87 @@ export function Settings() {
     : 'general';
   const activeMeta = SETTINGS_TABS[resolvedActiveSettingsTab];
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]">
+    <div className="aegis-settings flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]">
       <div className="flex h-8 flex-shrink-0">
-        <div className="aegis-window-left-surface drag-region w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--app-sidebar-surface)]" />
+        <div className="aegis-window-left-surface drag-region w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--bg-primary)]" />
         <div className="drag-region flex-1 bg-[var(--bg-primary)]" />
       </div>
 
       <div className="flex min-h-0 flex-1 bg-[var(--bg-primary)]">
-      <aside className="aegis-window-left-surface w-[280px] flex-shrink-0 select-none border-r border-[var(--border)] bg-[var(--app-sidebar-surface)]">
-        <div className="flex h-full flex-col px-3 pb-6 pt-4">
+      <aside className="aegis-window-left-surface w-[280px] flex-shrink-0 select-none border-r border-[var(--border)] bg-[var(--bg-primary)]">
+        <div className="flex h-full min-h-0 flex-col px-1.5 pb-4 pt-2">
           <button
             onClick={() => setShowSettings(false)}
-            className="mb-2 flex items-center gap-2 rounded-[var(--radius-lg)] px-3 py-2 text-[13px] text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            className="mb-2 flex h-[30px] shrink-0 items-center gap-2 rounded-lg px-2 text-[13px] font-normal leading-[18px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)]"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back</span>
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to app</span>
           </button>
 
-          <div className="mb-3 border-b border-[var(--border)]" />
-
-          <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-            Settings
+          <div className="mb-4 flex h-[30px] shrink-0 items-center gap-2 rounded-lg bg-[var(--sidebar-item-hover)] px-2 focus-within:ring-1 focus-within:ring-[var(--border-focus)]">
+            <Search className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+            <input aria-label="Search settings" role="searchbox" placeholder="Search settings…" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => {
+              if (e.key === 'Escape') setSearch('');
+              if (e.key === 'Enter') {
+                const first = findSettings(search)[0];
+                if (first) { setActiveSettingsTab(first.tab); setTarget({ ...first }); setSearch(''); }
+              }
+            }} className="w-full min-w-0 bg-transparent text-[13px] font-normal leading-[18px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]" />
+            {search && <button aria-label="Clear settings search" onClick={() => setSearch('')} className="text-[var(--text-muted)]">×</button>}
           </div>
-
-          <ul className="space-y-0.5">
-            {Object.entries(SETTINGS_TABS).map(([key, tab]) => (
-              <SettingsNavItem
-                key={key}
-                label={tab.label}
-                icon={tab.icon}
-                active={resolvedActiveSettingsTab === key}
-                // With runtime sub-items showing, the child carries the highlight.
-                expanded={key === 'mcp' && resolvedActiveSettingsTab === 'mcp'}
-                onClick={() => setActiveSettingsTab(key as SettingsTabKey)}
-              >
-                {/* Runtimes are sub-pages of MCP Servers rather than tabs inside
-                    the page: the list scales to any number of runtimes without
-                    a horizontal strip that wraps in narrow panes. */}
-                {key === 'mcp' && resolvedActiveSettingsTab === 'mcp' ? (
-                  <ul className="relative mb-1 mt-0.5 ml-[19px] space-y-px border-l border-[var(--border-focus)]/60 pl-2">
-                    {MCP_RUNTIMES.map((runtime) => {
-                      const active = mcpSettingsRuntime === runtime.id;
-                      return (
-                        <li key={runtime.id}>
-                          <button
-                            onClick={() => setMcpSettingsRuntime(runtime.id)}
-                            className={`flex w-full items-center gap-2 rounded-[6px] py-1.5 pl-2 pr-3 text-left text-[12.5px] transition-colors ${
-                              active
-                                ? 'bg-[var(--sidebar-item-active)] font-medium text-[var(--text-primary)]'
-                                : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-                            }`}
-                          >
-                            <span
-                              className={`flex h-4 w-4 flex-shrink-0 items-center justify-center transition-opacity ${active ? '' : 'opacity-80 group-hover:opacity-100'}`}
-                            >
-                              <ProviderIcon provider={runtime.id} />
-                            </span>
-                            <span className="truncate">{runtime.label}</span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : null}
-              </SettingsNavItem>
-            ))}
-          </ul>
+          {search.trim() ? <div role="region" aria-label="Settings search results" className="min-h-0 overflow-y-auto">
+            {findSettings(search).map(entry => <button key={`${entry.tab}:${entry.label}`} onClick={() => { setActiveSettingsTab(entry.tab); setTarget({ ...entry }); setSearch(''); }} className="mb-1 flex w-full flex-col rounded-lg px-3 py-2 text-left text-[13px] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+              <span>{entry.label}</span><span className="text-[12px] text-[var(--text-muted)]">{SETTINGS_TABS[entry.tab].label}</span>
+            </button>)}
+            {findSettings(search).length === 0 && <p className="px-3 text-[13px] text-[var(--text-muted)]">No settings found</p>}
+          </div> : <nav aria-label="Settings" className="min-h-0 flex-1 space-y-6 overflow-y-auto">
+            {SETTINGS_NAV_GROUPS.map(group => <section key={group.label} aria-label={group.label}>
+              <h2 className="mb-1 px-2 text-[13px] font-normal leading-[18px] text-[var(--text-muted)]">{group.label}</h2>
+              <ul className="space-y-px">
+                {group.tabs.map(key => { const tab = SETTINGS_TABS[key]; return (
+                  <SettingsNavItem
+                    key={key}
+                    label={tab.label}
+                    icon={tab.icon}
+                    active={resolvedActiveSettingsTab === key}
+                    // With runtime sub-items showing, the child carries the highlight.
+                    expanded={key === 'mcp' && resolvedActiveSettingsTab === 'mcp'}
+                    onClick={() => { setTarget(null); setActiveSettingsTab(key); }}
+                  >
+                    {/* Runtimes are sub-pages of MCP Servers rather than tabs inside
+                        the page: the list scales to any number of runtimes without
+                        a horizontal strip that wraps in narrow panes. */}
+                    {key === 'mcp' && resolvedActiveSettingsTab === 'mcp' ? (
+                      <ul className="relative mb-1 mt-0.5 ml-[19px] space-y-px border-l border-[var(--border-focus)]/60 pl-2">
+                        {MCP_RUNTIMES.map((runtime) => {
+                          const active = mcpSettingsRuntime === runtime.id;
+                          return (
+                            <li key={runtime.id}>
+                              <button
+                                onClick={() => setMcpSettingsRuntime(runtime.id)}
+                                className={`flex w-full items-center gap-2 rounded-[6px] py-1.5 pl-2 pr-3 text-left text-[12.5px] transition-colors ${
+                                  active
+                                    ? 'bg-[var(--sidebar-item-hover)] font-normal text-[var(--text-primary)]'
+                                    : 'text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
+                                }`}
+                              >
+                                <span
+                                  className={`flex h-4 w-4 flex-shrink-0 items-center justify-center transition-opacity ${active ? '' : 'opacity-80 group-hover:opacity-100'}`}
+                                >
+                                  <ProviderIcon provider={runtime.id} />
+                                </span>
+                                <span className="truncate">{runtime.label}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
+                  </SettingsNavItem>
+                ); })}
+              </ul>
+            </section>)}
+          </nav>}
 
         </div>
       </aside>
@@ -167,28 +206,27 @@ export function Settings() {
             top-left of the pane so it doesn't crowd the avatar header. */}
         {resolvedActiveSettingsTab === 'usage' ? (
           <div className="px-6 pt-5">
-            <h1 className="text-[15px] font-semibold tracking-normal text-[var(--text-primary)]">
+            <h1 data-settings-label={activeMeta.title} className="text-[15px] font-semibold tracking-normal text-[var(--text-primary)]">
               {activeMeta.title}
             </h1>
           </div>
         ) : null}
         <div
-          className="mx-auto max-w-3xl px-10 py-8"
+          className="aegis-settings-content mx-auto w-full max-w-3xl px-8 py-8"
         >
           {/* The MCP page renders its own header (runtime name + last-checked). */}
           {resolvedActiveSettingsTab !== 'usage' && resolvedActiveSettingsTab !== 'mcp' ? (
             <header className="mb-6">
-              <h1 className="text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
+              <h1 data-settings-label={activeMeta.title} className="text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
                 {activeMeta.title}
               </h1>
-              <p className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
-                {activeMeta.description}
-              </p>
+              {activeMeta.description && <p className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">{activeMeta.description}</p>}
             </header>
           ) : null}
 
-          {resolvedActiveSettingsTab === 'general' && (
-            <GeneralSettingsContent
+          {resolvedActiveSettingsTab === 'general' && <GeneralSettingsContent />}
+          {resolvedActiveSettingsTab === 'appearance' && (
+            <AppearanceSettingsContent
               theme={theme}
               setTheme={setTheme}
               themeState={themeState}
@@ -201,7 +239,6 @@ export function Settings() {
               setUiFontFamily={setUiFontFamily}
               chatCodeFontFamily={chatCodeFontFamily}
               setChatCodeFontFamily={setChatCodeFontFamily}
-              updateStatus={updateStatus}
             />
           )}
           {resolvedActiveSettingsTab === 'browser' && (
@@ -221,7 +258,7 @@ export function Settings() {
               <DeepseekProviderSettings />
             </div>
           )}
-          {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
+          {resolvedActiveSettingsTab === 'usage' && <div className="space-y-8"><ClaudeUsageSettingsContent /><ProfileSettingsGroup /></div>}
           {resolvedActiveSettingsTab === 'bridge' && <BridgeSettingsContent />}
         </div>
       </main>
@@ -249,25 +286,26 @@ function SettingsNavItem({
     <li>
       <button
         onClick={onClick}
-        className={`group flex w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] transition-colors ${
+        aria-current={active ? 'page' : undefined}
+        className={`group flex h-[30px] w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] font-normal leading-[18px] transition-colors ${
           active && expanded
             ? 'text-[var(--text-primary)]'
             : active
-              ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-              : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+              ? 'bg-[var(--sidebar-item-hover)] text-[var(--text-primary)]'
+              : 'text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
         }`}
       >
-        <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${active ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`}>
+        <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center [&_svg]:size-3.5 [&_svg]:stroke-[1.5] ${active ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'}`}>
           {icon}
         </span>
-        <span className="font-medium">{label}</span>
+        <span>{label}</span>
       </button>
       {children}
     </li>
   );
 }
 
-function GeneralSettingsContent({
+function AppearanceSettingsContent({
   theme,
   setTheme,
   themeState,
@@ -280,7 +318,6 @@ function GeneralSettingsContent({
   setUiFontFamily,
   chatCodeFontFamily,
   setChatCodeFontFamily,
-  updateStatus,
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -294,11 +331,8 @@ function GeneralSettingsContent({
   setUiFontFamily: (value: string) => void;
   chatCodeFontFamily: string;
   setChatCodeFontFamily: (value: string) => void;
-  updateStatus: AppUpdateStatus;
 }) {
   const resolvedMode = resolveThemeMode(theme);
-  const [appVersion, setAppVersion] = useState('...');
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
   const lightTheme = resolveThemePack(themeState, 'light');
   const darkTheme = resolveThemePack(themeState, 'dark');
   const skinImageData = useAppStore((s) => s.skinImageData);
@@ -326,55 +360,9 @@ function GeneralSettingsContent({
     window.electron.clearSkinImage().catch(() => {});
   };
 
-  useEffect(() => {
-    let cancelled = false;
-
-    Promise.all([window.electron.getAppVersion(), window.electron.getUpdateStatus()])
-      .then(([version, update]) => {
-        if (!cancelled) {
-          setAppVersion(version);
-          if (
-            update.available !== updateStatus.available ||
-            update.version !== updateStatus.version ||
-            update.autoDetected !== updateStatus.autoDetected
-          ) {
-            useAppStore.setState({
-              updateStatus: {
-                available: update.available,
-                version: update.version,
-                autoDetected: update.autoDetected,
-              },
-            });
-          }
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAppVersion('Unknown');
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleCheckForUpdates = async () => {
-    setCheckingUpdates(true);
-    try {
-      await window.electron.checkForUpdates();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to check for updates.');
-    } finally {
-      setCheckingUpdates(false);
-    }
-  };
-
   return (
     <div className="space-y-6 pb-8">
-      <ProfileSettingsGroup />
-
-      <SettingsGroup title="Appearance">
+      <SettingsGroup title="Theme">
         <SettingsRow variant="card" label="Mode" description="Light, dark, or follow system.">
           <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] p-0.5">
             <ThemeOption label="Light" value="light" current={theme} onClick={() => setTheme('light')} icon={<Sun className="w-3.5 h-3.5" />} />
@@ -451,8 +439,6 @@ function GeneralSettingsContent({
         ) : null}
       </SettingsGroup>
 
-      <NotificationSettingsGroup />
-
       <div className="space-y-3">
         <ThemePackEditor
           variant="light"
@@ -492,7 +478,7 @@ function GeneralSettingsContent({
             onChange={(event) => setUiFontFamily(event.target.value)}
             placeholder='-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
             spellCheck={false}
-            className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+            className="h-8 w-[220px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
           />
         </SettingsRow>
 
@@ -507,113 +493,12 @@ function GeneralSettingsContent({
             onChange={(event) => setChatCodeFontFamily(event.target.value)}
             placeholder='"JetBrains Mono", monospace'
             spellCheck={false}
-            className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+            className="h-8 w-[220px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
           />
         </SettingsRow>
       </SettingsGroup>
 
-      <SettingsGroup title="Application">
-        <SettingsRow variant="card" label="Updates" description={`Version ${appVersion}`}>
-          <button
-            type="button"
-            onClick={() => void handleCheckForUpdates()}
-            disabled={checkingUpdates}
-            className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-          >
-            {checkingUpdates ? 'Checking...' : 'Check for Updates'}
-            {updateStatus.autoDetected ? (
-              <span
-                className="inline-flex h-2 w-2 rounded-full bg-[var(--error)]"
-                title={updateStatus.version ? `Update ${updateStatus.version} detected automatically` : 'Update detected automatically'}
-                aria-label={updateStatus.version ? `Update ${updateStatus.version} detected automatically` : 'Update detected automatically'}
-              />
-            ) : null}
-          </button>
-        </SettingsRow>
-      </SettingsGroup>
     </div>
-  );
-}
-
-function ProfileSettingsGroup() {
-  const [displayName, setDisplayName] = useState('');
-  const [handle, setHandle] = useState('');
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    window.electron
-      .getUserProfile()
-      .then((profile) => {
-        primeUserProfileCache(profile);
-        if (cancelled) return;
-        setDisplayName(profile.displayName);
-        setHandle(profile.handle);
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const save = async () => {
-    if (!loaded) return;
-    try {
-      const profile = await window.electron.saveUserProfile({
-        displayName: displayName.trim() || null,
-        handle: handle.trim() || null,
-      });
-      primeUserProfileCache(profile);
-      setDisplayName(profile.displayName);
-      setHandle(profile.handle);
-    } catch {
-      // keep the local values; next app start falls back to defaults
-    }
-  };
-
-  const commitOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.currentTarget.blur();
-    }
-  };
-
-  return (
-    <SettingsGroup title="Profile">
-      <SettingsRow
-        variant="card"
-        label="Display name"
-        description="Shown on the usage page. Defaults to your git or system user name."
-      >
-        <input
-          type="text"
-          value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
-          onBlur={() => void save()}
-          onKeyDown={commitOnEnter}
-          placeholder="Your name"
-          spellCheck={false}
-          disabled={!loaded}
-          className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-50"
-        />
-      </SettingsRow>
-
-      <SettingsRow variant="card" label="Handle" description="Short lowercase ID, shown as @handle.">
-        <input
-          type="text"
-          value={handle}
-          onChange={(event) => setHandle(event.target.value)}
-          onBlur={() => void save()}
-          onKeyDown={commitOnEnter}
-          placeholder="handle"
-          spellCheck={false}
-          disabled={!loaded}
-          className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-50"
-        />
-      </SettingsRow>
-    </SettingsGroup>
   );
 }
 
@@ -643,59 +528,5 @@ function ThemeOption({
       {icon}
       <span>{label}</span>
     </button>
-  );
-}
-
-// 系统通知设置（agent 完成/失败时的 macOS 通知）
-function NotificationSettingsGroup() {
-  const [settings, setSettings] = useState<{ enabled: boolean; onlyWhenUnfocused: boolean } | null>(
-    null
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    window.electron
-      .getNotificationSettings()
-      .then((value) => {
-        if (!cancelled) setSettings(value);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const update = async (patch: { enabled?: boolean; onlyWhenUnfocused?: boolean }) => {
-    const next = await window.electron.setNotificationSettings(patch);
-    setSettings(next);
-  };
-
-  return (
-    <SettingsGroup title="Notifications">
-      <SettingsRow
-        variant="card"
-        label="System notifications"
-        description="Notify when an agent run finishes."
-      >
-        <SettingsToggle
-          checked={settings?.enabled ?? true}
-          disabled={settings === null}
-          onChange={(value) => void update({ enabled: value })}
-          ariaLabel="Enable system notifications"
-        />
-      </SettingsRow>
-      <SettingsRow
-        variant="card"
-        label="Only when in the background"
-        description="Skip notifications while the Aegis window is focused."
-      >
-        <SettingsToggle
-          checked={settings?.onlyWhenUnfocused ?? true}
-          disabled={settings === null || settings?.enabled === false}
-          onChange={(value) => void update({ onlyWhenUnfocused: value })}
-          ariaLabel="Only notify when unfocused"
-        />
-      </SettingsRow>
-    </SettingsGroup>
   );
 }

@@ -1,3 +1,4 @@
+import { getAppPreferences } from './app-preferences';
 import { app } from 'electron';
 import { execFile, execFileSync } from 'child_process';
 import { chmodSync, existsSync } from 'fs';
@@ -204,6 +205,8 @@ function uniqueShellCandidates(candidates: Array<ShellCandidate | null>): ShellC
 }
 
 function getTerminalLaunchSpecs(): ShellCandidate[] {
+  const preferred = getAppPreferences().terminalShell;
+  if (preferred !== 'system' && existsSync(preferred)) return uniqueShellCandidates([shellCandidateFromCommand(preferred)]);
   if (process.platform === 'win32') {
     return uniqueShellCandidates([
       shellCandidateFromCommand(process.env.COMSPEC || 'powershell.exe'),

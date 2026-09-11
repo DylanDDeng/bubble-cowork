@@ -277,14 +277,24 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('run-automation-now', automationId);
   },
 
-  getNotificationSettings: (): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }> => {
+  getAppPreferences: () => ipcRenderer.invoke('get-app-preferences'),
+  setAppPreferences: (patch: Partial<import('../shared/app-preferences').AppPreferences>) => ipcRenderer.invoke('set-app-preferences', patch),
+  getTerminalShellOptions: () => ipcRenderer.invoke('get-terminal-shell-options'),
+  onAppPreferencesChanged: (callback: (preferences: import('../shared/app-preferences').AppPreferences) => void) => {
+    const listener = (_event: unknown, preferences: import('../shared/app-preferences').AppPreferences) => callback(preferences);
+    ipcRenderer.on('app-preferences-changed', listener);
+    return () => ipcRenderer.removeListener('app-preferences-changed', listener);
+  },
+  getNotificationSettings: (): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean; inputRequired: boolean; approvalRequired: boolean }> => {
     return ipcRenderer.invoke('get-notification-settings');
   },
 
   setNotificationSettings: (next: {
     enabled?: boolean;
     onlyWhenUnfocused?: boolean;
-  }): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }> => {
+    inputRequired?: boolean;
+    approvalRequired?: boolean;
+  }): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean; inputRequired: boolean; approvalRequired: boolean }> => {
     return ipcRenderer.invoke('set-notification-settings', next);
   },
 

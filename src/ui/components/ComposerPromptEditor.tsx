@@ -1,3 +1,4 @@
+import { useAppPreferences } from '../store/useAppPreferences';
 import {
   type ClipboardEvent,
   forwardRef,
@@ -503,7 +504,8 @@ function renderSegments(
   root: HTMLDivElement,
   value: string,
   slashContext?: SlashTokenContext,
-  slashDisplayLabels?: Record<string, string>
+  slashDisplayLabels?: Record<string, string>,
+  plainText = false
 ): void {
   const segments: PromptSegment[] = splitPromptIntoComposerSegments(value, slashContext);
   root.replaceChildren();
@@ -520,7 +522,7 @@ function renderSegments(
     }
 
     if (segment.type === 'link') {
-      root.append(createLinkNode(segment.url, segment.label, segment.text));
+      root.append(plainText ? document.createTextNode(segment.text) : createLinkNode(segment.url, segment.label, segment.text));
       continue;
     }
 
@@ -609,6 +611,8 @@ export const ComposerPromptEditor = forwardRef<
     placeholderClassName?: string;
   }
 >(function ComposerPromptEditor(props, ref) {
+  const plainText = useAppPreferences(s => s.plainTextComposer);
+  const lastPlainText = useRef(plainText);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const caretFrameRef = useRef<number | null>(null);
@@ -759,14 +763,16 @@ export const ComposerPromptEditor = forwardRef<
     if (
       serializeEditorValue(editorRef.current) !== props.value ||
       slashContextChanged ||
-      slashDisplayLabelsChanged
+      slashDisplayLabelsChanged || lastPlainText.current !== plainText
     ) {
       renderSegments(
         editorRef.current,
         props.value,
         props.slashContext,
-        props.slashDisplayLabels
+        props.slashDisplayLabels,
+        plainText
       );
+      lastPlainText.current = plainText;
       lastRenderedSlashContextRef.current = props.slashContext;
       lastRenderedSlashDisplayLabelsRef.current = props.slashDisplayLabels;
     }
@@ -782,6 +788,7 @@ export const ComposerPromptEditor = forwardRef<
       syncFakeCaret();
     });
   }, [
+    plainText,
     props.cursorIndex,
     props.slashContext,
     props.slashDisplayLabels,
@@ -951,7 +958,7 @@ export const ComposerPromptEditor = forwardRef<
             return;
           }
 
-          if (event.key === 'Enter' && event.shiftKey) {
+          if (event.key === 'Enter' && event.shiftKey && !event.metaKey && !event.ctrlKey) {
             event.preventDefault();
             insertTextAtCursor('\n');
             syncFakeCaret();
@@ -978,7 +985,7 @@ export const ComposerPromptEditor = forwardRef<
               props.cursorIndex,
               event.key
             );
-            if (linkRemoval) {
+            if (linkRemoval && !plainText) {
               event.preventDefault();
               props.onChange(linkRemoval.value, linkRemoval.cursorIndex);
               syncFakeCaret();
@@ -1002,6 +1009,10 @@ export const ComposerPromptEditor = forwardRef<
           }
 
           props.onKeyDown?.(event);
+          if (event.key === 'Enter' && !event.defaultPrevented) {
+            event.preventDefault();
+            insertTextAtCursor('\n');
+          }
           syncFakeCaret();
         }}
         onMouseUp={handleSelect}

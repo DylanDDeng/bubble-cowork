@@ -1,3 +1,5 @@
+import { composerEnterAction } from '../../shared/app-preferences';
+import { useAppPreferences } from '../store/useAppPreferences';
 import { useAttachmentImport } from '../hooks/useAttachmentImport';
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -344,7 +346,7 @@ export const TaskFollowUpEditor = forwardRef<
               return;
             }
           }
-          if (event.key === 'Enter' && !event.shiftKey) {
+          if (composerEnterAction(event, value, useAppPreferences.getState().enterBehavior).send) {
             event.preventDefault();
             void submit();
           }

@@ -1,3 +1,4 @@
+import { getAppPreferences, setAppPreferences, getTerminalShellOptions, trackTaskPowerState } from './libs/app-preferences';
 import { setupSessionGoalIPC, getCachedSessionGoal, publishSessionGoal, rejectSessionGoalStart } from './ipc/session-goal';
 import type { GoalAction } from '../shared/session-goal';
 import { parseGoalInput } from '../shared/session-goal';
@@ -193,6 +194,8 @@ import {
   configureNotifications,
   getNotificationSettings,
   notifySessionDone,
+  notifySessionInput,
+  isQuestionRequest,
   setNotificationSettings,
 } from './libs/notifications';
 import { expandClaudeSkillPrompt, listClaudeSkills } from './libs/claude-skills';
@@ -3866,6 +3869,10 @@ function sendSessionReply(win: BrowserWindow, event: ServerEvent): void {
 }
 
 function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
+  if (event.type === 'permission.request') {
+    const row = sessions.getSession(event.payload.sessionId);
+    if (row && row.hidden_from_threads !== 1) notifySessionInput(row, event.payload.toolUseId, isQuestionRequest(event.payload.toolName, event.payload.input));
+  }
   broadcastSessionEvent(mainWindow, event);
 }
 
@@ -4665,12 +4672,16 @@ async function getEnvironmentEditorLaunchers(): Promise<EnvironmentEditorLaunche
 
 async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: boolean; message?: string }> {
   const cwd = typeof input?.cwd === 'string' ? normalizeShellPath(input.cwd) : '';
-  const editorId = input?.editorId;
+  let editorId: string = input?.editorId || getAppPreferences().defaultEditor;
   if (!cwd || !(await isReadableDirectory(cwd))) {
     return { ok: false, message: 'Workspace path is not readable.' };
   }
 
   try {
+    if (editorId === 'auto') {
+      const launchers = await getEnvironmentEditorLaunchers();
+      editorId = launchers.find(editor => editor.available && editor.id !== 'finder')?.id || 'finder';
+    }
     if (editorId === 'finder') {
       shell.showItemInFolder(cwd);
       return { ok: true };
@@ -4803,7 +4814,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   configureNotifications({
     isWindowFocused: () =>
-      !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused(),
+      BrowserWindow.getAllWindows().some(win => !win.isDestroyed() && win.isVisible() && win.isFocused()),
     onActivate: (target) => {
       if (!mainWindow.isDestroyed()) {
         mainWindow.show();
@@ -4818,6 +4829,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   // 全局 session 状态监听：session 完成/失败时发系统通知
   sessions.setSessionStatusListener((row, previousStatus) => {
+    trackTaskPowerState(row.id, sessions.getSession(row.id)?.status === 'running');
     if (
       previousStatus === 'running' &&
       row.status !== 'running' &&
@@ -5066,6 +5078,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('clear-imported-chrome-cookies', async () => {
     return clearImportedChromeCookies();
   });
+
+  ipcMainHandle('get-app-preferences', () => getAppPreferences());
+  ipcMainHandle('set-app-preferences', (_, patch) => setAppPreferences(patch));
+  ipcMainHandle('get-terminal-shell-options', () => getTerminalShellOptions());
 
   ipcMainHandle('get-notification-settings', async () => getNotificationSettings());
 
@@ -11735,6 +11751,7 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
 
   // 删除数据库记录
   sessions.deleteSession(sessionId);
+  trackTaskPowerState(sessionId, false);
   removeClaudeGoalState(sessionId);
 
   // worktree 回收（clean 且无其它 session 引用才回收，dirty 保留）

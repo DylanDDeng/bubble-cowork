@@ -1,3 +1,4 @@
+import { subscribeAppPreferences } from './store/useAppPreferences';
 import { TextInputDialogHost } from './components/ui/text-input-dialog';
 import { GoalEditorPanel } from './components/SessionGoal';
 import { useEffect, useRef, useMemo, useState, useCallback, type ReactNode } from 'react';
@@ -201,6 +202,7 @@ function getDefaultWindowShellRounded(): boolean {
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 
 export function App() {
+  useEffect(subscribeAppPreferences, []);
   const electronAvailable =
     typeof window !== 'undefined' &&
     typeof window.electron !== 'undefined' &&

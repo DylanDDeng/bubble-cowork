@@ -1,3 +1,4 @@
+import { useAppPreferences } from '../../store/useAppPreferences';
 import { useSessionOrganization } from '../../store/useSessionOrganizationStore';
 import { Folder } from '../icons';
 import { useSessionPullRequests } from './useSessionPullRequests';
@@ -150,6 +151,7 @@ function loadEditorLaunchers(): Promise<EnvironmentEditorLauncher[]> {
 }
 
 export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmentContext }) {
+  const defaultEditor = useAppPreferences(s => s.defaultEditor);
   const [editorLaunchers, setEditorLaunchers] = useState<EnvironmentEditorLauncher[]>(() => cachedEditorLaunchers ?? []);
 
   useEffect(() => {
@@ -165,6 +167,8 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
   }, []);
 
   const primaryEditor =
+    editorLaunchers.find(editor => editor.id === defaultEditor && editor.available)
+    ??
     editorLaunchers.find((editor) => editor.available && editor.id !== 'finder')
     ?? editorLaunchers.find((editor) => editor.available)
     ?? editorLaunchers[0]
