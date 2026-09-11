@@ -3489,14 +3489,205 @@ button.aegis-mdx-metadata-key:hover {
   overflow-wrap: break-word;
 }
 
+/* New task: the hero and composer occupy independent flexible regions, as in
+   Codex's bottom-composer home layout. A short window scrolls instead of
+   overlapping the title with the input. Both entry points use this surface. */
+.aegis-new-thread-landing {
+  --new-thread-content-width: 48rem;
+  --new-thread-composer-radius: 24px;
+  --new-thread-composer-shadow: 0 0 0 1px #0000000a, 0 2px 8px #0000000a, 0 4px 80px 8px #00000006;
+  --new-thread-composer-background: color-mix(in srgb, var(--bg-primary) 90%, transparent);
+  container: new-thread / inline-size;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 24px;
+}
+
+.dark .aegis-new-thread-landing {
+  --new-thread-composer-shadow: inset 0 0 1px #ffffff33;
+  --new-thread-composer-background: var(--bg-secondary);
+}
+
+.aegis-new-thread-hero {
+  display: flex;
+  flex: 1 0 0;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: min-content;
+  padding: 0 24px 96px;
+}
+
+.aegis-new-thread-hero-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  max-width: calc(var(--new-thread-content-width) - 48px);
+}
+
+.aegis-new-thread-logo {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  color: var(--text-primary);
+  opacity: 0.3;
+  user-select: none;
+  transition: opacity 150ms ease-out;
+}
+
+.aegis-new-thread-logo svg { display: block; width: 100%; height: 100%; }
+
+@media (hover: hover) and (pointer: fine) {
+  .aegis-new-thread-logo:hover { opacity: 0.4; }
+}
+
+.aegis-new-thread-heading {
+  width: 100%;
+  max-width: calc(var(--new-thread-content-width) - 48px);
+  margin: 0;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  user-select: none;
+}
+
+.aegis-new-thread-project-link {
+  display: inline;
+  max-width: 100%;
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: inherit;
+  text-decoration: underline dotted var(--text-muted) 1px;
+  text-underline-offset: 4px;
+  transition: color 150ms ease-out;
+}
+
+.aegis-new-thread-project-link:hover { color: var(--text-secondary); }
+.aegis-new-thread-project-link:disabled { opacity: .5; cursor: default; }
+.aegis-new-thread-project-link:focus-visible,
+.aegis-composer-context-pill:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.aegis-new-thread-composer-zone {
+  display: flex;
+  flex: 1 0 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  min-height: min-content;
+  padding: 6px 24px 16px;
+}
+
+.aegis-new-thread-composer {
+  width: 100%;
+  max-width: calc(var(--new-thread-content-width) - 48px);
+  margin-inline: auto;
+}
+
+.aegis-new-thread-composer-tray {
+  border-radius: var(--new-thread-composer-radius, 24px);
+  background: var(--bg-secondary);
+}
+
+.aegis-new-thread-composer-surface {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  border-radius: var(--new-thread-composer-radius, 24px);
+  background: var(--new-thread-composer-background, var(--bg-primary));
+  box-shadow: var(--new-thread-composer-shadow, 0 0 0 1px var(--border));
+  backdrop-filter: blur(16px);
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .aegis-new-thread-composer-surface,
+  .aegis-new-thread-composer-tray { corner-shape: superellipse(1.5); }
+}
+
+.aegis-composer-context-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0;
+  padding: 6px 8px;
+}
+
+.aegis-composer-context-pill {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 200px;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 1;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+  transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+.aegis-composer-context-pill:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.aegis-composer-context-pill:disabled { cursor: default; background: transparent; color: var(--text-muted); }
+.aegis-composer-project-control { max-width: 200px; }
+
+.aegis-new-thread-composer .aegis-composer-leading-controls { overflow: visible; }
+.aegis-new-thread-composer .aegis-composer-trailing-controls { min-width: 0; max-width: 100%; }
+.aegis-new-thread-composer [aria-label="Select agent and model"] { min-width: 0; max-width: 100%; flex-shrink: 1; }
+.aegis-new-thread-composer .composer-model-effort-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.aegis-new-thread-composer [data-composer-control] { min-height: 28px; white-space: nowrap; }
+.aegis-new-thread-composer [role="textbox"] { max-height: min(200px, 35vh); }
+.aegis-new-thread-composer .composer-fake-caret { background: var(--text-primary); box-shadow: none; }
+.aegis-new-thread-composer .composer-fake-caret::after { display: none; }
+
+@container new-thread (max-width: 640px) {
+  .aegis-new-thread-hero { padding-inline: 16px; padding-bottom: 64px; }
+  .aegis-new-thread-composer-zone { padding-inline: 16px; }
+  .aegis-new-thread-heading { font-size: 24px; }
+  .aegis-new-thread-composer-tray { --new-thread-composer-radius: 20px; }
+}
+
+@container new-thread (max-width: 480px) {
+  .aegis-new-thread-composer .aegis-composer-toolbar { flex-wrap: wrap; row-gap: 4px; }
+  .aegis-new-thread-composer .aegis-composer-leading-controls { flex: 0 1 auto; }
+  .aegis-new-thread-composer .aegis-composer-trailing-controls { margin-left: auto; }
+  .aegis-composer-context-pill { padding-inline: 6px; gap: 4px; }
+  .aegis-composer-project-control { flex: 1 1 0; }
+  .aegis-new-thread-composer [data-composer-control="permission"][data-tone="full-access"] > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aegis-new-thread-landing *, .aegis-composer-project-menu {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 /* Small screens */
 @media (max-width: 768px) {
   .message-container {
     padding: 0;
   }
 
-  .aegis-chat-composer,
-  .aegis-new-thread-landing {
+  .aegis-chat-composer {
     padding-left: 1rem;
     padding-right: 1rem;
   }
@@ -3508,11 +3699,6 @@ button.aegis-mdx-metadata-key:hover {
 @media (max-width: 640px) {
   .aegis-header-editor-actions {
     display: none;
-  }
-
-  .aegis-new-thread-landing h1 {
-    margin-bottom: 1.5rem;
-    font-size: 24px;
   }
 
   .aegis-composer-toolbar {

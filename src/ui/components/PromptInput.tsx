@@ -1,3 +1,4 @@
+import { focusComposerFromSurface } from '../utils/composer-surface-focus';
 import { useDeepseekSessionCost } from '../hooks/useDeepseekSessionCost';
 import { deepseekImageInputError } from '../../shared/deepseek-images';
 import { confirmDialog } from './ui/confirm-dialog';
@@ -114,7 +115,7 @@ export function PromptInput({
   approvalPending?: boolean;
   approvalPanel?: ReactNode;
   /** Which side the model/permission menus open toward. The bottom-anchored
-   * chat composer keeps 'top'; the centered new-thread landing passes 'bottom'. */
+   * chat and new-thread composers both use 'top'. */
   menuSide?: 'top' | 'bottom';
   /** 'chat' is the bottom composer (large rounded pill, no tray). 'landing'
    * wraps the input in a subtle gray tray that also holds `footer`, matching
@@ -1459,13 +1460,12 @@ export function PromptInput({
   };
 
   const isLandingSurface = composerSurface === 'landing';
-  // Landing: a flat gray tray (recessed) with the white input box raised on top
-  // via its own shadow; the tray only shows below the box, holding the pills.
+  // The landing shares the home composer's themed surface and utility rail.
   const composerOuterClass = isLandingSurface
-    ? 'group relative rounded-[18px] bg-[var(--bg-secondary)] shadow-[0_2px_8px_rgba(15,23,42,0.04)]'
+    ? 'group relative aegis-new-thread-composer-tray'
     : 'group relative rounded-[28px] bg-transparent transition-shadow duration-200';
   const composerInnerClass = isLandingSurface
-    ? 'rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_4px_16px_rgba(15,23,42,0.08)]'
+    ? 'aegis-new-thread-composer-surface'
     : 'rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]';
 
   return (
@@ -1598,6 +1598,7 @@ export function PromptInput({
           ) : (
           <div
             className={composerInnerClass}
+            onMouseDown={isLandingSurface ? focusComposerFromSurface : undefined}
             data-composer-drop-zone
             {...attachmentImport.dropProps}
           >
@@ -1653,8 +1654,9 @@ export function PromptInput({
                 : 'message to agent'
             }
             disabled={pendingStart || approvalPending}
+            placeholderClassName={isLandingSurface ? 'inset-x-4 top-3 text-[14px] leading-[21px]' : undefined}
             className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"
-            autoFocus={false}
+            autoFocus={isLandingSurface}
           />
 
           <div className="aegis-composer-toolbar flex items-end justify-between gap-2 px-2.5 pb-2">
@@ -1788,7 +1790,7 @@ export function PromptInput({
               )}
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="aegis-composer-trailing-controls flex shrink-0 items-center gap-2">
               {claudeContextSnapshot ? (
                 <ClaudeContextIndicator
                   snapshot={claudeContextSnapshot}

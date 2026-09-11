@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
+import { ComposerProjectPicker } from './ComposerProjectPicker';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import * as Dialog from '@/ui/components/ui/dialog';
 import { toast } from 'sonner';
-import { Folder, FolderOpen, GitBranch, GitFork, ChevronDown, Check, Monitor, Plus, Search, X } from './icons';
+import { GitBranch, GitFork, ChevronDown, Check, Monitor, Plus, Search, X } from './icons';
 import { useGitBranches } from '../hooks/useGitBranches';
 
-export const CONTEXT_PILL_CLASS =
-  'inline-flex max-w-[200px] items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[var(--text-secondary)]';
+export const CONTEXT_PILL_CLASS = 'aegis-composer-context-pill';
 
 /**
  * Context row shown under the composer on the new-thread surfaces: a project
@@ -19,8 +19,6 @@ export function ComposerContextPills({
   projectName,
   hasSelectedCwd,
   disabled,
-  onBrowse,
-  recentOptions,
   onSelectRecent,
   sessionId,
   startMode,
@@ -30,8 +28,6 @@ export function ComposerContextPills({
   projectName: string;
   hasSelectedCwd: boolean;
   disabled?: boolean;
-  onBrowse: () => void;
-  recentOptions: string[];
   onSelectRecent: (dir: string) => void;
   /** Draft session id (if any) — passed to checkout so a running session is guarded. */
   sessionId?: string | null;
@@ -116,64 +112,8 @@ export function ComposerContextPills({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-0.5 px-2 pb-1 pt-2.5">
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <button
-            type="button"
-            disabled={disabled}
-            title="Project folder"
-            className={CONTEXT_PILL_CLASS}
-          >
-            <span className="shrink-0 text-[var(--text-muted)]">
-              <Folder className="h-3.5 w-3.5" />
-            </span>
-            <span className="min-w-0 truncate">
-              {hasSelectedCwd ? projectName : 'Choose project'}
-            </span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            align="start"
-            side="bottom"
-            sideOffset={6}
-            className="z-50 max-h-[320px] w-[280px] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
-          >
-            <DropdownMenu.Item
-              onSelect={() => {
-                onBrowse();
-              }}
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[highlighted]:bg-[var(--bg-tertiary)]"
-            >
-              <FolderOpen className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
-              Browse…
-            </DropdownMenu.Item>
-            {recentOptions.length > 0 ? (
-              <>
-                <div className="my-1 h-px bg-[var(--border)]" />
-                <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
-                  Recent
-                </div>
-                {recentOptions.map((dir) => (
-                  <DropdownMenu.Item
-                    key={dir}
-                    onSelect={() => onSelectRecent(dir)}
-                    title={dir}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[highlighted]:bg-[var(--bg-tertiary)]"
-                  >
-                    <Folder className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
-                    <span className="min-w-0 truncate">
-                      {dir.split('/').filter(Boolean).pop() || dir}
-                    </span>
-                  </DropdownMenu.Item>
-                ))}
-              </>
-            ) : null}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+    <div className="aegis-composer-context-row">
+      <ComposerProjectPicker cwd={cwd || ''} projectName={projectName} disabled={disabled} onSelect={onSelectRecent} />
       {hasSelectedCwd && isRepo && onStartModeChange ? (
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
@@ -203,7 +143,7 @@ export function ComposerContextPills({
           <DropdownMenu.Portal>
             <DropdownMenu.Content
               align="start"
-              side="bottom"
+              side="top"
               sideOffset={6}
               className="z-50 w-[300px] rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
             >
@@ -265,7 +205,7 @@ export function ComposerContextPills({
               <DropdownMenu.Portal>
                 <DropdownMenu.Content
                   align="start"
-                  side="bottom"
+                  side="top"
                   sideOffset={6}
                   className="z-50 flex max-h-[360px] w-[280px] flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-2 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
                 >

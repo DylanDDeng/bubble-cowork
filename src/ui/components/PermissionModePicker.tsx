@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import * as DropdownMenu from './ui/dropdown-menu';
 import type {
   BubblePermissionMode,
   ClaudePermissionMode,
@@ -42,28 +43,30 @@ export function PermissionModePicker<M extends string>({
   options: ReadonlyArray<PermissionModeOption<M>>;
   onChange: (mode: M) => void;
   disabled?: boolean;
-  /** Which side the menu opens toward. Bottom-anchored composers open 'top'
-   * (default); the centered new-thread landing passes 'bottom'. */
+  /** Bottom-anchored composers open upward; other surfaces can override. */
   menuSide?: 'top' | 'bottom';
   menuMinWidthClass?: string;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   const current = options.find((option) => option.mode === value);
   const tone = current?.tone;
 
   return (
-    <div className="relative no-drag">
+    <DropdownMenu.Root open={open && !(disabled)} onOpenChange={setOpen}>
+      <DropdownMenu.Trigger asChild>
       <button
         type="button"
-        onClick={() => setOpen((currentOpen) => !currentOpen)}
         disabled={disabled}
-        aria-haspopup="menu"
-        aria-expanded={open}
+        aria-label={`Permission mode: ${current?.label ?? value}`}
+        title={`Permission mode: ${current?.label ?? value}`}
+        data-composer-control="permission"
+        data-tone={tone}
         className={`inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[12px] font-medium transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 ${
           tone === 'full-access'
-            ? 'text-[#E97E4F] hover:text-[#D96E42]'
+            ? 'text-[var(--warning)] hover:text-[var(--warning)]'
             : tone === 'danger'
-              ? 'text-[#b42318] hover:text-[#991b1b]'
+              ? 'text-[var(--error)] hover:text-[var(--error)]'
               : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
         }`}
       >
@@ -73,31 +76,17 @@ export function PermissionModePicker<M extends string>({
         <span>{current?.label ?? value}</span>
       </button>
 
-      {open && !disabled && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            className={`popover-surface absolute left-0 z-20 flex ${menuMinWidthClass} flex-col p-1 ${
-              menuSide === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2'
-            }`}
-          >
-            {options
-              .filter((option) => !option.hidden)
-              .map((option) => (
-                <PermissionModeOptionRow
-                  key={option.mode}
-                  option={option}
-                  active={option.mode === value}
-                  onSelect={(nextMode) => {
-                    onChange(nextMode);
-                    setOpen(false);
-                  }}
-                />
-              ))}
-          </div>
-        </>
-      )}
-    </div>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content side={menuSide} align="start" sideOffset={8}
+          className={`flex ${menuMinWidthClass} max-w-[calc(100vw-32px)] flex-col p-1`}>
+          {options.filter((option) => !option.hidden).map((option) => (
+            <PermissionModeOptionRow key={option.mode} option={option}
+              active={option.mode === value} onSelect={(mode) => { if (!disabled) onChange(mode); }} />
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 
@@ -111,17 +100,16 @@ function PermissionModeOptionRow<M extends string>({
   onSelect: (mode: M) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(option.mode)}
-      className={`rounded-lg px-3 py-1.5 text-left text-[13px] transition-colors ${
+    <DropdownMenu.Item
+      onSelect={() => onSelect(option.mode)}
+      className={`rounded-lg px-3 py-1.5 text-left text-[13px] outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] ${
         active
           ? 'bg-[var(--bg-tertiary)] font-semibold text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
       }`}
     >
       <span className="truncate">{option.label}</span>
-    </button>
+    </DropdownMenu.Item>
   );
 }
 

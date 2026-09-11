@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Verifies the composer model/permission pickers can open downward and that the
-// centered new-thread surfaces request it, while the bottom chat composer keeps
-// the default upward direction.
+// All bottom-anchored composers open upward. Reusable controls still accept
+// either direction and portal their menus outside the composer surface.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,14 +10,13 @@ const root = process.cwd();
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
 // 1. The unified permission picker (one component, per-provider mode maps)
-//    supports menuSide and has BOTH directional classes.
+//    supports menuSide and positions its portal accordingly.
 {
   const file = 'src/ui/components/PermissionModePicker.tsx';
   const src = read(file);
   assert.ok(/menuSide\??:\s*'top'\s*\|\s*'bottom'/.test(src), `${file}: missing menuSide prop`);
   assert.ok(src.includes("menuSide = 'top'"), `${file}: menuSide should default to 'top'`);
-  assert.ok(src.includes("'top-full mt-2'"), `${file}: missing downward (top-full mt-2) class`);
-  assert.ok(src.includes("'bottom-full mb-2'"), `${file}: missing upward (bottom-full mb-2) class`);
+  assert.ok(src.includes('side={menuSide}') && src.includes('<DropdownMenu.Portal>'), `${file}: menus must be portaled and honor their requested side`);
   assert.ok(!src.includes('Chevron'), `${file}: permission trigger should not show a dropdown arrow`);
   assert.ok(
     src.includes('text-[var(--text-muted)] hover:text-[var(--text-secondary)]'),
@@ -55,7 +53,7 @@ assert.ok(
   'PromptInput: must support a composerSurface prop'
 );
 assert.ok(
-  prompt.includes('bg-[var(--bg-secondary)]') && prompt.includes('isLandingSurface'),
+  prompt.includes('aegis-new-thread-composer-tray') && prompt.includes('isLandingSurface'),
   'PromptInput: landing surface must apply the gray tray background'
 );
 assert.ok(
@@ -63,20 +61,20 @@ assert.ok(
   'PromptInput: the footer (context pills) must render inside the landing tray'
 );
 
-// 4. The centered new-thread landing (NewSessionView) opens every picker downward.
+// 4. The bottom-anchored new-thread landing (NewSessionView) opens every picker upward.
 const newSession = read('src/ui/components/NewSessionView.tsx');
 assert.equal(
-  (newSession.match(/menuSide="bottom"/g) || []).length,
+  (newSession.match(/menuSide="top"/g) || []).length,
   9,
-  'NewSessionView: model, preset and permission pickers should pass menuSide="bottom"'
+  'NewSessionView: model, preset and permission pickers should pass menuSide="top"'
 );
 
-// 5. The empty-draft landing in ChatPane opens the composer downward, while the
+// 5. The empty-draft landing in ChatPane opens the composer upward, while the
 //    bottom chat composers keep the default (no menuSide).
 const chatPane = read('src/ui/components/ChatPane.tsx');
 assert.ok(
-  /composerSurface="landing"/.test(chatPane) && /menuSide="bottom"/.test(chatPane),
-  'ChatPane: the centered NewThreadLanding composer should open downward (landing surface)'
+  /composerSurface="landing"/.test(chatPane) && /menuSide="top"/.test(chatPane),
+  'ChatPane: the bottom-anchored NewThreadLanding composer should open upward (landing surface)'
 );
 assert.ok(
   chatPane.includes('<PromptInput sessionId={sessionId} />'),

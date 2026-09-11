@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import * as DropdownMenu from './ui/dropdown-menu';
 import type { DeepseekAgentPreset } from '../types';
 
 export const DEEPSEEK_AGENT_PRESET_OPTIONS: ReadonlyArray<{
@@ -42,16 +43,16 @@ export function DeepseekAgentPresetPicker({
   menuSide?: 'top' | 'bottom';
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (disabled || readOnly) setOpen(false); }, [disabled, readOnly]);
   const current = DEEPSEEK_AGENT_PRESET_OPTIONS.find((option) => option.value === value);
 
   return (
-    <div className="relative no-drag">
+    <DropdownMenu.Root open={open && !(disabled || readOnly)} onOpenChange={setOpen}>
+      <DropdownMenu.Trigger asChild>
       <button
         type="button"
-        onClick={() => setOpen((currentOpen) => !currentOpen)}
         disabled={disabled || readOnly}
-        aria-haspopup="menu"
-        aria-expanded={open}
+        data-composer-control="preset"
         aria-label="Select DeepSeek Harness agent mode"
         title={readOnly ? 'Agent mode is fixed for this session' : 'DeepSeek Harness agent mode for this new session'}
         className={`inline-flex items-center rounded-lg px-1.5 py-1 text-[12px] font-medium text-[var(--text-muted)] transition-colors ${
@@ -63,37 +64,23 @@ export function DeepseekAgentPresetPicker({
         {current?.label ?? 'Standard'}
       </button>
 
-      {open && !disabled && !readOnly ? (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div
-            className={`popover-surface absolute left-0 z-20 flex w-[260px] flex-col p-1 ${
-              menuSide === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2'
-            }`}
-          >
-            {DEEPSEEK_AGENT_PRESET_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                  onChange?.(option.value);
-                  setOpen(false);
-                }}
-                className={`rounded-lg px-3 py-2 text-left transition-colors ${
-                  option.value === value
-                    ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <span className="block text-[13px] font-semibold">{option.label}</span>
-                <span className="mt-0.5 block text-[11px] leading-4 text-[var(--text-muted)]">
-                  {option.description}
-                </span>
-              </button>
-            ))}
-          </div>
-        </>
-      ) : null}
-    </div>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content side={menuSide} align="start" sideOffset={8}
+          className="flex w-[260px] max-w-[calc(100vw-32px)] flex-col p-1">
+          {DEEPSEEK_AGENT_PRESET_OPTIONS.map((option) => (
+            <DropdownMenu.Item key={option.value} onSelect={() => { if (!disabled && !readOnly) onChange?.(option.value); }}
+              className={`flex-col items-start rounded-lg px-3 py-2 text-left outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] ${
+                option.value === value
+                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)]'
+              }`}>
+              <span className="block text-[13px] font-semibold">{option.label}</span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-[var(--text-muted)]">{option.description}</span>
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }

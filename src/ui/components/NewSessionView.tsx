@@ -1,3 +1,4 @@
+import { focusComposerFromSurface } from '../utils/composer-surface-focus';
 import { deepseekImageInputError } from '../../shared/deepseek-images';
 import { useSessionGoal } from '../hooks/useSessionGoal';
 import { GoalModePill } from './SessionGoal';
@@ -78,7 +79,6 @@ export function NewSessionView() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   // 启动模式 pill：worktree = 提交时先建隔离 worktree
   const [startMode, setStartMode] = useState<'local' | 'worktree'>('local');
-  const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [showCwdHint, setShowCwdHint] = useState(false);
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
@@ -137,25 +137,11 @@ export function NewSessionView() {
       return true;
     },
   });
-  const recentProjectOptions = useMemo(() => {
-    if (!cwd) {
-      return recentCwds.slice(0, 6);
-    }
-
-    const next = [cwd, ...recentCwds.filter((dir) => dir !== cwd)];
-    return next.slice(0, 6);
-  }, [cwd, recentCwds]);
-
   const projectFileMentions = useProjectFileMentions({
     cwd,
     prompt,
     cursorIndex,
   });
-
-  useEffect(() => {
-    window.electron.getRecentCwds(8).then(setRecentCwds);
-  }, []);
-
   useEffect(() => {
     if (!showCwdHint) return;
     const timer = window.setTimeout(() => setShowCwdHint(false), 1800);
@@ -405,6 +391,8 @@ export function NewSessionView() {
   };
 
   const handleCwdChange = (next: string) => {
+    if (useAppStore.getState().pendingStart) return;
+    setStartMode('local');
     setProjectCwd(next || null);
   };
 
@@ -608,9 +596,9 @@ export function NewSessionView() {
   };
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col">
-      <NewThreadLanding heading={<NewThreadProjectHeading cwd={cwd} disabled={pendingStart} />}>
-            <div className="group relative rounded-[18px] bg-[var(--bg-secondary)] shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+      <NewThreadLanding heading={<NewThreadProjectHeading cwd={cwd} disabled={pendingStart} onSelectProject={handleCwdChange} />}>
+            <div className="group relative aegis-new-thread-composer-tray">
               {projectFileMentions.hasMentionQuery ? (
                 <div className="absolute inset-x-0 bottom-full z-40 mb-1">
                   <ProjectFileMentionMenu
@@ -639,7 +627,7 @@ export function NewSessionView() {
                 </div>
               ) : null}
 
-              <div {...attachmentImport.dropProps} data-composer-drop-zone className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_4px_16px_rgba(15,23,42,0.08)]">
+              <div {...attachmentImport.dropProps} data-composer-drop-zone onMouseDown={focusComposerFromSurface} className="aegis-new-thread-composer-surface">
                 {attachmentImport.isImporting && <div role="status" className="px-4 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
                 {attachments.length > 0 && (
                   <div className="px-4 pt-4">
@@ -677,14 +665,15 @@ export function NewSessionView() {
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder={sessionGoal.drafting ? 'Describe a goal to keep pursuing' : 'message to agent'}
+                  placeholderClassName="inset-x-4 top-3 text-[14px] leading-[21px]"
                   className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none no-drag min-h-[56px] max-h-[200px]"
                   autoFocus
                 />
 
                 {/* Control order mirrors PromptInput: attach and permissions on
                     the left; model and send on the right. */}
-                <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
-                  <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
+                <div className="aegis-composer-toolbar flex items-end justify-between gap-2 px-2.5 pb-2">
+                  <div className="aegis-composer-leading-controls flex min-w-0 flex-1 items-center gap-1 overflow-visible">
                     <button
                       type="button"
                       onClick={() => {
@@ -703,7 +692,8 @@ export function NewSessionView() {
                         value={agentSelection.codexPermissionMode}
                         options={CODEX_PERMISSION_MODE_OPTIONS}
                         onChange={agentSelection.setCodexPermissionMode}
-                        menuSide="bottom"
+                        disabled={pendingStart}
+                        menuSide="top"
                       />
                     )}
                     {agentSelection.provider === 'codex' && agentSelection.codexExecutionMode === 'plan' && (
@@ -719,7 +709,7 @@ export function NewSessionView() {
                         menuMinWidthClass="min-w-[176px]"
                         onChange={agentSelection.setClaudePermissionMode}
                         disabled={pendingStart}
-                        menuSide="bottom"
+                        menuSide="top"
                       />
                     )}
                     {agentSelection.provider === 'claude' && agentSelection.claudeExecutionMode === 'plan' && (
@@ -734,7 +724,7 @@ export function NewSessionView() {
                         options={OPENCODE_PERMISSION_MODE_OPTIONS}
                         onChange={agentSelection.setOpencodePermissionMode}
                         disabled={pendingStart}
-                        menuSide="bottom"
+                        menuSide="top"
                       />
                     )}
                     {(agentSelection.provider === 'kimi' || agentSelection.provider === 'grok') && (
@@ -742,7 +732,8 @@ export function NewSessionView() {
                         value={agentSelection.kimiPermissionMode}
                         options={KIMI_PERMISSION_MODE_OPTIONS}
                         onChange={agentSelection.setKimiPermissionMode}
-                        menuSide="bottom"
+                        disabled={pendingStart}
+                        menuSide="top"
                       />
                     )}
                     {agentSelection.provider === 'qoder' && (
@@ -752,7 +743,7 @@ export function NewSessionView() {
                         menuMinWidthClass="min-w-[176px]"
                         onChange={agentSelection.setQoderPermissionMode}
                         disabled={pendingStart}
-                        menuSide="bottom"
+                        menuSide="top"
                       />
                     )}
                     {agentSelection.provider === 'deepseek' && (
@@ -760,7 +751,7 @@ export function NewSessionView() {
                         value={agentSelection.deepseekAgentPreset}
                         onChange={agentSelection.setDeepseekAgentPreset}
                         disabled={pendingStart}
-                        menuSide="bottom"
+                        menuSide="top"
                       />
                     )}
                     {agentSelection.provider === 'deepseek' && (
@@ -769,7 +760,7 @@ export function NewSessionView() {
                         options={DEEPSEEK_PERMISSION_MODE_OPTIONS}
                         onChange={agentSelection.setDeepseekPermissionMode}
                         disabled={pendingStart}
-                        menuSide="bottom"
+                        menuSide="top"
                       />
                     )}
                     {agentSelection.provider === 'bubble' && (
@@ -779,7 +770,7 @@ export function NewSessionView() {
                         menuMinWidthClass="min-w-[176px]"
                         onChange={agentSelection.setBubblePermissionMode}
                         disabled={pendingStart}
-                        menuSide="bottom"
+                        menuSide="top"
                       />
                     )}
                     {agentSelection.provider === 'bubble' &&
@@ -791,7 +782,7 @@ export function NewSessionView() {
                       )}
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="aegis-composer-trailing-controls flex shrink-0 items-center gap-2">
                     <ComposerAgentModelPicker
                       agentProvider={agentSelection.provider}
                       modelLabel={agentSelection.selectedModelLabel}
@@ -829,10 +820,13 @@ export function NewSessionView() {
                       kimiThinkingOptions={agentSelection.kimiThinkingOptions}
                       kimiThinkingChecked={agentSelection.kimiThinkingChecked}
                       onKimiThinkingChange={agentSelection.setKimiThinking}
-                      menuSide="bottom"
+                      menuSide="top"
                       bubbleModelsLoading={agentSelection.bubbleModelsLoading}
                     />
                     <button
+                      type="button"
+                      aria-label={hasSelectedCwd ? 'Send' : 'Choose project and send'}
+                      title={hasSelectedCwd ? 'Send' : 'Choose project and send'}
                       onClick={handleStart}
                       disabled={!canStartTask}
                       className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 no-drag disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
@@ -854,10 +848,6 @@ export function NewSessionView() {
                 projectName={projectName}
                 hasSelectedCwd={hasSelectedCwd}
                 disabled={pendingStart}
-                onBrowse={() => {
-                  void handleSelectProjectFolder();
-                }}
-                recentOptions={recentProjectOptions}
                 onSelectRecent={handleCwdChange}
                 startMode={startMode}
                 onStartModeChange={setStartMode}

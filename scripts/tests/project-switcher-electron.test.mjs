@@ -101,7 +101,7 @@ try {
   await writeFile(path.join(tmp, 'index.html'), '<!doctype html><html><body style="margin:0"><div id="root"></div><script type="module" src="./harness.tsx"></script></body></html>');
   await writeFile(path.join(tmp, 'harness.tsx'), harness);
   await writeFile(path.join(tmp, 'main.cjs'), main);
-  server = await createServer({root, configFile:path.join(root,'vite.config.ts'),server:{host:'127.0.0.1',port:0,strictPort:false}});
+  server = await createServer({root, configFile:path.join(root,'vite.config.ts'),server:{host:'127.0.0.1',port:0,strictPort:false,watch:{ignored:['**/.aegis-design-qa/**']}}});
   await server.listen();
   const url = new URL(path.relative(root,tmp)+'/index.html',server.resolvedUrls.local[0]).href;
   await new Promise((resolve,reject)=>{

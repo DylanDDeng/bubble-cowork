@@ -981,6 +981,7 @@ export function ChatPane({
   );
   const session = useAppStore((s) => (sessionId ? s.sessions[sessionId] ?? null : null));
   const activeSessionId = useAppStore((s) => s.activeSessionId);
+  const pendingStart = useAppStore((s) => s.pendingStart);
   const computerUsePreviewSessionId = useAppStore((s) => s.computerUsePreviewSessionId);
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1767,24 +1768,7 @@ export function ChatPane({
   const threadStarterProject = threadStarterCwd
     ? threadStarterCwd.split('/').filter(Boolean).pop() || threadStarterCwd
     : '';
-  // Recent folders for the new-thread context pill's project dropdown.
-  const [threadStarterRecentCwds, setThreadStarterRecentCwds] = useState<string[]>([]);
-  useEffect(() => {
-    if (!showThreadStarter) return;
-    let active = true;
-    window.electron.getRecentCwds(8).then((dirs) => {
-      if (active) setThreadStarterRecentCwds(dirs);
-    });
-    return () => {
-      active = false;
-    };
-  }, [showThreadStarter]);
-  const threadStarterRecentOptions = useMemo(() => {
-    if (!threadStarterCwd) return threadStarterRecentCwds.slice(0, 6);
-    return [threadStarterCwd, ...threadStarterRecentCwds.filter((dir) => dir !== threadStarterCwd)].slice(0, 6);
-  }, [threadStarterCwd, threadStarterRecentCwds]);
-  // Switching the draft's folder starts a fresh draft in that folder and
-  // discards the current empty one (so we don't pile up orphan drafts).
+  // Both project controls retain this draft and its composer state.
   const switchDraftFolder = useCallback(
     (dir: string) => {
       if (!dir || dir === threadStarterCwd || !sessionId) return;
@@ -1792,12 +1776,6 @@ export function ChatPane({
     },
     [threadStarterCwd, sessionId]
   );
-  const handleThreadStarterBrowse = useCallback(() => {
-    void window.electron.selectDirectory().then((dir) => {
-      if (dir) switchDraftFolder(dir);
-    });
-  }, [switchDraftFolder]);
-
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     const droppedSessionId = event.dataTransfer.getData('application/x-aegis-session-id');
     if (!droppedSessionId || !onDropSession) {
@@ -1873,19 +1851,18 @@ export function ChatPane({
             </div>
           ) : null}
           {showThreadStarter ? (
-            <NewThreadLanding heading={<NewThreadProjectHeading cwd={threadStarterCwd} sessionId={sessionId} />}>
+            <NewThreadLanding heading={<NewThreadProjectHeading cwd={threadStarterCwd} sessionId={sessionId} onSelectProject={switchDraftFolder} disabled={pendingStart} />}>
               <div className="mx-auto w-full max-w-3xl">
                 <PromptInput
                   sessionId={sessionId}
-                  menuSide="bottom"
+                  menuSide="top"
                   composerSurface="landing"
                   footer={
                     <ComposerContextPills
                       cwd={threadStarterCwd || null}
                       projectName={threadStarterProject}
                       hasSelectedCwd={Boolean(threadStarterCwd)}
-                      onBrowse={handleThreadStarterBrowse}
-                      recentOptions={threadStarterRecentOptions}
+                      disabled={pendingStart}
                       onSelectRecent={switchDraftFolder}
                       sessionId={sessionId}
                       startMode={sessionId ? draftStartMode[sessionId] || 'local' : 'local'}
