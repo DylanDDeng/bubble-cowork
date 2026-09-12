@@ -2,13 +2,11 @@ import { useAppPreferences } from '../store/useAppPreferences';
 import {
   type ClipboardEvent,
   forwardRef,
-  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { parseSessionLink } from '../../shared/session-links';
@@ -93,6 +91,9 @@ function isImeKeyboardEvent(event: ReactKeyboardEvent<HTMLDivElement>): boolean 
 }
 
 function getChildTextLength(node: ChildNode): number {
+  if (node instanceof HTMLElement && node.hasAttribute('data-composer-trailing-break')) {
+    return 0;
+  }
   if (node.nodeName === 'BR') {
     return 1;
   }
@@ -201,6 +202,19 @@ function getCollapsedCaretAnchor(range: Range): CaretAnchor | null {
     return { left: rangeRect.left, top: rangeRect.top, height: rangeRect.height };
   }
 
+  const trailingBreak = range.startContainer.nextSibling;
+  if (
+    range.startContainer.nodeType === Node.TEXT_NODE &&
+    range.startOffset === range.startContainer.textContent?.length &&
+    trailingBreak instanceof HTMLElement &&
+    trailingBreak.hasAttribute('data-composer-trailing-break')
+  ) {
+    const rect = trailingBreak.getBoundingClientRect();
+    if (rect.height > 0) {
+      return { left: rect.left, top: rect.top, height: rect.height };
+    }
+  }
+
   if (range.startContainer instanceof HTMLElement) {
     const rectOfNode = (node: Node): DOMRect => {
       if (node instanceof HTMLElement) {
@@ -212,6 +226,10 @@ function getCollapsedCaretAnchor(range: Range): CaretAnchor | null {
     };
     const before = range.startContainer.childNodes[range.startOffset - 1];
     const after = range.startContainer.childNodes[range.startOffset];
+    if (after instanceof HTMLElement && after.hasAttribute('data-composer-trailing-break')) {
+      const rect = after.getBoundingClientRect();
+      return { left: rect.left, top: rect.top, height: rect.height };
+    }
     if (before) {
       const rect = rectOfNode(before);
       if (rect.width > 0 || rect.height > 0) {
@@ -282,6 +300,16 @@ function setCursorIndex(root: HTMLDivElement, index: number): void {
   const range = document.createRange();
 
   const children = Array.from(root.childNodes);
+  const trailingBreakIndex = children.findIndex(
+    (child) => child instanceof HTMLElement && child.hasAttribute('data-composer-trailing-break')
+  );
+  if (targetIndex === getSerializedLength(root) && trailingBreakIndex >= 0) {
+    range.setStart(root, trailingBreakIndex);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return;
+  }
   for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
     const child = children[childIndex]!;
     const childLength = getChildTextLength(child);
@@ -330,6 +358,9 @@ function setCursorIndex(root: HTMLDivElement, index: number): void {
 
 function serializeEditorValue(root: HTMLDivElement): string {
   const serializeNode = (node: ChildNode): string => {
+    if (node instanceof HTMLElement && node.hasAttribute('data-composer-trailing-break')) {
+      return '';
+    }
     if (node.nodeName === 'BR') {
       return '\n';
     }
@@ -613,100 +644,13 @@ export const ComposerPromptEditor = forwardRef<
 >(function ComposerPromptEditor(props, ref) {
   const plainText = useAppPreferences(s => s.plainTextComposer);
   const lastPlainText = useRef(plainText);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const caretFrameRef = useRef<number | null>(null);
   const isComposingRef = useRef(false);
   const isApplyingSelectionRef = useRef(false);
   const didAutoFocusRef = useRef(false);
   const lastRenderedSlashContextRef = useRef<SlashTokenContext | undefined>(undefined);
   const lastRenderedSlashDisplayLabelsRef = useRef<Record<string, string> | undefined>(undefined);
   const displayHasValue = useMemo(() => props.value.length > 0, [props.value]);
-  const [fakeCaret, setFakeCaret] = useState({
-    visible: false,
-    x: 0,
-    y: 0,
-    height: 18,
-    composing: false,
-  });
-
-  const updateFakeCaret = useCallback(() => {
-    const editor = editorRef.current;
-    const container = containerRef.current;
-    const selection = window.getSelection();
-
-    if (
-      props.disabled ||
-      !editor ||
-      !container ||
-      document.activeElement !== editor ||
-      !selection ||
-      selection.rangeCount === 0 ||
-      !selection.isCollapsed
-    ) {
-      setFakeCaret((current) =>
-        current.visible ? { ...current, visible: false, composing: false } : current
-      );
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    if (!editor.contains(range.startContainer)) {
-      setFakeCaret((current) =>
-        current.visible ? { ...current, visible: false, composing: false } : current
-      );
-      return;
-    }
-
-    const editorStyles = window.getComputedStyle(editor);
-    const containerRect = container.getBoundingClientRect();
-    const editorRect = editor.getBoundingClientRect();
-    const lineHeight = Number.parseFloat(editorStyles.lineHeight);
-    const fontSize = Number.parseFloat(editorStyles.fontSize);
-    const paddingLeft = Number.parseFloat(editorStyles.paddingLeft);
-    const paddingTop = Number.parseFloat(editorStyles.paddingTop);
-    const fallbackHeight = Number.isFinite(lineHeight) ? lineHeight : fontSize * 1.35;
-
-    const caretAnchor = getCollapsedCaretAnchor(range);
-
-    const x = caretAnchor
-      ? caretAnchor.left - containerRect.left
-      : editorRect.left - containerRect.left + paddingLeft;
-    const y = caretAnchor
-      ? caretAnchor.top - containerRect.top
-      : editorRect.top - containerRect.top + paddingTop;
-    const height = caretAnchor
-      ? Math.max(caretAnchor.height, fallbackHeight * 0.85)
-      : fallbackHeight;
-
-    setFakeCaret({
-      visible: true,
-      x,
-      y,
-      height,
-      composing: isComposingRef.current,
-    });
-  }, [props.disabled]);
-
-  const syncFakeCaret = useCallback(() => {
-    if (caretFrameRef.current !== null) {
-      cancelAnimationFrame(caretFrameRef.current);
-    }
-
-    caretFrameRef.current = requestAnimationFrame(() => {
-      caretFrameRef.current = null;
-      updateFakeCaret();
-    });
-  }, [updateFakeCaret]);
-
-  const syncFakeCaretNow = useCallback(() => {
-    if (caretFrameRef.current !== null) {
-      cancelAnimationFrame(caretFrameRef.current);
-      caretFrameRef.current = null;
-    }
-    updateFakeCaret();
-  }, [updateFakeCaret]);
-
   useImperativeHandle(
     ref,
     () => ({
@@ -716,7 +660,6 @@ export const ComposerPromptEditor = forwardRef<
       setCursorIndex: (index: number) => {
         if (editorRef.current) {
           setCursorIndex(editorRef.current, index);
-          syncFakeCaretNow();
         }
       },
       getCaretInfo: (): ComposerCaretInfo => {
@@ -732,7 +675,7 @@ export const ComposerPromptEditor = forwardRef<
         };
       },
     }),
-    [syncFakeCaretNow]
+    []
   );
 
   useEffect(() => {
@@ -746,8 +689,7 @@ export const ComposerPromptEditor = forwardRef<
     didAutoFocusRef.current = true;
     editorRef.current.focus();
     setCursorIndex(editorRef.current, props.cursorIndex);
-    syncFakeCaret();
-  }, [props.autoFocus, props.cursorIndex, syncFakeCaret]);
+  }, [props.autoFocus, props.cursorIndex]);
 
   useLayoutEffect(() => {
     if (!editorRef.current) {
@@ -777,6 +719,22 @@ export const ComposerPromptEditor = forwardRef<
       lastRenderedSlashDisplayLabelsRef.current = props.slashDisplayLabels;
     }
 
+    // Chromium does not lay out an empty line after a terminal text newline.
+    // Keep a non-serialized BR there so the native caret has a position
+    // on that line. Remove it when typing fills the line.
+    const existingTrailingBreak = editorRef.current.querySelector('[data-composer-trailing-break]');
+    if (props.value.endsWith('\n')) {
+      if (!existingTrailingBreak) {
+        const trailingBreak = document.createElement('br');
+        trailingBreak.setAttribute('data-composer-trailing-break', '');
+        editorRef.current.append(trailingBreak);
+      } else if (editorRef.current.lastChild !== existingTrailingBreak) {
+        editorRef.current.append(existingTrailingBreak);
+      }
+    } else {
+      existingTrailingBreak?.remove();
+    }
+
     if (document.activeElement !== editorRef.current) {
       return;
     }
@@ -785,7 +743,6 @@ export const ComposerPromptEditor = forwardRef<
     setCursorIndex(editorRef.current, props.cursorIndex);
     queueMicrotask(() => {
       isApplyingSelectionRef.current = false;
-      syncFakeCaret();
     });
   }, [
     plainText,
@@ -793,28 +750,7 @@ export const ComposerPromptEditor = forwardRef<
     props.slashContext,
     props.slashDisplayLabels,
     props.value,
-    syncFakeCaret,
   ]);
-
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      syncFakeCaret();
-    };
-    const handleResize = () => {
-      syncFakeCaret();
-    };
-
-    document.addEventListener('selectionchange', handleSelectionChange);
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
-      window.removeEventListener('resize', handleResize);
-      if (caretFrameRef.current !== null) {
-        cancelAnimationFrame(caretFrameRef.current);
-      }
-    };
-  }, [syncFakeCaret]);
 
   const handleInput = () => {
     if (!editorRef.current || isApplyingSelectionRef.current) {
@@ -824,7 +760,6 @@ export const ComposerPromptEditor = forwardRef<
     const nextValue = serializeEditorValue(editorRef.current);
     const nextCursor = getCursorIndex(editorRef.current);
     props.onChange(nextValue, nextCursor);
-    syncFakeCaret();
   };
 
   const handleSelect = () => {
@@ -836,13 +771,11 @@ export const ComposerPromptEditor = forwardRef<
     if (nextCursor !== props.cursorIndex) {
       props.onChange(props.value, nextCursor);
     }
-    syncFakeCaret();
   };
 
   const insertTextAtCursor = (text: string) => {
     const next = replaceRange(props.value, props.cursorIndex, props.cursorIndex, text);
     props.onChange(next.value, next.cursorIndex);
-    syncFakeCaret();
   };
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -919,7 +852,7 @@ export const ComposerPromptEditor = forwardRef<
   };
 
   return (
-    <div ref={containerRef} className="relative">
+    <div className="relative">
       {!displayHasValue && props.placeholder ? (
         <div
           className={`pointer-events-none absolute text-[var(--text-muted)] ${
@@ -930,38 +863,24 @@ export const ComposerPromptEditor = forwardRef<
         </div>
       ) : null}
       <div
-        aria-hidden="true"
-        className={[
-          'composer-fake-caret',
-          fakeCaret.visible ? 'composer-fake-caret--visible' : '',
-          fakeCaret.composing ? 'composer-fake-caret--composing' : '',
-        ].join(' ')}
-        style={{
-          transform: `translate3d(${fakeCaret.x}px, ${fakeCaret.y}px, 0)`,
-          height: `${fakeCaret.height}px`,
-        }}
-      />
-      <div
         ref={editorRef}
         contentEditable={!props.disabled}
         suppressContentEditableWarning
         role="textbox"
         aria-multiline="true"
         spellCheck={false}
-        className={`${props.className ?? ''} whitespace-pre-wrap break-words caret-transparent [overflow-wrap:anywhere]`}
+        className={`${props.className ?? ''} whitespace-pre-wrap break-words aegis-composer-editor [overflow-wrap:anywhere]`}
         onInput={handleInput}
         onPaste={handlePaste}
         onKeyDown={(event) => {
           if (isImeKeyboardEvent(event)) {
             props.onKeyDown?.(event);
-            syncFakeCaret();
             return;
           }
 
           if (event.key === 'Enter' && event.shiftKey && !event.metaKey && !event.ctrlKey) {
             event.preventDefault();
             insertTextAtCursor('\n');
-            syncFakeCaret();
             return;
           }
 
@@ -976,7 +895,6 @@ export const ComposerPromptEditor = forwardRef<
             if (mentionRemoval) {
               event.preventDefault();
               props.onChange(mentionRemoval.value, mentionRemoval.cursorIndex);
-              syncFakeCaret();
               return;
             }
 
@@ -988,7 +906,6 @@ export const ComposerPromptEditor = forwardRef<
             if (linkRemoval && !plainText) {
               event.preventDefault();
               props.onChange(linkRemoval.value, linkRemoval.cursorIndex);
-              syncFakeCaret();
               return;
             }
 
@@ -1002,7 +919,6 @@ export const ComposerPromptEditor = forwardRef<
               if (slashRemoval) {
                 event.preventDefault();
                 props.onChange(slashRemoval.value, slashRemoval.cursorIndex);
-                syncFakeCaret();
                 return;
               }
             }
@@ -1013,31 +929,22 @@ export const ComposerPromptEditor = forwardRef<
             event.preventDefault();
             insertTextAtCursor('\n');
           }
-          syncFakeCaret();
         }}
         onMouseUp={handleSelect}
         onKeyUp={handleSelect}
         onFocus={() => {
           if (editorRef.current) {
             setCursorIndex(editorRef.current, props.cursorIndex);
-            syncFakeCaret();
           }
-        }}
-        onBlur={() => {
-          setFakeCaret((current) =>
-            current.visible ? { ...current, visible: false, composing: false } : current
-          );
         }}
         onCompositionStart={() => {
           isComposingRef.current = true;
           props.onCompositionStart?.();
-          syncFakeCaret();
         }}
         onCompositionEnd={() => {
           isComposingRef.current = false;
           props.onCompositionEnd?.();
           handleInput();
-          syncFakeCaret();
         }}
       />
     </div>
