@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-muted);
 }
 .effort-picker-value {
@@ -159,7 +159,7 @@
 .effort-model-view[inert] * {
   animation: none !important;
 }
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduce-motion='true'] {
   .effort-picker *,
   .effort-model-views,
   .effort-model-view {
@@ -248,7 +248,7 @@
   align-items: center;
   justify-content: center;
   gap: 3px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   font-weight: 500;
   color: var(--effort-accent);
 }
@@ -263,7 +263,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: calc(10px * var(--ui-font-scale, 1));
   color: var(--text-secondary);
 }
 .effort-picker-rail::before {
@@ -299,7 +299,7 @@
 /* Closed composer trigger: model is primary; effort is supporting text. */
 .composer-model-effort-label {
   white-space: nowrap;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   font-weight: 400;
 }
 .composer-model-name { color: var(--text-primary); }

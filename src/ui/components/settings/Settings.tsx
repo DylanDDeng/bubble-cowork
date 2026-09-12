@@ -1,6 +1,7 @@
+import { AppearanceControls } from './AppearanceControls';
 import { findSettings, type SettingsSearchEntry } from './settings-search';
 import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Image, Trash2, Globe } from '../icons';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, ChartColumn, PlugZap, Bot, Image, Trash2, Globe } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
@@ -12,12 +13,12 @@ import { ProviderIcon } from '../AgentModelPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
-import { GeneralSettingsContent } from './GeneralSettingsContent';
+import { GeneralSettingsContent, PreferenceSelect } from './GeneralSettingsContent';
 import { ProfileSettingsGroup } from './ProfileSettingsGroup';
 import { Search } from '../icons';
 import { toast } from 'sonner';
 import type { ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
-import { resolveThemeMode, resolveThemePack } from '../../theme/themes';
+import { consolidateThemeFonts, resolveThemeMode, resolveThemePack } from '../../theme/themes';
 
 const SETTINGS_TABS = {
   general: {
@@ -95,6 +96,13 @@ export function Settings() {
     mcpSettingsRuntime,
     setMcpSettingsRuntime,
   } = useAppStore();
+
+  useEffect(() => {
+    if (!uiFontFamily && !chatCodeFontFamily) return;
+    setThemeState(consolidateThemeFonts(themeState, uiFontFamily, chatCodeFontFamily));
+    setUiFontFamily('');
+    setChatCodeFontFamily('');
+  }, [uiFontFamily, chatCodeFontFamily, themeState, setThemeState, setUiFontFamily, setChatCodeFontFamily]);
 
   useLayoutEffect(() => {
     if (!showSettings || !target || activeSettingsTab !== target.tab) return;
@@ -212,7 +220,7 @@ export function Settings() {
           </div>
         ) : null}
         <div
-          className="aegis-settings-content mx-auto w-full max-w-3xl px-8 py-8"
+          className={`aegis-settings-content mx-auto w-full px-8 py-8 ${resolvedActiveSettingsTab === 'appearance' ? 'max-w-[832px]' : 'max-w-3xl'}`}
         >
           {/* The MCP page renders its own header (runtime name + last-checked). */}
           {resolvedActiveSettingsTab !== 'usage' && resolvedActiveSettingsTab !== 'mcp' ? (
@@ -235,10 +243,6 @@ export function Settings() {
               setThemeVariantCodeThemeId={setThemeVariantCodeThemeId}
               setThemeVariantFonts={setThemeVariantFonts}
               resetThemeVariant={resetThemeVariant}
-              uiFontFamily={uiFontFamily}
-              setUiFontFamily={setUiFontFamily}
-              chatCodeFontFamily={chatCodeFontFamily}
-              setChatCodeFontFamily={setChatCodeFontFamily}
             />
           )}
           {resolvedActiveSettingsTab === 'browser' && (
@@ -314,10 +318,6 @@ function AppearanceSettingsContent({
   setThemeVariantCodeThemeId,
   setThemeVariantFonts,
   resetThemeVariant,
-  uiFontFamily,
-  setUiFontFamily,
-  chatCodeFontFamily,
-  setChatCodeFontFamily,
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -327,10 +327,6 @@ function AppearanceSettingsContent({
   setThemeVariantCodeThemeId: (variant: ThemeVariant, codeThemeId: string) => void;
   setThemeVariantFonts: (variant: ThemeVariant, patch: Partial<ThemeFonts>) => void;
   resetThemeVariant: (variant: ThemeVariant) => void;
-  uiFontFamily: string;
-  setUiFontFamily: (value: string) => void;
-  chatCodeFontFamily: string;
-  setChatCodeFontFamily: (value: string) => void;
 }) {
   const resolvedMode = resolveThemeMode(theme);
   const lightTheme = resolveThemePack(themeState, 'light');
@@ -364,11 +360,9 @@ function AppearanceSettingsContent({
     <div className="space-y-6 pb-8">
       <SettingsGroup title="Theme">
         <SettingsRow variant="card" label="Mode" description="Light, dark, or follow system.">
-          <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] p-0.5">
-            <ThemeOption label="Light" value="light" current={theme} onClick={() => setTheme('light')} icon={<Sun className="w-3.5 h-3.5" />} />
-            <ThemeOption label="Dark" value="dark" current={theme} onClick={() => setTheme('dark')} icon={<Moon className="w-3.5 h-3.5" />} />
-            <ThemeOption label="System" value="system" current={theme} onClick={() => setTheme('system')} icon={<Monitor className="w-3.5 h-3.5" />} />
-          </div>
+          <PreferenceSelect label="Theme" value={theme} onChange={value => setTheme(value as Theme)} options={[
+            { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' },
+          ]} />
         </SettingsRow>
 
         <SettingsRow
@@ -439,7 +433,7 @@ function AppearanceSettingsContent({
         ) : null}
       </SettingsGroup>
 
-      <div className="space-y-3">
+      <div className="space-y-5">
         <ThemePackEditor
           variant="light"
           mode={theme}
@@ -466,67 +460,8 @@ function AppearanceSettingsContent({
         />
       </div>
 
-      <SettingsGroup title="Typography">
-        <SettingsRow
-          variant="card"
-          label="UI Font Override"
-          description="Override the active theme's UI font across the app."
-        >
-          <input
-            type="text"
-            value={uiFontFamily}
-            onChange={(event) => setUiFontFamily(event.target.value)}
-            placeholder='-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-            spellCheck={false}
-            className="h-8 w-[220px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          variant="card"
-          label="Code Font Override"
-          description="Override code blocks and inline code in chat."
-        >
-          <input
-            type="text"
-            value={chatCodeFontFamily}
-            onChange={(event) => setChatCodeFontFamily(event.target.value)}
-            placeholder='"JetBrains Mono", monospace'
-            spellCheck={false}
-            className="h-8 w-[220px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
-          />
-        </SettingsRow>
-      </SettingsGroup>
+      <AppearanceControls />
 
     </div>
-  );
-}
-
-function ThemeOption({
-  label,
-  value,
-  current,
-  onClick,
-  icon,
-}: {
-  label: string;
-  value: Theme;
-  current: Theme;
-  onClick: () => void;
-  icon: ReactNode;
-}) {
-  const isActive = current === value;
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] transition-colors ${
-        isActive
-          ? 'bg-[var(--accent-light)] font-medium text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
-          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }

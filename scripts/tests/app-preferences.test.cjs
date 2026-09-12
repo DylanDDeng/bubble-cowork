@@ -25,6 +25,14 @@ try {
   delete require.cache[preferencePath]; prefs = require(preferencePath);
   assert.equal(prefs.getAppPreferences().enterBehavior, 'modifier');
   assert.equal(prefs.getAppPreferences().showContextUsage, false);
+  prefs.setAppPreferences({uiFontSize:16,codeFontSize:17,reduceMotion:'on',fontSmoothing:false,pointerCursors:false,diffMarkers:'signs'});
+  delete require.cache[preferencePath]; prefs = require(preferencePath);
+  assert.equal(prefs.getAppPreferences().uiFontSize,16);
+  assert.equal(prefs.getAppPreferences().codeFontSize,17);
+  assert.equal(prefs.getAppPreferences().reduceMotion,'on');
+  assert.equal(prefs.getAppPreferences().fontSmoothing,false);
+  assert.equal(prefs.getAppPreferences().pointerCursors,false);
+  assert.equal(prefs.getAppPreferences().diffMarkers,'signs');
   assert.throws(() => prefs.setAppPreferences({ terminalShell: '/not/a/shell' }), /not available/);
   assert.equal(prefs.getAppPreferences().terminalShell, 'system');
   prefs.setAppPreferences({ preventSleep: true });

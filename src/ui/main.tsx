@@ -1,3 +1,4 @@
+import { AppearancePreferences } from './components/AppearancePreferences';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
@@ -44,8 +45,8 @@ function GlobalErrorFallback() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary fallback={<GlobalErrorFallback />}>
+    <AppearancePreferences><ErrorBoundary fallback={<GlobalErrorFallback />}>
       {isComputerUsePreviewHash(window.location.hash) ? <ComputerUsePreviewApp /> : <App />}
-    </ErrorBoundary>
+    </ErrorBoundary></AppearancePreferences>
   </StrictMode>
 );

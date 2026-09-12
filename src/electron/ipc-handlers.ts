@@ -1,3 +1,4 @@
+import { getSystemFonts, getSystemFontFamilies } from './libs/system-fonts';
 import { getAppPreferences, setAppPreferences, getTerminalShellOptions, trackTaskPowerState } from './libs/app-preferences';
 import { setupSessionGoalIPC, getCachedSessionGoal, publishSessionGoal, rejectSessionGoalStart } from './ipc/session-goal';
 import type { GoalAction } from '../shared/session-goal';
@@ -5082,6 +5083,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('get-app-preferences', () => getAppPreferences());
   ipcMainHandle('set-app-preferences', (_, patch) => setAppPreferences(patch));
   ipcMainHandle('get-terminal-shell-options', () => getTerminalShellOptions());
+  ipcMainHandle('get-system-fonts', () => getSystemFonts());
+  ipcMainHandle('get-system-font-families', () => getSystemFontFamilies());
 
   ipcMainHandle('get-notification-settings', async () => getNotificationSettings());
 

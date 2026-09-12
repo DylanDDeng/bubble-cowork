@@ -1,3 +1,4 @@
+import { useAppPreferences } from '../store/useAppPreferences';
 import {
   useCallback,
   useEffect,
@@ -273,14 +274,16 @@ export function PullRequestsView() {
   const [treeFilter, setTreeFilter] = useState('');
   const [diffWordWrap, setDiffWordWrap] = useState(false);
   const [diffWordDiffs, setDiffWordDiffs] = useState(true);
+  const diffMarkers = useAppPreferences(s => s.diffMarkers);
   const diffOptions = useMemo(
     () => ({
       ...PR_DIFF_OPTIONS,
+      diffIndicators: diffMarkers === 'signs' ? 'classic' as const : 'bars' as const,
       diffStyle: diffRenderMode,
       overflow: (diffWordWrap ? 'wrap' : 'scroll') as 'wrap' | 'scroll',
       lineDiffType: (diffWordDiffs ? 'word' : 'none') as 'word' | 'none',
     }),
-    [diffRenderMode, diffWordDiffs, diffWordWrap]
+    [diffRenderMode, diffWordDiffs, diffWordWrap, diffMarkers]
   );
   const [checksExpanded, setChecksExpanded] = useState(true);
   const [commentDraft, setCommentDraft] = useState('');

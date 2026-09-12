@@ -279,6 +279,8 @@ contextBridge.exposeInMainWorld('electron', {
 
   getAppPreferences: () => ipcRenderer.invoke('get-app-preferences'),
   setAppPreferences: (patch: Partial<import('../shared/app-preferences').AppPreferences>) => ipcRenderer.invoke('set-app-preferences', patch),
+  getSystemFonts: () => ipcRenderer.invoke('get-system-fonts'),
+  getSystemFontFamilies: () => ipcRenderer.invoke('get-system-font-families'),
   getTerminalShellOptions: () => ipcRenderer.invoke('get-terminal-shell-options'),
   onAppPreferencesChanged: (callback: (preferences: import('../shared/app-preferences').AppPreferences) => void) => {
     const listener = (_event: unknown, preferences: import('../shared/app-preferences').AppPreferences) => callback(preferences);

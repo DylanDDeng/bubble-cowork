@@ -1,9 +1,10 @@
+import { useAppReducedMotion } from '../hooks/useAppReducedMotion';
 import { useState } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
 
 /** Decorative home mark; geometry comes from assets/cowork-logo.svg. */
 export function NewThreadLogo() {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useAppReducedMotion();
   const [rotations, setRotations] = useState(0);
   const [enlarged, setEnlarged] = useState(false);
   const [greeting, setGreeting] = useState(false);

@@ -1,3 +1,4 @@
+import { consolidateThemeFonts } from '../theme/themes';
 import { useSessionOrganizationStore, changeSessionOrganization } from './useSessionOrganizationStore';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -50,8 +51,6 @@ import type {
 } from '../types';
 import {
   DEFAULT_THEME_STATE,
-  DEFAULT_UI_FONT_FAMILY,
-  LEGACY_DEFAULT_UI_FONT_FAMILY,
   applyThemePreferences,
   normalizeThemeState,
   resetThemeVariant as resetThemeVariantState,
@@ -992,7 +991,7 @@ export const useAppStore = create<Store>()(
       // 主题
       theme: 'system' as const,
       themeState: DEFAULT_THEME_STATE,
-      uiFontFamily: DEFAULT_UI_FONT_FAMILY,
+      uiFontFamily: '',
       chatCodeFontFamily: '',
       // 皮肤壁纸
       skinImage: null,
@@ -2697,13 +2696,12 @@ export const useAppStore = create<Store>()(
           draftSessions?: Record<string, SessionView>;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
-        const themeState = normalizeThemeState(persisted?.themeState || currentState.themeState);
-        const persistedUiFontFamily = persisted?.uiFontFamily?.trim();
-        const uiFontFamily =
-          persistedUiFontFamily && persistedUiFontFamily !== LEGACY_DEFAULT_UI_FONT_FAMILY
-            ? persistedUiFontFamily
-            : DEFAULT_UI_FONT_FAMILY;
-        const chatCodeFontFamily = persisted?.chatCodeFontFamily ?? currentState.chatCodeFontFamily;
+        const themeState = consolidateThemeFonts(
+          normalizeThemeState(persisted?.themeState || currentState.themeState),
+          persisted?.uiFontFamily ?? '', persisted?.chatCodeFontFamily ?? ''
+        );
+        const uiFontFamily = '';
+        const chatCodeFontFamily = '';
         // workspaceLayout is the source of truth; derive the legacy pane fields.
         const workspaceLayout = repairLayout(
           resolveWorkspaceLayout(persisted as Parameters<typeof resolveWorkspaceLayout>[0])

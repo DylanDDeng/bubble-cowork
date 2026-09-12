@@ -1,3 +1,4 @@
+import type { SystemFontFace } from '../../shared/system-fonts';
 import type {
   ChromeTheme,
   CodeThemeOption,
@@ -60,6 +61,16 @@ export const LEGACY_DEFAULT_UI_FONT_FAMILY =
 export const DEFAULT_UI_FONT_FAMILY =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif';
 const BASE_UI_FONT = DEFAULT_UI_FONT_FAMILY;
+/** Carry legacy global overrides into both theme slots before removing them. */
+export function consolidateThemeFonts(themeState: ThemeState, uiFont: string, codeFont: string): ThemeState {
+  const ui = uiFont.trim();
+  const code = codeFont.trim();
+  const patch: Partial<ThemeFonts> = {};
+  if (ui && ui !== DEFAULT_UI_FONT_FAMILY && ui !== LEGACY_DEFAULT_UI_FONT_FAMILY) patch.ui = ui;
+  if (code) patch.code = code;
+  if (!Object.keys(patch).length) return themeState;
+  return setThemePackFonts(setThemePackFonts(themeState, 'light', patch), 'dark', patch);
+}
 const BASE_MONO_FONT =
   '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
@@ -637,6 +648,7 @@ export function applyThemePreferences({
   const root = document.documentElement;
   const resolvedMode = resolveThemeMode(themeMode);
   const pack = resolveThemePack(themeState, resolvedMode);
+  for (const key of ['uiFace', 'contentFace', 'codeFace'] as const) registerThemeFontFace(pack.theme.fonts[key]);
   const variables = buildThemeVariables(pack, resolvedMode, uiFontFamily, chatCodeFontFamily);
 
   root.classList.add(TRANSITION_CLASS);
@@ -717,10 +729,10 @@ export function buildThemeVariables(
   const accentForeground = getReadableTextColor(pack.theme.accent);
   const userBubbleBg = '#EBEBEB';
   const userBubbleText = '#111214';
-  const uiFont = normalizeFontFamily(uiFontFamily) || normalizeFontFamily(pack.theme.fonts.ui) || BASE_UI_FONT;
+  const uiFont = normalizeFontFamily(uiFontFamily) || themeFontFamily(pack.theme.fonts.ui, pack.theme.fonts.uiFace) || BASE_UI_FONT;
   const monoFont =
     normalizeFontFamily(chatCodeFontFamily) ||
-    normalizeFontFamily(pack.theme.fonts.code) ||
+    themeFontFamily(pack.theme.fonts.code, pack.theme.fonts.codeFace) ||
     BASE_MONO_FONT;
   const skillChipColor = parseHexColor(pack.theme.accent);
   const commandChipBackground = variant === 'light'
@@ -885,6 +897,7 @@ export function buildThemeVariables(
     '--composer-mention-chip-text': pack.theme.accent,
     '--composer-link-chip-text': linkChipText,
     '--font-sans': uiFont,
+    '--font-content': themeFontFamily(pack.theme.fonts.content, pack.theme.fonts.contentFace) || uiFont,
     '--font-mono': monoFont,
     '--font-serif': BASE_DISPLAY_FONT,
   };
@@ -939,6 +952,7 @@ function normalizeChromeTheme(value: unknown, variant: ThemeVariant): ChromeThem
     accent: normalizeHexColor(theme.accent) ?? fallback.accent,
     contrast: normalizeStoredContrast(theme.contrast, fallback.contrast),
     fonts: normalizeThemeFonts(theme.fonts),
+    ...(theme.accentPreset === 'default' ? { accentPreset: 'default' as const } : {}),
     ink: normalizeHexColor(theme.ink) ?? fallback.ink,
     opaqueWindows:
       theme.opaqueWindows === true || theme.opaqueWindows === false
@@ -954,6 +968,14 @@ function normalizeThemeFonts(value: unknown): ThemeFonts {
   return {
     ui: normalizeFontFamily(typeof fonts.ui === 'string' ? fonts.ui : null),
     code: normalizeFontFamily(typeof fonts.code === 'string' ? fonts.code : null),
+    ...(typeof fonts.content === 'string' ? { content: normalizeFontFamily(fonts.content) } : {}),
+    ...Object.fromEntries(['uiFace', 'contentFace', 'codeFace'].flatMap(key => {
+      const face = fonts[key];
+      if (!isRecord(face) || !['family', 'fullName', 'postscriptName'].every(field => typeof face[field] === 'string' && (face[field] as string).length > 0)) return [];
+      const fontKey = key.replace('Face', '');
+      if (normalizeFontFamily(fonts[fontKey] as string | null)?.split(',')[0].replace(/^["']|["']$/g, '').toLowerCase() !== (face.family as string).toLowerCase()) return [];
+      return [[key, { family: face.family, fullName: face.fullName, postscriptName: face.postscriptName, style: typeof face.style === 'string' ? face.style : 'Regular' }]];
+    })),
   };
 }
 
@@ -1070,4 +1092,17 @@ function getReadableTextColor(hex: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function themeFontFamily(family: string | null | undefined, face?: SystemFontFace): string | null {
+  const normalized = normalizeFontFamily(family ?? null);
+  return normalized && face ? `${JSON.stringify(`Aegis local ${face.postscriptName}`)}, ${normalized}` : normalized;
+}
+const registeredFontFaces = new Set<string>();
+function registerThemeFontFace(face?: SystemFontFace) {
+  if (!face || typeof FontFace === 'undefined' || registeredFontFaces.has(face.postscriptName)) return;
+  registeredFontFaces.add(face.postscriptName);
+  const font = new FontFace(`Aegis local ${face.postscriptName}`, `local(${JSON.stringify(face.postscriptName)}), local(${JSON.stringify(face.fullName)})`);
+  document.fonts.add(font);
+  void font.load().catch(() => { document.fonts.delete(font); registeredFontFaces.delete(face.postscriptName); });
 }

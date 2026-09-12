@@ -20,8 +20,8 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     ['Approval required', 'notifications permissions 通知 权限'],
     ['Updates', 'application version 更新 版本'],
   ].map(([label, keywords]) => ({ tab: 'general' as const, label, keywords })),
-  ...['Mode', 'Skin', 'UI Font Override', 'Code Font Override'].map(label => ({ tab: 'appearance' as const, label, keywords: 'theme light dark font wallpaper 外观 主题 字体 壁纸' })),
-  ...['Light Theme', 'Dark Theme'].map(label => ({ tab: 'appearance' as const, label, keywords: 'accent background foreground contrast font translucent 主题 颜色 对比度' })),
+  ...['Mode', 'Skin', 'UI font size', 'Code font size', 'Font smoothing', 'Reduce motion', 'Use pointer cursors', 'Diff markers'].map(label => ({ tab: 'appearance' as const, label, keywords: 'theme light dark font size motion animation pointer diff wallpaper 外观 主题 字体 字号 动画 壁纸' })),
+  ...['Light Theme', 'Dark Theme'].map(label => ({ tab: 'appearance' as const, label, keywords: 'accent background foreground contrast content font style weight translucent 主题 颜色 对比度' })),
   ...['Display name', 'Handle'].map(label => ({ tab: 'usage' as const, label, keywords: 'profile name account 资料 用户名' })),
 ];
 

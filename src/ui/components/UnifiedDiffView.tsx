@@ -1,3 +1,4 @@
+import { useAppPreferences } from '../store/useAppPreferences';
 import type { UnifiedDiffHunk, UnifiedDiffLine } from '../utils/unified-diff';
 
 /**
@@ -41,6 +42,7 @@ export function DiffLineView({
   line: UnifiedDiffLine;
   compact?: boolean;
 }) {
+  const diffMarkers = useAppPreferences(s => s.diffMarkers);
   const containerClass =
     line.type === 'addition'
       ? 'bg-emerald-500/10'
@@ -56,7 +58,7 @@ export function DiffLineView({
   const marker = line.type === 'addition' ? '+' : line.type === 'deletion' ? '-' : ' ';
   return (
     <div
-      className={`grid items-start gap-0 font-mono ${
+      className={`grid items-start gap-0 font-mono aegis-code-text ${
         compact
           ? 'grid-cols-[48px_16px_minmax(0,1fr)] text-[11px] leading-5'
           : 'grid-cols-[56px_56px_18px_minmax(0,1fr)] text-[12px] leading-6'
@@ -68,7 +70,7 @@ export function DiffLineView({
       <div className="px-2 text-right text-[var(--text-muted)]">
         {(compact ? (line.newLineNumber ?? line.oldLineNumber) : line.newLineNumber) ?? ''}
       </div>
-      <div className={`px-1 text-center ${markerClass}`}>{marker}</div>
+      <div className={`px-1 text-center ${markerClass}`}>{diffMarkers === 'signs' ? marker : line.type === 'addition' || line.type === 'deletion' ? '▎' : ' '}</div>
       <div
         className={`min-w-0 px-2 text-[var(--text-primary)] ${
           compact ? 'truncate' : 'whitespace-pre-wrap break-words'

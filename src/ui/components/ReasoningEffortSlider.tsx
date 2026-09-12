@@ -1,5 +1,6 @@
+import { useAppReducedMotion } from '../hooks/useAppReducedMotion';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion } from 'motion/react';
 import * as DropdownMenu from './ui/dropdown-menu';
 import './reasoning-picker.css';
 
@@ -44,7 +45,7 @@ export function ReasoningEffortSlider<T extends string>({
   renderHeader?: (previewLabel: string) => ReactNode;
   preserveOrder?: boolean;
 }) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useAppReducedMotion();
   const tiers = preserveOrder ? [...new Set(options)] : orderedEfforts(options);
   const signature = tiers.join('\0');
   const selected = value === null ? -1 : tiers.indexOf(value);

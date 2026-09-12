@@ -11,7 +11,7 @@
   padding: 0 9px;
   border-radius: 999px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   transition:
     background-color 150ms,
     color 150ms;
@@ -42,7 +42,7 @@
   min-width: 0;
   height: 36px;
   padding: 0 10px 0 14px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-muted);
 }
 .session-goal-summary {
@@ -135,7 +135,7 @@
   background: transparent;
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 16px;
+  font-size: calc(16px * var(--ui-font-scale, 1));
   line-height: 1.5;
   outline: none;
 }
@@ -144,7 +144,7 @@
   align-items: center;
   gap: 8px;
   padding: 16px;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-muted);
 }
 .goal-editor-footer > span {
@@ -154,7 +154,7 @@
   border-radius: 8px;
   background: var(--text-primary);
   color: var(--bg-primary);
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   padding: 6px 13px;
 }
 .goal-save-button:disabled {
@@ -175,7 +175,7 @@
     padding-left: 8px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
+:root[data-reduce-motion='true'] {
   .goal-editor-panel,
   .session-goal-actions,
   .goal-icon-button,
@@ -207,7 +207,7 @@
 }
 .goal-confirm-dialog > p {
   margin-top: 10px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   color: var(--text-secondary);
 }
 .goal-confirm-objective {
@@ -219,7 +219,7 @@
   margin: 16px 0;
   padding: 10px 12px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
   background: var(--bg-secondary);
 }
 .goal-confirm-dialog > footer {
@@ -228,7 +228,7 @@
   gap: 12px;
 }
 .goal-confirm-cancel {
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale, 1));
   color: var(--text-secondary);
   padding: 6px 10px;
   border-radius: 8px;

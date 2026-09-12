@@ -1,0 +1,66 @@
+/* Keep layout dimensions fixed while scaling typography, including the legacy
+   pixel-sized Tailwind labels. Native and shadow-DOM code views use code size. */
+@utility text-* {
+  font-size: calc(--value([length]) * var(--ui-font-scale, 1));
+}
+@utility leading-* {
+  line-height: calc(--value(integer) * var(--spacing) * var(--ui-font-scale, 1));
+  line-height: calc(--value([length]) * var(--ui-font-scale, 1));
+}
+@theme {
+  --text-xs: calc(0.75rem * var(--ui-font-scale, 1));
+  --text-sm: calc(0.875rem * var(--ui-font-scale, 1));
+  --text-base: calc(1rem * var(--ui-font-scale, 1));
+  --text-lg: calc(1.125rem * var(--ui-font-scale, 1));
+  --text-xl: calc(1.25rem * var(--ui-font-scale, 1));
+  --text-2xl: calc(1.5rem * var(--ui-font-scale, 1));
+  --text-3xl: calc(1.875rem * var(--ui-font-scale, 1));
+}
+
+html[data-reduce-motion='true'] *,
+html[data-reduce-motion='true'] *::before,
+html[data-reduce-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0s !important;
+  scroll-behavior: auto !important;
+}
+html[data-font-smoothing='false'] body {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+html[data-pointer-cursors='false'] :is(button, a, [role='button'], [role='menuitem'], [role='switch'], [role='option']) {
+  cursor: default !important;
+}
+html[data-pointer-cursors='true'] :is(button, a[href], [role='button'], [role='menuitem'], [role='switch'], [role='option']):not(:disabled):not([aria-disabled='true']) {
+  cursor: pointer;
+}
+.aegis-code-text {
+  font-size: var(--code-font-size, 12px) !important;
+  line-height: 1.75;
+}
+
+html .highlighted-code-block,
+html .aegis-project-panel .highlighted-code-block,
+html .markdown-content .highlighted-code-content,
+html .markdown-content .highlighted-code-lines,
+html .markdown-content .md-inline-code,
+html .aegis-md-editor .cm-content,
+html .aegis-md-editor .cm-gutters {
+  font-size: var(--code-font-size, 12px) !important;
+}
+html .aegis-project-panel .highlighted-code-block :is(div, span, pre, code),
+html .aegis-text-codemirror-host .cm-content,
+html .aegis-text-codemirror-host .cm-gutters,
+html .aegis-text-codemirror-host .cm-line,
+html .aegis-text-codemirror-host .cm-line span {
+  font-size: var(--code-font-size, 12px) !important;
+}
+
+.aegis-settings :is(button:not([role="switch"]), input:not([type="range"]):not([type="color"]), [data-preference-value]):not(.theme-pack-card *) {
+  min-height: calc(28px * var(--ui-font-scale, 1));
+}
+
+.markdown-content, .user-message-content, .aegis-md-editor {
+  font-family: var(--font-content, var(--font-sans));
+}

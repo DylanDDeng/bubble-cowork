@@ -1,5 +1,6 @@
+import { useAppReducedMotion } from '../hooks/useAppReducedMotion';
 import { type FC, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useReducedMotion } from 'motion/react';
+
 import { ReasoningEffortSlider } from './ReasoningEffortSlider';
 import { toast } from 'sonner';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
@@ -655,7 +656,7 @@ function EffortModelPanel<T extends string>({
   const models = useRef<HTMLDivElement>(null);
   const modelButton = useRef<HTMLDivElement>(null);
   const backButton = useRef<HTMLDivElement>(null);
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useAppReducedMotion();
   const showingModels = view === 'models';
   const currentModel = modelOptions.find((option) => option.value === selectedModel);
 

@@ -1,3 +1,4 @@
+import { useAppPreferences } from '../store/useAppPreferences';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileDiff, Virtualizer } from '@pierre/diffs/react';
 import { toast } from 'sonner';
@@ -227,6 +228,7 @@ export function AegisDiffPanel({
     [data.turns]
   );
 
+  const diffMarkers = useAppPreferences(s => s.diffMarkers);
   const diffOptions = useMemo(
     () => ({
       diffStyle: renderMode,
@@ -234,12 +236,12 @@ export function AegisDiffPanel({
       disableFileHeader: true,
       stickyHeader: false,
       overflow: wordWrap ? ('wrap' as const) : ('scroll' as const),
-      diffIndicators: 'bars' as const,
+      diffIndicators: diffMarkers === 'signs' ? 'classic' as const : 'bars' as const,
       lineDiffType: wordDiffs ? ('word' as const) : ('none' as const),
       useCSSClasses: true,
       tokenizeMaxLineLength: 400,
     }),
-    [renderMode, wordDiffs, wordWrap]
+    [renderMode, wordDiffs, wordWrap, diffMarkers]
   );
 
   const openWorkspaceScope = useCallback((scope: GitPatchScope) => {

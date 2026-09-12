@@ -7,19 +7,27 @@ export interface AppPreferences {
   followUpBehavior: 'queue' | 'steer';
   showContextUsage: boolean;
   plainTextComposer: boolean;
+  uiFontSize: number;
+  codeFontSize: number;
+  reduceMotion: 'system' | 'on' | 'off';
+  fontSmoothing: boolean;
+  pointerCursors: boolean;
+  diffMarkers: 'color' | 'signs';
 }
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   defaultEditor: 'auto', terminalShell: 'system', preventSleep: false,
   enterBehavior: 'enter', followUpBehavior: 'queue', showContextUsage: true,
   plainTextComposer: false,
+  uiFontSize: 13, codeFontSize: 12, reduceMotion: 'system',
+  fontSmoothing: true, pointerCursors: true, diffMarkers: 'color',
 };
 
 export function normalizeAppPreferences(value: unknown): AppPreferences {
   const result = { ...DEFAULT_APP_PREFERENCES };
   if (!value || typeof value !== 'object') return result;
   const input = value as Record<string, unknown>;
-  for (const key of ['preventSleep', 'showContextUsage', 'plainTextComposer'] as const) {
+  for (const key of ['preventSleep', 'showContextUsage', 'plainTextComposer', 'fontSmoothing', 'pointerCursors'] as const) {
     if (typeof input[key] === 'boolean') result[key] = input[key];
   }
   for (const key of ['defaultEditor', 'terminalShell'] as const) {
@@ -27,6 +35,12 @@ export function normalizeAppPreferences(value: unknown): AppPreferences {
   }
   if (['enter', 'multiline', 'modifier'].includes(String(input.enterBehavior))) result.enterBehavior = input.enterBehavior as EnterBehavior;
   if (input.followUpBehavior === 'queue' || input.followUpBehavior === 'steer') result.followUpBehavior = input.followUpBehavior;
+  for (const key of ['uiFontSize', 'codeFontSize'] as const) {
+    const size = input[key];
+    if (typeof size === 'number' && Number.isFinite(size)) result[key] = Math.max(10, Math.min(24, Math.round(size)));
+  }
+  if (input.reduceMotion === 'on' || input.reduceMotion === 'off') result.reduceMotion = input.reduceMotion;
+  if (input.diffMarkers === 'signs') result.diffMarkers = 'signs';
   return result;
 }
 

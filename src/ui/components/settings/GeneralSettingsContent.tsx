@@ -21,7 +21,7 @@ export function PreferenceSelect({ label, value, options, disabled, onChange }: 
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
       </button>
     </DropdownMenu.Trigger>
-    <DropdownMenu.Portal><DropdownMenu.Content align="end" sideOffset={6} className="max-w-[calc(100vw-24px)]">
+    <DropdownMenu.Portal><DropdownMenu.Content align="end" sideOffset={6} className="max-h-[min(320px,calc(100vh-24px))] max-w-[calc(100vw-24px)] overflow-y-auto">
       {options.map(option => <DropdownMenu.Item key={option.value} data-preference-option={option.value} onSelect={() => onChange(option.value)} className="gap-3 text-[13px]">
         <span className="min-w-0 flex-1">{option.label}</span>
         <Check aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 ${value === option.value ? '' : 'invisible'}`} />

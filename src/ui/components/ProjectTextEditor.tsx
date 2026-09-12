@@ -248,9 +248,8 @@ export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectText
         },
         '.cm-scroller': {
           overflow: 'auto',
-          fontFamily:
-            'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-          fontSize: '14px',
+          fontFamily: 'var(--font-mono, monospace)',
+          fontSize: 'var(--code-font-size, 14px)',
         },
         '.cm-content': {
           padding: '12px',

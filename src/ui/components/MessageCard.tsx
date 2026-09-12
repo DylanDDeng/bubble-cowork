@@ -471,7 +471,7 @@ function UserPromptCard({
                 )}
 
                 {(!promptPrefixDisplay || promptPrefixDisplay.remainder) && (
-                  <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] align-middle">
+                  <span className="user-message-content whitespace-pre-wrap break-words [overflow-wrap:anywhere] align-middle">
                     {promptPrefixDisplay ? promptPrefixDisplay.remainder : displayPrompt}
                   </span>
                 )}

@@ -145,6 +145,8 @@ declare global {
     runAutomationNow: (automationId: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
     getAppPreferences: () => Promise<import('./shared/app-preferences').AppPreferences>;
     setAppPreferences: (patch: Partial<import('./shared/app-preferences').AppPreferences>) => Promise<import('./shared/app-preferences').AppPreferences>;
+    getSystemFonts: () => Promise<string[]>;
+    getSystemFontFamilies: () => Promise<import('./shared/system-fonts').SystemFontFamily[]>;
     getTerminalShellOptions: () => Promise<{ value: string; label: string }[]>;
     onAppPreferencesChanged: (callback: (preferences: import('./shared/app-preferences').AppPreferences) => void) => () => void;
     getNotificationSettings: () => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean; inputRequired?: boolean; approvalRequired?: boolean }>;
