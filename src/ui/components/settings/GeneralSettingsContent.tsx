@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Check, ChevronDown } from '../icons';
 import * as DropdownMenu from '../ui/dropdown-menu';
@@ -11,19 +11,19 @@ import { ApplicationDestinationSelect, type ApplicationDestinationOption } from 
 const selectClass = 'h-8 max-w-full min-w-0 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[13px] text-[var(--text-primary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]';
 
 export function PreferenceSelect({ label, value, options, disabled, onChange }: {
-  label: string; value: string; options: { value: string; label: string }[]; disabled?: boolean; onChange: (value: string) => void;
+  label: string; value: string; options: { value: string; label: string; icon?: ReactNode }[]; disabled?: boolean; onChange: (value: string) => void;
 }) {
   const selected = options.find(option => option.value === value);
   return <DropdownMenu.Root>
     <DropdownMenu.Trigger asChild>
       <button type="button" aria-label={label} data-preference-value={value} disabled={disabled} className={`${selectClass} inline-flex items-center gap-2 disabled:opacity-50`}>
-        <span className="truncate">{selected?.label || (disabled ? 'Loading…' : 'Unavailable')}</span>
+        <span className="flex items-center gap-2 truncate">{selected?.icon}{selected?.label || (disabled ? 'Loading…' : 'Unavailable')}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
       </button>
     </DropdownMenu.Trigger>
     <DropdownMenu.Portal><DropdownMenu.Content align="end" sideOffset={6} className="max-h-[min(320px,calc(100vh-24px))] max-w-[calc(100vw-24px)] overflow-y-auto">
       {options.map(option => <DropdownMenu.Item key={option.value} data-preference-option={option.value} onSelect={() => onChange(option.value)} className="gap-3 text-[13px]">
-        <span className="min-w-0 flex-1">{option.label}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-2">{option.icon}{option.label}</span>
         <Check aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 ${value === option.value ? '' : 'invisible'}`} />
       </DropdownMenu.Item>)}
     </DropdownMenu.Content></DropdownMenu.Portal>

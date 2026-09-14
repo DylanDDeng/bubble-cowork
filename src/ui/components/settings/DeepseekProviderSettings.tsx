@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, Eye, EyeOff } from '../icons';
 import type { DeepseekKeyStatus } from '../../types';
 import { DeepseekLogo } from '../DeepseekLogo';
-import { SettingsGroup } from './SettingsPrimitives';
+import { ProviderKeyEditor, ProviderSettingsRow, ProviderSettingsSection } from './ProviderSettingsPrimitives';
 
 /**
  * API-key management for the DeepSeek Harness agent, visually mirroring the
@@ -18,6 +17,8 @@ export function DeepseekProviderSettings() {
   const [keyDraft, setKeyDraft] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [busy, setBusy] = useState(false);
+  const keyEdited = useRef(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,11 +38,12 @@ export function DeepseekProviderSettings() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   const toggleExpanded = useCallback(() => {
     setExpanded((current) => !current);
     setKeyDraft('');
+    keyEdited.current = false;
     setShowKey(false);
   }, []);
 
@@ -56,7 +58,7 @@ export function DeepseekProviderSettings() {
     window.electron
       .getDeepseekApiKey()
       .then((key) => {
-        if (!cancelled && key) setKeyDraft(key);
+        if (!cancelled && !keyEdited.current && key) setKeyDraft(key);
       })
       .catch(() => {
         // Leave the draft empty; the user can still type a key.
@@ -98,88 +100,13 @@ export function DeepseekProviderSettings() {
     }
   };
 
-  return (
-    <SettingsGroup title="DeepSeek Harness">
-      {loadError ? (
-        <div className="px-4 py-3 text-[13px] text-[var(--text-muted)]">
-          Could not load DeepSeek key status: {loadError}
-        </div>
-      ) : !status ? (
-        <div className="px-4 py-3 text-[13px] text-[var(--text-muted)]">Loading…</div>
-      ) : (
-        <>
-          <div className="px-4 py-3">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <DeepseekLogo />
-                <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-[var(--text-primary)]">
-                  <span className="truncate">DeepSeek API Key</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={toggleExpanded}
-                  disabled={busy}
-                  aria-expanded={expanded}
-                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-                >
-                  <span>{status.hasApiKey ? 'Edit key' : 'Add key'}</span>
-                  <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {status.keySource === 'aegis' ? (
-                  <button
-                    type="button"
-                    onClick={() => void clearKey()}
-                    disabled={busy}
-                    className="rounded-lg px-2 py-1 text-[12px] font-medium text-red-500 transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
-                ) : null}
-              </div>
-            </div>
-
-            {expanded ? (
-              <div className="mt-3 flex items-center gap-2">
-                <div className="relative min-w-0 flex-1">
-                  <input
-                    type={showKey ? 'text' : 'password'}
-                    value={keyDraft}
-                    onChange={(event) => setKeyDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void saveKey();
-                    }}
-                    placeholder={status.hasApiKey ? 'Enter a new API key to replace' : 'sk-...'}
-                    autoFocus
-                    disabled={busy}
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] py-1.5 pl-3 pr-8 font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)] disabled:opacity-50"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey((current) => !current)}
-                    className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
-                    aria-label={showKey ? 'Hide key' : 'Show key'}
-                    disabled={busy}
-                  >
-                    {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void saveKey()}
-                  disabled={busy || !keyDraft.trim()}
-                  className="rounded-lg bg-[var(--text-primary)] px-3 py-1.5 text-[12px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  Save
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </>
-      )}
-    </SettingsGroup>
-  );
+  return <ProviderSettingsSection title="DeepSeek Harness">
+    {loadError ? <div className="provider-load-message" role="alert">Could not load key status. <button onClick={() => { setLoadError(null); setLoadAttempt(value => value + 1); }}>Retry</button></div>
+      : !status ? <div className="provider-load-message" role="status">Loading…</div>
+      : <ProviderSettingsRow label="DeepSeek" scope="DeepSeek Harness" logo={<DeepseekLogo />} expanded={expanded} disabled={busy} onToggleExpand={toggleExpanded}
+        status={!status.hasApiKey ? 'No API key' : status.keySource === 'aegis' ? 'Configured' : 'Using existing key'}
+        actions={status.keySource === 'aegis' ? [{ label: 'Remove saved key', onSelect: () => void clearKey(), destructive: true }] : []}>
+        <ProviderKeyEditor label="DeepSeek API key for DeepSeek Harness" value={keyDraft} onChange={value => { keyEdited.current = true; setKeyDraft(value); }} showKey={showKey} onToggleVisibility={() => setShowKey(value => !value)} busy={busy} onSave={() => void saveKey()} onCancel={toggleExpanded} />
+      </ProviderSettingsRow>}
+  </ProviderSettingsSection>;
 }

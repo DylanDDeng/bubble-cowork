@@ -26,6 +26,7 @@ window.electron={...window.preferenceBridge,
  getEnvironmentEditorLaunchers:()=>window.preferenceBridge.getEnvironmentEditorLaunchers(),
  openInEditor:async input=>{qa.opened=input;return {ok:true};},
  getAppVersion:async()=>'0.0.59',checkForUpdates:async()=>{},
+ getBubbleProvidersConfig:async()=>({providers:[],defaultProviderId:null}),
  getUserProfile:async()=>({displayName:'Test User',handle:'test'}),saveUserProfile:async p=>p,
  getAgentUsageReport:async()=>{throw Error('No test usage');},
  getCodexRateLimits:async()=>{throw Error('No test account');},getClaudePlanUsage:async()=>{throw Error('No test account');},
@@ -198,7 +199,7 @@ app.whenReady().then(async()=>{
   assert.equal(await js('qa.store.getState().themeState.chromeThemes.light.fonts.ui'),'"Menlo"');
   prefs.setAppPreferences({uiFontSize:13,codeFontSize:12,reduceMotion:'system',diffMarkers:'color'});
   await js('qa.store.getState().setThemeVariantFonts("light",{ui:null})');
-  await search('display name');assert.equal(await js('document.querySelector("h1").textContent'),'Usage');
+  await search('display name');assert.equal(await js('document.querySelector("h1").textContent'),'Profile');
   assert.equal(await js('document.activeElement.dataset.settingsLabel'),'Display name');
   await search('General');await js('qa.store.getState().setTheme("dark")');await shot('general-dark');
   await click('[aria-label="Default open destination"]');await shot('application-menu-dark');

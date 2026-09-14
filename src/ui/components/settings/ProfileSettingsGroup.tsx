@@ -2,87 +2,61 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
 import { primeUserProfileCache } from '../../hooks/useUserProfile';
+import { avatarColorFor, initialsOf } from '../../utils/user-avatar';
+import type { UserProfile } from '../../../shared/types';
 
 export function ProfileSettingsGroup() {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [handle, setHandle] = useState('');
-  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const [saving, setSaving] = useState(false);
+
+  const applyProfile = (next: UserProfile) => {
+    primeUserProfileCache(next);
+    setProfile(next);
+    setDisplayName(next.displayName);
+    setHandle(next.handle);
+  };
 
   useEffect(() => {
     let cancelled = false;
-    window.electron
-      .getUserProfile()
-      .then((profile) => {
-        primeUserProfileCache(profile);
-        if (cancelled) return;
-        setDisplayName(profile.displayName);
-        setHandle(profile.handle);
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setError('');
+    window.electron.getUserProfile().then(next => {
+      if (!cancelled) applyProfile(next);
+    }).catch(() => { if (!cancelled) setError('Could not load profile.'); });
+    return () => { cancelled = true; };
+  }, [retry]);
 
   const save = async () => {
-    if (!loaded) return;
+    if (!profile || saving) return;
+    setSaving(true);
     try {
-      const profile = await window.electron.saveUserProfile({
-        displayName: displayName.trim() || null,
-        handle: handle.trim() || null,
-      });
-      primeUserProfileCache(profile);
-      setDisplayName(profile.displayName);
-      setHandle(profile.handle);
-    } catch {
-      toast.error('Could not save profile.');
-    }
+      applyProfile(await window.electron.saveUserProfile({ displayName: displayName.trim() || null, handle: handle.trim() || null }));
+      toast.success('Profile saved.');
+    } catch { toast.error('Could not save profile.'); }
+    finally { setSaving(false); }
   };
+  const dirty = Boolean(profile && (displayName !== profile.displayName || handle !== profile.handle));
 
-  const commitOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.currentTarget.blur();
-    }
-  };
-
-  return (
-    <SettingsGroup title="Profile">
-      <SettingsRow
-        variant="card"
-        label="Display name"
-        description="Shown on the usage page. Defaults to your git or system user name."
-      >
-        <input
-          type="text"
-          aria-label="Display name"
-          value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
-          onBlur={() => void save()}
-          onKeyDown={commitOnEnter}
-          placeholder="Your name"
-          spellCheck={false}
-          disabled={!loaded}
-          className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-50"
-        />
+  return <form className="space-y-6" onSubmit={event => { event.preventDefault(); void save(); }}>
+    {error ? <div role="alert">{error} <button type="button" className="settings-button" onClick={() => setRetry(value => value + 1)}>Retry</button></div> : null}
+    {profile && <div className="flex items-center gap-4">
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-medium text-white" style={{backgroundColor: avatarColorFor(profile.displayName)}} aria-hidden="true">{initialsOf(profile.displayName)}</div>
+      <div><div className="font-medium">{profile.displayName}</div><div className="text-[var(--text-muted)]">{profile.handle ? `@${profile.handle}` : ''}</div></div>
+    </div>}
+    <SettingsGroup>
+      <SettingsRow variant="card" label="Display name">
+        <input className="settings-control w-[280px]" aria-label="Display name" value={displayName} onChange={event => setDisplayName(event.target.value)} placeholder="Your name" spellCheck={false} disabled={!profile || saving} />
       </SettingsRow>
-
-      <SettingsRow variant="card" label="Handle" description="Short lowercase ID, shown as @handle.">
-        <input
-          type="text"
-          aria-label="Handle"
-          value={handle}
-          onChange={(event) => setHandle(event.target.value)}
-          onBlur={() => void save()}
-          onKeyDown={commitOnEnter}
-          placeholder="handle"
-          spellCheck={false}
-          disabled={!loaded}
-          className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-50"
-        />
+      <SettingsRow variant="card" label="Handle">
+        <input className="settings-control w-[280px]" aria-label="Handle" value={handle} onChange={event => setHandle(event.target.value)} placeholder="handle" spellCheck={false} disabled={!profile || saving} />
       </SettingsRow>
     </SettingsGroup>
-  );
+    <div className="flex justify-end gap-2">
+      <button type="button" className="settings-button" disabled={!dirty || saving} onClick={() => profile && applyProfile(profile)}>Cancel</button>
+      <button type="submit" className="settings-primary-button" disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save'}</button>
+    </div>
+  </form>;
 }

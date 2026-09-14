@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Plus, Settings, Trash2 } from '../icons';
+import { ArrowLeft, ChevronDown, MoreHorizontal, Plus, Trash2 } from '../icons';
+import * as Menu from '../ui/dropdown-menu';
+import { PreferenceSelect } from './GeneralSettingsContent';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { sendEvent } from '../../hooks/useIPC';
 import type { McpServerConfig, McpServerStatus, McpSettingsRuntime } from '../../types';
 import type { CodexMcpServerRuntimeStatus } from '../../../shared/types';
-import { SegmentedControl, SegmentedControlItem, SettingsToggle } from './SettingsPrimitives';
+import { SettingsToggle } from './SettingsPrimitives';
 import { ProviderIcon } from '../AgentModelPicker';
 import { confirmDialog } from '../ui/confirm-dialog';
 
@@ -160,13 +162,14 @@ export function McpSettingsContent() {
 
   const handleCodexAuthorize = useCallback(async (serverName: string) => {
     setCodexAuthPending(serverName);
-    const result = await window.electron.startCodexMcpOauthLogin(serverName);
-    if (!result.ok) {
+    try {
+      const result = await window.electron.startCodexMcpOauthLogin(serverName);
+      if (!result.ok) throw new Error(result.message || 'Failed to start authorization.');
+      toast.info('Authorization page opened in your browser.');
+    } catch (error) {
       setCodexAuthPending(null);
-      toast.error(result.message || 'Failed to start authorization.');
-      return;
+      toast.error(error instanceof Error ? error.message : 'Failed to start authorization.');
     }
-    toast.info('Authorization page opened in your browser.');
   }, []);
 
   const groups = useMemo<ServerGroup[]>(() => {
@@ -392,9 +395,9 @@ export function McpSettingsContent() {
 
   return (
     <div className="pb-8">
-      <h1 className="mb-6 flex items-center gap-2 text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
+      <h1 data-settings-id={`mcp-runtime:${selectedTool}`} data-settings-label="MCP Servers" className="mb-6 flex items-center gap-2 text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
         <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center [&>img]:h-5 [&>img]:w-5 [&>svg]:h-5 [&>svg]:w-5">
-          <ProviderIcon provider={selectedTool} />
+          <span data-settings-provider={selectedTool}><ProviderIcon provider={selectedTool} /></span>
         </span>
         <span>{runtimeLabel}</span>
       </h1>
@@ -408,6 +411,7 @@ export function McpSettingsContent() {
             codexRuntime={group.tool === 'codex' ? codexRuntime : undefined}
             codexAuthPending={codexAuthPending}
             onCodexAuthorize={handleCodexAuthorize}
+            onRemove={name => void handleDelete(name, group)}
             onAdd={() => setView({ kind: 'create', groupId: group.id })}
             onOpen={(name) => setView({ kind: 'edit', groupId: group.id, name })}
             onToggleEnabled={
@@ -440,6 +444,7 @@ function ServerGroupSection({
   codexAuthPending,
   onCodexAuthorize,
   onAdd,
+  onRemove,
   onOpen,
   onToggleEnabled,
 }: {
@@ -449,15 +454,16 @@ function ServerGroupSection({
   codexAuthPending?: string | null;
   onCodexAuthorize?: (name: string) => void;
   onAdd: () => void;
+  onRemove: (name: string) => void;
   onOpen: (name: string) => void;
   onToggleEnabled?: (name: string, nextEnabled: boolean) => void;
 }) {
   const serverEntries = Object.entries(group.servers);
 
   return (
-    <section title={group.path}>
-      <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-        <div className="divide-y divide-[var(--border)]">
+    <section aria-label="MCP servers">
+      <div className="settings-surface mcp-server-list">
+        <div>
           {serverEntries.map(([name, config]) => {
               // mcpServerStatus entries are tagged with the reporting agent
               // (tool). Match by name AND tool so Claude/Codex statuses coexist
@@ -469,6 +475,8 @@ function ServerGroupSection({
               return (
                 <ServerListRow
                   key={`${group.id}-${name}`}
+                  scope={group.tool}
+                  onRemove={() => onRemove(name)}
                   name={name}
                   config={config}
                   status={status}
@@ -485,7 +493,7 @@ function ServerGroupSection({
           <button
             type="button"
             onClick={onAdd}
-            className="flex h-9 w-full items-center gap-2 px-3.5 text-left text-[13px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            data-settings-label="Add server" className="flex min-h-[48px] w-full items-center gap-2 text-left text-[13px] text-[var(--text-secondary)]"
           >
             <Plus className="h-3.5 w-3.5" />
             <span>Add server</span>
@@ -497,6 +505,8 @@ function ServerGroupSection({
 }
 
 function ServerListRow({
+  scope,
+  onRemove,
   name,
   config,
   status,
@@ -506,6 +516,8 @@ function ServerListRow({
   onOpen,
   onToggleEnabled,
 }: {
+  scope: string;
+  onRemove: () => void;
   name: string;
   config: McpServerConfig;
   status?: McpServerStatus;
@@ -533,75 +545,22 @@ function ServerListRow({
           : 'bg-[var(--warning)]';
   const dotTitle = isDisabled ? 'Disabled' : statusMeta.label;
 
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      className="group flex h-[38px] cursor-pointer items-center gap-2.5 pl-3.5 pr-3 transition-colors hover:bg-[var(--bg-secondary)] focus-visible:bg-[var(--bg-secondary)] focus-visible:outline-none"
-    >
-      <span
-        aria-label={dotTitle}
-        title={dotTitle}
-        className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dotClass}`}
-      />
-      <span
-        className={`truncate text-[13px] font-medium ${isDisabled ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}
-      >
-        {name}
-      </span>
-      <span className="flex-shrink-0 text-[12.5px] text-[var(--text-muted)]">{transport}</span>
-      {status && statusMeta.tone === 'error' ? (
-        <span className="truncate text-[12.5px] text-[var(--error)]" title={status.error}>
-          {statusMeta.label}
-        </span>
-      ) : null}
-      {needsAuth ? (
-        <button
-          type="button"
-          disabled={codexAuthPending}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (!codexAuthPending) onAuthorize?.();
-          }}
-          className={`flex-shrink-0 text-[12.5px] text-[var(--text-secondary)] underline decoration-[var(--border-focus)] underline-offset-[3px] transition-colors ${
-            codexAuthPending ? 'cursor-default opacity-60' : 'hover:text-[var(--text-primary)]'
-          }`}
-        >
-          {codexAuthPending ? 'Authorizing…' : 'Authorize'}
-        </button>
-      ) : null}
-
-      <span className="flex-1" />
-
-      <button
-        type="button"
-        aria-label={`Configure ${name}`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen();
-        }}
-        className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-[6px] text-[var(--text-muted)] opacity-0 transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
-      >
-        <Settings className="h-3.5 w-3.5" />
-      </button>
-      {onToggleEnabled ? (
-        <span onClick={(event) => event.stopPropagation()} className="flex flex-shrink-0 items-center">
-          <SettingsToggle
-            checked={enabled}
-            onChange={(value) => onToggleEnabled(value)}
-            ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${name}`}
-          />
-        </span>
-      ) : null}
-    </div>
-  );
+  return <div className="mcp-server-row" data-settings-id={`mcp:${scope}:${name}`}>
+    <button type="button" className="mcp-server-open" onClick={onOpen} aria-label={`Configure ${name}`}>
+      <span aria-label={dotTitle} title={dotTitle} className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
+      <span className={`truncate font-medium ${isDisabled ? 'text-[var(--text-muted)]' : ''}`}>{name}</span>
+      <span className="text-[12px] text-[var(--text-muted)]">{transport}</span>
+      {statusMeta.tone === 'error' && <span className="truncate text-[12px] text-[var(--error)]" title={status?.error}>{statusMeta.label}</span>}
+    </button>
+    {needsAuth && <button type="button" className="settings-button" disabled={Boolean(codexAuthPending)} onClick={onAuthorize}>{codexAuthPending ? 'Authorizing…' : 'Authorize'}</button>}
+    {onToggleEnabled && <SettingsToggle checked={enabled} onChange={onToggleEnabled} ariaLabel={`${enabled ? 'Disable' : 'Enable'} ${name}`} />}
+    <Menu.Root><Menu.Trigger asChild><button type="button" className="settings-button px-1.5" aria-label={`More actions for ${name}`}><MoreHorizontal className="h-4 w-4" /></button></Menu.Trigger>
+      <Menu.Portal><Menu.Content align="end" sideOffset={6}>
+        <Menu.Item onSelect={onOpen}>Edit configuration</Menu.Item>
+        <Menu.Item onSelect={onRemove} className="text-[var(--error)]">Remove server</Menu.Item>
+      </Menu.Content></Menu.Portal>
+    </Menu.Root>
+  </div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -747,6 +706,8 @@ function ServerEditorPage({
           <FormField label="Name" error={errors.name}>
             <input
               type="text"
+              aria-label="Server name"
+              aria-invalid={Boolean(errors.name)}
               value={name}
               onChange={(event) => {
                 setName(event.target.value);
@@ -761,18 +722,7 @@ function ServerEditorPage({
 
           {typeOptions.length > 1 ? (
             <FormField label="Type">
-              <SegmentedControl ariaLabel="Transport type">
-                {typeOptions.map((option) => (
-                  <SegmentedControlItem
-                    key={option.value}
-                    active={type === option.value}
-                    onClick={() => setType(option.value)}
-                    ariaLabel={option.description}
-                  >
-                    {option.label}
-                  </SegmentedControlItem>
-                ))}
-              </SegmentedControl>
+              <PreferenceSelect label="Transport type" value={type} options={typeOptions.map(option => ({value: option.value, label: option.label}))} onChange={value => setType(value as NonNullable<McpServerConfig['type']>)} />
             </FormField>
           ) : null}
         </FormCard>
@@ -783,7 +733,9 @@ function ServerEditorPage({
               <FormField label="Command to launch" error={errors.command}>
                 <input
                   type="text"
-                  value={command}
+                  aria-label="Command to launch"
+              aria-invalid={Boolean(errors.command)}
+              value={command}
                   onChange={(event) => {
                     setCommand(event.target.value);
                     if (errors.command) {
@@ -838,7 +790,9 @@ function ServerEditorPage({
               <FormField label="URL" error={errors.url}>
                 <input
                   type="text"
-                  value={url}
+                  aria-label="Server URL"
+              aria-invalid={Boolean(errors.url)}
+              value={url}
                   onChange={(event) => {
                     setUrl(event.target.value);
                     if (errors.url) {
@@ -865,6 +819,8 @@ function ServerEditorPage({
             </>
           )}
 
+          <details className="settings-disclosure py-3" open={envVars.length > 0 || undefined}>
+          <summary><ChevronDown />Environment variables</summary>
           <FormField label="Environment variables">
             <KeyValueEditor
               entries={envVars}
@@ -875,6 +831,7 @@ function ServerEditorPage({
               removeLabel="Remove variable"
             />
           </FormField>
+          </details>
         </FormCard>
 
         {/* One action row: the destructive action sits at the far left as a
@@ -894,13 +851,13 @@ function ServerEditorPage({
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex h-8 items-center rounded-[var(--radius-lg)] px-3 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            className="settings-button"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="inline-flex h-8 items-center rounded-[var(--radius-lg)] bg-[var(--accent)] px-4 text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+            className="settings-primary-button"
           >
             Save
           </button>
@@ -912,7 +869,7 @@ function ServerEditorPage({
 
 function FormCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="space-y-4 rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div className="settings-surface mcp-form-card">
       {children}
     </div>
   );
@@ -923,7 +880,7 @@ function GhostAddButton({ label, onClick }: { label: string; onClick: () => void
     <button
       type="button"
       onClick={onClick}
-      className="flex h-8 w-full items-center justify-center gap-1.5 rounded-[var(--radius-lg)] border border-dashed border-[var(--border)] text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+      className="settings-button"
     >
       <Plus className="h-3.5 w-3.5" />
       <span>{label}</span>
@@ -1003,13 +960,13 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="mb-1.5 flex items-baseline justify-between gap-3">
-        <span className="text-[12px] font-medium text-[var(--text-secondary)]">{label}</span>
+    <div className="settings-form-field" data-settings-label={label}>
+      <div>
+        <span className="settings-form-label">{label}</span>
         {hint ? <span className="text-[11px] text-[var(--text-muted)]">{hint}</span> : null}
       </div>
-      {children}
-      {error ? <div className="mt-1 text-[11.5px] text-[var(--error)]">{error}</div> : null}
+      <div>{children}
+      {error ? <div className="mt-1 text-[11.5px] text-[var(--error)]">{error}</div> : null}</div>
     </div>
   );
 }

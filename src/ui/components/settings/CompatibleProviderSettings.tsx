@@ -34,12 +34,12 @@ import type {
   OpenCodeRuntimeStatus,
 } from '../../types';
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
-import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
+import { ProviderSettingsRow, ProviderSettingsSection } from './ProviderSettingsPrimitives';
 
 const DEFAULT_CONFIG = normalizeCompatibleProvidersConfig(undefined);
 const PROVIDER_IDS = ['minimaxCn', 'minimax', 'mimo', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
 
-const PROVIDER_META: Record<
+export const PROVIDER_META: Record<
   ClaudeCompatibleProviderId,
   { label: string; logo: string; description: string }
 > = {
@@ -167,6 +167,8 @@ function getProviderModelSuggestions(
 export function CompatibleProviderSettingsContent() {
   const [config, setConfig] = useState<ClaudeCompatibleProvidersConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [expandedProviderId, setExpandedProviderId] = useState<ClaudeCompatibleProviderId | null>(null);
   const [draftProvider, setDraftProvider] = useState<ClaudeCompatibleProviderConfig | null>(null);
   const [showSecret, setShowSecret] = useState(false);
@@ -187,6 +189,8 @@ export function CompatibleProviderSettingsContent() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setLoadError(false);
 
     Promise.all([
       window.electron.getClaudeCompatibleProviderConfig().then((nextConfig) => {
@@ -195,9 +199,7 @@ export function CompatibleProviderSettingsContent() {
         }
       }),
     ])
-      .catch((error) => {
-        console.error('Failed to load provider config:', error);
-      })
+      .catch(() => { if (!cancelled) setLoadError(true); })
       .finally(() => {
         if (!cancelled) {
           setLoading(false);
@@ -207,7 +209,7 @@ export function CompatibleProviderSettingsContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   const modelSuggestions = useMemo(() => {
     if (!expandedProviderId || !draftProvider) {
@@ -319,6 +321,7 @@ export function CompatibleProviderSettingsContent() {
       return;
     }
 
+    setSavingProvider(providerId);
     const updated: ClaudeCompatibleProviderConfig = {
       ...config.providers[providerId],
       enabled: nextEnabled,
@@ -340,23 +343,23 @@ export function CompatibleProviderSettingsContent() {
     } catch (error) {
       setConfig(previous);
       toast.error(error instanceof Error ? error.message : 'Failed to update provider.');
-    }
+    } finally { setSavingProvider(null); }
   };
 
   const activeProviderMessage = message && expandedProviderId && message.providerId === expandedProviderId ? message : null;
 
   return (
-    <div className="space-y-6 pb-8">
-      <SettingsGroup title="Runtime Health">
+    <div style={{ display: 'contents' }}>
+      <details className="provider-runtime"><summary><ChevronDown className="h-3.5 w-3.5" />Agents</summary><div className="provider-settings-card">
         <RuntimeStatusRow
           title="Claude Code"
-          logo={<img src={claudeLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          logo={<img src={claudeLogo} alt="" className="h-5 w-5 provider-monochrome-logo" aria-hidden="true" />}
           detail={!claudeRuntimeLoading && !claudeRuntimeStatus.ready ? claudeRuntimeStatus.detail : undefined}
           status={buildClaudeRailStatus(claudeRuntimeStatus, claudeRuntimeLoading)}
         />
         <RuntimeStatusRow
           title="Codex CLI"
-          logo={<img src={openaiLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          logo={<img src={openaiLogo} alt="" className="h-5 w-5 provider-monochrome-logo" aria-hidden="true" />}
           detail={!codexRuntimeLoading && !codexRuntimeStatus.ready ? buildCodexSummary(codexRuntimeStatus, codexRuntimeLoading) : undefined}
           status={buildCodexRailStatus(codexRuntimeStatus, codexRuntimeLoading)}
         />
@@ -368,13 +371,13 @@ export function CompatibleProviderSettingsContent() {
         />
         <RuntimeStatusRow
           title="Kimi Code"
-          logo={<img src={moonshotLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          logo={<img src={moonshotLogo} alt="" className="h-5 w-5 provider-monochrome-logo" aria-hidden="true" />}
           detail={!kimiRuntimeLoading && !kimiRuntimeStatus.ready ? buildKimiSummary(kimiRuntimeStatus, kimiRuntimeLoading) : undefined}
           status={buildKimiRailStatus(kimiRuntimeStatus, kimiRuntimeLoading)}
         />
         <RuntimeStatusRow
           title="Grok Build"
-          logo={<img src={grokLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          logo={<img src={grokLogo} alt="" className="h-5 w-5 provider-monochrome-logo" aria-hidden="true" />}
           detail={!grokRuntimeLoading && !grokRuntimeStatus.ready ? buildGrokSummary(grokRuntimeStatus, grokRuntimeLoading) : undefined}
           status={buildGrokRailStatus(grokRuntimeStatus, grokRuntimeLoading)}
         />
@@ -384,9 +387,10 @@ export function CompatibleProviderSettingsContent() {
           detail={!agentReadinessLoading && qoderReadiness && qoderReadiness.state !== 'ready' ? qoderReadiness.detail : undefined}
           status={buildQoderRailStatus(qoderReadiness, agentReadinessLoading)}
         />
-      </SettingsGroup>
+      </div></details>
 
-      <SettingsGroup title="Claude-Compatible Providers">
+      <ProviderSettingsSection title="Claude Code">
+        {loadError ? <div className="provider-load-message" role="alert">Could not load providers. <button onClick={() => setLoadAttempt(value => value + 1)}>Retry</button></div> : null}
         {PROVIDER_IDS.map((providerId) => {
           const provider = config.providers[providerId];
           const meta = PROVIDER_META[providerId];
@@ -396,14 +400,15 @@ export function CompatibleProviderSettingsContent() {
           const configured = provider.baseUrl.trim() !== '' && provider.secret.trim() !== '';
 
           return (
-            <ProviderRow
+            <ProviderSettingsRow
               key={providerId}
+              scope="Claude Code"
               label={meta.label}
-              logo={<img src={meta.logo} alt="" className="h-5 w-5" aria-hidden="true" />}
+              logo={<img src={meta.logo} alt="" className={`h-5 w-5 ${meta.logo === mimoLogo || meta.logo === moonshotLogo ? 'provider-monochrome-logo' : ''}`} aria-hidden="true" />}
               enabled={provider.enabled}
-              configured={configured}
+              status={!configured ? 'Not configured' : !provider.enabled ? 'Disabled' : undefined}
               expanded={expanded}
-              disabled={loading || savingProvider !== null}
+              disabled={loading || loadError || savingProvider !== null}
               onToggleEnabled={(next) => handleToggleEnabled(providerId, next)}
               onToggleExpand={() => openProviderEditor(providerId)}
             >
@@ -417,6 +422,8 @@ export function CompatibleProviderSettingsContent() {
                 >
                   <FormField label="Base URL" error={errors.baseUrl}>
                     <input
+                      aria-label="Base URL"
+                      aria-invalid={Boolean(errors.baseUrl)}
                       value={providerDraft.baseUrl}
                       onChange={(event) => {
                         setErrors((current) => ({ ...current, baseUrl: undefined }));
@@ -431,9 +438,10 @@ export function CompatibleProviderSettingsContent() {
                     />
                   </FormField>
 
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="space-y-4">
                     <FormField label="Model" error={errors.model}>
                       <SuggestionInput
+                        label="Model"
                         value={providerDraft.model}
                         onChange={(value) => {
                           setErrors((current) => ({ ...current, model: undefined }));
@@ -449,9 +457,11 @@ export function CompatibleProviderSettingsContent() {
                       />
                     </FormField>
 
-                    <FormField label="Token" error={errors.secret}>
+                    <FormField label="API key" error={errors.secret}>
                       <div className="relative">
                         <input
+                          aria-label="Claude Code API key"
+                          aria-invalid={Boolean(errors.secret)}
                           type={showSecret ? 'text' : 'password'}
                           value={providerDraft.secret}
                           onChange={(event) => {
@@ -491,9 +501,10 @@ export function CompatibleProviderSettingsContent() {
                     </button>
 
                     {advancedOpen ? (
-                      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      <div className="mt-3 space-y-4">
                         <FormField label="Small fast model">
                           <SuggestionInput
+                            label="Small fast model"
                             value={providerDraft.smallFastModel || ''}
                             onChange={(value) =>
                               updateDraftProvider((current) => ({
@@ -512,6 +523,7 @@ export function CompatibleProviderSettingsContent() {
                             type="number"
                             min="1"
                             step="1"
+                            aria-label="Max output tokens"
                             value={providerDraft.maxOutputTokens ?? ''}
                             onChange={(event) =>
                               updateDraftProvider((current) => ({
@@ -531,34 +543,34 @@ export function CompatibleProviderSettingsContent() {
                   </div>
 
                   {activeProviderMessage && activeProviderMessage.tone === 'error' ? (
-                    <div className="rounded-md border border-[var(--error)]/25 bg-[var(--error)]/5 px-3 py-2 text-[12px] text-[var(--error)]">
+                    <div role="alert" className="rounded-md border border-[var(--error)]/25 bg-[var(--error)]/5 px-3 py-2 text-[12px] text-[var(--error)]">
                       {activeProviderMessage.text}
                     </div>
                   ) : null}
 
-                  <div className="flex items-center justify-end gap-2 pt-1">
+                  <div className="provider-editor-footer">
                     <button
                       type="button"
                       onClick={() => openProviderEditor(providerId)}
                       disabled={providerBusy}
-                      className="inline-flex h-8 items-center rounded-md px-3 text-[12.5px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                      className="provider-secondary-button"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={providerBusy}
-                      className="inline-flex h-8 items-center rounded-md bg-[var(--accent)] px-3 text-[12.5px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                      className="provider-primary-button"
                     >
                       {providerBusy ? 'Saving…' : 'Save'}
                     </button>
                   </div>
                 </form>
               ) : null}
-            </ProviderRow>
+            </ProviderSettingsRow>
           );
         })}
-      </SettingsGroup>
+      </ProviderSettingsSection>
     </div>
   );
 }
@@ -591,79 +603,6 @@ function RuntimeStatusRow({
   );
 }
 
-function ProviderRow({
-  label,
-  logo,
-  enabled,
-  configured,
-  expanded,
-  disabled,
-  onToggleEnabled,
-  onToggleExpand,
-  children,
-}: {
-  label: string;
-  logo: ReactNode;
-  enabled: boolean;
-  configured: boolean;
-  expanded: boolean;
-  disabled?: boolean;
-  onToggleEnabled: (next: boolean) => void;
-  onToggleExpand: () => void;
-  children?: ReactNode;
-}) {
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      onToggleExpand();
-    }
-  };
-
-  return (
-    <div>
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={onToggleExpand}
-        onKeyDown={handleKeyDown}
-        className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--bg-secondary)]/60"
-      >
-        <span className="flex h-5 w-5 items-center justify-center">{logo}</span>
-        <div className="min-w-0 flex items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">{label}</span>
-          {enabled && !configured ? (
-            <span className="text-[11px] text-[var(--text-muted)]">Needs setup</span>
-          ) : null}
-        </div>
-        <div
-          className="flex items-center gap-2"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-          role="presentation"
-        >
-          <SettingsToggle
-            checked={enabled}
-            onChange={onToggleEnabled}
-            disabled={disabled}
-            ariaLabel={enabled ? `Disable ${label}` : `Enable ${label}`}
-          />
-          <ChevronDown
-            className={`h-4 w-4 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}
-            aria-hidden="true"
-          />
-        </div>
-      </div>
-
-      {expanded && children ? (
-        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4">
-          {children}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function FormField({
   label,
   error,
@@ -674,15 +613,15 @@ function FormField({
   children: ReactNode;
 }) {
   return (
-    <div>
-      <div className="mb-1 text-[12px] font-medium text-[var(--text-muted)]">{label}</div>
-      {children}
+    <div role="group" aria-label={label}>
+      <div className="provider-settings-field"><span>{label}</span><div className="min-w-0">{children}</div></div>
       {error ? <div className="mt-1 text-[11.5px] text-[var(--error)]">{error}</div> : null}
     </div>
   );
 }
 
 function SuggestionInput({
+  label,
   value,
   onChange,
   suggestions,
@@ -693,6 +632,7 @@ function SuggestionInput({
   value: string;
   onChange: (value: string) => void;
   suggestions: string[];
+  label: string;
   placeholder?: string;
   disabled?: boolean;
   hasError?: boolean;
@@ -700,6 +640,8 @@ function SuggestionInput({
   return (
     <div className="relative">
       <input
+        aria-label={label}
+        aria-invalid={Boolean(hasError)}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

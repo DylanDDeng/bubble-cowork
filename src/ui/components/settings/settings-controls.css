@@ -1,0 +1,44 @@
+/* Shared surfaces for integration, profile and usage settings. */
+.settings-standard { font-size: calc(13px * var(--ui-font-scale, 1)); }
+.settings-standard .settings-group-heading { margin-bottom: 10px; padding-inline: 0; }
+.settings-standard .settings-group-heading h2 { font-size: inherit; font-weight: 500; color: var(--text-primary); }
+.settings-standard .settings-group-card, .settings-surface { border: 1px solid color-mix(in srgb, var(--border) 65%, transparent); border-radius: 16px; background: var(--bg-primary); overflow: hidden; }
+.settings-standard .settings-group-rows { padding-inline: 16px; }
+.settings-standard .settings-group-rows > * { border-color: color-mix(in srgb, var(--border) 45%, transparent); }
+.settings-standard .settings-row { padding: 14px 0; min-height: 52px; }
+.settings-standard .settings-row > div:first-child > div:first-child { font-size: inherit; font-weight: 500; }
+.settings-standard input:not([type=checkbox]), .settings-standard textarea { min-width: 0; max-width: 100%; border-radius: 8px; font-size: inherit; background: transparent; outline: none; }
+.settings-standard input:focus, .settings-standard textarea:focus { border-color: var(--text-muted); box-shadow: none; }
+.settings-standard input[aria-invalid=true] { border-color: var(--error); }
+.settings-control { height: 32px; min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; color: var(--text-primary); background: transparent; font-size: calc(13px * var(--ui-font-scale, 1)); }
+.settings-button, .settings-primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 28px; padding: 4px 12px; border-radius: 8px; font-size: calc(12px * var(--ui-font-scale, 1)); color: var(--text-secondary); }
+.settings-button:hover { background: var(--sidebar-item-hover); color: var(--text-primary); }
+.settings-primary-button { background: var(--text-primary); color: var(--bg-primary); }
+.settings-button:disabled, .settings-primary-button:disabled { opacity: .45; cursor: default; }
+.settings-button:focus-visible, .settings-primary-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-disclosure > summary { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; color: var(--text-secondary); }
+.settings-disclosure > summary::-webkit-details-marker { display: none; }
+.settings-disclosure > summary svg { width: 14px; height: 14px; transition: transform 120ms; }
+.settings-disclosure[open] > summary { margin-bottom: 12px; }
+.settings-disclosure[open] > summary svg { transform: rotate(180deg); }
+.settings-form-field { display: grid; grid-template-columns: minmax(110px,.55fr) minmax(0,1fr); gap: 16px; align-items: center; padding: 14px 0; }
+.settings-form-field > div:last-child { min-width: 0; }
+.settings-form-label { font-size: inherit; font-weight: 500; }
+.settings-form-error { font-size: 12px; color: var(--error); margin-top: 6px; }
+.mcp-server-list { padding-inline: 16px; }
+.mcp-server-row { display: flex; min-height: 52px; align-items: center; gap: 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent); }
+.mcp-server-open { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; text-align: left; padding-block: 14px; }
+.mcp-server-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.mcp-form-card { padding: 2px 16px; }
+.mcp-form-card > * + * { border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent); }
+.dark .settings-monochrome-logo { filter: invert(1); }
+.usage-provider-picker { max-width: 100%; }
+@media (max-width: 800px) {
+  .settings-form-field { grid-template-columns: minmax(0,1fr); gap: 8px; }
+  .mcp-server-row { flex-wrap: wrap; gap: 8px; }
+  .mcp-server-open { flex-basis: 60%; }
+}
+@media (prefers-reduced-motion: reduce) { .settings-disclosure > summary svg { transition: none; } }
+
+.dark .aegis-settings :is([data-settings-provider="claude"], [data-settings-provider="codex"], [data-settings-provider="kimi"], [data-settings-provider="grok"]) img { filter: invert(1); }
+.aegis-settings [tabindex="-1"]:focus:not([data-search-match="true"]) { outline: none; }

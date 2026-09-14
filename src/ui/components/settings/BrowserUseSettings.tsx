@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import * as Menu from '../ui/dropdown-menu';
 import { toast } from 'sonner';
 import * as Dialog from '@/ui/components/ui/dialog';
-import { ChevronDown, Cookie, X } from '../icons';
+import { Check, ChevronDown, Cookie, X } from '../icons';
 import type {
   BrowserUsePermissionSettings,
   ChromeCookieImportCounts,
@@ -19,21 +20,24 @@ import { SettingsGroup, SettingsRow, SettingsToggle } from './SettingsPrimitives
 export function BrowserUseSettings() {
   const [settings, setSettings] = useState<BrowserUsePermissionSettings | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoadError(false);
     window.electron
       .getBrowserUsePermissions()
       .then((next) => {
         if (!cancelled) setSettings(next);
       })
       .catch((error) => {
-        if (!cancelled) toast.error(error instanceof Error ? error.message : 'Failed to load browser permissions.');
+        if (!cancelled) setLoadError(true);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retry]);
 
   const setEnabled = useCallback(async (enabled: boolean) => {
     setBusy(true);
@@ -49,13 +53,12 @@ export function BrowserUseSettings() {
   return (
     <>
     <SettingsGroup title="Agent browsing">
-      {!settings ? (
+      {loadError ? <div role="alert" className="py-3">Could not load browser permissions. <button className="settings-button" onClick={() => setRetry(value => value + 1)}>Retry</button></div> : !settings ? (
         <div className="px-4 py-2.5 text-[13px] text-[var(--text-muted)]">Loading…</div>
       ) : (
         <SettingsRow
           variant="card"
           label="Enable Browser Use"
-          description="Let agents use the built-in browser."
         >
           <SettingsToggle
             checked={settings.enabled}
@@ -108,58 +111,23 @@ function ChromeProfilePicker({
   disabled?: boolean;
   onChange: (profilePath: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const selected = profiles.find((profile) => profile.profilePath === profilePath);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [open]);
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        disabled={disabled || profiles.length === 0}
-        onClick={() => setOpen((current) => !current)}
-        className="flex w-full items-center gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5 text-left text-[13px] text-[var(--text-primary)] outline-none disabled:opacity-50"
-      >
+  const selected = profiles.find(profile => profile.profilePath === profilePath);
+  return <Menu.Root>
+    <Menu.Trigger asChild>
+      <button type="button" aria-label="Chrome profile" disabled={disabled || profiles.length === 0} className="settings-control flex h-auto min-h-9 w-full items-center gap-2.5 py-2 text-left">
         <ChromeMark className="h-5 w-5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">
-          {selected ? profileLabel(selected) : profiles.length === 0 ? 'No Chrome profiles found' : 'Select a Chrome profile'}
-        </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+        <span className="min-w-0 flex-1 truncate">{selected ? profileLabel(selected) : 'No Chrome profiles found'}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
       </button>
-      {open && profiles.length > 0 ? (
-        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
-          {profiles.map((profile) => (
-            <button
-              key={profile.profilePath}
-              type="button"
-              onClick={() => {
-                onChange(profile.profilePath);
-                setOpen(false);
-              }}
-              className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] hover:bg-[var(--bg-tertiary)] ${
-                profile.profilePath === profilePath ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'
-              }`}
-            >
-              <ChromeMark className="h-5 w-5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {profileLabel(profile)}
-                {profile.hasCookies ? '' : ' (no cookies)'}
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
+    </Menu.Trigger>
+    <Menu.Portal><Menu.Content align="start" sideOffset={6} className="max-h-64 max-w-[calc(100vw-48px)] overflow-y-auto">
+      {profiles.map(profile => <Menu.Item key={profile.profilePath} onSelect={() => onChange(profile.profilePath)}>
+        <ChromeMark className="mr-2 h-5 w-5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{profileLabel(profile)}{profile.hasCookies ? '' : ' (no cookies)'}</span>
+        <Check className={`ml-3 h-3.5 w-3.5 shrink-0 ${profile.profilePath === profilePath ? '' : 'invisible'}`} />
+      </Menu.Item>)}
+    </Menu.Content></Menu.Portal>
+  </Menu.Root>;
 }
 
 function ChromeCookieImportSettings() {
@@ -262,57 +230,16 @@ function ChromeCookieImportSettings() {
 
   return (
     <>
-      <section>
-        <div className="mb-2 flex items-end justify-between gap-3 px-1">
-          <div>
-            <h2 className="text-[12px] font-medium text-[var(--text-muted)]">General</h2>
-            <p className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
-              Copy login cookies from local Chrome into the built-in browser.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={openImportDialog}
-            disabled={!platformSupported}
-            className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-          >
-            Import…
-          </button>
-        </div>
-        <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="divide-y divide-[var(--border)]">
-            {!platformSupported ? (
-              <div className="px-4 py-3 text-[13px] text-[var(--text-muted)]">
-                Chrome cookie import is available on macOS. Windows Chrome uses App-Bound Encryption and cannot be imported.
-              </div>
-            ) : status?.importedAt ? (
-              <SettingsRow
-                variant="card"
-                align="start"
-                label="Imported cookies"
-                description={`${status.cookieCount > 0 ? `${status.cookieCount} cookies` : 'Cookies'}${
-                  status.domains.length > 0 ? ` from ${status.domains.length} sites` : ''
-                }${status.profileName ? ` · ${status.profileName}` : ''} · ${new Date(status.importedAt).toLocaleString()}. Open a new Gmail tab or wait for the current tab to reload.`}
-              >
-                <button
-                  type="button"
-                  onClick={() => void clearImported()}
-                  disabled={busy}
-                  className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-                >
-                  Clear
-                </button>
-              </SettingsRow>
-            ) : (
-              <div className="px-4 py-3 text-[13px] text-[var(--text-muted)]">
-                Nothing imported yet. Use Import… to copy cookies from Chrome.
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
+      <SettingsGroup title="Browser data">
+        <SettingsRow variant="card" label="Import from Chrome" description={!platformSupported ? 'Chrome cookie import is available on macOS.' : undefined}>
+          <button type="button" onClick={openImportDialog} disabled={!platformSupported || busy} className="settings-button">Import…</button>
+        </SettingsRow>
+        <SettingsRow variant="card" label="Imported cookies" description={status?.importedAt ? `${status.cookieCount} cookies · ${status.domains.length} sites${status.profileName ? ` · ${status.profileName}` : ''}` : undefined}>
+          {status?.importedAt ? <button type="button" onClick={() => void clearImported()} disabled={busy} className="settings-button">Clear</button> : <span className="text-[var(--text-muted)]">None</span>}
+        </SettingsRow>
+      </SettingsGroup>
 
-      <Dialog.Root open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog.Root open={dialogOpen} onOpenChange={open => { if (!busy) setDialogOpen(open); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] w-[min(440px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
@@ -323,7 +250,7 @@ function ChromeCookieImportSettings() {
                     Import from browser
                   </Dialog.Title>
                   <Dialog.Description className="mt-1 text-[13px] leading-5 text-[var(--text-muted)]">
-                    Select cookies to copy into the built-in browser.
+                    Copy login cookies into the built-in browser. Imported sites still require permission for agent access.
                   </Dialog.Description>
                 </div>
                 <Dialog.Close
@@ -371,7 +298,7 @@ function ChromeCookieImportSettings() {
                 type="button"
                 onClick={() => setDialogOpen(false)}
                 disabled={busy}
-                className="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-[13px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                className="settings-button"
               >
                 Cancel
               </button>
@@ -379,7 +306,7 @@ function ChromeCookieImportSettings() {
                 type="button"
                 onClick={() => void importSelected()}
                 disabled={!canImport}
-                className="rounded-xl bg-[var(--text-primary)] px-4 py-2 text-[13px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="settings-primary-button"
               >
                 {busy ? 'Importing…' : 'Import'}
               </button>

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { avatarColorFor, initialsOf } from '../../utils/user-avatar';
 import claudeLogo from '../../assets/claude-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import grokLogo from '../../assets/grok.svg';
@@ -23,9 +22,8 @@ import type {
   GrokPlanUsageReport,
   QoderPlanUsageReport,
 } from '../../types';
-import type { UserProfile } from '../../../shared/types';
 import { useKimiModelConfig } from '../../hooks/useKimiModelConfig';
-import { useUserProfile } from '../../hooks/useUserProfile';
+import { PreferenceSelect } from './GeneralSettingsContent';
 import { SettingsGroup } from './SettingsPrimitives';
 
 const MODEL_COLORS = ['#315EFB', '#0F9D90', '#D97757', '#7C3AED', '#F59E0B', '#E11D48'];
@@ -50,8 +48,8 @@ const USAGE_PROVIDERS: Array<{ id: AgentProvider; title: string; logoSrc?: strin
   { id: 'claude', title: 'Claude Code', logoSrc: claudeLogo },
   { id: 'codex', title: 'Codex CLI', logoSrc: openaiLogo },
   { id: 'opencode', title: 'OpenCode' },
-  { id: 'kimi', title: 'Kimi', logoSrc: moonshotLogo },
-  { id: 'grok', title: 'Grok', logoSrc: grokLogo },
+  { id: 'kimi', title: 'Kimi Code', logoSrc: moonshotLogo },
+  { id: 'grok', title: 'Grok Build', logoSrc: grokLogo },
   { id: 'pi', title: 'Pi', logoSrc: piLogo },
   { id: 'qoder', title: 'Qoder', logoSrc: qoderLogo },
   { id: 'bubble', title: 'Bubble', logoSrc: bubbleLogo },
@@ -80,7 +78,6 @@ export function ClaudeUsageSettingsContent() {
   const [qoderPlanUsage, setQoderPlanUsage] = useState<QoderPlanUsageReport | null>(null);
   const [qoderPlanUsageLoading, setQoderPlanUsageLoading] = useState(true);
   const [qoderPlanUsageError, setQoderPlanUsageError] = useState<string | null>(null);
-  const userProfile = useUserProfile();
   const kimiModelConfig = useKimiModelConfig();
   const kimiModelLabels = useMemo(() => {
     const labels: Record<string, string> = {};
@@ -299,7 +296,7 @@ export function ClaudeUsageSettingsContent() {
           id: provider.id,
           title: provider.title,
           logo: provider.logoSrc ? (
-            <img src={provider.logoSrc} alt="" className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+            <img src={provider.logoSrc} alt="" className={`h-3.5 w-3.5 flex-shrink-0 ${[claudeLogo, openaiLogo, grokLogo, moonshotLogo].includes(provider.logoSrc) ? 'settings-monochrome-logo' : ''}`} aria-hidden="true" />
           ) : (
             <OpenCodeLogo className="h-3.5 w-3.5 flex-shrink-0" />
           ),
@@ -329,8 +326,7 @@ export function ClaudeUsageSettingsContent() {
 
   return (
     <div className="space-y-8 pb-10">
-      <UsageProfileHeader
-        profile={userProfile}
+      <UsageProviderPicker
         provider={activeProviderCard}
         providers={providers}
         onSelectProvider={setActiveProvider}
@@ -386,68 +382,15 @@ export function ClaudeUsageSettingsContent() {
   );
 }
 
-/* ---------- Profile header ---------- */
-
-function UsageProfileHeader({
-  profile,
-  provider,
-  providers,
-  onSelectProvider,
-}: {
-  profile: UserProfile | null;
+function UsageProviderPicker({ provider, providers, onSelectProvider }: {
   provider: UsageProviderCard;
   providers: UsageProviderCard[];
   onSelectProvider: (id: AgentProvider) => void;
 }) {
-  const handle = profile?.handle ? `@${profile.handle}` : '';
-
-  return (
-    <div className="flex flex-col items-center gap-3">
-      {profile ? (
-        <div
-          className="flex h-16 w-16 items-center justify-center rounded-full text-[22px] font-semibold text-white shadow-[0_1px_2px_rgba(15,23,42,0.1)]"
-          style={{ backgroundColor: avatarColorFor(profile.displayName) }}
-          aria-hidden="true"
-        >
-          {initialsOf(profile.displayName)}
-        </div>
-      ) : (
-        // Neutral skeleton for the first-ever load; never flash wrong initials.
-        <div className="h-16 w-16 rounded-full bg-[var(--bg-tertiary)]" aria-hidden="true" />
-      )}
-      <div className="text-center">
-        <div className="min-h-[30px] text-[20px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
-          {profile?.displayName ?? ' '}
-        </div>
-        <div className="mt-1 min-h-[18px] text-center text-[12.5px] text-[var(--text-muted)]">
-          {handle}
-        </div>
-      </div>
-
-      <div className="mt-1 flex items-center justify-center gap-2.5" role="group" aria-label="Select provider">
-        {providers.map((entry) => {
-          const active = entry.id === provider.id;
-          return (
-            <button
-              key={entry.id}
-              type="button"
-              onClick={() => onSelectProvider(entry.id)}
-              title={entry.title}
-              aria-label={entry.title}
-              aria-pressed={active}
-              className={`flex h-9 w-9 items-center justify-center rounded-full border bg-[var(--bg-primary)] transition-all [&_img]:h-4 [&_img]:w-4 [&_svg]:h-4 [&_svg]:w-4 ${
-                active
-                  ? 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_18%,transparent)]'
-                  : 'border-[var(--border)] opacity-45 grayscale hover:opacity-90 hover:grayscale-0'
-              }`}
-            >
-              {entry.logo}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+  return <div className="usage-provider-picker flex items-center justify-between gap-4" data-settings-label="Usage provider">
+    <span className="text-[var(--text-secondary)]">Agent</span>
+    <PreferenceSelect label="Usage provider" value={provider.id} options={providers.map(entry => ({value: entry.id, label: entry.title, icon: entry.logo}))} onChange={value => onSelectProvider(value as AgentProvider)} />
+  </div>;
 }
 
 /* ---------- Stat strip ---------- */
@@ -752,7 +695,8 @@ function ActivityHeatmap({ daily, mode }: { daily: ClaudeUsageDailyPoint[]; mode
       <HeatmapHoverTip tip={tip} />
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        className="h-auto w-full"
+        className="h-auto max-h-[160px] w-full"
+        preserveAspectRatio="xMinYMin meet"
         role="img"
         aria-label={`${mode} token activity heatmap`}
       >

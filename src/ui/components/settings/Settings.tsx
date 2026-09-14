@@ -1,10 +1,11 @@
+import './settings-controls.css';
 import { AppearanceControls } from './AppearanceControls';
 import { findSettings, type SettingsSearchEntry } from './settings-search';
 import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, ChartColumn, PlugZap, Bot, Image, Trash2, Globe } from '../icons';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, ChartColumn, User, PlugZap, Bot, Image, Trash2, Globe } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
-import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
+import { CompatibleProviderSettingsContent, PROVIDER_META } from './CompatibleProviderSettings';
 import { BubbleProviderSettings } from './BubbleProviderSettings';
 import { DeepseekProviderSettings } from './DeepseekProviderSettings';
 import { BrowserUseSettings } from './BrowserUseSettings';
@@ -15,6 +16,7 @@ import { ThemePackEditor } from './ThemePackEditor';
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
 import { GeneralSettingsContent, PreferenceSelect } from './GeneralSettingsContent';
 import { ProfileSettingsGroup } from './ProfileSettingsGroup';
+import { sendEvent } from '../../hooks/useIPC';
 import { Search } from '../icons';
 import { toast } from 'sonner';
 import type { ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
@@ -31,31 +33,32 @@ const SETTINGS_TABS = {
   browser: {
     label: 'Browser',
     title: 'Browser',
-    description: 'Manage the built-in browser. Import Chrome login cookies and turn agent browsing on or off.',
+    description: '',
     icon: <Globe className="w-4 h-4" />,
   },
   mcp: {
     label: 'MCP Servers',
     title: 'MCP Servers',
-    description: 'Manage MCP tool backends for Claude Code, Codex, OpenCode, and Kimi.',
+    description: '',
     icon: <Server className="w-4 h-4" />,
   },
   providers: {
     label: 'Providers',
     title: 'Providers',
-    description: 'Configure Anthropic-compatible providers for Claude sessions and API keys for the bundled Bubble agent.',
+    description: '',
     icon: <PlugZap className="w-4 h-4" />,
   },
+  profile: { label: 'Profile', title: 'Profile', description: '', icon: <User className="w-4 h-4" /> },
   usage: {
     label: 'Usage',
     title: 'Usage',
-    description: 'Review token, cost, session, and cache usage across models over time.',
+    description: '',
     icon: <ChartColumn className="w-4 h-4" />,
   },
   bridge: {
     label: 'Bridge',
     title: 'Bridge',
-    description: 'Connect remote chat channels to this desktop workspace.',
+    description: '',
     icon: <Bot className="w-4 h-4" />,
   },
 } as const;
@@ -63,7 +66,7 @@ const SETTINGS_TABS = {
 type SettingsTabKey = keyof typeof SETTINGS_TABS;
 
 const SETTINGS_NAV_GROUPS: { label: string; tabs: SettingsTabKey[] }[] = [
-  { label: 'Personal', tabs: ['general', 'appearance', 'usage'] },
+  { label: 'Personal', tabs: ['general', 'appearance', 'profile', 'usage'] },
   { label: 'Integrations', tabs: ['browser', 'mcp', 'providers', 'bridge'] },
 ];
 
@@ -97,6 +100,36 @@ export function Settings() {
     setMcpSettingsRuntime,
   } = useAppStore();
 
+  const [bubbleEntries, setBubbleEntries] = useState<SettingsSearchEntry[]>([]);
+  const searching = showSettings && Boolean(search.trim());
+  useEffect(() => {
+    if (!searching) return;
+    let cancelled = false;
+    const state = useAppStore.getState();
+    sendEvent({type: 'mcp.get-config', payload: {projectPath: state.activeSessionId ? state.sessions[state.activeSessionId]?.cwd : undefined}});
+    window.electron.getBubbleProvidersConfig().then(config => {
+      if (!cancelled) setBubbleEntries(config.providers.map(provider => ({tab:'providers', label:provider.name, scope:'Bubble', id:`Bubble:${provider.name}`, keywords:'api key enabled default provider 密钥 默认 启用'})));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [searching]);
+  const store = useAppStore();
+  const mcpCatalogs = [store.mcpGlobalServers, store.mcpCodexGlobalServers, store.mcpOpencodeGlobalServers, store.mcpKimiGlobalServers, store.mcpQoderGlobalServers, store.mcpBubbleGlobalServers, store.mcpDeepseekGlobalServers];
+  const extraEntries: SettingsSearchEntry[] = [
+    ...Object.values(PROVIDER_META).map(meta => ({tab:'providers' as const, label:meta.label, scope:'Claude Code', id:`Claude Code:${meta.label}`, keywords:'api key model endpoint 密钥 模型'})),
+    ...bubbleEntries,
+    ...MCP_RUNTIMES.flatMap((runtime, index) => [
+      {tab:'mcp' as const, label:runtime.label, scope:'MCP Servers', id:`mcp-runtime:${runtime.id}`, runtime:runtime.id, keywords:'mcp server tools 服务器 工具'},
+      ...Object.keys(mcpCatalogs[index] ?? {}).map(name => ({tab:'mcp' as const, label:name, runtime:runtime.id, scope:runtime.label, id:`mcp:${runtime.id}:${name}`, keywords:'mcp server tools 服务器 工具'})),
+    ]),
+  ];
+  const searchResults = findSettings(search, extraEntries);
+  const selectSearchResult = (entry: SettingsSearchEntry) => {
+    if (entry.runtime) setMcpSettingsRuntime(entry.runtime);
+    setActiveSettingsTab(entry.tab);
+    setTarget({...entry});
+    setSearch('');
+  };
+
   useEffect(() => {
     if (!uiFontFamily && !chatCodeFontFamily) return;
     setThemeState(consolidateThemeFonts(themeState, uiFontFamily, chatCodeFontFamily));
@@ -106,15 +139,26 @@ export function Settings() {
 
   useLayoutEffect(() => {
     if (!showSettings || !target || activeSettingsTab !== target.tab) return;
-    const row = Array.from(document.querySelectorAll<HTMLElement>('[data-settings-label]')).find(row => row.dataset.settingsLabel === target.label)
-      ?? document.querySelector<HTMLElement>('.aegis-settings-content');
-    if (!row) return;
-    row.scrollIntoView({ block: 'center' });
-    row.setAttribute('tabindex', '-1');
-    row.focus({ preventScroll: true });
-    row.dataset.searchMatch = 'true';
-    const timer = setTimeout(() => { delete row.dataset.searchMatch; }, 1800);
-    return () => { clearTimeout(timer); delete row.dataset.searchMatch; row.removeAttribute('tabindex'); };
+    const pane = document.querySelector<HTMLElement>('.aegis-settings main');
+    if (!pane) return;
+    let matched: HTMLElement | undefined;
+    let timer: ReturnType<typeof setTimeout>;
+    const locate = () => {
+      const row = Array.from(pane.querySelectorAll<HTMLElement>('[data-settings-label],[data-settings-id]')).find(row => target.id ? row.dataset.settingsId === target.id : row.dataset.settingsLabel === target.label);
+      if (!row) return false;
+      matched = row;
+      let parent = row.parentElement;
+      while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; }
+      row.scrollIntoView({block:'center'});
+      row.setAttribute('tabindex', '-1');
+      row.focus({preventScroll:true});
+      row.dataset.searchMatch = 'true';
+      timer = setTimeout(() => { delete row.dataset.searchMatch; }, 1800);
+      return true;
+    };
+    const observer = new MutationObserver(() => { if (locate()) observer.disconnect(); });
+    if (!locate()) observer.observe(pane, {childList:true, subtree:true});
+    return () => { observer.disconnect(); clearTimeout(timer); if (matched) { delete matched.dataset.searchMatch; matched.removeAttribute('tabindex'); } };
   }, [showSettings, target, activeSettingsTab]);
 
   if (!showSettings) return null;
@@ -146,17 +190,17 @@ export function Settings() {
             <input aria-label="Search settings" role="searchbox" placeholder="Search settings…" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => {
               if (e.key === 'Escape') setSearch('');
               if (e.key === 'Enter') {
-                const first = findSettings(search)[0];
-                if (first) { setActiveSettingsTab(first.tab); setTarget({ ...first }); setSearch(''); }
+                const first = searchResults[0];
+                if (first) selectSearchResult(first);
               }
             }} className="w-full min-w-0 bg-transparent text-[13px] font-normal leading-[18px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]" />
             {search && <button aria-label="Clear settings search" onClick={() => setSearch('')} className="text-[var(--text-muted)]">×</button>}
           </div>
           {search.trim() ? <div role="region" aria-label="Settings search results" className="min-h-0 overflow-y-auto">
-            {findSettings(search).map(entry => <button key={`${entry.tab}:${entry.label}`} onClick={() => { setActiveSettingsTab(entry.tab); setTarget({ ...entry }); setSearch(''); }} className="mb-1 flex w-full flex-col rounded-lg px-3 py-2 text-left text-[13px] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
-              <span>{entry.label}</span><span className="text-[12px] text-[var(--text-muted)]">{SETTINGS_TABS[entry.tab].label}</span>
+            {searchResults.map(entry => <button key={`${entry.tab}:${entry.scope ?? ''}:${entry.label}`} onClick={() => selectSearchResult(entry)} className="mb-1 flex w-full flex-col rounded-lg px-3 py-2 text-left text-[13px] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+              <span>{entry.label}</span><span className="text-[12px] text-[var(--text-muted)]">{SETTINGS_TABS[entry.tab].label}{entry.scope ? ` · ${entry.scope}` : ''}</span>
             </button>)}
-            {findSettings(search).length === 0 && <p className="px-3 text-[13px] text-[var(--text-muted)]">No settings found</p>}
+            {searchResults.length === 0 && <p className="px-3 text-[13px] text-[var(--text-muted)]">No settings found</p>}
           </div> : <nav aria-label="Settings" className="min-h-0 flex-1 space-y-6 overflow-y-auto">
             {SETTINGS_NAV_GROUPS.map(group => <section key={group.label} aria-label={group.label}>
               <h2 className="mb-1 px-2 text-[13px] font-normal leading-[18px] text-[var(--text-muted)]">{group.label}</h2>
@@ -191,7 +235,7 @@ export function Settings() {
                                 <span
                                   className={`flex h-4 w-4 flex-shrink-0 items-center justify-center transition-opacity ${active ? '' : 'opacity-80 group-hover:opacity-100'}`}
                                 >
-                                  <ProviderIcon provider={runtime.id} />
+                                  <span data-settings-provider={runtime.id}><ProviderIcon provider={runtime.id} /></span>
                                 </span>
                                 <span className="truncate">{runtime.label}</span>
                               </button>
@@ -210,20 +254,11 @@ export function Settings() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--bg-primary)] select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text">
-        {/* The usage tab is a centered profile page; pin its title to the
-            top-left of the pane so it doesn't crowd the avatar header. */}
-        {resolvedActiveSettingsTab === 'usage' ? (
-          <div className="px-6 pt-5">
-            <h1 data-settings-label={activeMeta.title} className="text-[15px] font-semibold tracking-normal text-[var(--text-primary)]">
-              {activeMeta.title}
-            </h1>
-          </div>
-        ) : null}
         <div
-          className={`aegis-settings-content mx-auto w-full px-8 py-8 ${resolvedActiveSettingsTab === 'appearance' ? 'max-w-[832px]' : 'max-w-3xl'}`}
+          className={`aegis-settings-content ${['mcp', 'browser', 'bridge', 'usage', 'profile'].includes(resolvedActiveSettingsTab) ? 'settings-standard' : ''} mx-auto w-full px-8 py-8 ${resolvedActiveSettingsTab === 'appearance' ? 'max-w-[832px]' : 'max-w-3xl'}`}
         >
-          {/* The MCP page renders its own header (runtime name + last-checked). */}
-          {resolvedActiveSettingsTab !== 'usage' && resolvedActiveSettingsTab !== 'mcp' ? (
+          {/* The MCP page renders its own header (runtime name). */}
+          {resolvedActiveSettingsTab !== 'mcp' ? (
             <header className="mb-6">
               <h1 data-settings-label={activeMeta.title} className="text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
                 {activeMeta.title}
@@ -252,17 +287,18 @@ export function Settings() {
           )}
           {resolvedActiveSettingsTab === 'mcp' && (
             <div className="space-y-5">
-              <McpSettingsContent />
+              <McpSettingsContent key={target?.tab === 'mcp' ? `${target.runtime}:${target.id ?? target.label}` : 'mcp'} />
             </div>
           )}
           {resolvedActiveSettingsTab === 'providers' && (
-            <div className="flex flex-col gap-6">
+            <div className="providers-settings">
               <CompatibleProviderSettingsContent />
-              <BubbleProviderSettings />
+              <BubbleProviderSettings revealTarget={target?.tab === 'providers' ? target.id : undefined} />
               <DeepseekProviderSettings />
             </div>
           )}
-          {resolvedActiveSettingsTab === 'usage' && <div className="space-y-8"><ClaudeUsageSettingsContent /><ProfileSettingsGroup /></div>}
+          {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
+          {resolvedActiveSettingsTab === 'profile' && <ProfileSettingsGroup />}
           {resolvedActiveSettingsTab === 'bridge' && <BridgeSettingsContent />}
         </div>
       </main>

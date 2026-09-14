@@ -110,6 +110,8 @@
     "verify:deepseek-runtime-upgrade": "node scripts/tests/deepseek-runtime-upgrade.test.mjs",
     "verify:deepseek-images": "npm run transpile:electron && node scripts/tests/deepseek-images.test.mjs",
     "verify:deepseek-images-ui": "node scripts/tests/deepseek-images-electron.test.mjs",
+    "verify:settings-integration": "node scripts/tests/settings-integration-electron.test.mjs",
+    "verify:providers-settings": "node scripts/tests/providers-settings-electron.test.mjs",
     "verify:app-preferences": "npm run transpile:electron && node scripts/tests/app-preferences.test.cjs && npx tsx scripts/tests/appearance-preferences.test.ts && node scripts/tests/settings-general-electron.test.mjs && node scripts/tests/composer-newline-electron.test.mjs"
   },
   "dependencies": {

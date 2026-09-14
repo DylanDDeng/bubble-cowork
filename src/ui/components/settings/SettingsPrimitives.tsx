@@ -76,9 +76,9 @@ export function SettingsGroup({
   children: React.ReactNode;
 }) {
   return (
-    <section>
+    <section data-settings-label={title}>
       {title || description ? (
-        <div className="mb-2 px-1">
+        <div className="settings-group-heading mb-2 px-1">
           {title ? (
             <h2 className="text-[12px] font-medium text-[var(--text-muted)]">{title}</h2>
           ) : null}
@@ -87,8 +87,8 @@ export function SettingsGroup({
           ) : null}
         </div>
       ) : null}
-      <div className="overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)]">
-        <div className="divide-y divide-[var(--border)]">{children}</div>
+      <div className="settings-group-card overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)]">
+        <div className="settings-group-rows divide-y divide-[var(--border)]">{children}</div>
       </div>
     </section>
   );

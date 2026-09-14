@@ -1,10 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { FolderOpen, Play, Square } from '../icons';
+import { ChevronDown, FolderOpen, Play, Square } from '../icons';
+import { PreferenceSelect } from './GeneralSettingsContent';
 import { toast } from 'sonner';
 import type { FeishuBridgeConfig, FeishuBridgeStatus } from '../../types';
 import {
-  SegmentedControl,
-  SegmentedControlItem,
   SettingsGroup,
   SettingsRow,
   SettingsToggle,
@@ -21,14 +20,14 @@ const DEFAULT_CONFIG: FeishuBridgeConfig = {
   autoStart: false,
 };
 
-const INPUT_CLASS =
-  'h-8 w-full rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12.5px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]';
-
-const GHOST_BUTTON_CLASS =
-  'inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50';
+const INPUT_CLASS = 'settings-control w-full';
+const GHOST_BUTTON_CLASS = 'settings-button';
 
 export function BridgeSettingsContent() {
   const [config, setConfig] = useState<FeishuBridgeConfig>(DEFAULT_CONFIG);
+  const [savedConfig, setSavedConfig] = useState<FeishuBridgeConfig | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [retry, setRetry] = useState(0);
   const [status, setStatus] = useState<FeishuBridgeStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -36,6 +35,8 @@ export function BridgeSettingsContent() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setLoadError('');
 
     const load = async () => {
       try {
@@ -45,11 +46,12 @@ export function BridgeSettingsContent() {
         ]);
         if (!cancelled) {
           setConfig(nextConfig);
+          setSavedConfig(nextConfig);
           setStatus(nextStatus);
         }
       } catch (error) {
         if (!cancelled) {
-          toast.error(error instanceof Error ? error.message : 'Failed to load bridge settings.');
+          setLoadError(error instanceof Error ? error.message : 'Failed to load bridge settings.');
         }
       } finally {
         if (!cancelled) {
@@ -72,17 +74,19 @@ export function BridgeSettingsContent() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [retry]);
 
   const updateConfig = <K extends keyof FeishuBridgeConfig>(key: K, value: FeishuBridgeConfig[K]) => {
     setConfig((current) => ({ ...current, [key]: value }));
   };
 
   const handleSave = async () => {
+    if (saving || !savedConfig) return;
     setSaving(true);
     try {
       const saved = await window.electron.saveFeishuBridgeConfig(config);
       setConfig(saved);
+      setSavedConfig(saved);
       toast.success('Bridge settings saved.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save bridge settings.');
@@ -124,6 +128,8 @@ export function BridgeSettingsContent() {
     );
   }
 
+  if (loadError) return <div role="alert">Could not load bridge settings. <button className="settings-button" onClick={() => setRetry(value => value + 1)}>Retry</button></div>;
+  const dirty = JSON.stringify(config) !== JSON.stringify(savedConfig);
   const isRunning = status?.running === true;
   const isConnected = status?.connected === true;
   const stateLabel = isRunning ? (isConnected ? 'Running · Connected' : 'Running') : 'Stopped';
@@ -139,21 +145,23 @@ export function BridgeSettingsContent() {
     : 'bg-[var(--text-muted)]';
 
   return (
-    <div className="space-y-6 pb-8">
+    <form onSubmit={event => { event.preventDefault(); void handleSave(); }} className="space-y-7 pb-8">
+      <fieldset disabled={saving || toggling} className="min-w-0 space-y-7">
       <SettingsGroup title="Status">
-        <SettingsRow variant="card" label="State" description="Current bridge connection.">
+        <SettingsRow variant="card" label="State">
           <span className="inline-flex items-center gap-1.5 text-[12px] font-medium">
             <span className={`h-1.5 w-1.5 rounded-full ${stateDot}`} aria-hidden="true" />
             <span className={stateTone}>{stateLabel}</span>
           </span>
         </SettingsRow>
 
-        <SettingsRow variant="card" label="Controls" description="Start or stop the bridge service.">
+        <SettingsRow variant="card" label="Controls">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => void handleToggle('start')}
-              disabled={toggling || isRunning}
+              disabled={toggling || isRunning || dirty}
+              title={dirty ? 'Save changes before starting' : undefined}
               className={GHOST_BUTTON_CLASS}
             >
               <Play className="h-3 w-3" />
@@ -171,14 +179,14 @@ export function BridgeSettingsContent() {
           </div>
         </SettingsRow>
 
-        <SettingsRow variant="card" label="Active bindings" description="Feishu chats mapped to local sessions.">
+        <SettingsRow variant="card" label="Active bindings">
           <span className="text-[13px] font-medium text-[var(--text-primary)]">
             {status?.activeBindings ?? 0}
           </span>
         </SettingsRow>
 
         {status?.botOpenId && status.botOpenId !== 'Unknown' ? (
-          <SettingsRow variant="card" label="Bot Open ID" description="The bot identity used by the bridge.">
+          <SettingsRow variant="card" label="Bot Open ID">
             <span className="max-w-[220px] truncate font-mono text-[12px] text-[var(--text-muted)]">
               {status.botOpenId}
             </span>
@@ -207,8 +215,9 @@ export function BridgeSettingsContent() {
           />
         </SettingsRow>
 
-        <BridgeFieldRow label="App ID" description="From your Feishu self-built app credentials.">
+        <BridgeFieldRow label="App ID">
           <input
+            aria-label="App ID"
             value={config.appId}
             onChange={(event) => updateConfig('appId', event.target.value)}
             className={INPUT_CLASS}
@@ -216,9 +225,10 @@ export function BridgeSettingsContent() {
           />
         </BridgeFieldRow>
 
-        <BridgeFieldRow label="App Secret" description="Stored locally on this machine.">
+        <BridgeFieldRow label="App Secret">
           <input
             type="password"
+            aria-label="App Secret"
             value={config.appSecret}
             onChange={(event) => updateConfig('appSecret', event.target.value)}
             className={INPUT_CLASS}
@@ -227,14 +237,15 @@ export function BridgeSettingsContent() {
         </BridgeFieldRow>
       </SettingsGroup>
 
-      <SettingsGroup title="Runtime">
+      <SettingsGroup title="New tasks">
         <BridgeFieldRow
           label="Default workspace"
           description="Used when a Feishu chat starts a new session."
         >
           <div className="flex items-center gap-2">
             <input
-              value={config.defaultCwd}
+              aria-label="Default workspace"
+            value={config.defaultCwd}
               onChange={(event) => updateConfig('defaultCwd', event.target.value)}
               className={`${INPUT_CLASS} flex-1`}
               placeholder="/path/to/project"
@@ -253,29 +264,21 @@ export function BridgeSettingsContent() {
         <SettingsRow
           variant="card"
           label="Runtime"
-          description="Choose which agent runtime handles Feishu chats."
+
         >
-          <SegmentedControl ariaLabel="Agent runtime">
-            <SegmentedControlItem
-              active={config.provider === 'claude'}
-              onClick={() => updateConfig('provider', 'claude')}
-            >
-              Claude
-            </SegmentedControlItem>
-            <SegmentedControlItem
-              active={config.provider === 'codex'}
-              onClick={() => updateConfig('provider', 'codex')}
-            >
-              Codex
-            </SegmentedControlItem>
-          </SegmentedControl>
+          <PreferenceSelect label="Bridge runtime" value={config.provider} options={[{value:'claude',label:'Claude Code'},{value:'codex',label:'Codex'}]} onChange={value => updateConfig('provider', value as 'claude' | 'codex')} />
         </SettingsRow>
 
+      </SettingsGroup>
+      <details className="settings-disclosure">
+        <summary><ChevronDown />Advanced</summary>
+        <SettingsGroup>
         <BridgeFieldRow
           label="Default model"
           description="Optional. Leave blank for runtime default."
         >
           <input
+            aria-label="Default model"
             value={config.model}
             onChange={(event) => updateConfig('model', event.target.value)}
             className={INPUT_CLASS}
@@ -288,6 +291,7 @@ export function BridgeSettingsContent() {
           description="Comma-separated open IDs. Leave blank to allow all."
         >
           <input
+            aria-label="Allowed user IDs"
             value={config.allowedUserIds}
             onChange={(event) => updateConfig('allowedUserIds', event.target.value)}
             className={INPUT_CLASS}
@@ -298,7 +302,7 @@ export function BridgeSettingsContent() {
         <SettingsRow
           variant="card"
           label="Start on launch"
-          description="Auto-start bridge when the app opens."
+
         >
           <SettingsToggle
             checked={config.autoStart}
@@ -308,17 +312,20 @@ export function BridgeSettingsContent() {
         </SettingsRow>
       </SettingsGroup>
 
-      <div className="flex justify-end">
+      </details>
+      </fieldset>
+      <div className="flex justify-end gap-2">
+        <button type="button" className="settings-button" disabled={saving || !dirty} onClick={() => savedConfig && setConfig(savedConfig)}>Cancel</button>
         <button
           type="button"
           onClick={() => void handleSave()}
-          disabled={saving}
-          className="inline-flex h-8 items-center rounded-md bg-[var(--accent)] px-4 text-[12.5px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+          disabled={saving || !dirty}
+          className="settings-primary-button"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -335,14 +342,14 @@ function BridgeFieldRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-2 px-4 py-3">
+    <div className="settings-form-field" data-settings-label={label}>
       <div>
         <div className="text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
         {description ? (
           <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">{description}</div>
         ) : null}
       </div>
-      {children}
+      <div>{children}</div>
     </div>
   );
 }

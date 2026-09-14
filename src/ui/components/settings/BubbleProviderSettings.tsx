@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, Eye, EyeOff } from '../icons';
-import { BubbleLogo } from '../BubbleLogo';
+import { ChevronDown } from '../icons';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import claudeLogo from '../../assets/claude-color.svg';
 import openaiLogo from '../../assets/openai.svg';
@@ -17,7 +16,7 @@ import geminiLogo from '../../assets/gemini-color.svg';
 import volcengineLogo from '../../assets/volcengine-color.svg';
 import stepfunLogo from '../../assets/stepfun.svg';
 import type { BubbleProvidersConfig } from '../../types';
-import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
+import { ProviderKeyEditor, ProviderSettingsRow, ProviderSettingsSection } from './ProviderSettingsPrimitives';
 
 // Brand artwork already bundled for other pickers, keyed by Bubble provider id.
 // Providers without artwork fall back to a monogram tile in ProviderLogo.
@@ -49,7 +48,7 @@ function ProviderLogo({ providerId, name }: { providerId: string; name: string }
   if (providerId === 'opencode-zen') return <OpenCodeLogo />;
   const logo = PROVIDER_LOGOS[providerId];
   if (logo) {
-    return <img src={logo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+    return <img src={logo} alt="" className={`h-4 w-4 flex-shrink-0 ${[claudeLogo, openaiLogo, grokLogo, moonshotLogo, stepfunLogo].includes(logo) ? 'provider-monochrome-logo' : ''}`} aria-hidden="true" />;
   }
   return (
     <span
@@ -72,12 +71,14 @@ function notifyBubbleConfigChanged() {
  * ~/.bubble/config.json the Bubble CLI uses, so users never need the CLI to
  * get Bubble running inside Aegis.
  */
-export function BubbleProviderSettings() {
+export function BubbleProviderSettings({ revealTarget }: { revealTarget?: string } = {}) {
   const [config, setConfig] = useState<BubbleProvidersConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [keyDraft, setKeyDraft] = useState('');
   const [showKey, setShowKey] = useState(false);
+  const keyEdited = useRef(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
   // null = "no explicit choice yet": the unconfigured catalog stays collapsed
   // once something is configured, but a brand-new user sees it open.
@@ -101,7 +102,7 @@ export function BubbleProviderSettings() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   const applyResult = useCallback((next: BubbleProvidersConfig) => {
     setConfig(next);
@@ -111,6 +112,7 @@ export function BubbleProviderSettings() {
   const toggleExpanded = (providerId: string) => {
     setExpandedId((current) => (current === providerId ? null : providerId));
     setKeyDraft('');
+    keyEdited.current = false;
     setShowKey(false);
   };
 
@@ -182,7 +184,7 @@ export function BubbleProviderSettings() {
     window.electron
       .getBubbleProviderKey(expandedId)
       .then((key) => {
-        if (!cancelled && key) setKeyDraft(key);
+        if (!cancelled && !keyEdited.current && key) setKeyDraft(key);
       })
       .catch(() => {
         // Leave the draft empty; the user can still type a replacement key.
@@ -199,150 +201,32 @@ export function BubbleProviderSettings() {
   const availableProviders = providers.filter((provider) => !provider.configured);
   const availableVisible = showAvailable ?? configuredProviders.length === 0;
 
+  useEffect(() => {
+    if (revealTarget?.startsWith('Bubble:')) setShowAvailable(true);
+  }, [revealTarget]);
+
   const renderRow = (provider: (typeof providers)[number]) => {
-    const expanded = expandedId === provider.id;
-    const busy = busyId === provider.id;
-    return (
-      <div key={provider.id} className="px-4 py-3">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-          <div
-            className={`flex min-w-0 items-center gap-2.5 ${provider.configured && !provider.enabled ? 'opacity-50' : ''}`}
-          >
-            <ProviderLogo providerId={provider.id} name={provider.name} />
-            <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-[var(--text-primary)]">
-              <span className="truncate">{provider.name}</span>
-              {provider.isDefault ? (
-                <span className="rounded-full bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                  Default
-                </span>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {provider.configured && provider.hasApiKey && provider.enabled && !provider.isDefault ? (
-              <button
-                type="button"
-                onClick={() => void makeDefault(provider.id)}
-                disabled={busy}
-                className="rounded-lg px-2 py-1 text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-              >
-                Make default
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => toggleExpanded(provider.id)}
-              disabled={busy}
-              aria-expanded={expanded}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-            >
-              <span>{provider.hasApiKey ? 'Edit key' : 'Add key'}</span>
-              <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
-              />
-            </button>
-            {provider.configured ? (
-              <SettingsToggle
-                checked={provider.enabled}
-                onChange={(value) => void setEnabled(provider.id, value)}
-                disabled={busy}
-                ariaLabel={`Enable ${provider.name} for Bubble`}
-              />
-            ) : null}
-          </div>
-        </div>
-
-        {expanded ? (
-          <div className="mt-3 flex items-center gap-2">
-            <div className="relative min-w-0 flex-1">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={keyDraft}
-                onChange={(event) => setKeyDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void saveKey(provider.id);
-                }}
-                placeholder={provider.hasApiKey ? 'Enter a new API key to replace' : 'sk-...'}
-                autoFocus
-                disabled={busy}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] py-1.5 pl-3 pr-8 font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)] disabled:opacity-50"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey((current) => !current)}
-                className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
-                aria-label={showKey ? 'Hide key' : 'Show key'}
-                disabled={busy}
-              >
-                {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => void saveKey(provider.id)}
-              disabled={busy || !keyDraft.trim()}
-              className="rounded-lg bg-[var(--text-primary)] px-3 py-1.5 text-[12px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Save
-            </button>
-            {provider.configured ? (
-              <button
-                type="button"
-                onClick={() => void removeProvider(provider.id)}
-                disabled={busy}
-                className="rounded-lg px-2 py-1.5 text-[12px] font-medium text-red-500 transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-              >
-                Remove
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    );
+    const actions = [
+      ...(provider.configured && provider.hasApiKey && provider.enabled && !provider.isDefault ? [{ label: 'Make default', onSelect: () => void makeDefault(provider.id) }] : []),
+      ...(provider.configured ? [{ label: 'Remove provider', onSelect: () => void removeProvider(provider.id), destructive: true }] : []),
+    ];
+    return <ProviderSettingsRow key={provider.id} label={provider.name} scope="Bubble" logo={<ProviderLogo providerId={provider.id} name={provider.name} />}
+      expanded={expandedId === provider.id} disabled={busyId !== null} isDefault={provider.isDefault}
+      status={!provider.hasApiKey ? 'No API key' : !provider.enabled ? 'Disabled' : undefined}
+      enabled={provider.enabled} onToggleEnabled={provider.configured ? value => void setEnabled(provider.id, value) : undefined}
+      onToggleExpand={() => toggleExpanded(provider.id)} actions={actions}>
+      <ProviderKeyEditor label={`${provider.name} API key for Bubble`} value={keyDraft} onChange={value => { keyEdited.current = true; setKeyDraft(value); }} showKey={showKey} onToggleVisibility={() => setShowKey(value => !value)} busy={busyId !== null} onSave={() => void saveKey(provider.id)} onCancel={() => toggleExpanded(provider.id)} />
+    </ProviderSettingsRow>;
   };
-
-  return (
-    <SettingsGroup
-      title="Bubble providers"
-      description="API keys for the bundled Bubble agent — no Bubble CLI needed. Stored in ~/.bubble/config.json, shared with the Bubble CLI."
-    >
-      {loadError ? (
-        <div className="px-4 py-3 text-[13px] text-[var(--text-muted)]">
-          Could not load Bubble provider config: {loadError}
-        </div>
-      ) : !config ? (
-        <div className="px-4 py-3 text-[13px] text-[var(--text-muted)]">Loading…</div>
-      ) : (
-        <>
-          <div className="flex items-center gap-2 px-4 py-3">
-            <BubbleLogo className="h-4 w-4" />
-            <span className="text-[12px] text-[var(--text-muted)]">
-              {configuredProviders.length > 0
-                ? `${configuredProviders.filter((provider) => provider.enabled).length} of ${configuredProviders.length} configured provider(s) enabled`
-                : 'No providers configured yet — add a key below to start using Bubble.'}
-            </span>
-          </div>
-          {configuredProviders.map(renderRow)}
-          {availableProviders.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setShowAvailable(!availableVisible)}
-              aria-expanded={availableVisible}
-              className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-            >
-              <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform ${availableVisible ? 'rotate-180' : ''}`}
-              />
-              <span>
-                {availableVisible
-                  ? 'Hide available providers'
-                  : `Add another provider (${availableProviders.length} available)`}
-              </span>
-            </button>
-          ) : null}
-          {availableVisible ? availableProviders.map(renderRow) : null}
-        </>
-      )}
-    </SettingsGroup>
-  );
+  return <ProviderSettingsSection title="Bubble">
+    {loadError ? <div className="provider-load-message" role="alert">Could not load providers. <button onClick={() => { setLoadError(null); setLoadAttempt(value => value + 1); }}>Retry</button></div>
+      : !config ? <div className="provider-load-message" role="status">Loading…</div>
+      : <>
+        {configuredProviders.map(renderRow)}
+        {availableProviders.length > 0 && <button type="button" className="provider-add-button" onClick={() => setShowAvailable(!availableVisible)} aria-expanded={availableVisible}>
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${availableVisible ? 'rotate-180' : ''}`} />{availableVisible ? 'Hide available providers' : 'Add provider'}
+        </button>}
+        {availableVisible && availableProviders.map(renderRow)}
+      </>}
+  </ProviderSettingsSection>;
 }
