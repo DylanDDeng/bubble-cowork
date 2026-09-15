@@ -252,7 +252,7 @@ export function ChatOutlineRail({
             <button
               type="button"
               onClick={() => onNavigate(hoveredItem.createdAt)}
-              className="block w-[300px] cursor-pointer rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] px-3.5 py-3 text-left shadow-[var(--popover-shadow)]"
+              className="block w-[300px] cursor-pointer rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] px-3.5 py-3 text-left shadow-[0_4px_12px_-4px_rgb(0_0_0/0.12)]"
             >
               {hoveredItem.text ? (
                 <div className="truncate text-[12.5px] font-semibold leading-[1.4] text-[var(--text-primary)]">
