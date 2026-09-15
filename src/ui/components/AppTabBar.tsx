@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useAppPreferences } from '../store/useAppPreferences';
+import { shortcutLabel } from '../../shared/keyboard-shortcuts';
 import { Clock, Columns2, GitPullRequest, MessageSquare, Plus, Script, X } from './icons';
 import { AgentIcon } from './ComposerAgentControls';
 import { SidebarHeaderTrigger } from './Sidebar';
@@ -21,46 +22,7 @@ export function AppTabBar() {
   const openTab = useTabsStore((state) => state.openTab);
   const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
 
-  // Browser keys: ⌘T new tab, ⌘W close, ⌘1–9 jump, ⌃(⇧)Tab cycle.
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const mod = event.metaKey || event.ctrlKey;
-      const { tabs, activeTabId, activateTab, closeTab, openTab } = useTabsStore.getState();
-      if (mod && !event.shiftKey && event.key === 't') {
-        event.preventDefault();
-        openTab({ kind: 'chat', sessionId: null });
-        return;
-      }
-      if (mod && !event.shiftKey && event.key === 'w') {
-        if (tabs.length > 1 && activeTabId) {
-          event.preventDefault();
-          closeTab(activeTabId);
-        }
-        return;
-      }
-      if (mod && !event.shiftKey && /^[1-9]$/.test(event.key)) {
-        const index = Number(event.key) - 1;
-        const tab = event.key === '9' ? tabs[tabs.length - 1] : tabs[index];
-        if (tab) {
-          event.preventDefault();
-          activateTab(tab.id);
-        }
-        return;
-      }
-      if (event.ctrlKey && !event.metaKey && event.key === 'Tab') {
-        if (tabs.length > 1 && activeTabId) {
-          event.preventDefault();
-          const index = tabs.findIndex((tab) => tab.id === activeTabId);
-          const nextIndex = event.shiftKey
-            ? (index - 1 + tabs.length) % tabs.length
-            : (index + 1) % tabs.length;
-          activateTab(tabs[nextIndex].id);
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  const shortcuts = useAppPreferences(state => state.keyboardShortcuts);
 
   return (
     <div
@@ -95,7 +57,7 @@ export function AppTabBar() {
       <button
         type="button"
         onClick={() => openTab({ kind: 'chat', sessionId: null })}
-        title="New tab (⌘T)"
+        title={['New tab', shortcutLabel('newTab', shortcuts)].filter(Boolean).join(' · ')}
         aria-label="New tab"
         className="no-drag inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
       >
@@ -119,6 +81,7 @@ function TabItem({
   onClose: () => void;
 }) {
   const { icon, title } = useTabDescriptor(tab);
+  const shortcuts = useAppPreferences(state => state.keyboardShortcuts);
   return (
     <div
       role="tab"
@@ -155,7 +118,7 @@ function TabItem({
             event.stopPropagation();
             onClose();
           }}
-          title="Close tab (⌘W)"
+          title={['Close tab', shortcutLabel('closeTab', shortcuts)].filter(Boolean).join(' · ')}
           aria-label={`Close ${title}`}
           className={`-mr-1 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-[var(--text-muted)] transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] ${
             active ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100'

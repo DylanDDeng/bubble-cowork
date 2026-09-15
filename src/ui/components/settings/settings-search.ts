@@ -1,7 +1,10 @@
+import { SHORTCUT_COMMANDS } from '../../../shared/keyboard-shortcuts';
 import type { McpSettingsRuntime, SettingsTab } from '../../types';
 
 export interface SettingsSearchEntry { tab: SettingsTab; label: string; keywords: string; id?: string; runtime?: McpSettingsRuntime; scope?: string; }
 export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
+  {tab: 'shortcuts', label: 'Keyboard shortcuts', keywords: 'keymap hotkey bindings 快捷键 键盘'},
+  ...SHORTCUT_COMMANDS.map(c => ({tab: 'shortcuts' as const, label: c.title, id: `shortcut:${c.id}`, keywords: 'keyboard shortcut keymap 快捷键'})),
   ...[
     ['general', 'General', 'preferences 通用'], ['profile', 'Profile', 'account avatar name 个人资料 头像'], ['appearance', 'Appearance', 'theme 外观'],
     ['browser', 'Browser', 'cookies browsing 浏览器'], ['providers', 'Providers', 'api key models 模型 密钥'],

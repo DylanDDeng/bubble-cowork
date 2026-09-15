@@ -192,12 +192,9 @@ async function main() {
   );
   assert.match(buttonsSource, /useTabsStore/, 'back/forward must drive the tab history');
 
-  const shortcutSource = await readFile(
-    new URL('../../src/ui/hooks/useKeyboardShortcuts.ts', import.meta.url),
-    'utf8'
-  );
-  assert.match(shortcutSource, /BracketLeft/, '⌘[ must go back through view history');
-  assert.match(shortcutSource, /BracketRight/, '⌘] must go forward through view history');
+  const { shortcutBindings } = await import('../../src/shared/keyboard-shortcuts');
+  assert.deepEqual(shortcutBindings('back'), ['Mod+BracketLeft']);
+  assert.deepEqual(shortcutBindings('forward'), ['Mod+BracketRight']);
 
   console.log('session-history tests passed');
 }

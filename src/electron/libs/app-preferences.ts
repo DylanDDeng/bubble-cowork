@@ -13,7 +13,7 @@ export function getAppPreferences(): AppPreferences {
     try { cache = normalizeAppPreferences(JSON.parse(readFileSync(file(), 'utf8'))); }
     catch { cache = { ...DEFAULT_APP_PREFERENCES }; }
   }
-  return { ...cache };
+  return normalizeAppPreferences(cache);
 }
 
 export function getTerminalShellOptions(): { value: string; label: string }[] {
@@ -46,5 +46,5 @@ export function setAppPreferences(patch: Partial<AppPreferences>): AppPreference
   cache = next;
   updateSleepBlocker();
   for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('app-preferences-changed', next);
-  return { ...next };
+  return normalizeAppPreferences(next);
 }

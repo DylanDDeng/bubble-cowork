@@ -1,3 +1,5 @@
+import { shortcutLabel } from '../../shared/keyboard-shortcuts';
+import { useAppPreferences } from '../store/useAppPreferences';
 import {
   useCallback,
   useEffect,
@@ -333,6 +335,7 @@ export function Sidebar() {
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
+  const shortcuts = useAppPreferences(state => state.keyboardShortcuts);
   const paletteActions = useMemo<SidebarSearchAction[]>(
     () => [
       {
@@ -340,7 +343,7 @@ export function Sidebar() {
         label: 'New Task',
         description: 'Start a new conversation',
         keywords: ['create', 'conversation', 'chat', 'session', 'thread', 'task'],
-        shortcutLabel: '⌘N',
+        shortcutLabel: shortcutLabel('newTask', shortcuts),
       },
       {
         id: 'open-project',
@@ -379,7 +382,7 @@ export function Sidebar() {
         keywords: ['preferences', 'config'],
       },
     ],
-    []
+    [shortcuts]
   );
 
   const visibleSessions = useMemo(

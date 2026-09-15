@@ -1596,10 +1596,10 @@ function RightUtilityTabStrip({
 }) {
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const items = [
-    { id: 'files' as const, label: 'Files', icon: FolderClosed, shortcut: '⌘P', disabled: false },
-    { id: 'browser' as const, label: 'Browser', icon: Globe, shortcut: '⌘T', disabled: !browserAvailable },
-    { id: 'review' as const, label: 'Review', icon: FileDiff, shortcut: '⌃⌘G', disabled: false },
-    { id: 'terminal' as const, label: 'Terminal', icon: SquareTerminal, shortcut: '⌃`', disabled: false },
+    { id: 'files' as const, label: 'Files', icon: FolderClosed, disabled: false },
+    { id: 'browser' as const, label: 'Browser', icon: Globe, disabled: !browserAvailable },
+    { id: 'review' as const, label: 'Review', icon: FileDiff, disabled: false },
+    { id: 'terminal' as const, label: 'Terminal', icon: SquareTerminal, disabled: false },
   ];
 
   useEffect(() => {
@@ -1728,7 +1728,6 @@ function RightUtilityTabStrip({
                 >
                   <item.icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
                   {item.label}
-                  <DropdownMenu.Shortcut>{item.shortcut}</DropdownMenu.Shortcut>
                 </DropdownMenu.Item>
               ))}
             </DropdownMenu.Content>

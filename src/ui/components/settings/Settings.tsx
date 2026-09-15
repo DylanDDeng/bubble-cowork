@@ -1,8 +1,9 @@
+import { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
 import './settings-controls.css';
 import { AppearanceControls } from './AppearanceControls';
 import { findSettings, type SettingsSearchEntry } from './settings-search';
 import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, ChartColumn, User, PlugZap, Bot, Image, Trash2, Globe } from '../icons';
+import { ArrowLeft, Keyboard, Server, Settings as SettingsIcon, Sun, ChartColumn, User, PlugZap, Bot, Image, Trash2, Globe } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent, PROVIDER_META } from './CompatibleProviderSettings';
@@ -30,6 +31,7 @@ const SETTINGS_TABS = {
     icon: <SettingsIcon className="w-4 h-4" />,
   },
   appearance: { label: 'Appearance', title: 'Appearance', description: '', icon: <Sun className="w-4 h-4" /> },
+  shortcuts: { label: 'Keyboard shortcuts', title: 'Keyboard shortcuts', description: '', icon: <Keyboard className="w-4 h-4" /> },
   browser: {
     label: 'Browser',
     title: 'Browser',
@@ -66,7 +68,7 @@ const SETTINGS_TABS = {
 type SettingsTabKey = keyof typeof SETTINGS_TABS;
 
 const SETTINGS_NAV_GROUPS: { label: string; tabs: SettingsTabKey[] }[] = [
-  { label: 'Personal', tabs: ['general', 'appearance', 'profile', 'usage'] },
+  { label: 'Personal', tabs: ['general', 'appearance', 'shortcuts', 'profile', 'usage'] },
   { label: 'Integrations', tabs: ['browser', 'mcp', 'providers', 'bridge'] },
 ];
 
@@ -268,6 +270,7 @@ export function Settings() {
           ) : null}
 
           {resolvedActiveSettingsTab === 'general' && <GeneralSettingsContent />}
+          {resolvedActiveSettingsTab === 'shortcuts' && <KeyboardShortcutsSettings />}
           {resolvedActiveSettingsTab === 'appearance' && (
             <AppearanceSettingsContent
               theme={theme}

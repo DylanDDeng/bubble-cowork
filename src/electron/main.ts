@@ -976,7 +976,8 @@ function setupMenu(): void {
   if (isMac) {
     windowSubmenu.push(separator(), role('front'), role('window'));
   } else {
-    windowSubmenu.push(role('close'));
+    // App tab closing is dispatched by the configurable renderer keymap.
+    windowSubmenu.push({ ...role('close'), accelerator: '' });
   }
 
   template.push({

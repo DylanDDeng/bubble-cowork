@@ -1,12 +1,9 @@
+import { useAppPreferences } from '../store/useAppPreferences';
+import { shortcutLabel } from '../../shared/keyboard-shortcuts';
 import { ArrowLeft, ArrowRight } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { useBoardStore } from '../store/useBoardStore';
 import { canNavigateActiveTab, isTabViewVisitable, useTabsStore, type TabView } from '../store/useTabsStore';
-
-function shortcutMod(): string {
-  if (typeof navigator === 'undefined') return 'Ctrl+';
-  return /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
-}
 
 /**
  * Back/Forward through the active tab's view history: sessions, the board,
@@ -23,7 +20,7 @@ export function SessionHistoryButtons({ className = '' }: { className?: string }
   const visitable = (view: TabView) => isTabViewVisitable(view, sessions, boardTasks);
   const canBack = canNavigateActiveTab({ tabs, activeTabId }, -1, visitable);
   const canForward = canNavigateActiveTab({ tabs, activeTabId }, 1, visitable);
-  const mod = shortcutMod();
+  const shortcuts = useAppPreferences(state => state.keyboardShortcuts);
 
   return (
     <div className={`no-drag flex shrink-0 items-center ${className}`.trim()}>
@@ -32,7 +29,7 @@ export function SessionHistoryButtons({ className = '' }: { className?: string }
         disabled={!canBack}
         onClick={() => goBack()}
         className={navButtonClass(canBack)}
-        title={`Back (${mod}[)`}
+        title={['Back', shortcutLabel('back', shortcuts)].filter(Boolean).join(' · ')}
         aria-label="Back"
       >
         <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.25} />
@@ -42,7 +39,7 @@ export function SessionHistoryButtons({ className = '' }: { className?: string }
         disabled={!canForward}
         onClick={() => goForward()}
         className={navButtonClass(canForward)}
-        title={`Forward (${mod}])`}
+        title={['Forward', shortcutLabel('forward', shortcuts)].filter(Boolean).join(' · ')}
         aria-label="Forward"
       >
         <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.25} />

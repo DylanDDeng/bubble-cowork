@@ -1,5 +1,8 @@
+import { normalizeShortcutOverrides, type ShortcutOverrides } from './keyboard-shortcuts';
+
 export type EnterBehavior = 'enter' | 'multiline' | 'modifier';
 export interface AppPreferences {
+  keyboardShortcuts: ShortcutOverrides;
   defaultEditor: string;
   terminalShell: string;
   preventSleep: boolean;
@@ -16,6 +19,7 @@ export interface AppPreferences {
 }
 
 export const DEFAULT_APP_PREFERENCES: AppPreferences = {
+  keyboardShortcuts: {},
   defaultEditor: 'auto', terminalShell: 'system', preventSleep: false,
   enterBehavior: 'enter', followUpBehavior: 'queue', showContextUsage: true,
   plainTextComposer: false,
@@ -24,9 +28,10 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
 };
 
 export function normalizeAppPreferences(value: unknown): AppPreferences {
-  const result = { ...DEFAULT_APP_PREFERENCES };
+  const result = { ...DEFAULT_APP_PREFERENCES, keyboardShortcuts: {} };
   if (!value || typeof value !== 'object') return result;
   const input = value as Record<string, unknown>;
+  result.keyboardShortcuts = normalizeShortcutOverrides(input.keyboardShortcuts);
   for (const key of ['preventSleep', 'showContextUsage', 'plainTextComposer', 'fontSmoothing', 'pointerCursors'] as const) {
     if (typeof input[key] === 'boolean') result[key] = input[key];
   }

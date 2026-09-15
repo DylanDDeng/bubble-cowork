@@ -144,6 +144,7 @@ declare global {
     setAutomationEnabled: (automationId: string, enabled: boolean) => Promise<AutomationDefinition | null>;
     runAutomationNow: (automationId: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
     getAppPreferences: () => Promise<import('./shared/app-preferences').AppPreferences>;
+    setShortcutCaptureActive: (active: boolean) => Promise<void>;
     setAppPreferences: (patch: Partial<import('./shared/app-preferences').AppPreferences>) => Promise<import('./shared/app-preferences').AppPreferences>;
     getSystemFonts: () => Promise<string[]>;
     getSystemFontFamilies: () => Promise<import('./shared/system-fonts').SystemFontFamily[]>;

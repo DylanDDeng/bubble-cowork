@@ -277,6 +277,7 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('run-automation-now', automationId);
   },
 
+  setShortcutCaptureActive: (active: boolean) => ipcRenderer.invoke('set-shortcut-capture-active', active),
   getAppPreferences: () => ipcRenderer.invoke('get-app-preferences'),
   setAppPreferences: (patch: Partial<import('../shared/app-preferences').AppPreferences>) => ipcRenderer.invoke('set-app-preferences', patch),
   getSystemFonts: () => ipcRenderer.invoke('get-system-fonts'),

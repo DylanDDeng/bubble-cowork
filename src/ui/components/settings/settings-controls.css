@@ -42,3 +42,31 @@
 
 .dark .aegis-settings :is([data-settings-provider="claude"], [data-settings-provider="codex"], [data-settings-provider="kimi"], [data-settings-provider="grok"]) img { filter: invert(1); }
 .aegis-settings [tabindex="-1"]:focus:not([data-search-match="true"]) { outline: none; }
+
+.keyboard-shortcuts-settings { font-size: calc(13px * var(--ui-font-scale, 1)); color: var(--text-primary); }
+.shortcut-search-bar { position: sticky; top: 0; z-index: 2; padding: 0 0 16px; background: var(--bg-primary); }
+.shortcut-search { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 8px 4px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-muted); }
+.shortcut-search input { flex: 1; width: 0; min-width: 0; background: transparent; color: var(--text-primary); outline: none; font-size: inherit; }
+.shortcut-search input::placeholder { color: var(--text-muted); }
+.shortcut-icon-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 24px; min-height: 26px; padding: 3px; border-radius: 6px; color: var(--text-muted); }
+.shortcut-icon-button:hover, .shortcut-binding-button:hover { background: var(--sidebar-item-hover); color: var(--text-primary); }
+.shortcut-icon-button[aria-pressed=true] { color: var(--text-primary); background: var(--sidebar-item-hover); }
+.shortcut-group + .shortcut-group { margin-top: 28px; }
+.shortcut-group h2 { font-size: inherit; font-weight: 500; margin-bottom: 6px; }
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 52px; padding: 12px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+.shortcut-row > span { flex: 1; min-width: 0; }
+.shortcut-bindings { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; width: 55%; min-width: 0; }
+.shortcut-binding { display: flex; align-items: center; gap: 2px; }
+.shortcut-binding-button { padding: 3px 4px; border-radius: 6px; }
+.shortcut-keycaps { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.shortcut-keycaps kbd { display: inline-flex; justify-content: center; align-items: center; min-width: 22px; height: 24px; padding-inline: 5px; border: 1px solid color-mix(in srgb, var(--border) 80%, transparent); border-radius: 5px; font-family: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); font-weight: 400; color: var(--text-secondary); }
+.shortcut-row-action { opacity: 0; transition: opacity 120ms; }
+.shortcut-row:hover .shortcut-row-action, .shortcut-row:focus-within .shortcut-row-action { opacity: 1; }
+.shortcut-capture { width: 100%; padding-top: 6px; }
+.shortcut-capture input { width: 100%; height: 34px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; color: var(--text-primary); font: inherit; background: transparent; outline: none; }
+.shortcut-capture input[aria-invalid=true] { border-color: var(--error); }
+.shortcut-error { font-size: calc(12px * var(--ui-font-scale, 1)); color: var(--error); margin: 6px 0; }
+.keyboard-shortcuts-settings button:focus-visible { outline: 1px solid var(--border-focus); outline-offset: 2px; }
+.keyboard-shortcuts-settings button:disabled { opacity: .4; cursor: default; }
+@media (max-width: 800px) { .shortcut-row { align-items: flex-start; flex-direction: column; gap: 8px; } .shortcut-bindings { width: 100%; } .shortcut-row-action { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .shortcut-row-action { transition: none; } }

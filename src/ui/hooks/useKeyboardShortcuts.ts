@@ -1,115 +1,64 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useTabsStore } from '../store/useTabsStore';
+import { useAppPreferences } from '../store/useAppPreferences';
+import { matchesShortcut, SHORTCUT_COMMANDS, shortcutBindings, shortcutConflict } from '../../shared/keyboard-shortcuts';
 
-/**
- * Global keyboard shortcuts
- * - Cmd/Ctrl + K: Toggle the search palette (threads, projects, actions)
- * - Cmd/Ctrl + B: Toggle the thread sidebar
- * - Cmd/Ctrl + Alt + U: Toggle the sidebar activity view
- * - Cmd/Ctrl + F: Open in-session search
- * - Escape: Close search panel
- */
+/** One dispatcher for the keymap shown in Settings. Local editors handle keys first. */
 export function useKeyboardShortcuts() {
   const sidebarSearchRef = useRef<HTMLInputElement>(null);
-  const {
-    openInSessionSearch,
-    closeInSessionSearch,
-    inSessionSearchOpen,
-    activeSessionId,
-    toggleSearchPalette,
-    searchPaletteOpen,
-    setSearchPaletteOpen,
-    sidebarCollapsed,
-    setSidebarCollapsed,
-    toggleSidebarActivityView,
-    showSettings,
-  } = useAppStore();
-  const goHistoryBack = useTabsStore((state) => state.goBack);
-  const goHistoryForward = useTabsStore((state) => state.goForward);
-
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isMod = e.metaKey || e.ctrlKey;
-
-      // Cmd/Ctrl + K: 切换搜索命令面板
-      if (isMod && e.key === 'k') {
-        e.preventDefault();
-        toggleSearchPalette();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-shortcut-capture], .xterm, .cm-editor') || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [data-shortcut-recording]')) return;
+      const state = useAppStore.getState();
+      if (event.key === 'Escape') {
+        if (state.searchPaletteOpen) state.setSearchPaletteOpen(false);
+        else if (state.inSessionSearchOpen) state.closeInSessionSearch();
+        else if (document.activeElement === sidebarSearchRef.current) sidebarSearchRef.current?.blur();
         return;
       }
-
-      // Cmd/Ctrl + B: 切换左侧 thread sidebar，与 Synara 的 sidebar.toggle 行为保持一致
-      if (isMod && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        setSidebarCollapsed(!sidebarCollapsed);
-        return;
-      }
-
-      // Cmd/Ctrl + [: 回到当前 tab 上一个看过的视图（会话、Board、卡片详情……）。
-      // 非美式键盘上 e.key 不稳定，用 code。
-      if (isMod && !e.shiftKey && !e.altKey && e.code === 'BracketLeft') {
-        if (!showSettings) {
-          e.preventDefault();
-          goHistoryBack();
+      const overrides = useAppPreferences.getState().keyboardShortcuts;
+      const command = SHORTCUT_COMMANDS.find(c => shortcutBindings(c.id, overrides).some(b => matchesShortcut(event, b) && !shortcutConflict(b, c.id, overrides)));
+      if (!command) return;
+      const id = command.id;
+      if (state.showSettings && id !== 'settings') return;
+      // Leave formatting and cursor navigation with editable controls.
+      const editing = target?.closest('input, textarea, [contenteditable="true"], [role="textbox"]');
+      if (editing && ['sidebar', 'activity', 'back', 'forward'].includes(id)) return;
+      if (id === 'find' && (state.activeWorkspace !== 'chat' || !state.activeSessionId)) return;
+      const tabs = useTabsStore.getState();
+      if (id === 'closeTab' && (tabs.tabs.length <= 1 || !tabs.activeTabId)) return;
+      event.preventDefault();
+      switch (id) {
+        case 'search': state.toggleSearchPalette(); break;
+        case 'sidebar': state.setSidebarCollapsed(!state.sidebarCollapsed); break;
+        case 'activity': state.toggleSidebarActivityView(); break;
+        case 'back': tabs.goBack(); break;
+        case 'forward': tabs.goForward(); break;
+        case 'settings': state.setShowSettings(true); break;
+        case 'newTask': state.setShowNewSession(true); break;
+        case 'find': state.openInSessionSearch(); break;
+        case 'newTab': tabs.openTab({ kind: 'chat', sessionId: null }); break;
+        case 'closeTab': tabs.closeTab(tabs.activeTabId!); break;
+        case 'nextTab':
+        case 'previousTab': {
+          const index = tabs.tabs.findIndex(t => t.id === tabs.activeTabId);
+          const next = tabs.tabs[(index + (id === 'nextTab' ? 1 : -1) + tabs.tabs.length) % tabs.tabs.length];
+          if (next) tabs.activateTab(next.id);
+          break;
         }
-        return;
-      }
-
-      // Cmd/Ctrl + ]: 前进到当前 tab 的下一个视图。
-      if (isMod && !e.shiftKey && !e.altKey && e.code === 'BracketRight') {
-        if (!showSettings) {
-          e.preventDefault();
-          goHistoryForward();
-        }
-        return;
-      }
-
-      // Cmd/Ctrl + Alt + U: 切换侧边栏 activity view，对齐 Codex 的 ⌥⌘U。
-      // macOS 上 Option 组合会改写 e.key（⌥U 是死键），必须用 e.code 判断。
-      if (isMod && e.altKey && e.code === 'KeyU') {
-        e.preventDefault();
-        toggleSidebarActivityView();
-        return;
-      }
-
-      // Cmd/Ctrl + F: 打开会话内搜索
-      if (isMod && e.key === 'f') {
-        e.preventDefault();
-        if (activeSessionId) {
-          openInSessionSearch();
-        }
-      }
-
-      // Escape: 关闭搜索面板
-      if (e.key === 'Escape') {
-        if (searchPaletteOpen) {
-          setSearchPaletteOpen(false);
-        } else if (inSessionSearchOpen) {
-          closeInSessionSearch();
-        } else if (document.activeElement === sidebarSearchRef.current) {
-          sidebarSearchRef.current?.blur();
+        default: {
+          const number = Number(id.slice(3));
+          const tab = number === 9 ? tabs.tabs.at(-1) : tabs.tabs[number - 1];
+          if (tab) tabs.activateTab(tab.id);
         }
       }
     };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [
-    openInSessionSearch,
-    closeInSessionSearch,
-    inSessionSearchOpen,
-    activeSessionId,
-    toggleSearchPalette,
-    searchPaletteOpen,
-    setSearchPaletteOpen,
-    sidebarCollapsed,
-    setSidebarCollapsed,
-    toggleSidebarActivityView,
-    showSettings,
-    goHistoryBack,
-    goHistoryForward,
-  ]);
-
+    // Bubble on window: React controls and document-level local handlers get priority.
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
   return { sidebarSearchRef };
 }

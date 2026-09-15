@@ -1,3 +1,4 @@
+import { setShortcutCaptureActive } from './libs/keyboard-shortcuts';
 import { getSystemFonts, getSystemFontFamilies } from './libs/system-fonts';
 import { getAppPreferences, setAppPreferences, getTerminalShellOptions, trackTaskPowerState } from './libs/app-preferences';
 import { setupSessionGoalIPC, getCachedSessionGoal, publishSessionGoal, rejectSessionGoalStart } from './ipc/session-goal';
@@ -5080,6 +5081,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return clearImportedChromeCookies();
   });
 
+  ipcMainHandle('set-shortcut-capture-active', (event, active) => setShortcutCaptureActive(event.sender, active));
   ipcMainHandle('get-app-preferences', () => getAppPreferences());
   ipcMainHandle('set-app-preferences', (_, patch) => setAppPreferences(patch));
   ipcMainHandle('get-terminal-shell-options', () => getTerminalShellOptions());
