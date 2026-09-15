@@ -116,6 +116,8 @@ export interface WorkstreamModel {
   previewEntries: WorkstreamEntry[];
   toolCount: number;
   noteCount: number;
+  /** Source assistant messages represented by the trace. */
+  messageCount?: number;
   hiddenEntryCount: number;
   /** First message createdAt — used to drive the "Working for Xs" live timer. */
   startedAt?: number;
@@ -1030,6 +1032,7 @@ export function createBatchWorkstreamModel(params: {
     previewEntries,
     toolCount,
     noteCount,
+    messageCount: new Set(params.messages.map((message) => message.uuid)).size,
     hiddenEntryCount: Math.max(allEntries.length - previewEntries.length, 0),
     startedAt,
     durationMs,

@@ -531,34 +531,22 @@ export function formatWorkstreamStageSummary(stages: WorkstreamStage[]): string 
   }
 
   const parts: string[] = [];
-  const editedFiles = new Set<string>();
-  let commandCount = 0;
-  let exploredFiles = new Set<string>();
-  let exploreCount = 0;
-
-  let computerUseCount = 0;
-
-  for (const stage of stages) {
-    if (stage.kind === 'edit') {
-      for (const file of stage.files) editedFiles.add(file.filePath);
-    } else if (stage.kind === 'command') {
-      commandCount += stage.commands.length || stage.entries.length;
-    } else if (stage.kind === 'explore') {
-      for (const file of stage.files) exploredFiles.add(file.filePath);
-      if (stage.files.length === 0) exploreCount += stage.entries.length;
-    } else if (stage.kind === 'computer_use') {
-      computerUseCount += stage.entries.length;
-    }
+  const kinds = new Set(stages.map(stage => stage.kind));
+  for (const kind of kinds) {
+    const matching = stages.filter(stage => stage.kind === kind);
+    if (kind === 'edit') {
+      const files = new Set(matching.flatMap(stage => stage.files.map(file => file.filePath)));
+      parts.push(files.size === 1 ? 'edited a file' : 'edited files');
+    } else if (kind === 'command') {
+      const count = matching.reduce((total, stage) => total + (stage.commands.length || stage.entries.length), 0);
+      parts.push(count === 1 ? 'ran a command' : 'ran commands');
+    } else if (kind === 'explore') parts.push('read files');
+    else if (kind === 'web') parts.push('searched the web');
+    else if (kind === 'computer_use') parts.push('used the computer');
+    else if (kind === 'memory') parts.push('used memory');
+    else if (kind === 'task') parts.push('worked with agents');
+    else if (kind === 'other') parts.push(matching.length === 1 ? 'called a tool' : 'called tools');
   }
-
-  if (editedFiles.size > 0) parts.push(`edited ${plural(editedFiles.size, 'file')}`);
-  if (commandCount > 0) parts.push(`ran ${plural(commandCount, 'command')}`);
-  if (computerUseCount > 0) parts.push(`used the computer ${plural(computerUseCount, 'time')}`);
-  if (exploredFiles.size > 0) {
-    parts.push(`explored ${plural(exploredFiles.size, 'file')}`);
-  } else if (exploreCount > 0) {
-    parts.push(`explored ${plural(exploreCount, 'source')}`);
-  }
-
-  return parts.length > 0 ? parts.slice(0, 3).join(' · ') : `${plural(stages.length, 'stage')}`;
+  const summary = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(parts);
+  return summary ? summary[0].toUpperCase() + summary.slice(1) : 'Completed work';
 }

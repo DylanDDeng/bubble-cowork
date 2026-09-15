@@ -8,6 +8,7 @@ import {
   normalizeToolResultBlock,
 } from '../utils/message-content';
 import {
+  type ToolResultBlock,
   formatDelegateModelDisplay,
   getDelegateCallInfo,
   groupSubagentMessagesByParent,
@@ -22,8 +23,6 @@ import { MessageCard } from './MessageCard';
 import { ToolExecutionBatch } from './ToolExecutionBatch';
 import { SubagentAvatar } from './SubagentAvatar';
 import { TurnChangesCard } from './TurnChangesCard';
-
-type ToolResultBlock = { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 
 /** Live elapsed / final duration, human-friendly. */
 function formatDuration(ms: number | undefined): string {
@@ -112,6 +111,7 @@ export function SubagentPanel({
             type: 'tool_result',
             tool_use_id: result.tool_use_id,
             content: result.content,
+            displayContent: result.displayContent,
             is_error: result.is_error,
             ...(result.images ? { images: result.images } : {}),
             ...(result.mediaRefs ? { mediaRefs: result.mediaRefs } : {}),

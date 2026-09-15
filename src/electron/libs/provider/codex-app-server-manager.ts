@@ -2517,6 +2517,7 @@ export class CodexAppServerManager extends EventEmitter {
 
         switch (itemType) {
           case 'agentMessage': {
+            this.emit('agent_message_started', { threadId, phase: item.phase });
             const text = this.extractTextContent(item);
             if (text) {
               this.emit('text_delta', { threadId, text });
@@ -2550,7 +2551,7 @@ export class CodexAppServerManager extends EventEmitter {
         switch (itemType) {
           case 'agentMessage': {
             const text = this.extractTextContent(item);
-            this.emit('agent_message_done', { threadId, text: text ?? '' });
+            this.emit('agent_message_done', { threadId, text: text ?? '', phase: item.phase });
             break;
           }
           case 'toolCall': {

@@ -68,6 +68,7 @@ export interface NormalizedToolResultBlock {
   content: string;
   is_error?: boolean;
   originType: string;
+  displayContent?: string;
   images?: Attachment[];
   mediaRefs?: import('../../shared/computer-use').ComputerUseMediaRef[];
 }
@@ -114,6 +115,7 @@ export function normalizeToolResultBlock(block: unknown): NormalizedToolResultBl
     type: 'tool_result',
     tool_use_id: toolUseId,
     content: stringifyResultContent(block.content),
+    ...(typeof block.displayContent === 'string' ? { displayContent: block.displayContent } : {}),
     is_error: block.is_error === true,
     originType: type,
     ...(Array.isArray(block.images) ? { images: block.images.filter((image): image is Attachment =>

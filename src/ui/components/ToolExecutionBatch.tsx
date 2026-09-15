@@ -1,19 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ChevronRight } from './icons';
 import type { ContentBlock, PermissionRequestPayload, ToolStatus, StreamMessage } from '../types';
-import { AssistantWorkstream, WorkingFooter } from './AssistantWorkstream';
+import { AssistantWorkstream } from './AssistantWorkstream';
 import {
   createBatchWorkstreamModel,
   type ToolResultBlock,
   type WorkstreamModel,
 } from '../utils/workstream';
-import {
-  formatWorkstreamStageSummary,
-  summarizeWorkstreamEntries,
-} from '../utils/workstream-stages';
 import { TodoProgressCard } from './TodoProgressCard';
-import { useTurnDiffContext } from './TurnDiffContext';
+import { WorkstreamDisclosureState } from './WorkstreamDisclosureState';
 import { GeneratedMediaGallery } from './GeneratedMediaGallery';
+import { WorkstreamCollapse } from './WorkstreamPrimitives';
 import type { GeneratedMediaItem } from '../utils/generated-media';
 
 type AssistantMessage = StreamMessage & { type: 'assistant' };
@@ -25,8 +22,7 @@ interface ToolExecutionBatchProps {
   isSessionRunning: boolean;
   /** True only for the active work group in the transcript. Without this gate,
    * every historical batch would also report `state==='running'` while the
-   * session is mid-turn and each would mount its own setInterval-backed
-   * WorkingFooter. */
+   * session is mid-turn and show stale activity as running. */
   isLastBatch?: boolean;
   startedAt?: number;
   /** Final duration for a completed turn, resolved by the transcript timeline. */
@@ -42,6 +38,7 @@ interface ToolExecutionBatchProps {
   toolLiveOutputMap?: Map<string, string>;
   expanded?: boolean;
   defaultExpanded?: boolean;
+  canCollapse?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   resetKey?: string | number | null;
   generatedMedia?: GeneratedMediaItem[];
@@ -61,6 +58,7 @@ export function ToolExecutionBatch({
   toolLiveOutputMap,
   expanded,
   defaultExpanded,
+  canCollapse,
   onExpandedChange,
   resetKey,
   generatedMedia,
@@ -83,13 +81,14 @@ export function ToolExecutionBatch({
     [messages, toolResultsMap, toolStatusMap, batchIsRunning, startedAt, durationMs, subagentMessagesByParent, liveTrace, toolLiveOutputMap]
   );
 
-  const disclosureResetKey = resetKey ?? messages.map((message) => message.uuid).join(':');
+  const disclosureResetKey = resetKey ?? messages[0]?.uuid;
   return (
     <WorkstreamDisclosure
       model={model}
       isRunning={batchIsRunning}
       expanded={expanded}
       defaultExpanded={defaultExpanded}
+      allowCollapse={canCollapse}
       onExpandedChange={onExpandedChange}
       resetKey={disclosureResetKey}
       generatedMedia={generatedMedia}
@@ -102,6 +101,7 @@ export function WorkstreamDisclosure({
   model,
   isRunning,
   defaultExpanded = false,
+  allowCollapse = true,
   expanded,
   onExpandedChange,
   resetKey,
@@ -111,6 +111,7 @@ export function WorkstreamDisclosure({
   model: WorkstreamModel;
   isRunning: boolean;
   defaultExpanded?: boolean;
+  allowCollapse?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   resetKey?: string | number | null;
@@ -118,57 +119,16 @@ export function WorkstreamDisclosure({
   mediaCwd?: string | null;
 }) {
   const isControlled = typeof expanded === 'boolean';
-  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(() => defaultExpanded);
-  const previousResetKeyRef = useRef(resetKey);
-  const resolvedExpanded = isControlled ? expanded : uncontrolledExpanded;
-  const hasPendingWork = model.entries.some((entry) => {
-    if (entry.type === 'approval') return entry.state === 'waiting';
-    if (entry.type === 'thinking') return entry.state === 'active';
-    if (entry.type === 'note') return entry.state === 'streaming';
-    if (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') {
-      return entry.status === 'pending';
-    }
-    return false;
-  });
-  // Once every tool in this trace has settled, the remaining turn is just
-  // the answer. Treat the workstream as finished so the toggle looks like
-  // "Show work · 2 stages · Worked for 23s" instead of an open in-progress trace.
-  // Keep the trace open for the whole running turn. Collapsing on a brief
-  // tool-idle gap, then expanding again when the next message arrives, is
-  // what made the workstream flicker mid-run.
-  const previousRunningRef = useRef(isRunning);
-
-  useEffect(() => {
-    if (isControlled) {
-      previousResetKeyRef.current = resetKey;
-      return;
-    }
-
-    if (previousResetKeyRef.current === resetKey) {
-      return;
-    }
-
-    previousResetKeyRef.current = resetKey;
-    setUncontrolledExpanded(defaultExpanded);
-  }, [defaultExpanded, isControlled, resetKey]);
-
-  useEffect(() => {
-    if (isControlled) {
-      previousRunningRef.current = isRunning;
-      return;
-    }
-    if (previousRunningRef.current && !isRunning) {
-      setUncontrolledExpanded(false);
-    }
-    previousRunningRef.current = isRunning;
-  }, [isControlled, isRunning]);
-
+  // A user choice wins over lifecycle defaults for the lifetime of this turn.
+  const [choice, setChoice] = useState<{ key: typeof resetKey; expanded: boolean }>();
+  const interrupted = model.entries.some((entry) =>
+    (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') && entry.status === 'interrupted');
+  const canCollapse = allowCollapse && !isRunning && !interrupted;
+  const resolvedExpanded = !canCollapse || (isControlled ? expanded
+    : choice && choice.key === resetKey ? choice.expanded : defaultExpanded);
   const setExpanded = (nextExpanded: boolean) => {
-    if (isControlled) {
-      onExpandedChange?.(nextExpanded);
-      return;
-    }
-    setUncontrolledExpanded(nextExpanded);
+    if (!isControlled) setChoice({ key: resetKey, expanded: nextExpanded });
+    onExpandedChange?.(nextExpanded);
   };
 
   if (model.entries.length === 0 && model.todoProgress) {
@@ -179,96 +139,49 @@ export function WorkstreamDisclosure({
     return null;
   }
 
-  const showWorking = resolvedExpanded && isRunning && hasPendingWork;
-
   return (
-    <>
-      <WorkstreamToggle
+    <WorkstreamDisclosureState key={resetKey}>
+      {canCollapse && <WorkstreamToggle
         expanded={resolvedExpanded}
         model={model}
-        isRunning={isRunning}
         onToggle={() => setExpanded(!resolvedExpanded)}
-      />
-      {resolvedExpanded ? (
+      />}
+      <WorkstreamCollapse open={resolvedExpanded}>
         <AssistantWorkstream
           model={model}
-          generatedMedia={generatedMedia}
-          mediaCwd={mediaCwd}
         />
-      ) : null}
-      {showWorking ? <WorkingFooter startedAt={model.startedAt} /> : null}
-    </>
+      </WorkstreamCollapse>
+      {generatedMedia?.length ? <GeneratedMediaGallery items={generatedMedia} cwd={mediaCwd ?? null} /> : null}
+    </WorkstreamDisclosureState>
   );
 }
 
 function WorkstreamToggle({
   expanded,
   model,
-  isRunning,
   onToggle,
 }: {
   expanded: boolean;
   model: WorkstreamModel;
-  isRunning: boolean;
   onToggle: () => void;
 }) {
-  const now = useLiveNow(isRunning);
-  const { changeRecordsByToolUseId } = useTurnDiffContext();
-  const stages = useMemo(
-    () => summarizeWorkstreamEntries(model.entries, { changeRecordsByToolUseId }),
-    [changeRecordsByToolUseId, model.entries]
-  );
-  const workSummary =
-    stages.length === 0 && model.noteCount > 0
-      ? 'Reasoning'
-      : formatWorkstreamStageSummary(stages);
-  const elapsedMs = model.durationMs ?? estimateElapsedMs(model.startedAt, now);
-  const elapsedLabel = typeof elapsedMs === 'number' ? formatElapsed(elapsedMs) : null;
-  const stateLabel = isRunning ? 'Working' : 'Worked';
-  const showElapsedInToggle = Boolean(elapsedLabel) && (!isRunning || !expanded);
+  const duration = model.durationMs;
+  const count = model.messageCount ?? model.entries.length;
+  const label = typeof duration === 'number' && Number.isFinite(duration)
+    ? `Worked for ${formatElapsed(duration)}`
+    : `${count} previous message${count === 1 ? '' : 's'}`;
 
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="group my-2 flex w-full items-center gap-1.5 py-0.5 text-left text-[12px] leading-5 text-[var(--text-muted)]/60 transition-colors hover:text-[var(--text-secondary)]"
-      aria-expanded={expanded}
-    >
-      <ChevronRight
-        className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform group-hover:text-[var(--text-secondary)]/70 ${
-          expanded ? 'rotate-90' : ''
-        }`}
-      />
-      <span>{expanded ? 'Hide work' : 'Show work'}</span>
-      <span className="text-[var(--text-muted)]/35">·</span>
-      <span className="min-w-0 truncate">{workSummary}</span>
-      {showElapsedInToggle ? (
-        <>
-          <span className="text-[var(--text-muted)]/35">·</span>
-          <span>
-            {stateLabel} for {elapsedLabel}
-          </span>
-        </>
-      ) : null}
-    </button>
+    <div className="workstream-toggle-row my-2">
+      <button type="button" onClick={onToggle}
+        className="workstream-text group flex min-w-0 items-center gap-1.5 py-0.5 text-left text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+        aria-expanded={expanded}>
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </button>
+      <div className="mt-1 w-full border-t border-[var(--border)]" data-workstream-divider />
+    </div>
   );
-}
-
-function useLiveNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [active]);
-
-  return now;
-}
-
-function estimateElapsedMs(startedAt: number | undefined, now = Date.now()): number | undefined {
-  if (typeof startedAt !== 'number' || !Number.isFinite(startedAt)) return undefined;
-  return Math.max(0, now - startedAt);
 }
 
 function formatElapsed(ms: number): string {

@@ -1,12 +1,17 @@
+import { useWorkstreamDisclosure } from './WorkstreamDisclosureState';
+import { ToolResultContent, ToolOutputPanel } from './ToolResultContent';
+import { WorkstreamActivityLabel, WorkstreamCollapse, WorkstreamScrollArea } from './WorkstreamPrimitives';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CheckCircle2,
   ChevronRight,
   CircleDashed,
   CircleX,
   FileDiff,
   FolderSearch,
+  Globe,
+  Brain,
+  Plug,
   LoaderCircle,
   ShieldAlert,
   SquareTerminal,
@@ -42,6 +47,7 @@ import { StructuredResponse } from './StructuredResponse';
 import type { ChangeRecord } from '../utils/change-records';
 import {
   getStageChangeRecords,
+  formatWorkstreamStageSummary,
   summarizeWorkstreamEntries,
   type WorkstreamStage,
   type WorkstreamStageCommand,
@@ -62,10 +68,8 @@ interface AssistantWorkstreamProps {
   mediaCwd?: string | null;
 }
 
-const VISIBLE_COMPACT_ENTRIES = 8;
 const MAX_TRACE_TEXT_CHARS = 20_000;
 const MAX_TITLE_CHARS = 800;
-const MAX_TOOL_OUTPUT_CHARS = 120_000;
 
 export function AssistantWorkstream({
   model,
@@ -73,7 +77,6 @@ export function AssistantWorkstream({
   generatedMedia,
   mediaCwd,
 }: AssistantWorkstreamProps) {
-  const [overflowOpen, setOverflowOpen] = useState(false);
   // Hooks must run in the same order every render — keep useMemo above any
   // conditional early return.
   const groups = useMemo(() => groupEntries(model.entries), [model.entries]);
@@ -106,26 +109,32 @@ export function AssistantWorkstream({
   return (
     <div className={`my-2 ${className}`.trim()}>
       {groups.map((group, idx) => {
+        const groupKey = group.kind === 'compact' ? group.entries[0].id : group.entry.id;
         const body = group.kind === 'text' ? (
-          <TextSegment key={`g${idx}`} entry={group.entry} />
+          <TextSegment key={groupKey} entry={group.entry} />
+        ) : group.kind === 'thinking' ? (
+          <ThinkingRow key={group.entry.id} entry={group.entry} />
         ) : (
           <CompactGroup
-            key={`g${idx}`}
+            key={groupKey}
             entries={group.entries}
-            overflowOpen={overflowOpen}
-            onToggleOverflow={() => setOverflowOpen((v) => !v)}
           />
         );
         if (idx !== lastMediaGroupIndex || !generatedMedia?.length) {
           return body;
         }
         return (
-          <div key={`g${idx}-media`}>
+          <div key={`${groupKey}-media`}>
             {body}
             <GeneratedMediaGallery items={generatedMedia} cwd={mediaCwd ?? null} />
           </div>
         );
       })}
+      {model.state === 'running' && !model.entries.some((entry) =>
+        entry.type === 'thinking' ? entry.state === 'active'
+          : entry.type === 'approval' ? entry.state === 'waiting'
+          : 'status' in entry && entry.status === 'pending'
+      ) ? <WorkingFooter /> : null}
       {model.todoProgress ? (
         <div className="my-2">
           <TodoProgressCard state={model.todoProgress} />
@@ -139,6 +148,7 @@ export function AssistantWorkstream({
 
 type EntryGroup =
   | { kind: 'text'; entry: Extract<WorkstreamEntry, { type: 'note' }> }
+  | { kind: 'thinking'; entry: Extract<WorkstreamEntry, { type: 'thinking' }> }
   | { kind: 'compact'; entries: WorkstreamEntry[] };
 
 function groupEntries(entries: WorkstreamEntry[]): EntryGroup[] {
@@ -156,6 +166,9 @@ function groupEntries(entries: WorkstreamEntry[]): EntryGroup[] {
     if (entry.type === 'note') {
       flush();
       groups.push({ kind: 'text', entry });
+    } else if (entry.type === 'thinking') {
+      flush();
+      groups.push({ kind: 'thinking', entry });
     } else {
       buffer.push(entry);
     }
@@ -185,43 +198,38 @@ function TextSegment({
 
 function CompactGroup({
   entries,
-  overflowOpen,
-  onToggleOverflow,
 }: {
   entries: WorkstreamEntry[];
-  overflowOpen: boolean;
-  onToggleOverflow: () => void;
 }) {
   const { changeRecordsByToolUseId, onOpenDiff } = useTurnDiffContext();
   const stages = useMemo(
     () => summarizeWorkstreamEntries(entries, { changeRecordsByToolUseId }),
     [changeRecordsByToolUseId, entries]
   );
-  const showOverflow = stages.length > VISIBLE_COMPACT_ENTRIES;
-  const visibleStages =
-    showOverflow && !overflowOpen ? stages.slice(0, VISIBLE_COMPACT_ENTRIES) : stages;
-  const hiddenCount = stages.length - VISIBLE_COMPACT_ENTRIES;
-
+  const activeStage = [...stages].reverse().find((stage) => stage.status === 'pending' || stage.status === 'waiting');
+  const [expanded, setExpanded] = useWorkstreamDisclosure(`group:${entries[0]?.id}`, stages.some((stage) => stage.defaultExpanded));
+  const showGroup = stages.length > 1;
   return (
     <div className="my-2 space-y-px">
-      {visibleStages.map((stage) =>
-        stage.kind === 'task' ? (
-          <SubagentStage key={stage.id} stage={stage} />
-        ) : (
-          <StageRow key={stage.id} stage={stage} onOpenDiff={onOpenDiff} />
-        )
-      )}
-      {showOverflow ? (
-        <button
-          type="button"
-          onClick={onToggleOverflow}
-          className="flex w-full items-center justify-start py-0.5 text-[12px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
-        >
-          {overflowOpen
-            ? 'Hide additional stages'
-            : `+${hiddenCount} more stage${hiddenCount > 1 ? 's' : ''}`}
-        </button>
-      ) : null}
+      {showGroup && <button type="button" data-workstream-group aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+        className="workstream-text flex max-w-full items-center gap-1.5 text-left text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+        <WorkstreamActivityLabel active={activeStage?.status === 'pending'}>
+          {activeStage?.title || formatWorkstreamStageSummary(stages)}
+        </WorkstreamActivityLabel>
+        <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </button>}
+      <WorkstreamCollapse open={!showGroup || expanded}>
+        <WorkstreamScrollArea followKey={activeStage?.id}>
+          {stages.map((stage) =>
+            stage.kind === 'task' ? (
+              <SubagentStage key={stage.id} stage={stage} />
+            ) : (
+              <StageRow key={stage.id} stage={stage} onOpenDiff={onOpenDiff} />
+            )
+          )}
+        </WorkstreamScrollArea>
+      </WorkstreamCollapse>
     </div>
   );
 }
@@ -238,19 +246,17 @@ function StageRow({
     scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
   ) => void;
 }) {
-  const [expanded, setExpanded] = useState(() => stage.defaultExpanded);
+  const running = stage.status === 'pending';
+  const [expanded, setExpanded] = useWorkstreamDisclosure(
+    `${stage.id}:${running ? 'running' : 'completed'}`,
+    stage.defaultExpanded || (running && stage.kind === 'command')
+  );
 
-  useEffect(() => {
-    if (stage.defaultExpanded) {
-      setExpanded(true);
-    }
-  }, [stage.defaultExpanded]);
-
-  const hasErrorFallback = stage.status === 'error' && stage.entries.some(hasRawEntryDetail);
+  const hasDetails = stage.entries.some(hasRawEntryDetail);
   const canExpand =
     stage.files.length > 0 ||
     stage.commands.length > 0 ||
-    hasErrorFallback ||
+    hasDetails ||
     (stage.kind === 'computer_use' && stage.entries.some(hasComputerUseStageDetail));
   const isPending = stage.status === 'pending';
   const isError = stage.status === 'error';
@@ -258,29 +264,29 @@ function StageRow({
     ? 'text-[var(--error)]'
     : isPending || stage.status === 'waiting'
       ? 'text-[var(--text-secondary)]'
-      : 'text-[var(--text-muted)]/70 group-hover:text-[var(--text-secondary)]';
+      : 'text-[var(--text-muted)] group-hover/stage:text-[var(--text-primary)]';
 
   return (
-    <div className="group/stage">
+    <div className="group/stage" data-workstream-stage={stage.id}>
       <button
         type="button"
-        onClick={() => canExpand && setExpanded((value) => !value)}
+        onClick={() => canExpand && setExpanded(!expanded)}
         disabled={!canExpand}
-        className={`flex w-full items-center gap-1.5 py-0.5 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
+        className={`flex w-full items-center gap-1.5 workstream-text py-0.5 text-left transition-colors disabled:opacity-100 ${
           canExpand ? '' : 'cursor-default'
         }`}
         aria-expanded={canExpand ? expanded : undefined}
       >
         <StageKindIcon stage={stage} />
-        <span className={`min-w-0 flex-1 truncate ${titleClass}`}>{stage.title}</span>
+        <span className={`min-w-0 truncate ${titleClass}`}><WorkstreamActivityLabel active={isPending}>{stage.title}</WorkstreamActivityLabel></span>
         {stage.kind === 'edit' ? (
           <DiffStatLabel additions={stage.addedLines} deletions={stage.removedLines} muted />
         ) : null}
         <StageStatusGlyph stage={stage} expanded={expanded} canExpand={canExpand} />
       </button>
-      {expanded && canExpand ? (
+      <WorkstreamCollapse open={expanded && canExpand}>
         <StageDetails stage={stage} onOpenDiff={onOpenDiff} />
-      ) : null}
+      </WorkstreamCollapse>
     </div>
   );
 }
@@ -301,6 +307,9 @@ function StageKindIcon({ stage }: { stage: WorkstreamStage }) {
     return <ComputerUseAppIcon app={stage.computerUseApp} className={className} />;
   }
   if (stage.kind === 'error') return <CircleX className={className} />;
+  if (stage.kind === 'web') return <Globe className={className} />;
+  if (stage.kind === 'memory') return <Brain className={className} />;
+  if (stage.kind === 'other') return <Plug className={className} />;
   return <FolderSearch className={className} />;
 }
 
@@ -313,9 +322,6 @@ function StageStatusGlyph({
   expanded: boolean;
   canExpand: boolean;
 }) {
-  if (stage.status === 'pending') {
-    return <LoaderCircle className="h-3 w-3 flex-shrink-0 animate-spin text-[var(--text-muted)]/60" />;
-  }
   if (stage.status === 'error') {
     return <CircleX className="h-3 w-3 flex-shrink-0 text-[var(--error)]" />;
   }
@@ -325,11 +331,8 @@ function StageStatusGlyph({
   if (stage.status === 'interrupted') {
     return <CircleDashed className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/60" />;
   }
-  if (!canExpand) {
-    return stage.status === 'success' ? (
-      <CheckCircle2 className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/35" />
-    ) : null;
-  }
+  if (!canExpand) return null;
+
   return (
     <ChevronRight
       className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform ${
@@ -349,21 +352,20 @@ function StageDetails({
     scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
   ) => void;
 }) {
-  const showErrorFallback =
-    stage.status === 'error' && stage.files.length === 0 && stage.commands.length === 0;
+  const showGenericDetail = stage.files.length === 0 && stage.commands.length === 0 && stage.kind !== 'computer_use';
   const images = Array.from(new Map(stage.entries.flatMap((entry) =>
     entry.type === 'tool' ? entry.result?.images || [] : []).map((image) => [image.id, image])).values());
 
   return (
-    <div className="mb-1 ml-1 space-y-2 border-l border-[var(--border)]/50 pl-3">
+    <div className="workstream-details mb-1 space-y-1">
       {stage.files.length > 0 ? (
         <StageFilesDetail stage={stage} onOpenDiff={onOpenDiff} />
       ) : null}
-      {images.length > 0 ? <AttachmentPreviewGrid attachments={images} align="start" /> : null}
+      {images.length > 0 && !showGenericDetail && stage.kind !== 'computer_use' ? <AttachmentPreviewGrid attachments={images} align="start" /> : null}
       {stage.commands.length > 0 ? <StageCommandsDetail commands={stage.commands} /> : null}
       {stage.kind === 'computer_use' ? <StageComputerUseDetail entries={stage.entries} /> : null}
-      {showErrorFallback ? (
-        <StageErrorFallback entries={stage.entries} />
+      {showGenericDetail ? (
+        <StageGenericDetail entries={stage.entries} />
       ) : stage.status === 'error' ? (
         <StageFailureNotes entries={stage.entries} />
       ) : null}
@@ -379,11 +381,15 @@ function hasComputerUseStageDetail(entry: WorkstreamEntry): boolean {
 }
 
 function StageComputerUseDetail({ entries }: { entries: WorkstreamEntry[] }) {
+  return <StageGenericDetail entries={entries} />;
+}
+
+function StageGenericDetail({ entries }: { entries: WorkstreamEntry[] }) {
   const tools = entries.filter(
     (entry): entry is Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }> =>
       entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory'
   );
-  if (tools.length === 0) return null;
+  if (tools.length === 0) return <StageErrorFallback entries={entries} />;
   return (
     <div className="space-y-2">
       {tools.map((entry) => (
@@ -585,21 +591,8 @@ function StageCommandsDetail({ commands }: { commands: WorkstreamStageCommand[] 
   return (
     <div className="space-y-1">
       {commands.map((command) => (
-        <div
-          key={command.id}
-          className="overflow-hidden rounded-sm border border-[var(--border)]/45 bg-[var(--bg-secondary)]/30"
-        >
-          <div className="flex items-center gap-2 border-b border-[var(--border)]/45 px-2 py-1">
-            <span className="text-[11px] font-medium text-[var(--text-muted)]">Shell</span>
-            <span className="ml-auto text-[11px] text-[var(--text-muted)]/70">
-              {formatCommandStatus(command.status)}
-            </span>
-          </div>
-          <pre className="whitespace-pre-wrap break-words px-2 py-1 font-mono text-[11px] leading-5 text-[var(--text-secondary)]">
-            $ {command.command}
-          </pre>
-          <CommandOutputPreview command={command} />
-        </div>
+        <ToolOutputPanel key={command.id} language="shell" isError={command.status === 'error'}
+          text={`$ ${command.command}${command.output ? `\n${command.output}` : ''}`} />
       ))}
     </div>
   );
@@ -636,28 +629,6 @@ function TailClampedOutput({ text, toneClass }: { text: string; toneClass: strin
   );
 }
 
-function CommandOutputPreview({ command }: { command: WorkstreamStageCommand }) {
-  const trimmed = command.output.trim();
-  const toneClass =
-    command.status === 'error' ? 'text-[var(--error)]' : 'text-[var(--text-muted)]';
-
-  if (!trimmed) {
-    return (
-      <pre
-        className={`whitespace-pre-wrap break-words border-t border-[var(--border)]/35 px-2 py-1 font-mono text-[11px] leading-5 ${toneClass}`}
-      >
-        {command.outputSummary}
-      </pre>
-    );
-  }
-
-  return (
-    <div className="border-t border-[var(--border)]/35">
-      <TailClampedOutput text={trimmed} toneClass={toneClass} />
-    </div>
-  );
-}
-
 function formatFileOperation(operation: WorkstreamStageFile['operation']): string {
   if (operation === 'write' || operation === 'added') return 'Created';
   if (operation === 'delete' || operation === 'deleted') return 'Deleted';
@@ -669,14 +640,6 @@ function formatFileOperation(operation: WorkstreamStageFile['operation']): strin
 
 function stageFileScopeLabel(count: number): string {
   return count === 1 ? 'Selected file changes' : `${count} files changed in this stage`;
-}
-
-function formatCommandStatus(status: WorkstreamStageCommand['status']): string {
-  if (status === 'pending') return 'Running';
-  if (status === 'error') return 'Error';
-  if (status === 'waiting') return 'Waiting';
-  if (status === 'interrupted') return 'Stopped';
-  return 'Success';
 }
 
 function hasRawEntryDetail(entry: WorkstreamEntry): boolean {
@@ -888,15 +851,22 @@ function ThinkingRow({
   entry: Extract<WorkstreamEntry, { type: 'thinking' }>;
 }) {
   const isActive = entry.state === 'active';
+  const [expanded, setExpanded] = useWorkstreamDisclosure(`reasoning:${entry.id}`);
+  const text = entry.detail || entry.summary;
   return (
-    <div
-      className="flex items-baseline gap-1.5 py-0.5 text-[12px] leading-5 text-[var(--text-muted)]/55"
-      title={safeTitle(entry.detail)}
-    >
-      <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
-      {isActive ? (
-        <span className="inline-flex h-1 w-1 flex-shrink-0 rounded-full bg-[var(--text-muted)]/45 animate-pulse" />
-      ) : null}
+    <div className="my-2">
+      <button type="button" className="workstream-text flex max-w-full items-center gap-1.5 py-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        <WorkstreamActivityLabel active={isActive}>{isActive ? 'Thinking' : 'Reasoning'}</WorkstreamActivityLabel>
+        <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+      </button>
+      <WorkstreamCollapse open={expanded}>
+        <WorkstreamScrollArea followKey={isActive ? entry.id : undefined}>
+          <div className="workstream-text py-2 text-[var(--text-secondary)] whitespace-pre-wrap break-words">
+            {truncateWithNotice(text, MAX_TRACE_TEXT_CHARS)}
+          </div>
+        </WorkstreamScrollArea>
+      </WorkstreamCollapse>
     </div>
   );
 }
@@ -1104,7 +1074,7 @@ function hasEntryDetail(
 ): boolean {
   const inputRecord = isRecord(entry.block.input) ? getPublicToolInput(entry.block.input) : {};
   return Boolean(
-    entry.detail || entry.result || Object.keys(inputRecord).length
+    entry.detail || entry.result || ('liveOutput' in entry && entry.liveOutput) || Object.keys(inputRecord).length
   );
 }
 
@@ -1113,14 +1083,8 @@ function ToolEntryDetail({
 }: {
   entry: Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }>;
 }) {
-  const [showArgs, setShowArgs] = useState(false);
-  const [showOutput, setShowOutput] = useState(false);
   const inputRecord = isRecord(entry.block.input) ? getPublicToolInput(entry.block.input) : {};
-  const hasArgs = Object.keys(inputRecord).length > 0;
-  const contentStr = getToolResultOutputContent(entry.result);
-  const hasOutput = contentStr.length > 0;
-  const outputLines = hasOutput ? contentStr.split('\n').length : 0;
-  const displayContentStr = truncateWithNotice(contentStr, MAX_TOOL_OUTPUT_CHARS);
+  const contentStr = ('liveOutput' in entry && entry.liveOutput) || entry.result?.displayContent || entry.result?.content || entry.detail || '';
   const diffContent =
     entry.toolName === 'Write' || entry.toolName === 'Edit' || entry.toolName === 'Delete'
       ? getToolResultDiffContent(entry.result)
@@ -1153,18 +1117,6 @@ function ToolEntryDetail({
       {entry.result?.mediaRefs && entry.result.mediaRefs.length > 0 ? (
         <ComputerUseScreenshots refs={entry.result.mediaRefs} />
       ) : null}
-      {hasArgs ? (
-        <CollapsibleSection
-          label="Arguments"
-          expanded={showArgs}
-          onToggle={() => setShowArgs((v) => !v)}
-        >
-          <pre className="whitespace-pre-wrap break-all text-[12px] leading-5 text-[var(--text-secondary)]">
-            {safeJsonStringify(entry.block.input, 2)}
-          </pre>
-        </CollapsibleSection>
-      ) : null}
-
       {diffHunks.length > 0 ? (
         <div>
           <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
@@ -1180,64 +1132,12 @@ function ToolEntryDetail({
         </div>
       ) : null}
 
-      {hasOutput ? (
-        <CollapsibleSection
-          label={diffHunks.length > 0 ? 'Raw output' : `Output (${outputLines} line${outputLines > 1 ? 's' : ''})`}
-          expanded={showOutput}
-          onToggle={() => setShowOutput((v) => !v)}
-          isError={entry.result?.is_error}
-        >
-          <pre
-            className={`whitespace-pre-wrap break-all text-[12px] leading-5 ${
-              entry.result?.is_error ? 'text-[var(--error)]' : 'text-[var(--text-secondary)]'
-            }`}
-          >
-            {displayContentStr}
-          </pre>
-        </CollapsibleSection>
-      ) : entry.detail ? (
-        <pre className="whitespace-pre-wrap break-words text-[12px] leading-6 text-[var(--text-secondary)]">
-          {truncateWithNotice(entry.detail, MAX_TRACE_TEXT_CHARS)}
-        </pre>
-      ) : null}
-    </div>
-  );
-}
-
-function CollapsibleSection({
-  label,
-  expanded,
-  onToggle,
-  isError,
-  children,
-}: {
-  label: string;
-  expanded: boolean;
-  onToggle: () => void;
-  isError?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="border border-[var(--border)]/45 bg-[var(--bg-secondary)]/35">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
-      >
-        <span
-          className={`text-[11px] font-medium uppercase tracking-[0.08em] ${
-            isError ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'
-          }`}
-        >
-          {label}
-        </span>
-        <ChevronRight
-          className={`h-3 w-3 text-[var(--text-muted)] transition-transform ${
-            expanded ? 'rotate-90' : ''
-          }`}
-        />
-      </button>
-      {expanded ? <div className="border-t border-[var(--border)]/60 px-3 py-2">{children}</div> : null}
+      <ToolResultContent
+        content={contentStr}
+        pending={entry.status === 'pending' || Boolean(entry.result?.images?.length || entry.result?.mediaRefs?.length)}
+        isError={entry.status === 'error'}
+        raw={{ callId: entry.block.id, invocation: { tool: entry.toolName, arguments: inputRecord }, result: entry.result ?? null }}
+      />
     </div>
   );
 }
@@ -1288,47 +1188,13 @@ function buildWritePreviewHunks(content: string): UnifiedDiffHunk[] {
   ];
 }
 
-// ── Live "Working for Xs" footer (used by ChatPane below the trace) ─────────
+// ── Idle activity label (used when no current tool owns the status) ─────────
 
-export function WorkingFooter({ startedAt, label = 'Working' }: { startedAt: number | undefined; label?: string }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  // Only run the live timer when we actually have a start anchor — otherwise
-  // we'd burn a setInterval per render with nothing to display.
-  useEffect(() => {
-    if (typeof startedAt !== 'number') return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [startedAt]);
-
-  if (typeof startedAt !== 'number') {
-    return (
-      <div className="my-2 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]/70">
-        <span>{label}…</span>
-        <PulsingDots />
-      </div>
-    );
-  }
-
-  const elapsedMs = Math.max(0, now - startedAt);
-  const elapsed = formatElapsed(elapsedMs);
+export function WorkingFooter({ label = 'Working' }: { label?: string }) {
   return (
-    <div className="my-2 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]/70">
-      <span>
-        {label} for {elapsed}
-      </span>
-      <PulsingDots />
+    <div className="workstream-text my-2 text-[var(--text-muted)]">
+      <WorkstreamActivityLabel active>{label}</WorkstreamActivityLabel>
     </div>
-  );
-}
-
-function PulsingDots() {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className="h-1 w-1 rounded-full bg-[var(--text-muted)]/40 animate-pulse [animation-delay:0ms]" />
-      <span className="h-1 w-1 rounded-full bg-[var(--text-muted)]/40 animate-pulse [animation-delay:150ms]" />
-      <span className="h-1 w-1 rounded-full bg-[var(--text-muted)]/40 animate-pulse [animation-delay:300ms]" />
-    </span>
   );
 }
 

@@ -1,3 +1,4 @@
+import { getAssistantPhase } from '../../shared/assistant-phase';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import * as Dialog from '@/ui/components/ui/dialog';
@@ -1068,6 +1069,7 @@ export function ChatPane({
             type: 'tool_result',
             tool_use_id: normalizedResult.tool_use_id,
             content: normalizedResult.content,
+            displayContent: normalizedResult.displayContent,
             is_error: normalizedResult.is_error,
             ...(normalizedResult.images ? { images: normalizedResult.images } : {}),
             ...(normalizedResult.mediaRefs ? { mediaRefs: normalizedResult.mediaRefs } : {}),
@@ -1115,6 +1117,12 @@ export function ChatPane({
     }
     return -1;
   }, [session?.messages]);
+
+  const hasStartedFinalAnswer = useMemo(() =>
+    session?.messages.slice(lastUserPromptIndex + 1).some((message) =>
+      message.type === 'assistant' && !message.parentToolUseId && getAssistantPhase(message) === 'final_answer'
+    ) ?? false,
+  [session?.messages, lastUserPromptIndex]);
 
   // Compaction produces no stream messages until its boundary lands, so the
   // generic "Working" footer is all the user would see. Walk backwards to the
@@ -1469,7 +1477,7 @@ export function ChatPane({
 
   const streamingWorkstreamModel = useMemo(
     () => {
-      if (hasActiveTimelineWork) {
+      if (hasActiveTimelineWork || hasStartedFinalAnswer) {
         return null;
       }
       return createStreamingWorkstreamModel({
@@ -1483,6 +1491,7 @@ export function ChatPane({
     [
       activeTurnStartedAt,
       hasActiveTimelineWork,
+      hasStartedFinalAnswer,
       partialMessage,
       partialThinking,
       session?.permissionRequests,
@@ -1498,6 +1507,7 @@ export function ChatPane({
     [partialMessage, partialThinking, session?.permissionRequests]
   );
   const shouldRenderStandalonePartial =
+    !hasStartedFinalAnswer &&
     !hasActiveTimelineWork &&
     !streamingWorkstreamModel &&
     showPartialMessage &&
@@ -2043,6 +2053,7 @@ export function ChatPane({
                             liveTrace={item.group.id === activeTimelineWorkId ? activeLiveTrace : undefined}
                             toolLiveOutputMap={item.active ? toolLiveOutputMap : undefined}
                             defaultExpanded={item.defaultExpanded}
+                            canCollapse={item.canCollapse}
                             resetKey={item.disclosureResetKey}
                             generatedMedia={workMedia}
                             mediaCwd={session.cwd ?? null}
@@ -2204,21 +2215,15 @@ export function ChatPane({
                 </div>
               )}
 
-              {/* Single source of "Working for Xs..." footer during streaming.
-                  If the active timeline row or live streaming workstream is
-                  present, that surface already renders its own footer. */}
+              {/* Only show the idle activity label when no trace or final answer owns it. */}
               {(() => {
                 if (session.status !== 'running') return null;
                 if (streamingWorkstreamModel) return null;
                 if (hasActiveTimelineWork) return null;
                 if (turnPhase === 'complete') return null;
+                if (hasStartedFinalAnswer) return null;
                 return (
-                  <WorkingFooter
-                    // During a retry the elapsed timer reads as stalled; drop
-                    // it and show the retry status with pulsing dots instead.
-                    startedAt={apiRetry ? undefined : activeTurnStartedAt}
-                    label={workingLabel}
-                  />
+                  <WorkingFooter label={workingLabel} />
                 );
               })()}
 

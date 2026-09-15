@@ -283,6 +283,7 @@ interface ActiveSession {
 }
 
 interface StreamingTextState {
+  phase?: 'commentary' | 'final_answer';
   text: string;
   pendingText: string;
   blockIndex: number;
@@ -449,8 +450,14 @@ export class CodexAdapter implements ProviderAdapter {
       });
     });
 
-    on('agent_message_done', ({ threadId, text }) => {
-      this.finalizeStreamingAssistant(threadId, text);
+    on('agent_message_started', ({ threadId, phase }) => {
+      if (phase === 'commentary' || phase === 'final_answer') {
+        this.getOrCreateStreamingTextState(threadId).phase = phase;
+      }
+    });
+
+    on('agent_message_done', ({ threadId, text, phase }) => {
+      this.finalizeStreamingAssistant(threadId, text, phase);
       this.clearStreamingState(threadId);
     });
 
@@ -566,8 +573,14 @@ export class CodexAdapter implements ProviderAdapter {
         sessionId: threadId,
         payload: rawContent,
       });
+      const outputBlocks = Array.isArray(rawContent) ? rawContent
+        : isObject(rawContent) && Array.isArray(rawContent.content) ? rawContent.content : null;
+      const blockText = outputBlocks?.flatMap(block =>
+        isObject(block) && block.type === 'text' && typeof block.text === 'string' ? [block.text] : []
+      ).join('\n');
       const content =
         persisted.text ||
+        blockText ||
         (typeof rawContent === 'string' && !rawContent.includes('data:image/')
           ? rawContent
           : persisted.mediaRefs.length > 0
@@ -576,6 +589,10 @@ export class CodexAdapter implements ProviderAdapter {
               ? rawContent
               : JSON.stringify(rawContent ?? ''));
 
+      const displayContent = outputBlocks ? JSON.stringify({
+        content: outputBlocks.filter(block => !(isObject(block) && block.type === 'image' && persisted.mediaRefs.length > 0)),
+        ...(isObject(rawContent) && rawContent.structuredContent != null ? { structuredContent: rawContent.structuredContent } : {}),
+      }) : undefined;
       const message: StreamMessage = {
         type: 'user',
         uuid: uuidv4(),
@@ -585,6 +602,7 @@ export class CodexAdapter implements ProviderAdapter {
               type: 'tool_result',
               tool_use_id: toolUseId,
               content,
+              ...(displayContent ? { displayContent } : {}),
               is_error: isError,
               ...(persisted.mediaRefs.length > 0 ? { mediaRefs: persisted.mediaRefs } : {}),
             },
@@ -984,7 +1002,7 @@ export class CodexAdapter implements ProviderAdapter {
     this.emit({ type: 'message', threadId, message });
   }
 
-  private finalizeStreamingAssistant(threadId: string, fallbackText = ''): void {
+  private finalizeStreamingAssistant(threadId: string, fallbackText = '', phase?: unknown): void {
     const textState = this.streamingText.get(threadId);
     const thinkingState = this.streamingThinking.get(threadId);
     if (!textState && !thinkingState && !fallbackText.trim()) {
@@ -1054,6 +1072,7 @@ export class CodexAdapter implements ProviderAdapter {
         flushTimer: null,
         hasFlushed: false,
       } satisfies StreamingTextState);
+    if (phase === 'commentary' || phase === 'final_answer') finalState.phase = phase;
     this.emitAssistantTextComplete(threadId, finalState, finalText, finalThinking);
     if (finalText) {
       this.finalizedStreamingText.set(threadId, finalText);
@@ -1141,6 +1160,7 @@ export class CodexAdapter implements ProviderAdapter {
         uuid: state.uuid,
         createdAt: state.createdAt,
         streaming: true,
+        phase: state.phase,
         message: { content: [{ type: 'text', text: delta }] },
       },
     });
@@ -1168,6 +1188,7 @@ export class CodexAdapter implements ProviderAdapter {
         uuid: state.uuid,
         createdAt: state.createdAt,
         streaming: false,
+        phase: state.phase,
         message: { content },
       },
     });

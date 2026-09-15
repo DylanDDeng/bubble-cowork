@@ -4021,3 +4021,77 @@ button.aegis-mdx-metadata-key:hover {
   .aegis-settings aside > div { height: auto; padding-block: 8px; }
   .aegis-settings-content { padding: 20px 16px; }
 }
+
+/* Agent activity shares the conversation typography and theme palette. */
+.workstream-text {
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+}
+.workstream-activity-label { position: relative; display: inline-block; vertical-align: bottom; }
+.workstream-activity-shimmer {
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  background: linear-gradient(110deg, transparent 35%, var(--text-primary) 50%, transparent 65%);
+  background-size: 250% 100%;
+  background-clip: text;
+  pointer-events: none;
+  user-select: none;
+  animation: workstream-shimmer 4s linear .6s infinite;
+  opacity: 0;
+}
+@keyframes workstream-shimmer {
+  0% { background-position: 180% 0; opacity: 0; }
+  3% { opacity: .65; }
+  25%, 100% { background-position: -80% 0; opacity: 0; }
+}
+.workstream-scroll-area { max-height: 14rem; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.workstream-scroll-area[data-fade-top="true"] {
+  mask-image: linear-gradient(to bottom, transparent, black 1.5rem);
+}
+.workstream-scroll-area[data-fade-bottom="true"] {
+  mask-image: linear-gradient(to top, transparent, black 1.5rem);
+}
+.workstream-scroll-area[data-fade-top="true"][data-fade-bottom="true"] {
+  mask-image: linear-gradient(to bottom, transparent, black 1.5rem, black calc(100% - 1.5rem), transparent);
+}
+
+.workstream-details { margin-inline-start: 22px; }
+.workstream-output-panel {
+  min-width: 0;
+  overflow: clip;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+.workstream-output-heading {
+  padding: 4px 8px;
+  font-size: calc(13px * var(--ui-font-scale, 1));
+  line-height: 20px;
+  user-select: none;
+}
+.workstream-output-text, .workstream-code {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  line-height: 1.6;
+}
+.workstream-output-text { font-family: inherit; }
+.workstream-code { font-family: var(--font-mono, monospace); font-size: var(--code-font-size, 12px); }
+.workstream-code.workstream-raw-output { max-height: none; min-height: 0; padding: 16px; }
+.workstream-raw-trigger {
+  display: flex;
+  margin-inline-start: auto;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.group\/tool-result:hover .workstream-raw-trigger,
+.group\/tool-result:focus-within .workstream-raw-trigger { opacity: 1; }
+.workstream-raw-trigger:hover { background: var(--bg-tertiary); }

@@ -1729,7 +1729,7 @@ export type StreamMessage =
       provider: 'codex' | 'kimi' | 'grok' | 'deepseek';
       usage: CodexContextUsage;
     })
-  | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean })
+  | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean; phase?: 'commentary' | 'final_answer' })
   | (StreamMessageBase & { type: 'user'; uuid: string; message: UserMessage })
   | (StreamMessageBase & {
       type: 'result';
@@ -1771,6 +1771,8 @@ export type StreamMessage =
 
 // 简化的 Anthropic API 类型
 export interface AssistantMessage {
+  /** Native Anthropic-compatible stop reason; absent providers keep the terminal-result fallback. */
+  stop_reason?: string | null;
   content: ContentBlock[];
 }
 
@@ -1782,7 +1784,7 @@ export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'thinking'; thinking: string; signature?: string; durationMs?: number }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; mediaRefs?: ComputerUseMediaRef[]; images?: Attachment[] }
+  | { type: 'tool_result'; tool_use_id: string; content: string; displayContent?: string; is_error?: boolean; mediaRefs?: ComputerUseMediaRef[]; images?: Attachment[] }
   | { type: 'memory_citations'; citations: MemoryCitation[] };
 
 export interface MemoryCitation {

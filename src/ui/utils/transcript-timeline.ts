@@ -1,3 +1,4 @@
+import { getAssistantPhase } from '../../shared/assistant-phase';
 import type { ContentBlock, StreamMessage } from '../types';
 import type { ThreadGoal } from '../../shared/session-goal';
 import {
@@ -33,6 +34,7 @@ export type TranscriptTimelineItem =
       group: TimelineWorkGroup;
       active: boolean;
       defaultExpanded: boolean;
+      canCollapse?: boolean;
       disclosureResetKey: string;
     };
 
@@ -286,7 +288,7 @@ function collapseTurnWorkBeforeAnswer(
   const answerSourceIndex = (() => {
     for (let index = turnItems.length - 1; index >= 0; index -= 1) {
       const item = turnItems[index];
-      if (item?.type === 'message' && item.message.type === 'assistant') {
+      if (item?.type === 'message' && item.message.type === 'assistant' && getAssistantPhase(item.message) !== 'commentary') {
         return index;
       }
     }
@@ -307,10 +309,13 @@ function collapseTurnWorkBeforeAnswer(
     options.sessionRunning !== true &&
     !hasTurnResult(turnItems) &&
     turnHasUnresolvedToolUse(turnItems, options.resolvedToolUseIds ?? new Set());
+  const answerItem = turnItems[answerSourceIndex];
+  const hasExplicitFinalAnswer = answerItem?.type === 'message' &&
+    answerItem.message.type === 'assistant' && getAssistantPhase(answerItem.message) === 'final_answer';
   const hasTerminalAnswer =
     answerSourceIndex >= 0 &&
     !interruptedTurn &&
-    (!activeRunningTurn || hasTurnResult(turnItems));
+    (!activeRunningTurn || hasTurnResult(turnItems) || hasExplicitFinalAnswer);
 
   const workGroups: TimelineWorkGroup[] = [];
   const visibleItems: TranscriptTimelineItem[] = [];
@@ -376,12 +381,8 @@ function collapseTurnWorkBeforeAnswer(
     // collapsing it on the stop press would make the work the user was
     // watching vanish into the disclosure toggle.
     defaultExpanded: activeWork || interruptedTurn,
-    disclosureResetKey: [
-      combinedWorkGroup.id,
-      interruptedTurn ? 'interrupted' : hasTerminalAnswer ? 'answered' : 'working',
-      combinedWorkGroup.messages.length,
-      combinedWorkGroup.originalIndices.join(','),
-    ].join(':'),
+    canCollapse: !interruptedTurn && (hasTerminalAnswer || hasTurnResult(turnItems)),
+    disclosureResetKey: combinedWorkGroup.id,
   };
 
   if (answerVisibleIndex >= 0) {
@@ -585,12 +586,7 @@ export function deriveTranscriptTimelineItems(
         group,
         active,
         defaultExpanded: active,
-        disclosureResetKey: [
-          group.id,
-          active ? 'working' : 'answered',
-          group.messages.length,
-          group.originalIndices.join(','),
-        ].join(':'),
+        disclosureResetKey: group.id,
       });
     }
     pendingWorkMessages = [];

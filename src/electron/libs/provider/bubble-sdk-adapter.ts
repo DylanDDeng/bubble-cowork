@@ -861,7 +861,8 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       }
       case 'turn_end': {
         const turnEvent = event as Extract<BubbleAgentEvent, { type: 'turn_end' }>;
-        this.flushAssistant(session);
+        this.flushAssistant(session, turnEvent.willContinue === false ? 'final_answer'
+          : turnEvent.willContinue === true ? 'commentary' : undefined);
         addUsage(session.usage, usageFromBubble(turnEvent.usage, session.contextWindow));
         // Per-step priced usage; hosts sum them. The unified result field is
         // USD-labelled, so non-USD costs are dropped rather than mislabelled.
@@ -1110,7 +1111,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
     });
   }
 
-  private flushAssistant(session: ActiveBubbleSession): void {
+  private flushAssistant(session: ActiveBubbleSession, phase?: 'commentary' | 'final_answer'): void {
     const accumulator = session.currentAssistant;
     if (!accumulator) {
       return;
@@ -1129,6 +1130,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
     this.emitMessage(session, {
       type: 'assistant',
       uuid: accumulator.uuid,
+      phase,
       createdAt: accumulator.createdAt,
       message: { content: blocks },
     });

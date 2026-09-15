@@ -118,4 +118,36 @@ assert.equal(
   'a one-message work group must not infer a zero duration'
 );
 
+// Disclosure identity belongs to the turn, not its message count or lifecycle.
+const prompt: StreamMessage = { type: 'user_prompt', prompt: 'Inspect the project', createdAt: 1000 };
+const reasoning: StreamMessage = { type: 'assistant', uuid: 'r1', createdAt: 1100,
+  message: { content: [{ type: 'thinking', thinking: 'Inspecting files' }] } };
+const commentary: StreamMessage = { type: 'assistant', uuid: 'c1', createdAt: 1200, phase: 'commentary',
+  message: { content: [{ type: 'text', text: 'I will inspect the files.' }] } };
+const final: StreamMessage = { type: 'assistant', uuid: 'f1', createdAt: 2500, streaming: true, phase: 'final_answer',
+  message: { content: [{ type: 'text', text: 'The implementation' }] } };
+const runningOptions = { sessionRunning: true, activeTurnStartIndex: 0 };
+const before = deriveTranscriptTimelineItems([prompt, reasoning], runningOptions);
+const during = deriveTranscriptTimelineItems([prompt, reasoning, commentary], runningOptions);
+const answering = deriveTranscriptTimelineItems([prompt, reasoning, commentary, final], runningOptions);
+const work = (items: ReturnType<typeof deriveTranscriptTimelineItems>) => items.find(item => item.type === 'work')!;
+assert.equal(work(before).disclosureResetKey, work(during).disclosureResetKey, 'new messages keep disclosure identity');
+assert.equal(work(during).disclosureResetKey, work(answering).disclosureResetKey, 'final answer keeps disclosure identity');
+assert.equal(work(during).active, true, 'commentary keeps work active');
+assert.equal(work(answering).active, false, 'explicit final answer settles the trace before the runtime ends');
+assert.equal(work(answering).defaultExpanded, false);
+assert(answering.some(item => item.type === 'message' && item.message.type === 'assistant' && item.message.uuid === 'f1'));
+const unphased = deriveTranscriptTimelineItems([prompt, reasoning, { ...final, phase: undefined }], runningOptions);
+assert.equal(work(unphased).active, true, 'unphased providers do not collapse during a tool-idle gap');
+const tool: StreamMessage = { type: 'assistant', uuid: 'pending', createdAt: 1400,
+  message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }] } };
+const interrupted = deriveTranscriptTimelineItems([prompt, reasoning, tool], { ...runningOptions, sessionRunning: false });
+assert.equal(work(interrupted).defaultExpanded, true, 'stopping a pending tool keeps the trace visible');
+const noFinal = deriveTranscriptTimelineItems([prompt, reasoning, commentary], { sessionRunning: false });
+assert(!noFinal.some(item => item.type === 'message' && item.message.type === 'assistant'), 'explicit commentary never becomes a final answer');
+assert.equal(work(noFinal).canCollapse, false, 'a stopped commentary-only turn does not acquire a completed disclosure');
+const stoppedThinking = deriveTranscriptTimelineItems([prompt, reasoning], { sessionRunning: false });
+assert.equal(work(stoppedThinking).canCollapse, false, 'a stopped thinking-only turn stays visible');
+assert.equal(work(answering).canCollapse, true, 'native final answer permits completed disclosure');
+
 console.log('workstream-duration: all assertions passed');

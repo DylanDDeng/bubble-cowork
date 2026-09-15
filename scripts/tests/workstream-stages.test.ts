@@ -658,7 +658,7 @@ const summary = formatWorkstreamStageSummary([
 ]);
 assert.equal(
   summary,
-  'edited 2 files · ran 1 command · explored 1 file',
+  'Edited files, read files, and ran a command',
   'collapsed workstream summary should surface high-signal activity'
 );
 

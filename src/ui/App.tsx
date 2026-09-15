@@ -485,6 +485,7 @@ export function App() {
             type: 'tool_result',
             tool_use_id: normalizedResult.tool_use_id,
             content: normalizedResult.content,
+            displayContent: normalizedResult.displayContent,
             is_error: normalizedResult.is_error,
             ...(normalizedResult.mediaRefs ? { mediaRefs: normalizedResult.mediaRefs } : {}),
           });

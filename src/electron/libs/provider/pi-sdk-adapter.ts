@@ -662,6 +662,8 @@ export class PiSdkAdapter implements ProviderAdapter {
       message: {
         type: 'assistant',
         uuid: session.currentAssistant?.uuid || uuidv4(),
+        phase: getString(message.stopReason) === 'stop' && getToolCalls(message).length === 0
+          ? 'final_answer' : getToolCalls(message).length > 0 ? 'commentary' : undefined,
         ...(createdAt ? { createdAt } : {}),
         message: { content: blocks },
       },

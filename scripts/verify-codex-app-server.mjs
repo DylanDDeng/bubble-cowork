@@ -473,6 +473,35 @@ async function testResume() {
   ok('no thread/load calls (source pin)');
 }
 
+// Native phase is available before the first final-answer delta and survives completion.
+{
+  const { adapter, manager, events, notify } = createCapturingAdapter();
+  seedSession(manager, 't1', 'p1', { status: 'running' });
+  for (const phase of ['commentary', 'final_answer']) {
+    const item = { type: 'agentMessage', id: phase, phase, text: '' };
+    notify('item/started', { threadId: 'p1', item });
+    notify('item/agentMessage/delta', { threadId: 'p1', itemId: phase, delta: phase });
+    adapter.flushStreamingTextDelta('t1');
+    const delta = events.filter(event => event.type === 'message' && event.message.type === 'assistant').at(-1).message;
+    assert.equal(delta.phase, phase);
+    assert.equal(delta.streaming, true);
+    notify('item/completed', { threadId: 'p1', item: { ...item, text: phase } });
+    const complete = events.filter(event => event.type === 'message' && event.message.type === 'assistant').at(-1).message;
+    assert.equal(complete.phase, phase);
+    assert.equal(complete.streaming, false);
+    assert.equal(complete.uuid, delta.uuid);
+  }
+  notify('item/completed', { threadId: 'p1', item: { type: 'agentMessage', id: 'final_answer', phase: 'final_answer', text: 'final_answer' } });
+  assert.equal(events.filter(event => event.type === 'message' && event.message.type === 'assistant').length, 4,
+    'replayed completion must not duplicate the assistant message');
+  notify('item/started', { threadId: 'p1', item: { type: 'agentMessage', id: 'legacy' } });
+  notify('item/agentMessage/delta', { threadId: 'p1', itemId: 'legacy', delta: 'No phase' });
+  adapter.flushStreamingTextDelta('t1');
+  assert.equal(events.at(-1).message.phase, undefined, 'missing phase is not inherited from the last message');
+  adapter.clearStreamingState('t1');
+  ok('agent message phase → streamed and completed assistant messages without duplicate completion');
+}
+
 // ── P0-6: two-phase stop ──────────────────────────────────────────────────
 async function testTwoPhaseStop() {
   console.log('P0-6 two-phase stop');
@@ -662,6 +691,33 @@ async function testApprovalRouting() {
     assert.equal(dismissed.length, 1);
     assert.equal(dismissed[0].threadId, 't1');
     ok('serverRequest/resolved dismisses the pending card');
+  }
+}
+
+function testRichToolOutput() {
+  const previousUserData = process.env.AEGIS_USER_DATA_DIR;
+  process.env.AEGIS_USER_DATA_DIR = codexMcpTestRoot;
+  try {
+    const { manager, events } = createCapturingAdapter();
+    const content = [
+      { type: 'text', text: 'Result' },
+      { type: 'resource_link', uri: 'file:///tmp/report.txt', name: 'Report' },
+      { type: 'audio', mimeType: 'audio/wav', data: 'AAAA' },
+      { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=' },
+    ];
+    manager.emit('tool_result', { threadId: 't1', params: {
+      id: 'rich-output', result: { content, structuredContent: { count: 1 } },
+    } });
+    const result = events.find(event => event.type === 'message' && event.message.type === 'user').message.message.content[0];
+    assert.deepEqual(JSON.parse(result.displayContent), {
+      content: content.filter(block => block.type !== 'image'), structuredContent: { count: 1 },
+    });
+    assert.equal(result.mediaRefs.length, 1, 'screenshots keep their persisted representation');
+    assert.match(result.content, /Result/);
+    ok('rich MCP output retains audio, resources and structured data alongside persisted screenshots');
+  } finally {
+    if (previousUserData === undefined) delete process.env.AEGIS_USER_DATA_DIR;
+    else process.env.AEGIS_USER_DATA_DIR = previousUserData;
   }
 }
 
@@ -1791,6 +1847,7 @@ async function main() {
   await testResume();
   await testTwoPhaseStop();
   await testApprovalRouting();
+  testRichToolOutput();
   await testImageGeneration();
   await testComputerUseGrants();
   await testProcessLifecycle();
