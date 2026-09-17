@@ -1,4 +1,5 @@
-import { isValidElement, memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { ImageStudioSessionContext, openImageStudio } from '../lib/image-studio';
+import { isValidElement, memo, useContext, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { parseSessionLink } from '../../shared/session-links';
 import remarkGfm from 'remark-gfm';
@@ -323,7 +324,7 @@ function getInlineProjectFileCode(text: string): ProjectFileLink | null {
   return { path, line: parsed.line };
 }
 
-function useProjectFileNavigation() {
+function useProjectFileNavigation(sessionOverride?: string | null) {
   const {
     activeSessionId,
     sessions,
@@ -333,7 +334,7 @@ function useProjectFileNavigation() {
     openRightUtilityTab,
     openProjectFileInRightPanel,
   } = useAppStore();
-  const session = activeSessionId ? sessions[activeSessionId] : null;
+  const session = sessionOverride ? sessions[sessionOverride] : activeSessionId ? sessions[activeSessionId] : null;
   const cwd = session?.cwd || projectCwd || null;
   // worktree 会话的 cwd 指向隔离检出，但模型引用常用主工作区（项目根）的
   // 绝对路径——两个根都参与相对化
@@ -426,12 +427,15 @@ function useProjectFileNavigation() {
 }
 
 function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
-  const { cwd, roots, openProjectFile } = useProjectFileNavigation();
+  const imageSessionId = useContext(ImageStudioSessionContext);
+  const [resolvedImagePath, setResolvedImagePath] = useState<string | null>(null);
+  const { cwd, roots, openProjectFile } = useProjectFileNavigation(imageSessionId);
   const [preview, setPreview] = useState<{ kind: 'image' | 'video'; src: string } | null>(null);
   const [failed, setFailed] = useState(false);
   const generatedMediaMatch = useAppStore((state) => {
     if (!src) return null;
-    const session = state.activeSessionId ? state.sessions[state.activeSessionId] : null;
+    const id = imageSessionId || state.activeSessionId;
+    const session = id ? state.sessions[id] : null;
     if (!session) return null;
     return findGeneratedMediaForPath(src, extractGeneratedMediaFromMessages(session.messages));
   });
@@ -443,13 +447,13 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
     if (!src || remote || hideForGallery) return;
     let cancelled = false;
     setPreview(null);
+    setResolvedImagePath(null);
     setFailed(false);
 
     void (async () => {
       const sessions = useAppStore.getState().sessions;
-      const session = useAppStore.getState().activeSessionId
-        ? sessions[useAppStore.getState().activeSessionId!]
-        : null;
+      const id = imageSessionId || useAppStore.getState().activeSessionId;
+      const session = id ? sessions[id] : null;
       const candidates = [src.replace(/^\.\//, '')];
       const base = candidates[0].split('/').pop();
       if (base && base !== candidates[0]) candidates.push(base);
@@ -488,6 +492,7 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
           ) as { kind?: string; dataUrl?: string; previewUrl?: string };
           if (cancelled) return;
           if (filePreview?.kind === 'image' && filePreview.dataUrl) {
+            setResolvedImagePath(resolved.path);
             setPreview({ kind: 'image', src: filePreview.dataUrl });
             return;
           }
@@ -505,7 +510,7 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [cwd, hideForGallery, remote, src]);
+  }, [cwd, hideForGallery, remote, src, imageSessionId]);
 
   if (!src) return null;
   if (hideForGallery) return null;
@@ -515,6 +520,7 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
   }
 
   const open = () => {
+    if (imageSessionId && resolvedImagePath && openImageStudio(imageSessionId, resolvedImagePath)) return;
     const projectFile = getProjectFileLink(src, roots) || getInlineProjectFileCode(src);
     if (projectFile) openProjectFile(projectFile);
   };

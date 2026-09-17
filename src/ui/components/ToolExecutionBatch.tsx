@@ -146,12 +146,16 @@ export function WorkstreamDisclosure({
         model={model}
         onToggle={() => setExpanded(!resolvedExpanded)}
       />}
+      {/* Live media belongs beside its tool result, before subsequent narration.
+          Collapsible traces keep any remaining media outside the hidden body. */}
       <WorkstreamCollapse open={resolvedExpanded}>
         <AssistantWorkstream
           model={model}
+          generatedMedia={canCollapse ? undefined : generatedMedia}
+          mediaCwd={mediaCwd}
         />
       </WorkstreamCollapse>
-      {generatedMedia?.length ? <GeneratedMediaGallery items={generatedMedia} cwd={mediaCwd ?? null} /> : null}
+      {canCollapse && generatedMedia?.length ? <GeneratedMediaGallery items={generatedMedia} cwd={mediaCwd ?? null} /> : null}
     </WorkstreamDisclosureState>
   );
 }

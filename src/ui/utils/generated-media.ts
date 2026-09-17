@@ -37,12 +37,12 @@ function preferMediaItem(current: GeneratedMediaItem | undefined, next: Generate
   return current;
 }
 
-export function extractGeneratedMediaFromMessages(messages: StreamMessage[]): GeneratedMediaItem[] {
+export function extractGeneratedMediaFromMessages(messages: StreamMessage[], options?: { identity: 'path' }): GeneratedMediaItem[] {
   const byIdentity = new Map<string, GeneratedMediaItem>();
   const toolMeta = new Map<string, { name: string; prompt?: string }>();
 
   const addItem = (item: GeneratedMediaItem) => {
-    const id = mediaIdentity(item.path);
+    const id = options?.identity === 'path' ? item.path : mediaIdentity(item.path);
     byIdentity.set(id, preferMediaItem(byIdentity.get(id), item));
   };
 
@@ -79,12 +79,12 @@ export function isGeneratedMediaPath(filePath: string): boolean {
   return getGeneratedMediaKind(filePath) !== null;
 }
 
-const MARKDOWN_IMAGE_SRC = /!\[[^\]]*]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+const MARKDOWN_IMAGE_SRC = /!\[[^\]]*]\(\s*(?:<([^>]+)>|([^)\s]+))(?:\s+"[^"]*")?\s*\)/g;
 
 export function extractMarkdownImageSources(text: string): string[] {
   const sources: string[] = [];
   for (const match of text.matchAll(MARKDOWN_IMAGE_SRC)) {
-    const src = (match[1] || '').trim();
+    const src = (match[1] || match[2] || '').trim();
     if (src) sources.push(src);
   }
   return sources;

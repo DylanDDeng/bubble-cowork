@@ -1205,6 +1205,7 @@ export const useAppStore = create<Store>()(
         const errorSessionId = (event.payload as { sessionId?: string }).sessionId;
         if (errorSessionId) {
           const failed = get().sessions[errorSessionId];
+          if (failed?.hydrated) set(state => ({ sessions: { ...state.sessions, [errorSessionId]: { ...state.sessions[errorSessionId], lastTurnError: event.payload.message } } }));
           if (failed && !failed.hydrated && failed.hydrationPending) {
             const attempts = failed.hydrationAttempts ?? 1;
             set((state) => {
@@ -1833,6 +1834,7 @@ export const useAppStore = create<Store>()(
   setActiveRightUtilityTab: (target) => {
     set((state) => ({
       activeRightUtilityTab: target,
+      rightPanelFullscreen: state.rightPanelFullscreen === 'images' && !target?.startsWith('images:') ? null : state.rightPanelFullscreen,
       rightUtilityTabs: target ? addRightUtilityTab(state.rightUtilityTabs, target) : state.rightUtilityTabs,
       rightUtilityPanelHidden: target ? false : state.rightUtilityPanelHidden,
     }));
@@ -1863,7 +1865,7 @@ export const useAppStore = create<Store>()(
         patch.projectTreeCollapsed = false;
         patch.browserPanelOpen = false;
         patch.rightPanelFullscreen =
-          state.rightPanelFullscreen === 'browser'
+          (state.rightPanelFullscreen === 'browser' || state.rightPanelFullscreen === 'images')
             ? null
             : state.rightPanelFullscreen === 'files' && activeKind === 'review'
               ? 'review'
@@ -1901,7 +1903,7 @@ export const useAppStore = create<Store>()(
         projectTreeCollapsed: false,
         browserPanelOpen: false,
         rightPanelFullscreen:
-          state.rightPanelFullscreen === 'browser'
+          (state.rightPanelFullscreen === 'browser' || state.rightPanelFullscreen === 'images')
             ? null
             : state.rightPanelFullscreen === 'review'
               ? 'files'
@@ -1949,7 +1951,7 @@ export const useAppStore = create<Store>()(
         projectTreeCollapsed: false,
         browserPanelOpen: false,
         rightPanelFullscreen:
-          state.rightPanelFullscreen === 'browser'
+          (state.rightPanelFullscreen === 'browser' || state.rightPanelFullscreen === 'images')
             ? null
             : state.rightPanelFullscreen === 'files'
               ? 'review'
@@ -2009,6 +2011,7 @@ export const useAppStore = create<Store>()(
         patch.rightUtilityPanelHidden = false;
       }
       const targetKind = getRightUtilityTabKind(target);
+      if (targetKind === 'images' && state.rightPanelFullscreen === 'images') patch.rightPanelFullscreen = null;
       if (targetKind === 'browser' && state.rightPanelFullscreen === 'browser') {
         patch.rightPanelFullscreen = null;
       }
@@ -2207,7 +2210,7 @@ export const useAppStore = create<Store>()(
         activeRightUtilityTab: browserPanelOpen ? browserTab : state.activeRightUtilityTab,
         rightUtilityPanelHidden: browserPanelOpen ? false : state.rightUtilityPanelHidden,
         rightPanelFullscreen:
-          !browserPanelOpen && state.rightPanelFullscreen === 'browser'
+          (!browserPanelOpen && state.rightPanelFullscreen === 'browser') || (browserPanelOpen && state.rightPanelFullscreen === 'images')
             ? null
             : state.rightPanelFullscreen,
       };
@@ -2215,6 +2218,10 @@ export const useAppStore = create<Store>()(
   },
 
   setRightPanelFullscreen: (target) => {
+    if (target === 'images') {
+      set({ rightPanelFullscreen: 'images', rightUtilityPanelHidden: false, browserPanelOpen: false });
+      return;
+    }
     if (target === 'browser') {
       set((state) => ({
         rightPanelFullscreen: 'browser',
@@ -2523,7 +2530,7 @@ export const useAppStore = create<Store>()(
         return {
           pendingChatInjection: {
             ...pending,
-            text: `${pending.text}\n\n${request.text}`,
+            text: [pending.text, request.text].filter(Boolean).join('\n\n'),
             attachments: [...(pending.attachments ?? []), ...(request.attachments ?? [])],
             nonce: Date.now(),
           },
@@ -3164,6 +3171,7 @@ function handleSessionStatus(
         [sessionId]: {
           ...session,
           status,
+          lastTurnError: status === 'running' ? undefined : session.lastTurnError,
           // A fresh turn is starting: drop the previous turn's id NOW so the
           // old plan card can't resurface in the window before codex sends
           // `turn/started`. Mid-turn running re-broadcasts (and steers, which

@@ -194,12 +194,13 @@ export interface SessionStreamingState {
 export type ActiveWorkspace = 'chat' | 'skills' | 'automations' | 'prs' | 'board';
 export type ChatSidebarView = 'threads' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
-export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent' | 'goal';
+export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent' | 'goal' | 'images';
 export type ProjectUtilityPanelTarget =
   | ProjectUtilityPanelKind
   | `files:${string}`
   | `browser:${string}`
   | `goal:${string}`
+  | `images:${string}`
   // One top-level tab PER subagent (the tool_use id after the colon) — there
   // is no wrapper "subagent" tab; each subagent is its own strip tab.
   | `subagent:${string}`
@@ -298,7 +299,7 @@ export type SessionRightPanelSnapshot = {
   tabs: ProjectUtilityPanelTarget[];
   activeTab: ProjectUtilityPanelTarget | null;
   hidden: boolean;
-  fullscreen: 'browser' | 'files' | 'review' | null;
+  fullscreen: 'browser' | 'files' | 'review' | 'images' | null;
   fileTabsByUtilityTab: Record<string, SessionRightPanelFileState>;
   reviewDiffSelection: ReviewDiffSelection | null;
 };
@@ -307,7 +308,7 @@ export type SessionRightPanelLiveFields = {
   rightUtilityTabs: ProjectUtilityPanelTarget[];
   activeRightUtilityTab: ProjectUtilityPanelTarget | null;
   rightUtilityPanelHidden: boolean;
-  rightPanelFullscreen: 'browser' | 'files' | 'review' | null;
+  rightPanelFullscreen: 'browser' | 'files' | 'review' | 'images' | null;
   projectTreeCollapsed: boolean;
   projectPanelView: ProjectPanelView;
   browserPanelOpen: boolean;
@@ -319,6 +320,7 @@ export interface SessionView {
   id: string;
   title: string;
   status: import('../shared/types').SessionStatus;
+  lastTurnError?: string;
   scope?: SessionScope;
   agentId?: string | null;
   cwd?: string;
@@ -448,7 +450,7 @@ export interface AppState {
   terminalDrawerOpen: boolean;
   terminalDrawerHeight: number;
   browserPanelOpen: boolean;
-  rightPanelFullscreen: 'browser' | 'files' | 'review' | null;
+  rightPanelFullscreen: 'browser' | 'files' | 'review' | 'images' | null;
   sessionsLoaded: boolean;
   // 搜索状态
   sidebarSearchQuery: string;
@@ -618,7 +620,7 @@ export interface AppActions {
   setTerminalDrawerOpen: (open: boolean) => void;
   setTerminalDrawerHeight: (height: number) => void;
   setBrowserPanelOpen: (open: boolean) => void;
-  setRightPanelFullscreen: (target: 'browser' | 'files' | 'review' | null) => void;
+  setRightPanelFullscreen: (target: 'browser' | 'files' | 'review' | 'images' | null) => void;
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;

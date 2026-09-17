@@ -46,8 +46,9 @@ export function startQueueAutoFlush(): void {
 
 function flushIfUnowned(sessionId: string, provider: AgentProvider | undefined): void {
   if (hasQueueFlushOwner(sessionId)) return;
-  const items = useComposerQueueStore.getState().takeAll(sessionId);
+  const items = useComposerQueueStore.getState().takeNextBatch(sessionId);
   if (items.length === 0) return;
+  if (items[0].exclusive && items[0].dispatch) { items[0].dispatch(); return; }
   const attachments = items.flatMap((item) => item.attachments);
   sendEvent({
     type: 'session.continue',

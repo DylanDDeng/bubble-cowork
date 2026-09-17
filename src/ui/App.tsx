@@ -1,3 +1,5 @@
+import { Image as ImageStudioIcon } from './components/icons';
+import { ImageStudioPanel, ImageStudioFileActions } from './components/ImageStudioPanel';
 import { subscribeAppPreferences } from './store/useAppPreferences';
 import { TextInputDialogHost } from './components/ui/text-input-dialog';
 import { GoalEditorPanel } from './components/SessionGoal';
@@ -151,6 +153,7 @@ function getProjectUtilitySubagentId(target: ProjectUtilityPanelTarget): string 
 }
 
 function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUtilityPanelKind {
+  if (target.startsWith('images:')) return 'images';
   if (target.startsWith('goal:')) return 'goal';
   if (isProjectUtilityFileTab(target)) return 'files';
   if (isProjectUtilityBrowserTab(target)) return 'browser';
@@ -709,6 +712,7 @@ export function App() {
     const workspaceLeaf = getPathLeaf(activeSession?.cwd || projectCwd || '');
     return rightUtilityTabs.map((tab) => {
       const kind = getProjectUtilityTabKind(tab);
+      if (kind === 'images') return { id: tab, kind, label: 'Images' };
       if (kind === 'goal') return { id: tab, kind, label: 'Edit goal' };
       if (kind === 'files') {
         return { id: tab, kind, label: activeProjectFileTabs[tab]?.name || 'Files' };
@@ -877,6 +881,13 @@ export function App() {
         continue;
       }
 
+      // Finishing a turn must not replace the user's open image workspace.
+      const workspace = useAppStore.getState();
+      if (!workspace.rightUtilityPanelHidden && workspace.activeRightUtilityTab === `images:${session.id}`) {
+        pendingAutoPreviewSessionsRef.current.delete(session.id);
+        continue;
+      }
+
       const artifact = extractLatestSuccessfulHtmlArtifactFromLatestTurn(session.messages);
       if (artifact) {
         const previewKey = `${session.id}:${artifact.toolUseId}`;
@@ -917,7 +928,10 @@ export function App() {
         ? extractGeneratedMediaFromMessages(session.messages.slice(latestPromptIndex))
         : [];
       const latestMedia = generatedMedia[generatedMedia.length - 1];
-      if (!latestMedia) {
+      // Generated images stay in the transcript until the user opens them.
+      // Keep the existing automatic file preview only for generated videos.
+      if (!latestMedia || latestMedia.kind === 'image') {
+        pendingAutoPreviewSessionsRef.current.delete(session.id);
         continue;
       }
 
@@ -1163,6 +1177,7 @@ export function App() {
               activeRightUtilityTab ??
               (activeUtilityPanel !== 'launcher' ? activeUtilityPanel : null);
             const kind = rightUtilityTabDescriptors.find((tab) => tab.id === target)?.kind;
+            if (kind === 'images') return () => setRightPanelFullscreen(rightPanelFullscreen === 'images' ? null : 'images');
             if (kind === 'files') return toggleFilesPanelFullscreen;
             if (kind === 'review') return toggleReviewPanelFullscreen;
             if (kind === 'browser') return toggleBrowserPanelFullscreen;
@@ -1199,6 +1214,9 @@ export function App() {
               isFullscreen={rightPanelFullscreen === 'files' && activeRightUtilityTab === tabId}
               onToggleFullscreen={toggleFilesPanelFullscreen}
             />
+          ))}
+          {rightUtilityTabs.filter(tab => tab.startsWith('images:')).map(tab => (
+            <ImageStudioPanel key={tab} sessionId={tab.slice(7)} hidden={activeUtilityPanel === null || activeRightUtilityTab !== tab} fullscreen={rightPanelFullscreen === 'images'} />
           ))}
           {rightUtilityTabs.filter(tab => tab.startsWith('goal:')).map(tab => (
             <GoalEditorPanel key={tab} sessionId={tab.slice(5)} hidden={activeRightUtilityTab !== tab} />
@@ -1344,6 +1362,7 @@ export function App() {
 }
 
 function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
+  if (target === 'images') return ImageStudioIcon;
   if (target === 'goal') return Target;
   if (target === 'terminal') return SquareTerminal;
   if (target === 'browser') return Globe;
@@ -1738,6 +1757,7 @@ function RightUtilityTabStrip({
       <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 
       <div className="no-drag ml-1 flex h-full shrink-0 items-center gap-0.5">
+        {activeTab?.startsWith('images:') && <ImageStudioFileActions sessionId={activeTab.slice(7)} />}
         {onToggleFullscreen ? (
           <button
             type="button"

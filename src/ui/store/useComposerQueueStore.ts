@@ -18,6 +18,11 @@ export interface QueuedComposerMessage {
   effectivePrompt: string;
   attachments: Attachment[];
   references: CodexReferencePayload;
+  /** Preserve attachment numbering for a dedicated image edit turn. */
+  exclusive?: boolean;
+  /** An exclusive action keeps its captured session configuration. */
+  dispatch?: () => void;
+  onRemove?: () => void;
 }
 
 interface ComposerQueueStore {
@@ -28,6 +33,7 @@ interface ComposerQueueStore {
   takeOne: (sessionId: string, itemId: string) => QueuedComposerMessage | null;
   /** Atomically drain the whole queue for a session. */
   takeAll: (sessionId: string) => QueuedComposerMessage[];
+  takeNextBatch: (sessionId: string) => QueuedComposerMessage[];
 }
 
 const EMPTY_QUEUE: QueuedComposerMessage[] = [];
@@ -64,22 +70,26 @@ export const useComposerQueueStore = create<ComposerQueueStore>()((set, get) => 
       },
     })),
 
-  remove: (sessionId, itemId) =>
-    set((state) => {
-      const queue = state.queues[sessionId];
-      if (!queue?.some((item) => item.id === itemId)) return state;
-      return {
-        queues: {
-          ...state.queues,
-          [sessionId]: queue.filter((item) => item.id !== itemId),
-        },
-      };
-    }),
+  remove: (sessionId, itemId) => {
+    const item = get().queues[sessionId]?.find(entry => entry.id === itemId);
+    if (!item) return;
+    set(state => ({ queues: { ...state.queues, [sessionId]: state.queues[sessionId].filter(entry => entry.id !== itemId) } }));
+    item.onRemove?.();
+  },
 
   takeOne: (sessionId, itemId) => {
     const item = get().queues[sessionId]?.find((entry) => entry.id === itemId) ?? null;
-    if (item) get().remove(sessionId, itemId);
+    if (item) set(state => ({ queues: { ...state.queues, [sessionId]: state.queues[sessionId].filter(entry => entry.id !== itemId) } }));
     return item;
+  },
+
+  takeNextBatch: (sessionId) => {
+    const queue = get().queues[sessionId] ?? EMPTY_QUEUE;
+    const boundary = queue.findIndex(item => item.exclusive);
+    const count = boundary === 0 ? 1 : boundary < 0 ? queue.length : boundary;
+    const items = queue.slice(0, count);
+    if (count) set(state => ({ queues: { ...state.queues, [sessionId]: queue.slice(count) } }));
+    return items;
   },
 
   takeAll: (sessionId) => {

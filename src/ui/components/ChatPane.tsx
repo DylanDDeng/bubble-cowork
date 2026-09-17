@@ -1,3 +1,5 @@
+import { ImageStudioComposerHome } from './ImageStudioComposerDock';
+import { ImageStudioSessionContext } from '../lib/image-studio';
 import { getAssistantPhase } from '../../shared/assistant-phase';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
@@ -1663,6 +1665,7 @@ export function ChatPane({
     rememberChatScrollPosition(scrollPositionKey, container);
   }, [historyNavigationTarget, scrollPositionKey, sessionId, setHistoryNavigationTarget]);
 
+
   useEffect(() => {
     if (!historyNavigationTarget || !sessionId || historyNavigationTarget.sessionId !== sessionId) {
       return;
@@ -1988,6 +1991,7 @@ export function ChatPane({
                 </div>
               )}
 
+              <ImageStudioSessionContext.Provider value={sessionId}>
               <TurnDiffContext.Provider value={turnDiffContextValue}>
                 {timelineItems.map((item, idx) => {
                   const nextItem = timelineItems[idx + 1];
@@ -2187,6 +2191,7 @@ export function ChatPane({
                   );
                 })}
               </TurnDiffContext.Provider>
+              </ImageStudioSessionContext.Provider>
 
               {(streamingWorkstreamModel || shouldRenderStandalonePartial) && (
                 <div className="my-2 min-w-0 overflow-x-auto streaming-content">
@@ -2215,6 +2220,11 @@ export function ChatPane({
                 </div>
               )}
 
+              {session.status === 'error' && <div role="status" data-turn-failure className="my-3 text-[13px] text-[var(--text-secondary)]">
+                <div className="text-[var(--error)]">This turn did not finish.</div>
+                <div>{session.lastTurnError || 'The connection ended before completion. Send a message to continue.'}</div>
+              </div>}
+
               {/* Only show the idle activity label when no trace or final answer owns it. */}
               {(() => {
                 if (session.status !== 'running') return null;
@@ -2239,34 +2249,14 @@ export function ChatPane({
           </div>
 
           {session.readOnly ? null : (
+            <ImageStudioComposerHome sessionId={sessionId!}>
             <div className="aegis-chat-composer px-8 pb-4">
-              {sessionId ? (
-                <ComputerUseGrantBadge sessionId={sessionId} grants={session?.computerUseGrants || []} />
-              ) : null}
-              {activePermissionRequest ? (
-                <PromptInput
-                  sessionId={sessionId}
-                  approvalPending
-                  approvalPanel={
-                    <ComposerPendingPermissionPanel
-                      request={activePermissionRequest}
-                      pendingCount={permissionQueue.length}
-                      onSubmit={handlePermissionResult}
-                    />
-                  }
-                />
-              ) : (
-                <>
-                  {activePlanMessage ? (
-                    <CodexActivePlanCard
-                      explanation={activePlanMessage.explanation}
-                      steps={activePlanMessage.steps}
-                    />
-                  ) : null}
-                  <PromptInput sessionId={sessionId} />
-                </>
-              )}
+              {sessionId ? <ComputerUseGrantBadge sessionId={sessionId} grants={session?.computerUseGrants || []} /> : null}
+              {!activePermissionRequest && activePlanMessage ? <CodexActivePlanCard explanation={activePlanMessage.explanation} steps={activePlanMessage.steps} /> : null}
+              <PromptInput sessionId={sessionId} approvalPending={!!activePermissionRequest}
+                approvalPanel={activePermissionRequest ? <ComposerPendingPermissionPanel request={activePermissionRequest} pendingCount={permissionQueue.length} onSubmit={handlePermissionResult} /> : undefined} />
             </div>
+            </ImageStudioComposerHome>
           )}
           </>
           )}

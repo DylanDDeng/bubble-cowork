@@ -22,6 +22,7 @@ window.electron = {
  getSessionGoal:async()=>({goal:null,supported:false,revision:0}),onSessionGoalChanged:()=>()=>{},
  getClaudeCompatibleProviderConfig:async()=>({}),getBubbleProvidersConfig:async()=>({providers:[]}),
  getProjectFolders:async()=>[],getModels:async()=>[],
+ readProjectFilePreview:async()=>{const c=document.createElement('canvas');c.width=320;c.height=240;const x=c.getContext('2d');x.fillStyle='#c5d2bf';x.fillRect(0,0,320,240);return {kind:'image',dataUrl:c.toDataURL()}},
 };
 for(const p of ['Claude','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek','Codex'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
 const config={defaultModel:'gpt-test',options:['gpt-test'],availableModels:[{name:'gpt-test',label:'GPT Test'}]};
@@ -45,6 +46,13 @@ const model = (entries, running=true, durationMs) => ({state:running?'running':'
 function App(){
  const [n,setN]=useState(10),[running,setRunning]=useState(true),[turn,setTurn]=useState(1),[states,setStates]=useState(false),[chat,setChat]=useState(false);
  window.qa={chat:()=>setChat(true),store,chatId,
+  imageTurn:(provider,stage)=>{
+   const imageTool={type:'assistant',uuid:'image-tool',createdAt:1200,message:{content:[{type:'tool_use',id:'image-edit',name:'image_edit',input:{prompt:'Make the cat white',__aegisGeneratedMedia:[{kind:'image',path:'/tmp/white-cat.png'}]}}]}};
+   const imageResult={type:'user',uuid:'image-result',createdAt:1400,message:{content:[{type:'tool_result',tool_use_id:'image-edit',content:'/tmp/white-cat.png'}]}};
+   const reply={type:'assistant',uuid:'image-reply',createdAt:1800,streaming:stage==='streaming',...(provider==='codex'?{phase:'final_answer'}:{}),message:{content:[{type:'text',text:'The cat is now white. The pose and background are unchanged.'}]}};
+   const messages=[prompt,{...thought,uuid:provider+'-image-thought'},imageTool,imageResult,...(stage==='generated'?[]:[reply]),...(stage==='completed'?[{type:'result',subtype:'success',duration_ms:19000,total_cost_usd:0,usage:{input_tokens:1,output_tokens:1}}]:[])];
+   store.setState(s=>({sessions:{...s.sessions,[chatId]:{...s.sessions[chatId],provider,status:stage==='completed'?'completed':'running',messages}}}));
+  },
   stopThinking:()=>store.setState(s=>({sessions:{...s.sessions,[chatId]:{...s.sessions[chatId],messages:[prompt,thought],status:'completed'}}})),
   answer:()=>emit({type:'assistant',uuid:'answer',createdAt:2000,streaming:true,phase:'final_answer',message:{content:[{type:'text',text:'The project is ready.'}]}}),
   complete:()=>{emit({type:'assistant',uuid:'answer',createdAt:2000,streaming:false,phase:'final_answer',message:{content:[{type:'text',text:'The project is ready.'}]}});emit({type:'result',subtype:'success',duration_ms:44000,total_cost_usd:0,usage:{input_tokens:1,output_tokens:1}});store.setState(s=>({sessions:{...s.sessions,[chatId]:{...s.sessions[chatId],status:'completed'}}}));},
@@ -150,6 +158,26 @@ app.whenReady().then(async()=>{
   await js('qa.stopThinking()');await delay(350);
   assert.equal(await js('document.querySelectorAll("#real-chat .workstream-toggle-row").length'),0,'stopping during thinking keeps the real trace visible');
   assert((await js('document.querySelector("#real-chat").innerText')).includes('Reasoning'));
+  await js('qa.store.getState().handleServerEvent({type:"session.status",payload:{sessionId:qa.chatId,status:"error"}});qa.store.getState().handleServerEvent({type:"runner.error",payload:{sessionId:qa.chatId,message:"Agent connection closed"}})');await delay(150);
+  assert((await js('document.querySelector("[data-turn-failure]").textContent')).includes('Agent connection closed'));
+  await shot('chat-interrupted');
+  await js('qa.store.getState().handleServerEvent({type:"session.status",payload:{sessionId:qa.chatId,status:"running"}})');await delay(150);
+  assert.equal(await js('document.querySelector("[data-turn-failure]")===null'),true,'new turn clears the failure notice');
+  assert.equal(await js('qa.store.getState().sessions[qa.chatId].lastTurnError'),undefined);
+  w.setContentSize(1000,850);
+  for(const provider of ['grok','codex']){
+   await js('qa.imageTurn('+JSON.stringify(provider)+',"generated")');
+   await until('document.querySelectorAll("#real-chat img[alt=\\"white-cat.png\\"]").length===1','image appears before reply');
+   for(const stage of ['streaming','completed']){
+    await js('qa.imageTurn('+JSON.stringify(provider)+','+JSON.stringify(stage)+')');await delay(350);
+    await until('document.querySelectorAll("#real-chat img[alt=\\"white-cat.png\\"]").length===1','one image throughout completion');
+    assert(await js('(()=>{const image=document.querySelector("#real-chat img[alt=\\"white-cat.png\\"]"),reply=[...document.querySelectorAll("#real-chat p")].find(p=>p.textContent.startsWith("The cat is now white."));return !!reply&&image.getBoundingClientRect().bottom<=reply.getBoundingClientRect().top})()'),provider+' '+stage+': image stays above reply');
+    await shot('image-order-'+provider+'-'+stage);
+   }
+   assert.equal(await js('document.querySelector("#real-chat .workstream-toggle-row button").getAttribute("aria-expanded")'),'false','completed image turn collapses');
+   await click('#real-chat .workstream-toggle-row button');
+   assert.equal(await js('document.querySelectorAll("#real-chat img[alt=\\"white-cat.png\\"]").length'),1,'opening trace does not duplicate image');
+  }
   assert.deepEqual(errors,[],'renderer console errors');
   console.log('workstream disclosure: lifecycle, reasoning, tool output, scrolling, keyboard and themes passed');app.exit(0);
  }catch(e){console.error(e);await shot('failure');app.exit(1)}

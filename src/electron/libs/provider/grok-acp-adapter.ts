@@ -38,6 +38,7 @@ import {
 } from '../../../shared/generated-media';
 import { getBrowserUseMcpDescriptor } from '../browser-use-http-server';
 import { createGrokAcpHttpMcpServer } from './grok-acp-mcp';
+import { applyGrokPermissionMode, grokPermissionMeta } from './grok-acp-permissions';
 
 type PromptBlock =
   | { type: 'text'; text: string }
@@ -253,19 +254,6 @@ function extractModelConfigId(value: unknown): string {
   return 'model';
 }
 
-function extractConfigId(value: unknown, targetId: string, fallback: string): string {
-  for (const option of getArray(value)) {
-    const record = getRecord(option);
-    if (!record) continue;
-    const id = getString(record.configId || record.id || record.name);
-    const category = getString(record.category);
-    if (id === targetId || category === targetId) {
-      return id || fallback;
-    }
-  }
-  return fallback;
-}
-
 function normalizeGrokPermissionMode(value: unknown): GrokPermissionMode | undefined {
   return value === 'default' || value === 'plan' || value === 'auto' || value === 'yolo'
     ? value
@@ -420,7 +408,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
         ...(input.resumeSessionId ? { sessionId: input.resumeSessionId } : {}),
         cwd: input.cwd,
         mcpServers,
-        ...(permissionMode ? { permissionMode } : {}),
+        ...(permissionMode ? { _meta: grokPermissionMeta(permissionMode) } : {}),
       })
       .catch((error) => {
         terminateSpawnedGrokProcess(proc);
@@ -449,18 +437,12 @@ export class GrokAcpAdapter implements ProviderAdapter {
         // Grok CLI may not support session/set_config_option; keep the default model.
       }
     }
-    // If permission mode wasn't accepted in session/new, try set_config_option
-    if (permissionMode && !sessionRecord?.permissionMode) {
+    if (permissionMode) {
       try {
-        const configId = extractConfigId(sessionRecord?.configOptions, 'mode', 'mode');
-        const configResult = await rpc.request('session/set_config_option', {
-          sessionId: providerSessionId,
-          configId,
-          value: permissionMode,
-        });
-        sessionRecord = getRecord(configResult) || sessionRecord;
-      } catch {
-        // Grok CLI may not support session/set_config_option; keep the default mode.
+        await applyGrokPermissionMode(rpc, providerSessionId, permissionMode);
+      } catch (error) {
+        terminateSpawnedGrokProcess(proc);
+        throw error;
       }
     }
 
@@ -665,20 +647,14 @@ export class GrokAcpAdapter implements ProviderAdapter {
     session: ActiveGrokSession,
     mode: GrokPermissionMode | undefined
   ): Promise<void> {
-    const permissionMode = normalizeGrokPermissionMode(mode);
-    if (!permissionMode || session.permissionMode === permissionMode) {
+    const permissionMode = normalizeGrokPermissionMode(mode) ?? session.permissionMode;
+    if (!permissionMode) {
       return;
     }
-    try {
-      await session.rpc.request('session/set_config_option', {
-        sessionId: session.providerSessionId,
-        configId: 'mode',
-        value: permissionMode,
-      });
-      session.permissionMode = permissionMode;
-    } catch {
-      // Some Grok versions may not support mid-session mode changes; ignore.
-    }
+    // Reconcile before every turn, even when the picker value is unchanged:
+    // native tools or another client may have changed the actual mode.
+    await applyGrokPermissionMode(session.rpc, session.providerSessionId, permissionMode);
+    session.permissionMode = permissionMode;
   }
 
   async respondToRequest(

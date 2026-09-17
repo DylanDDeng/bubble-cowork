@@ -99,7 +99,7 @@ export function AssistantWorkstream({
       );
       if (hasReadyMediaTool) lastMedia = index;
     });
-    return lastMedia >= 0 ? lastMedia : lastCompact;
+    return lastMedia >= 0 ? lastMedia : lastCompact >= 0 ? lastCompact : groups.length - 1;
   }, [generatedMedia, groups]);
 
   if (model.entries.length === 0 && !model.todoProgress) {

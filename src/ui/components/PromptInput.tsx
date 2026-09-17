@@ -1,3 +1,6 @@
+import { useImageStudioStore, EMPTY_IMAGE_STUDIO } from '../store/useImageStudioStore';
+import { importStudioImages, resolveImageStudioReferences } from '../lib/image-studio';
+import { imageCommentPrompt, imageEditEffectivePrompt, supportsImageStudio } from '../utils/image-studio';
 import { composerEnterAction } from '../../shared/app-preferences';
 import { useAppPreferences } from '../store/useAppPreferences';
 import { focusComposerFromSurface } from '../utils/composer-surface-focus';
@@ -175,6 +178,27 @@ export function PromptInput({
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
   const targetSessionId = sessionId ?? activeSessionId;
+  const imageStudio = useImageStudioStore(state => targetSessionId ? state.sessions[targetSessionId] || EMPTY_IMAGE_STUDIO : EMPTY_IMAGE_STUDIO);
+  const [imageAttachmentsLoading, setImageAttachmentsLoading] = useState(false);
+  const imageSelectionKey = JSON.stringify(imageStudio.selected);
+  useEffect(() => {
+    if (!targetSessionId) return;
+    let cancelled = false;
+    const paths: string[] = JSON.parse(imageSelectionKey);
+    setImageAttachmentsLoading(paths.length > 0);
+    if (!paths.length) {
+      setAttachments(previous => previous.filter(item => !item.id.startsWith('image-studio:')));
+      return;
+    }
+    setAttachments(previous => previous.filter(item => !item.id.startsWith('image-studio:')));
+    void importStudioImages(paths).then(imported => {
+      if (cancelled) return;
+      setAttachments(previous => [...previous.filter(item => !item.id.startsWith('image-studio:')),
+        ...imported.map((item, index) => ({ ...item, id: 'image-studio:' + paths[index] }))]);
+    }).catch(error => { if (!cancelled) { toast.error(String(error.message || error)); useImageStudioStore.getState().patch(targetSessionId, { selected: [] }); } })
+      .finally(() => { if (!cancelled) setImageAttachmentsLoading(false); });
+    return () => { cancelled = true; };
+  }, [targetSessionId, imageSelectionKey]);
   const goalTargetRef = useRef(targetSessionId);
   goalTargetRef.current = targetSessionId;
   const activeSession = useAppStore((s) =>
@@ -648,6 +672,8 @@ export function PromptInput({
     setPrompt('');
     setCursorIndex(0);
     setAttachments([]);
+    const id = goalTargetRef.current;
+    if (id) useImageStudioStore.getState().patch(id, { selected: [], comments: {}, feedback: undefined });
     window.requestAnimationFrame(() => {
       editorRef.current?.focus();
       editorRef.current?.setCursorIndex(0);
@@ -711,9 +737,16 @@ export function PromptInput({
         ? capabilityMenu.selectedSkillRemainder.trim()
         : prompt.trim();
 
+    const selectedImages = attachments.filter(item => item.id.startsWith('image-studio:'));
+    const referenceImages = attachments.filter(item => item.kind === 'image');
+    const imagePrompt = selectedImages.length && supportsImageStudio(runtimeProvider)
+      ? imageEditEffectivePrompt(runtimeProvider as 'codex' | 'grok', imageCommentPrompt(
+          referenceImages.map(item => item.id.startsWith('image-studio:') ? item.id.slice('image-studio:'.length) : item.path), imageStudio.comments, selectedSkillPrompt),
+          referenceImages.map(item => item.path))
+      : selectedSkillPrompt;
     return buildPromptWithProjectFileMentions({
       cwd: activeSession?.cwd || null,
-      prompt: selectedSkillPrompt,
+      prompt: imagePrompt,
       ignoredMentionPaths: [],
     });
   };
@@ -788,7 +821,7 @@ export function PromptInput({
       return;
     }
 
-    if (attachmentImport.pending.current > 0) return;
+    if (attachmentImport.pending.current > 0 || imageAttachmentsLoading) return;
     if (!prompt.trim() && attachments.length === 0) return;
     if (runtimeProvider === 'deepseek') {
       const imageError = deepseekImageInputError(attachments, agentSelection.model, agentSelection.deepseekModelConfig);
@@ -868,10 +901,11 @@ export function PromptInput({
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
-    const codexReferences =
-      runtimeProvider === 'codex'
-        ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
-        : {};
+    const imageEdit = attachments.some(item => item.id.startsWith('image-studio:')) && supportsImageStudio(runtimeProvider);
+    const codexReferences = runtimeProvider === 'codex'
+      ? capabilityMenu.selectedSkill ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
+        : imageEdit ? await resolveImageStudioReferences(activeSession.cwd) : {}
+      : {};
     if (isGoal && !activeSession.isDraft) {
       if (goalSubmitting) return;
       if (sessionGoal.goal && sessionGoal.goal.status !== 'complete' && !(await confirmDialog({
@@ -1017,7 +1051,7 @@ export function PromptInput({
 
     // Queue locally for all providers, or steer when the runtime supports it.
     // Queued messages auto-send after successful completion.
-    const shouldSteer = canSteerWhileRunning && ((preferences.followUpBehavior === 'steer') !== invertFollowUp);
+    const shouldSteer = !imageEdit && canSteerWhileRunning && ((preferences.followUpBehavior === 'steer') !== invertFollowUp);
     if (canQueueWhileRunning && !shouldSteer) {
       useComposerQueueStore.getState().enqueue(activeSession.id, {
         id: crypto.randomUUID(),
@@ -1025,6 +1059,7 @@ export function PromptInput({
         effectivePrompt: outgoingEffectivePrompt,
         attachments: outgoingAttachments,
         references: codexReferences,
+        exclusive: imageEdit,
       });
       resetComposer();
       return;
@@ -1135,8 +1170,11 @@ export function PromptInput({
   // Chip action: inject a queued message into the still-running turn.
   const steerQueuedMessage = (itemId: string) => {
     if (!targetSessionId || approvalPending || (isRunning && !canSteerWhileRunning)) return;
+    const queued = useComposerQueueStore.getState().queues[targetSessionId]?.find(item => item.id === itemId);
+    if (queued?.exclusive && isRunning) return;
     const item = useComposerQueueStore.getState().takeOne(targetSessionId, itemId);
     if (!item) return;
+    if (item.dispatch) { item.dispatch(); return; }
     sendContinueEvent(targetSessionId, item);
   };
 
@@ -1170,8 +1208,9 @@ export function PromptInput({
     prevStatusRef.current = { sessionId: targetSessionId ?? null, status: current };
     if (!targetSessionId || prev.sessionId !== targetSessionId) return;
     if (prev.status !== 'running' || current !== 'completed') return;
-    const items = useComposerQueueStore.getState().takeAll(targetSessionId);
+    const items = useComposerQueueStore.getState().takeNextBatch(targetSessionId);
     if (items.length === 0) return;
+    if (items[0].exclusive && items[0].dispatch) { items[0].dispatch(); return; }
     sendContinueEvent(targetSessionId, {
       displayPrompt: items.map((item) => item.displayPrompt).join('\n\n'),
       effectivePrompt: items.map((item) => item.effectivePrompt).join('\n\n'),
@@ -1472,7 +1511,7 @@ export function PromptInput({
     : 'rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]';
 
   return (
-    <div className="bg-transparent">
+    <div className="bg-transparent" data-composer-empty={!prompt && attachments.length === 0}>
       <div className="mx-auto max-w-4xl">
         <Dialog.Root
           open={handoffTarget !== null}
@@ -1537,9 +1576,11 @@ export function PromptInput({
                 <button
                   type="button"
                   onClick={() => steerQueuedMessage(item.id)}
-                  disabled={approvalPending || (isRunning && !canSteerWhileRunning)}
+                  disabled={approvalPending || (isRunning && (!canSteerWhileRunning || item.exclusive))}
                   title={
-                    delegationPending && isRunning
+                    item.exclusive && isRunning
+                      ? 'Waits for the current turn to finish'
+                      : delegationPending && isRunning
                       ? 'Locked while a delegated agent is working'
                       : canSteerWhileRunning
                         ? 'Send into the running turn now'
@@ -1548,7 +1589,7 @@ export function PromptInput({
                   className="flex flex-shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <CornerDownRight className="h-4 w-4" aria-hidden="true" />
-                  {canSteerWhileRunning ? 'Steer' : 'Send'}
+                  {canSteerWhileRunning && !item.exclusive ? 'Steer' : 'Send'}
                 </button>
                 <button
                   type="button"
@@ -1606,14 +1647,21 @@ export function PromptInput({
             data-composer-drop-zone
             {...attachmentImport.dropProps}
           >
-          {attachmentImport.isImporting && <div role="status" className="px-5 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
+          {(attachmentImport.isImporting || imageAttachmentsLoading) && <div role="status" className="px-5 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips
                 attachments={attachments}
-                onRemove={(id) =>
-                  setAttachments((prev) => prev.filter((a) => a.id !== id))
-                }
+                onRemove={(id) => {
+                  setAttachments((prev) => prev.filter((a) => a.id !== id));
+                  if (targetSessionId && id.startsWith('image-studio:')) {
+                    const path = id.slice('image-studio:'.length);
+                    useImageStudioStore.getState().patch(targetSessionId, {
+                      selected: imageStudio.selected.filter(item => item !== path),
+                      comments: { ...imageStudio.comments, [path]: [] },
+                    });
+                  }
+                }}
               />
             </div>
           )}

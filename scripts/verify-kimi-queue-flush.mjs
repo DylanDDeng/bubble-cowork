@@ -14,7 +14,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 const flusher = read('src/ui/lib/queue-auto-flush.ts');
 assert.ok(
-  flusher.includes('hasQueueFlushOwner(sessionId)') && flusher.includes('takeAll(sessionId)'),
+  flusher.includes('hasQueueFlushOwner(sessionId)') && flusher.includes('takeNextBatch(sessionId)'),
   'store-level flush must defer to a mounted owner and drain atomically'
 );
 assert.ok(

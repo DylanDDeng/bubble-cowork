@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ImageStudioSessionContext, openImageStudio } from '../lib/image-studio';
+import { LayoutGrid } from './icons';
+import { supportsImageStudio } from '../utils/image-studio';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import type { GeneratedMediaItem } from '../utils/generated-media';
 import { resolveGeneratedMediaPath } from '../utils/generated-media';
@@ -22,6 +25,8 @@ export function GeneratedMediaGallery({
   items: GeneratedMediaItem[];
   cwd: string | null;
 }) {
+  const sessionId = useContext(ImageStudioSessionContext);
+  const provider = useAppStore(state => sessionId ? state.sessions[sessionId]?.provider : undefined);
   const openProjectFileInRightPanel = useAppStore((state) => state.openProjectFileInRightPanel);
   const [previews, setPreviews] = useState<Record<string, { kind: 'image' | 'video'; src: string } | null>>({});
 
@@ -73,6 +78,7 @@ export function GeneratedMediaGallery({
 
   const openItem = (item: GeneratedMediaItem) => {
     const path = resolveGeneratedMediaPath(cwd, item.path);
+    if (item.kind === 'image' && sessionId && openImageStudio(sessionId, path)) return;
     openProjectFileInRightPanel({
       cwd: isUnderRoot(cwd, path) ? cwd || dirnameOf(path) : dirnameOf(path),
       path,
@@ -81,7 +87,9 @@ export function GeneratedMediaGallery({
   };
 
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
+    <div className="mt-3">
+      <div className="flex flex-wrap gap-2">
+
       {resolved.map((item) => {
         const preview = previews[item.path];
         const name = item.path.split('/').pop() || item.path;
@@ -111,6 +119,8 @@ export function GeneratedMediaGallery({
           </button>
         );
       })}
+      </div>
+      {sessionId && supportsImageStudio(provider) && resolved.filter(item => item.kind === 'image').length > 1 && <button type="button" className="image-studio-gallery-action" onClick={() => openImageStudio(sessionId, resolved.find(item => item.kind === 'image')!.path, 'canvas')}><LayoutGrid size={14} />Canvas</button>}
     </div>
   );
 }

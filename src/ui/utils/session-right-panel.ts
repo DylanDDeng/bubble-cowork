@@ -65,6 +65,7 @@ export function filterRestorableRightUtilityTabs(
 ): ProjectUtilityPanelTarget[] {
   return tabs.filter((tab) => {
     if (isSideChatPendingTab(tab)) return false;
+    if (tab.startsWith('images:')) return Boolean(sessions[tab.slice(7)]);
     if (isRightUtilitySideChatTab(tab)) {
       return Boolean(sessions[getSideChatSessionId(tab)]);
     }
