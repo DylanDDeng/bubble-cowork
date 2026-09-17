@@ -87,6 +87,8 @@ export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
   { id: 'tokyo-night', label: 'Tokyo Night', variants: ['dark'] },
   { id: 'raycast', label: 'Raycast', variants: ['light', 'dark'] },
   { id: 'vercel', label: 'Vercel', variants: ['light', 'dark'] },
+  { id: 'spotify', label: 'Spotify', variants: ['light', 'dark'] },
+  { id: 'arc', label: 'Arc', variants: ['light', 'dark'] },
 ] as const;
 
 const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, ChromeTheme>>> = {
@@ -383,6 +385,48 @@ const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, ChromeThem
         skill: '#9a1b6e',
       },
       surface: '#ffffff',
+    },
+  },
+  // Brand-inspired palettes. Light Spotify uses a darker green for readable links;
+  // Arc interprets its customizable tinted chrome rather than a fixed official theme.
+  spotify: {
+    dark: {
+      accent: '#1ed760',
+      contrast: 60,
+      fonts: { code: null, ui: null },
+      ink: '#ffffff',
+      opaqueWindows: true,
+      semanticColors: { diffAdded: '#1ed760', diffRemoved: '#f3727f', skill: '#c4a0ff' },
+      surface: '#121212',
+    },
+    light: {
+      accent: '#087f36',
+      contrast: 45,
+      fonts: { code: null, ui: null },
+      ink: '#191414',
+      opaqueWindows: true,
+      semanticColors: { diffAdded: '#087f36', diffRemoved: '#c42b40', skill: '#7543b5' },
+      surface: '#ffffff',
+    },
+  },
+  arc: {
+    dark: {
+      accent: '#b6a4ff',
+      contrast: 55,
+      fonts: { code: null, ui: null },
+      ink: '#f4f0ff',
+      opaqueWindows: false,
+      semanticColors: { diffAdded: '#7bdcb5', diffRemoved: '#ff97ac', skill: '#c4adff' },
+      surface: '#242136',
+    },
+    light: {
+      accent: '#5145cd',
+      contrast: 40,
+      fonts: { code: null, ui: null },
+      ink: '#29243d',
+      opaqueWindows: false,
+      semanticColors: { diffAdded: '#197354', diffRemoved: '#bd3658', skill: '#7945b5' },
+      surface: '#f0edfa',
     },
   },
   vercel: {

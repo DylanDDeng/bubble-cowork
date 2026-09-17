@@ -386,7 +386,7 @@ export function BoardView() {
           return (
             <section
               key={stage}
-              className={`flex min-h-0 w-[348px] flex-shrink-0 flex-col rounded-xl bg-[var(--board-column-surface)] transition-colors ${
+              className={`group/column flex min-h-0 w-[348px] flex-shrink-0 flex-col rounded-xl bg-[var(--board-column-surface)] transition-colors ${
                 dragOverStage === stage ? 'bg-[var(--sidebar-item-active)]' : ''
               }`}
               onDragOver={(event) => {
@@ -459,6 +459,18 @@ export function BoardView() {
                       }}
                     />
                 ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComposerStage(stage);
+                    setComposerTaskId(null);
+                  }}
+                  aria-label={`New task at end of ${meta.label}`}
+                  title={`New task in ${meta.label}`}
+                  className="pointer-events-none inline-flex h-7 w-full flex-shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--preview-surface)] text-[var(--text-muted)] opacity-0 transition-opacity duration-150 group-hover/column:pointer-events-auto group-hover/column:opacity-100 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)] motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
               </div>
             </section>
           );
@@ -864,10 +876,7 @@ function BoardCard({
         selected ? 'border-[var(--border-focus)]' : 'border-[var(--border)]'
       } ${task.stage === 'done' ? 'opacity-60 hover:opacity-100' : ''}`}
     >
-      {task.unread ? (
-        <span className="absolute right-3 top-3 h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-      ) : null}
-      <div className="flex items-start gap-1.5 pr-4">
+      <div className="flex items-start gap-1.5">
         <StageIcon stage={task.stage} className="mt-[2.5px] h-3.5 w-3.5" />
         <span className="min-w-0 text-[13px] font-medium leading-snug text-[var(--text-primary)]">
           {task.title}
@@ -1069,7 +1078,7 @@ function BoardTaskComposer({
             properties as a chip row, actions in a quiet footer. */}
         <Dialog.Content className="fixed left-1/2 top-[14vh] z-50 flex max-h-[76vh] w-[min(760px,calc(100vw-40px))] -translate-x-1/2 flex-col rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_70px_rgba(15,18,25,0.24)]">
           <div className="flex items-center gap-2 px-4 pt-3.5">
-            <span className="inline-flex h-6 max-w-[220px] items-center gap-1.5 rounded-md border border-[var(--border)] px-2 text-[12px] text-[var(--text-secondary)]">
+            <span className="inline-flex h-6 max-w-[220px] items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--border)_70%,transparent)] px-2 text-[12px] text-[var(--text-secondary)]">
               <Folder className="h-3 w-3 flex-shrink-0" />
               <span className="truncate">{projectLabel}</span>
             </span>
@@ -1111,7 +1120,7 @@ function BoardTaskComposer({
               className="mt-2 max-h-[40vh] min-h-[120px] w-full resize-none overflow-y-auto bg-transparent text-[13.5px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             />
 
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 [&_.composer-pill-trigger]:h-7 [&_.composer-pill-trigger]:rounded-full [&_.composer-pill-trigger]:border [&_.composer-pill-trigger]:border-[color-mix(in_srgb,var(--border)_70%,transparent)] [&_.composer-pill-trigger]:px-2.5">
               <ChipMenu
                 label={stageLabel}
                 icon={<StageIcon stage={stageValue} className="h-3.5 w-3.5" />}
@@ -1301,7 +1310,7 @@ function ChipMenu({
         onClick={() => setOpen((value) => !value)}
         aria-label={`${ariaLabel}: ${label}`}
         aria-expanded={open}
-        className={`inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 text-[12.5px] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] ${
+        className={`inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--border)_70%,transparent)] px-2.5 text-[12.5px] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] ${
           open ? 'bg-[var(--sidebar-item-hover)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
         }`}
       >
