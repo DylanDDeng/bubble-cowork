@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Arch } = require('builder-util');
 const asar = require('@electron/asar');
-const { deepseekSdkPackagePaths } = require('./deepseek-sdk-closure.cjs');
+const { verifyDeepseekSdkResolution } = require('./deepseek-sdk-closure.cjs');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 
@@ -54,10 +54,11 @@ function verifyPackagedDeepseekSdk(resourcesDir, projectDir, platform, arch) {
   const asarPath = path.join(resourcesDir, 'app.asar');
   assert.ok(fs.existsSync(asarPath), `packaged app is missing ${asarPath}`);
   const lock = JSON.parse(fs.readFileSync(path.join(projectDir, 'package-lock.json'), 'utf8'));
-  const required = [...deepseekSdkPackagePaths(lock.packages ?? {}, { platform, arch })];
   const entries = new Set(asar.listPackage(asarPath).map((entry) => entry.replace(/\\/g, '/')));
   const unpackedDir = path.join(resourcesDir, 'app.asar.unpacked');
-  for (const packagePath of required) {
+  const manifests = new Map();
+  const readManifest = (packagePath) => {
+    if (manifests.has(packagePath)) return manifests.get(packagePath);
     const asarEntry = `/${packagePath}/package.json`;
     // @electron/asar resolves entries by splitting on path.sep, so the lookup
     // key must use the host separator (backslashes on Windows).
@@ -69,17 +70,13 @@ function verifyPackagedDeepseekSdk(resourcesDir, projectDir, platform, arch) {
     } else if (fs.existsSync(unpackedFile)) {
       manifest = fs.readFileSync(unpackedFile, 'utf8');
     }
-    assert.ok(manifest, `packaged app.asar is missing DeepSeek SDK package ${packagePath}`);
-    const expected = lock.packages?.[packagePath]?.version;
-    const actual = JSON.parse(manifest).version;
-    assert.equal(
-      actual,
-      expected,
-      `packaged DeepSeek SDK package ${packagePath} is ${actual}, lockfile expects ${expected}`
-    );
-  }
+    const parsed = manifest ? JSON.parse(manifest) : null;
+    manifests.set(packagePath, parsed);
+    return parsed;
+  };
+  const count = verifyDeepseekSdkResolution(lock.packages ?? {}, readManifest, { platform, arch });
   console.log(
-    `  • verified bundled DeepSeek SDK client graph  packages=${required.length} asar=${asarPath}`
+    `  • verified bundled DeepSeek SDK client graph  packages=${count} asar=${asarPath}`
   );
 }
 

@@ -47,7 +47,7 @@ assert.ok(
   afterPack.includes('verifyPackagedDeepseekSdk') &&
     afterPack.includes("'app.asar'") &&
     afterPack.includes("'app.asar.unpacked'") &&
-    afterPack.includes('deepseekSdkPackagePaths('),
+    afterPack.includes('verifyDeepseekSdkResolution('),
   'each packaged app must verify the DeepSeek SDK client graph inside app.asar'
 );
 

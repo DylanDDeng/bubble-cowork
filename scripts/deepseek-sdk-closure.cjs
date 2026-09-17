@@ -8,10 +8,14 @@ const SDK_CLIENT = '@deepseek-ai/dsh-sdk-client';
 // Resolve `name` from the package at `fromPath` the way Node does: nearest
 // nested node_modules first, then each ancestor, then the top level.
 function resolveLockPath(lockPackages, fromPath, name) {
+  return resolvePackagePath(fromPath, name, (candidate) => Boolean(lockPackages[candidate]));
+}
+
+function resolvePackagePath(fromPath, name, exists) {
   let base = fromPath;
   for (;;) {
     const candidate = base ? `${base}/node_modules/${name}` : `node_modules/${name}`;
-    if (lockPackages[candidate]) return candidate;
+    if (exists(candidate)) return candidate;
     if (!base) return null;
     const idx = base.lastIndexOf('/node_modules/');
     base = idx === -1 ? '' : base.slice(0, idx);
@@ -82,7 +86,60 @@ function electronBuilderPackagePaths(lockPackages, rootDependencies, target = {}
   });
 }
 
+// electron-builder hoists production dependencies independently of npm's
+// development tree. Verify each edge from its packaged parent rather than
+// requiring the archive to preserve the lockfile's physical directory layout.
+function verifyDeepseekSdkResolution(lockPackages, readManifest, target = {}) {
+  const semver = require('semver');
+  const { platform = process.platform, arch = process.arch } = target;
+  const matches = (values, value) => !values || (
+    !values.includes(`!${value}`) &&
+    (!values.some((item) => !item.startsWith('!')) || values.includes('any') || values.includes(value))
+  );
+  const versionsByName = new Map();
+  for (const [packagePath, entry] of Object.entries(lockPackages)) {
+    if (!packagePath.includes('node_modules/')) continue;
+    const name = packagePath.slice(packagePath.lastIndexOf('node_modules/') + 'node_modules/'.length);
+    if (!versionsByName.has(name)) versionsByName.set(name, new Map());
+    versionsByName.get(name).set(entry.version, entry);
+  }
+  const queue = [{ name: SDK_CLIENT, range: lockPackages[`node_modules/${SDK_CLIENT}`].version, parent: '', optional: false }];
+  const seen = new Set();
+  while (queue.length) {
+    const { name, range, parent, optional } = queue.shift();
+    const lockedVersions = versionsByName.get(name);
+    if (optional && (!lockedVersions || ![...lockedVersions.values()].some((entry) => matches(entry.os, platform) && matches(entry.cpu, arch)))) continue;
+    const packagedPath = resolvePackagePath(parent, name, (candidate) => Boolean(readManifest(candidate)));
+    if (!packagedPath) {
+      if (optional) continue;
+      throw new Error(`packaged app is missing DeepSeek SDK package ${name} (required by ${parent || '<root>'})`);
+    }
+    const actual = readManifest(packagedPath);
+    if (!lockedVersions?.has(actual.version)) {
+      throw new Error(`packaged DeepSeek SDK package ${packagedPath} version ${actual.version} is not in the lockfile`);
+    }
+    if (!semver.satisfies(actual.version, range)) {
+      throw new Error(`packaged DeepSeek SDK package ${packagedPath} is ${actual.version}, required range is ${range} from ${parent || '<root>'}`);
+    }
+    if (seen.has(packagedPath)) continue;
+    seen.add(packagedPath);
+    // Equal package versions may occur at multiple lockfile paths with
+    // different compatible children. Check the shipped runtime graph against
+    // its declared ranges and locked versions, not one development-tree path.
+    const expected = lockedVersions.get(actual.version);
+    const dependencies = { ...expected.dependencies, ...expected.optionalDependencies, ...expected.peerDependencies };
+    for (const [dependency, dependencyRange] of Object.entries(dependencies)) {
+      queue.push({
+        name: dependency, range: dependencyRange, parent: packagedPath,
+        optional: Object.hasOwn(expected.optionalDependencies ?? {}, dependency) || expected.peerDependenciesMeta?.[dependency]?.optional === true,
+      });
+    }
+  }
+  return seen.size;
+}
+
 module.exports = {
   SDK_CLIENT, walkLockGraph, deepseekSdkClosure, electronBuilderCollected,
   deepseekSdkPackagePaths, electronBuilderPackagePaths,
+  verifyDeepseekSdkResolution,
 };
