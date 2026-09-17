@@ -199,6 +199,7 @@
     "fflate": "^0.8.3",
     "katex": "^0.16.28",
     "motion": "^12.27.5",
+    "node-addon-api": "^7.1.1",
     "node-pty": "^1.1.0",
     "react": "^19.0.0",
     "react-colorful": "^5.6.1",

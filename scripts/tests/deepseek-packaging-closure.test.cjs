@@ -71,12 +71,28 @@ const compatibleLock = {
   'node_modules/elsewhere/node_modules/shared': { version: '2.1.0', peerDependencies: { peer: '1' } },
 };
 assert.equal(verifyDeepseekSdkResolution(compatibleLock, (p) => p === 'node_modules/shared' ? { version: '2.1.0' } : archive[p]), 5);
+const nativeLock = {
+  [sdk]: { version: '1.0.0', optionalDependencies: { native: '1' } },
+  'node_modules/native': { version: '1.0.0', os: ['darwin'], cpu: ['x64'] },
+};
+assert.throws(
+  () => verifyDeepseekSdkResolution(nativeLock, (p) => archive[p], { platform: 'darwin', arch: 'x64' }),
+  /missing DeepSeek SDK package native/
+);
+assert.equal(verifyDeepseekSdkResolution(nativeLock, (p) => archive[p], { platform: 'darwin', arch: 'arm64' }), 1);
 
 // Verify all supported release targets against the real locked graph without
 // requiring foreign native binaries to be installed on the developer's host.
 const root = path.resolve(__dirname, '../..');
 const locked = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'))).packages;
 const dependencies = JSON.parse(fs.readFileSync(path.join(root, 'package.json'))).dependencies;
+for (const libc of ['glibc', 'musl']) {
+  const closure = deepseekSdkPackagePaths(locked, { platform: 'linux', arch: 'x64', libc });
+  const suffix = libc === 'musl' ? 'linuxmusl' : 'linux';
+  const other = libc === 'musl' ? 'linux' : 'linuxmusl';
+  assert(closure.has(`node_modules/@img/sharp-libvips-${suffix}-x64`));
+  assert(!closure.has(`node_modules/@img/sharp-libvips-${other}-x64`));
+}
 for (const platform of ['darwin', 'linux', 'win32']) {
   for (const arch of ['arm64', 'x64']) {
     const target = { platform, arch };

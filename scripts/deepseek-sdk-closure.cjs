@@ -30,6 +30,8 @@ function walkLockGraph(lockPackages, roots, {
   followPeers,
   platform = process.platform,
   arch = process.arch,
+  // Release Linux builds target glibc; callers can explicitly validate musl.
+  libc = 'glibc',
   returnPaths = false,
 }) {
   const seenPaths = new Set();
@@ -51,7 +53,7 @@ function walkLockGraph(lockPackages, roots, {
       !values.includes(`!${target}`) &&
       (!values.some((value) => !value.startsWith('!')) || values.includes('any') || values.includes(target))
     );
-    if (optional && (!matches(entry.os, platform) || !matches(entry.cpu, arch))) continue;
+    if (optional && (!matches(entry.os, platform) || !matches(entry.cpu, arch) || (platform === 'linux' && !matches(entry.libc, libc)))) continue;
     if (seenPaths.has(lockPath)) continue;
     seenPaths.add(lockPath);
     names.add(name);
@@ -91,7 +93,7 @@ function electronBuilderPackagePaths(lockPackages, rootDependencies, target = {}
 // requiring the archive to preserve the lockfile's physical directory layout.
 function verifyDeepseekSdkResolution(lockPackages, readManifest, target = {}) {
   const semver = require('semver');
-  const { platform = process.platform, arch = process.arch } = target;
+  const { platform = process.platform, arch = process.arch, libc = 'glibc' } = target;
   const matches = (values, value) => !values || (
     !values.includes(`!${value}`) &&
     (!values.some((item) => !item.startsWith('!')) || values.includes('any') || values.includes(value))
@@ -108,10 +110,11 @@ function verifyDeepseekSdkResolution(lockPackages, readManifest, target = {}) {
   while (queue.length) {
     const { name, range, parent, optional } = queue.shift();
     const lockedVersions = versionsByName.get(name);
-    if (optional && (!lockedVersions || ![...lockedVersions.values()].some((entry) => matches(entry.os, platform) && matches(entry.cpu, arch)))) continue;
+    if (optional && (!lockedVersions || ![...lockedVersions.values()].some((entry) => matches(entry.os, platform) && matches(entry.cpu, arch) && (platform !== 'linux' || matches(entry.libc, libc))))) continue;
     const packagedPath = resolvePackagePath(parent, name, (candidate) => Boolean(readManifest(candidate)));
     if (!packagedPath) {
-      if (optional) continue;
+      const nativeTarget = [...(lockedVersions?.values() ?? [])].some((entry) => entry.os || entry.cpu);
+      if (optional && !nativeTarget) continue;
       throw new Error(`packaged app is missing DeepSeek SDK package ${name} (required by ${parent || '<root>'})`);
     }
     const actual = readManifest(packagedPath);
