@@ -1,5 +1,6 @@
+import { useImageStudioAttachments } from '../hooks/useImageStudioAttachments';
 import { useImageStudioStore, EMPTY_IMAGE_STUDIO } from '../store/useImageStudioStore';
-import { importStudioImages, resolveImageStudioReferences } from '../lib/image-studio';
+import { resolveImageStudioReferences } from '../lib/image-studio';
 import { imageCommentPrompt, imageEditEffectivePrompt, supportsImageStudio } from '../utils/image-studio';
 import { composerEnterAction } from '../../shared/app-preferences';
 import { useAppPreferences } from '../store/useAppPreferences';
@@ -179,26 +180,7 @@ export function PromptInput({
   const isComposingRef = useRef(false);
   const targetSessionId = sessionId ?? activeSessionId;
   const imageStudio = useImageStudioStore(state => targetSessionId ? state.sessions[targetSessionId] || EMPTY_IMAGE_STUDIO : EMPTY_IMAGE_STUDIO);
-  const [imageAttachmentsLoading, setImageAttachmentsLoading] = useState(false);
-  const imageSelectionKey = JSON.stringify(imageStudio.selected);
-  useEffect(() => {
-    if (!targetSessionId) return;
-    let cancelled = false;
-    const paths: string[] = JSON.parse(imageSelectionKey);
-    setImageAttachmentsLoading(paths.length > 0);
-    if (!paths.length) {
-      setAttachments(previous => previous.filter(item => !item.id.startsWith('image-studio:')));
-      return;
-    }
-    setAttachments(previous => previous.filter(item => !item.id.startsWith('image-studio:')));
-    void importStudioImages(paths).then(imported => {
-      if (cancelled) return;
-      setAttachments(previous => [...previous.filter(item => !item.id.startsWith('image-studio:')),
-        ...imported.map((item, index) => ({ ...item, id: 'image-studio:' + paths[index] }))]);
-    }).catch(error => { if (!cancelled) { toast.error(String(error.message || error)); useImageStudioStore.getState().patch(targetSessionId, { selected: [] }); } })
-      .finally(() => { if (!cancelled) setImageAttachmentsLoading(false); });
-    return () => { cancelled = true; };
-  }, [targetSessionId, imageSelectionKey]);
+  const imageAttachmentsLoading = useImageStudioAttachments(targetSessionId, imageStudio.selected, setAttachments);
   const goalTargetRef = useRef(targetSessionId);
   goalTargetRef.current = targetSessionId;
   const activeSession = useAppStore((s) =>
@@ -1647,7 +1629,8 @@ export function PromptInput({
             data-composer-drop-zone
             {...attachmentImport.dropProps}
           >
-          {(attachmentImport.isImporting || imageAttachmentsLoading) && <div role="status" className="px-5 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
+          {attachmentImport.isImporting && <div role="status" className="px-5 pt-3 text-xs text-[var(--text-muted)]">Adding attachments…</div>}
+          {imageAttachmentsLoading && <span className="sr-only" role="status">Adding selected images…</span>}
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips

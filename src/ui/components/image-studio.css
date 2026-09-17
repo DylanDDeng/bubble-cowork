@@ -95,7 +95,11 @@
 .image-studio-picture { box-shadow: none; }
 .image-studio[data-view=canvas] .image-studio-picture { border-radius: 12px; }
 .image-studio[data-view=canvas] .image-studio-picture > img { border-radius: inherit; }
-.image-studio[data-view=canvas] .image-studio-picture[data-selected=true] { outline: 1px solid var(--accent); outline-offset: 1px; }
+.image-studio[data-view=canvas] .image-studio-picture[data-selected=true] { outline: 2px solid var(--accent); outline-offset: 0; }
+.image-studio .image-studio-picture-hit { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
+.image-studio .image-studio-picture-hit:hover:not(:disabled) { background: transparent; }
+.image-studio[data-view=canvas] .image-studio-picture:has(> .image-studio-picture-hit:active) { transform: scale(.995); }
+.image-studio-selection-check { position: absolute; top: 8px; right: 8px; display: flex; border-radius: 50%; color: var(--accent); background: var(--bg-primary); box-shadow: 0 1px 3px #0002; pointer-events: none; }
 .image-studio-turns { padding: 8px 64px 240px 12px; }
 .image-studio[data-fullscreen=false] .image-studio-focused { padding-block: 24px; }
 .image-studio[data-fullscreen=false] .image-studio-turns { padding-bottom: 24px; }

@@ -58,6 +58,7 @@ interface PictureProps {
   fitWidth: number;
   fitHeight: number;
   selected: boolean;
+  active: boolean;
   notes: ImageComment[];
   tool: 'pan' | 'comment' | 'select' | 'erase';
   strokes?: BrushStroke[];
@@ -68,7 +69,7 @@ interface PictureProps {
   onSelect: () => void;
   onReady?: (image: Preview) => void;
 }
-function Picture({ path, zoom, fitWidth, fitHeight, selected, notes, tool, strokes, brush, onStroke, onPoint, onNote, onSelect, onReady }: PictureProps) {
+function Picture({ path, zoom, fitWidth, fitHeight, selected, active, notes, tool, strokes, brush, onStroke, onPoint, onNote, onSelect, onReady }: PictureProps) {
   const preview = usePreview(path);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stroke = useRef<BrushStroke | null>(null);
@@ -79,14 +80,16 @@ function Picture({ path, zoom, fitWidth, fitHeight, selected, notes, tool, strok
   if (!preview.image) return <div className="image-studio-empty" role="status">Loading image…</div>;
   const image = preview.image;
   const scale = Math.min(fitWidth / image.width, fitHeight / image.height, 1) * zoom / 100;
-  return <div className="image-studio-picture" data-image-path={path} data-selected={selected} data-tool={tool}
+  return <div className="image-studio-picture" data-image-path={path} data-selected={tool === 'select' ? selected : active} data-tool={tool}
     style={{ width: image.width * scale, height: image.height * scale }}
     onClick={event => {
-      if (tool === 'pan') { onSelect(); return; }
-      if (tool !== 'comment' && tool !== 'select') return;
+      if (tool === 'pan' || tool === 'select') { onSelect(); return; }
+      if (tool !== 'comment') return;
       onPoint(imagePoint(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect()));
     }}>
     <img src={image.src} alt={path.split('/').pop() || 'Generated image'} draggable={false} />
+    {(tool === 'pan' || tool === 'select') && <button type="button" className="image-studio-picture-hit" aria-label={path.split('/').pop() || 'Generated image'} aria-pressed={tool === 'select' ? selected : active} />}
+    {tool === 'select' && selected && <span className="image-studio-selection-check" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="currentColor" /><path d="m6 10 2.7 2.7L14 7" fill="none" stroke="var(--accent-foreground)" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg></span>}
     {notes.map((note, index) => <button className="image-studio-pin" key={note.id} style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }}
       title={note.text} aria-label={`Comment ${index + 1}: ${note.text}`} onPointerDown={event => event.stopPropagation()}
       onClick={event => { event.stopPropagation(); onNote(note); }}>{index + 1}</button>)}
@@ -132,6 +135,8 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
   const [menu, setMenu] = useState<'zoom' | 'resize' | null>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const dragged = useRef(false);
+  const lastMultiSelected = useRef<string | null>(null);
+  const skipActiveScroll = useRef<string | null>(null);
   const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const reducedMotion = useAppReducedMotion();
   const supported = supportsImageStudio(session?.provider);
@@ -158,6 +163,7 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
   useLayoutEffect(() => {
     const container = viewport.current;
     if (!container || hidden || studio.view !== 'canvas') return;
+    if (skipActiveScroll.current === active) { skipActiveScroll.current = null; return; }
     const image = pendingActive ? container.querySelector<HTMLElement>('[data-image-pending]') : Array.from(container.querySelectorAll<HTMLElement>('[data-image-path]')).find(element => element.dataset.imagePath === active);
     if (!image) return;
     const bounds = container.getBoundingClientRect(), rect = image.getBoundingClientRect();
@@ -230,8 +236,27 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
     return () => element.removeEventListener('wheel', wheel);
   }, [hidden, zoom]);
 
+  const changeTool = (next: PictureProps['tool']) => {
+    dragged.current = false;
+    pan.current = null;
+    if (tool !== 'select' && next === 'select') lastMultiSelected.current = null;
+    if (tool === 'select' && next === 'pan') {
+      const current = useImageStudioStore.getState().sessions[sessionId];
+      const selected = (current?.selected || []).filter(path => allImages.some(image => image.path === path));
+      const target = lastMultiSelected.current && selected.includes(lastMultiSelected.current)
+        ? lastMultiSelected.current : selected.at(-1) || active;
+      if (target) {
+        if (target !== active) skipActiveScroll.current = target;
+        patch({ activePath: target, activePendingId: undefined, selected: [target],
+          comments: current?.comments[target] ? { [target]: current.comments[target] } : {} });
+      }
+      lastMultiSelected.current = null;
+    }
+    setTool(next);
+  };
   const switchView = (view: 'single' | 'canvas', target = active) => {
     if (studio.view === view) return;
+    if (tool === 'select') { changeTool('pan'); target = useImageStudioStore.getState().sessions[sessionId]?.activePath || target; }
     const findImage = () => Array.from(viewport.current?.querySelectorAll<HTMLElement>('[data-image-path]') || []).find(el => el.dataset.imagePath === target);
     const before = findImage()?.getBoundingClientRect();
     flushSync(() => { patch({ view, activePath: target, ...(view === 'canvas' && !selectedPaths.length ? { selected: [target] } : {}) }); setZoom(100); setTool('pan'); setMenu(null); });
@@ -268,17 +293,26 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const selectImage = (path: string, multiple = false) => {
-    if (dragged.current) return;
-    if (!editable || locked) { patch({ activePath: path, activePendingId: undefined }); return; }
-    patch({ activePath: path, activePendingId: undefined, selected: multiple ? selectedPaths.includes(path) ? selectedPaths.filter(item => item !== path) : [...selectedPaths, path] : [path] });
+    const current = useImageStudioStore.getState().sessions[sessionId];
+    if (multiple && editable && !locked) {
+      const selected = current?.selected || [];
+      const removing = selected.includes(path);
+      if (!removing) lastMultiSelected.current = path;
+      else if (lastMultiSelected.current === path) lastMultiSelected.current = null;
+      patch({ selected: removing ? selected.filter(item => item !== path) : [...selected, path],
+        ...(removing ? { comments: { ...current?.comments, [path]: [] } } : {}) });
+      return;
+    }
+    if (path !== active) skipActiveScroll.current = path;
+    patch({ activePath: path, activePendingId: undefined,
+      ...(editable && !locked ? { selected: [path], comments: current?.comments[path] ? { [path]: current.comments[path] } : {} } : {}) });
   };
   const picture = (path: string, canvas: boolean) => <Picture key={path} path={path} zoom={canvas ? 100 : zoom}
     fitWidth={canvas ? Infinity : Math.max(160, size.width - 48)} fitHeight={canvas ? 292 : focusedFitHeight}
-    selected={selectedPaths.includes(path)} notes={studio.comments[path] || []} tool={editable && !locked ? tool : 'pan'}
-    onSelect={() => selectImage(path)} brush={brush} strokes={path === active ? strokes : []} onStroke={stroke => { setStrokes(s => [...s, stroke]); setRedo([]); }}
+    selected={selectedPaths.includes(path)} active={!pendingActive && path === active} notes={studio.comments[path] || []} tool={editable && !locked ? tool : 'pan'}
+    onSelect={() => selectImage(path, tool === 'select')} brush={brush} strokes={path === active ? strokes : []} onStroke={stroke => { setStrokes(s => [...s, stroke]); setRedo([]); }}
     onPoint={point => {
-      if (tool === 'select') selectImage(path, true);
-      else setEditor({ path, note: { id: crypto.randomUUID(), ...point, text: '' } });
+      setEditor({ path, note: { id: crypto.randomUUID(), ...point, text: '' } });
     }} onNote={note => { if (editable && !locked) setEditor({ path, note }); }} />;
   const groups = new Map<string, typeof allImages>();
   for (const image of allImages) groups.set(image.turnId, [...(groups.get(image.turnId) || []), image]);
@@ -286,7 +320,7 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
   return <section className="image-studio" data-view={studio.view} data-fullscreen={fullscreen} aria-label="Image workspace" hidden={hidden} onKeyDown={event => {
     const typing = (event.target as HTMLElement).closest('input,textarea,[contenteditable]');
     if (event.key === 'Escape') {
-      if (editor || menu || tool !== 'pan') { event.stopPropagation(); setEditor(null); setMenu(null); setTool('pan'); }
+      if (editor || menu || tool !== 'pan') { event.stopPropagation(); setEditor(null); setMenu(null); changeTool('pan'); }
       return;
     }
     if (typing) return;
@@ -302,8 +336,8 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
         <button title="Canvas view" aria-label="Canvas view" aria-pressed={studio.view === 'canvas'} onClick={() => switchView('canvas')}><LayoutGrid size={17} /></button>
       </div>
       <div className="image-studio-capsule image-studio-tools">
-        <button title="Comment" aria-label="Comment" aria-pressed={tool === 'comment'} disabled={!editable || locked} onClick={() => setTool(tool === 'comment' ? 'pan' : 'comment')}><MessageCircle size={16} /><span>Comment</span></button>
-        {studio.view === 'canvas' && <button title="Multi-select" aria-label="Multi-select" aria-pressed={tool === 'select'} disabled={!editable || locked} onClick={() => setTool(tool === 'select' ? 'pan' : 'select')}><CheckSquare size={16} /><span>Multi-select</span></button>}
+        <button title="Comment" aria-label="Comment" aria-pressed={tool === 'comment'} disabled={!editable || locked} onClick={() => changeTool(tool === 'comment' ? 'pan' : 'comment')}><MessageCircle size={16} /><span>Comment</span></button>
+        {studio.view === 'canvas' && <button title="Multi-select" aria-label="Multi-select" aria-pressed={tool === 'select'} disabled={!editable || locked} onClick={() => changeTool(tool === 'select' ? 'pan' : 'select')}><CheckSquare size={16} /><span>Multi-select</span></button>}
       {studio.view === 'single' && <div className="image-studio-editbar">
         {tool === 'erase' ? <>
           <button title="Undo" aria-label="Undo brush stroke" disabled={!strokes.length} onClick={() => { setRedo(r => [...r, strokes.at(-1)!]); setStrokes(s => s.slice(0, -1)); }}><Undo2 size={17} /></button>
@@ -330,17 +364,18 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
       {studio.view === 'single' && allImages.length + (pendingImage ? 1 : 0) > 1 && <nav className="image-studio-rail" aria-label="Image history">{allImages.map(image => <button key={image.path} aria-label={`Open ${image.path.split('/').pop()}`} aria-current={!pendingActive && image.path === active ? 'true' : undefined} title={image.path} onClick={() => patch({ activePath: image.path, activePendingId: undefined })}><Thumbnail path={image.path} /></button>)}{pendingImage && <button aria-label="Open generating image" aria-current={pendingActive ? 'true' : undefined} onClick={() => patch({ activePendingId: pendingImage.id })}><ImageGenerationPlaceholder thumbnail hidden={hidden} paused={pendingImage.queued || !!permission} label={pendingImage.queued ? 'Image edit queued' : 'Generating image…'} /></button>}</nav>}
       <div ref={viewport} className="image-studio-viewport" tabIndex={0} aria-label="Image canvas" data-pan={tool === 'pan'}
         onPointerDown={event => {
-          if (tool !== 'pan' || event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
           dragged.current = false;
+          if (tool !== 'pan' || event.button !== 0 || ((event.target as HTMLElement).closest('button') && !(event.target as HTMLElement).closest('.image-studio-picture-hit'))) return;
           pan.current = { x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop };
           // Do not capture a stationary click away from its image.
 
         }} onPointerMove={event => { if (pan.current) { if (Math.hypot(event.clientX - pan.current.x, event.clientY - pan.current.y) > 4) { dragged.current = true; event.currentTarget.setPointerCapture(event.pointerId); } event.currentTarget.scrollLeft = pan.current.left + pan.current.x - event.clientX; event.currentTarget.scrollTop = pan.current.top + pan.current.y - event.clientY; } }}
-        onPointerUp={event => { pan.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { pan.current = null; }}>
+        onClickCapture={event => { if (dragged.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); dragged.current = false; } }}
+        onPointerUp={event => { pan.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { pan.current = null; dragged.current = false; }}>
         {!allImages.length ? <div className="image-studio-empty">No images yet</div> : studio.view === 'single' ? <div className="image-studio-focused">{pendingActive ? <div className="image-studio-focused-pending" style={{ width: Math.min(Math.max(120, size.width - 48), focusedFitHeight) * zoom / 100 }}><ImageGenerationPlaceholder hidden={hidden} paused={pendingImage?.queued || !!permission} label={permission ? 'Waiting for approval' : pendingImage?.queued ? 'Image edit queued' : 'Generating image…'} /></div> : picture(active, false)}</div> :
           <><div className="image-studio-turns" style={{ zoom: zoom / 100 }}>{Array.from(groups, ([id, items]) => <section className="image-studio-turn" key={id}>
             <div className="image-studio-turn-label">{items[0].createdAt ? new Date(items[0].createdAt).toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Generated images'}</div>
-            <div className="image-studio-row">{items.map(image => <div key={image.path} onDoubleClick={() => switchView('single', image.path)}>{picture(image.path, true)}</div>)}</div>
+            <div className="image-studio-row">{items.map(image => <div key={image.path} onDoubleClick={() => { if (tool === 'pan') switchView('single', image.path); }}>{picture(image.path, true)}</div>)}</div>
           </section>)}{pendingImage && <section className="image-studio-turn" data-image-pending>
             <div className="image-studio-turn-label">{new Date(pendingImage.startedAt).toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
             <div className="image-studio-pending-image" onDoubleClick={() => { patch({ activePendingId: pendingImage.id }); switchView('single'); }}><ImageGenerationPlaceholder hidden={hidden} paused={pendingImage.queued || !!permission} label={permission ? 'Waiting for approval' : pendingImage.queued ? 'Image edit queued' : 'Generating image…'} /></div>

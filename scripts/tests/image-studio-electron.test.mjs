@@ -28,9 +28,9 @@ useAppPreferences.setState({reduceMotion:'off'});
 const store=useAppStore, studio=useImageStudioStore, queue=useComposerQueueStore;
 const image=(color,label)=>{const c=document.createElement('canvas');c.width=800;c.height=600;const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,800,600);x.fillStyle='#f8dcab';x.beginPath();x.arc(400,285,170,0,7);x.fill();x.fillStyle='#253e36';x.fillRect(120,440,560,90);x.fillStyle='white';x.font='28px sans-serif';x.fillText(label,145,497);return c.toDataURL()};
 const files={'/tmp/images/a.png':image('#ddd5be','Original'),'/tmp/images/b.png':image('#c4cfda','Variation'),'/tmp/images/c.png':image('#d1c6d4','Refined')};
-const sent=[], masks=[],reads=[],approvals=[];let failImport=false, failPreview=false;
+const sent=[], masks=[],reads=[],approvals=[],imports=[];let importDelay=0, failPath=null, failImport=false, failPreview=false;
 window.electron={readProjectFilePreview:async(_,path)=>{reads.push(path);if(failPreview||!files[path])throw Error('Image file is missing');return {kind:'image',dataUrl:files[path]}},
- importAttachments:async(paths)=>failImport?{attachments:[],errors:['Import failed']}:{attachments:paths.map(path=>({id:crypto.randomUUID(),kind:'image',name:path.split('/').pop(),path,mimeType:'image/png',size:100})),errors:[]},
+ importAttachments:async(paths)=>{imports.push(...paths);if(importDelay)await new Promise(r=>setTimeout(r,importDelay));return failImport||paths.includes(failPath)?{attachments:[],errors:['Import failed']}:{attachments:paths.map(path=>({id:crypto.randomUUID(),kind:'image',name:path.split('/').pop(),path,mimeType:'image/png',size:100})),errors:[]}},
  createFileAttachment:async(name,bytes)=>{masks.push(Array.from(bytes));return{id:'mask',name,path:'/tmp/image-mask.png',kind:'image',mimeType:'image/png',size:bytes.length}},
  listCodexSkills:async()=>({skills:[{name:'imagegen',path:'/skills/imagegen/SKILL.md',enabled:true}]}),
  sendClientEvent:event=>{if(event.type==='permission.response'){approvals.push(event);return}sent.push(event);const id=event.payload.sessionId;update(id,{status:'running',messages:[...store.getState().sessions[id].messages,{type:'user_prompt',prompt:event.payload.prompt,createdAt:Date.now()}]})},
@@ -51,7 +51,7 @@ window.electron.getCodexModelConfig=async()=>({defaultModel:'gpt-test',options:[
 const seed=store.getState().createDraftSession('/tmp/images'),template=store.getState().sessions[seed];
 for(const [id,provider] of [['codex','codex'],['grok','grok'],['claude','claude']])store.setState(s=>({sessions:{...s.sessions,[id]:{...template,id,isDraft:false,title:id,cwd:'/tmp/images',provider,model:provider==='grok'?'grok-test':'gpt-test',grokPermissionMode:provider==='grok'?'yolo':undefined,grokReasoningEffort:provider==='grok'?'high':undefined,status:'completed',permissionRequests:[],messages,readOnly:false,hydrated:true}}}));
 store.setState({activeSessionId:'codex'});store.getState().setTheme('light');startQueueAutoFlush();
-window.qa={store,studio,queue,sent,masks,reads,approvals,commentSubmit:()=>submitImageEdit('codex',imageCommentPrompt(studio.getState().sessions.codex.selected,studio.getState().sessions.codex.comments,'Keep the composition'),studio.getState().sessions.codex.selected),reduced:()=>useAppPreferences.setState({reduceMotion:'on'}),update,open:openImageStudio,submit:submitImageEdit,
+window.qa={store,studio,queue,sent,masks,reads,approvals,imports,slowImports:ms=>{importDelay=ms},failPath:path=>{failPath=path},commentSubmit:()=>submitImageEdit('codex',imageCommentPrompt(studio.getState().sessions.codex.selected,studio.getState().sessions.codex.comments,'Keep the composition'),studio.getState().sessions.codex.selected),reduced:()=>useAppPreferences.setState({reduceMotion:'on'}),update,open:openImageStudio,submit:submitImageEdit,
  fail:(v)=>{failImport=v},files,
  result:(status='completed')=>{const e=sent.at(-1),p='/tmp/images/result-'+sent.length+'.png';files[p]=image('#c5d2bf','Edited result');update(e.payload.sessionId,{messages:[...store.getState().sessions[e.payload.sessionId].messages,text('result-'+sent.length,p)],status});return p},
  end:()=>{const e=sent.at(-1);update(e.payload.sessionId,{status:'completed'})},
@@ -124,6 +124,44 @@ try{
  assert(await js('Math.abs(footerBefore-document.querySelector(".image-studio-footer").getBoundingClientRect().bottom)<1'),'view changes keep the composer anchored');
  assert.equal(await js('qa.store.getState().rightPanelFullscreen'),'images');
  assert.equal(await js('qa.studio.getState().sessions.codex.selected[0]'),'/tmp/images/a.png','canvas switch retains the focused image as context');
+ // Multi-select changes the attachment set without changing the browsing anchor.
+ await until('!!document.querySelector(".image-studio-composer-slot img[alt=\\"a.png\\"]")','initial selected attachment');
+ await js('window.retainedChip=document.querySelector(".image-studio-composer-slot img[alt=\\"a.png\\"]");window.aImportCount=qa.imports.filter(p=>p.endsWith("/a.png")).length;qa.slowImports(600)');
+ // A real pan must not poison subsequent multi-select clicks.
+ const panStart=await js('(()=>{const v=document.querySelector(".image-studio-viewport"),r=v.getBoundingClientRect();return {x:Math.round(r.right-15),y:Math.round(r.top+50)}})()');
+ w.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...panStart});
+ w.webContents.sendInputEvent({type:'mouseMove',x:panStart.x-20,y:panStart.y-45});
+ w.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:panStart.x-20,y:panStart.y-45});await delay(50);
+ await click('[aria-label="Multi-select"]');
+ const canvasPosition=await js('(()=>{const v=document.querySelector(".image-studio-viewport");return [v.scrollLeft,v.scrollTop]})()');
+ await click('.image-studio-picture-hit[aria-label="b.png"]');
+ await click('.image-studio-picture-hit[aria-label="c.png"]');
+ await click('.image-studio-picture-hit[aria-label="b.png"]');
+ assert.deepEqual(await js('qa.studio.getState().sessions.codex.selected'),['/tmp/images/a.png','/tmp/images/c.png']);
+ assert.equal(await js('qa.studio.getState().sessions.codex.activePath'),'/tmp/images/a.png','multi-select does not change active image');
+ assert.deepEqual(await js('(()=>{const v=document.querySelector(".image-studio-viewport");return [v.scrollLeft,v.scrollTop]})()'),canvasPosition,'multi-select never scrolls the canvas');
+ assert(await js('retainedChip===document.querySelector(".image-studio-composer-slot img[alt=\\"a.png\\"]")'),'retained chip never unmounts');
+ await until('[...document.querySelectorAll(".image-studio-composer-slot img")].filter(image=>image.alt.endsWith(".png")).length===2','delayed image attaches');await delay(200);
+ assert.equal(await js('qa.imports.filter(p=>p.endsWith("/a.png")).length===aImportCount'),true,'existing image is not reimported');
+ assert.equal(await js('document.querySelector(".image-studio-composer-slot img[alt=\\"b.png\\"]")===null'),true,'cancelled in-flight import cannot reattach');
+ assert.equal(await js('document.querySelectorAll(".image-studio-selection-check").length'),2);
+ await shot('multi-select-light');
+ await click('[aria-label="Multi-select"]');
+ assert.deepEqual(await js('qa.studio.getState().sessions.codex.selected'),['/tmp/images/c.png'],'leaving multi-select retains last remaining selection');
+ assert.equal(await js('qa.studio.getState().sessions.codex.activePath'),'/tmp/images/c.png');
+ assert.equal(await js('document.querySelectorAll(".image-studio-selection-check").length'),0,'navigate mode hides multi-select checkmarks');
+ // Native button activation supports Enter/Space, Escape exits selection mode.
+ app.focus({steal:true});w.focus();w.webContents.focus();
+ await click('[aria-label="Multi-select"]');
+ await js('document.querySelector(".image-studio-picture-hit[aria-label=\\"b.png\\"]").focus()');
+ w.webContents.sendInputEvent({type:'keyDown',keyCode:'Enter'});w.webContents.sendInputEvent({type:'char',keyCode:'\r'});w.webContents.sendInputEvent({type:'keyUp',keyCode:'Enter'});await delay(80);
+ assert.deepEqual(await js('qa.studio.getState().sessions.codex.selected'),['/tmp/images/c.png','/tmp/images/b.png']);
+ w.webContents.sendInputEvent({type:'keyDown',keyCode:'Space'});w.webContents.sendInputEvent({type:'char',keyCode:' '});w.webContents.sendInputEvent({type:'keyUp',keyCode:'Space'});await delay(80);
+ assert.deepEqual(await js('qa.studio.getState().sessions.codex.selected'),['/tmp/images/c.png']);
+ w.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});w.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});await delay(80);
+ assert.equal(await js('document.querySelector("[aria-label=\\"Multi-select\\"]").getAttribute("aria-pressed")'),'false');
+ await js('qa.slowImports(0)');
+ await click('.image-studio-picture-hit[aria-label="a.png"]');
  await click('[aria-label="Multi-select"]');await point('.image-studio-row > div:nth-child(2) .image-studio-picture',.2,.2);
  assert.equal(await js('qa.studio.getState().sessions.codex.selected.length'),2);
  await click('[aria-label="Comment"]');await point(picture,.25,.75);await type('[aria-label="Comment text"]','Remove this shape');await click('.image-studio-comment-actions button[type="submit"]');
@@ -326,6 +364,21 @@ try{
  assert((await mixed()).sameRow);
  w.setContentSize(1200,900);await delay(200);await shot('canvas-mixed-ratios');
 
+ // Failed additions and removal from the composer keep all other selections.
+ await js('qa.switch("grok");qa.update("grok",{readOnly:false,status:"completed"});qa.files["/tmp/images/bad.png"]=qa.files["/tmp/images/a.png"];qa.update("grok",{messages:[...qa.store.getState().sessions.grok.messages,{type:"assistant",uuid:"bad-import",message:{content:[{type:"text",text:"![Bad](/tmp/images/bad.png)"}]}}]});qa.studio.getState().patch("grok",{activePath:"/tmp/images/a.png",selected:["/tmp/images/a.png"],comments:{},view:"canvas"});qa.open("grok","/tmp/images/a.png","canvas")');
+ await until('!!document.querySelector(".image-studio-picture-hit[aria-label=\\"bad.png\\"]")','new image for failure test');
+ await until('!!document.querySelector(".image-studio-composer-slot img[alt=\\"a.png\\"]")','Grok selected attachment');
+ await js('qa.failPath("/tmp/images/bad.png");qa.slowImports(450)');
+ await click('[aria-label="Multi-select"]');await click('.image-studio-picture-hit[aria-label="bad.png"]');await click('.image-studio-picture-hit[aria-label="c.png"]');
+ await until('!qa.studio.getState().sessions.grok.selected.includes("/tmp/images/bad.png")','failed import deselects only itself');
+ assert.deepEqual(await js('qa.studio.getState().sessions.grok.selected'),['/tmp/images/a.png','/tmp/images/c.png']);
+ await until('[...document.querySelectorAll(".image-studio-composer-slot img")].filter(image=>image.alt.endsWith(".png")).length===2','other imports survive failure');
+ await click('.image-studio-composer-slot [aria-label="Remove attachment"]');
+ assert.deepEqual(await js('qa.studio.getState().sessions.grok.selected'),['/tmp/images/c.png'],'composer removal updates Canvas selection');
+ assert.equal(await js('document.querySelectorAll(".image-studio-selection-check").length'),1);
+ await js('qa.failPath(null);qa.slowImports(0);qa.store.getState().setTheme("dark")');await delay(100);await shot('multi-select-dark');
+ await click('[aria-label="Multi-select"]');
+ assert.equal(await js('qa.studio.getState().sessions.grok.activePath'),'/tmp/images/c.png');
  assert.deepEqual(errors,[],'renderer console errors');
  console.log('image studio Electron: gallery, canvas, comments, selection, zoom, brush/mask, both providers, queue/cancel, results, failures, readonly, themes passed');app.exit(0);
 }catch(e){console.error(e,errors);await shot('failure');app.exit(1)}});
