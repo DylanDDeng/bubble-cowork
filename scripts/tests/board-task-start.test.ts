@@ -28,11 +28,15 @@ assert.equal(payload.projectCwd, '/tmp/example-project');
 assert.equal(payload.channelId, 'workspace');
 assert.equal(payload.provider, 'codex');
 assert.equal('description' in payload, false, 'Board description must not enter the session payload');
+assert.equal(payload.attachments, undefined, 'legacy tasks without attachments still start');
+const image = { id: 'reference', kind: 'image' as const, name: 'reference.png', path: '/tmp/reference.png', mimeType: 'image/png', size: 100 };
+assert.deepEqual(createBoardTaskStartPayload({ ...task, attachments: [image] }, 'workspace').attachments, [image]);
 
 useBoardStore.setState({ tasks: {}, selectedTaskId: null });
 const explicitTaskId = useBoardStore.getState().addTask({
   title: 'inspect this project',
   description: 'keep this on the Board',
+  attachments: [image],
 });
 const transientTaskId = useBoardStore.getState().addTask({
   title: 'inspect this project',
@@ -43,6 +47,7 @@ useBoardStore.getState().attachSession(explicitTaskId, 'session-race');
 
 const attachedState = useBoardStore.getState();
 assert.equal(attachedState.tasks[explicitTaskId]?.description, 'keep this on the Board');
+assert.deepEqual(attachedState.tasks[explicitTaskId]?.attachments, [image], 'binding a real session preserves the task references');
 assert.equal(attachedState.tasks[explicitTaskId]?.sessionIds[0], 'session-race');
 assert.equal(attachedState.tasks[transientTaskId], undefined, 'transient duplicate must be removed');
 assert.equal(attachedState.selectedTaskId, explicitTaskId, 'selection must follow the surviving task');
@@ -53,5 +58,7 @@ assert.equal(
   '',
   'description must remain independently editable and clearable'
 );
+attachedState.updateTask(explicitTaskId, { attachments: [] });
+assert.deepEqual(useBoardStore.getState().tasks[explicitTaskId]?.attachments, [], 'removing all references stays saved');
 
 console.log('board task start payload tests passed');

@@ -26,6 +26,8 @@ import {
 } from './icons';
 import { toast } from 'sonner';
 import { AgentIcon } from './ComposerAgentControls';
+import { AttachmentChips } from './AttachmentChips';
+import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import { PromptPrefixChip, usePromptPrefixDisplay } from './PromptPrefixChip';
 import {
   TaskFollowUpEditor,
@@ -630,6 +632,13 @@ export function BoardTaskDetail({
                 >
                   Add a description…
                 </button>
+              )}
+
+              {Boolean(task.attachments?.length) && (
+                <div className="mt-4 space-y-2" aria-label="Task attachments">
+                  <AttachmentPreviewGrid attachments={task.attachments ?? []} align="start" />
+                  <AttachmentChips attachments={(task.attachments ?? []).filter((attachment) => attachment.kind !== 'image')} />
+                </div>
               )}
 
               <div className="mt-8 border-t border-[var(--border)] pt-5">

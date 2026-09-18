@@ -11,6 +11,7 @@ export function createBoardTaskStartPayload(
     ...task.sessionConfig,
     title,
     prompt: title,
+    attachments: task.attachments?.length ? task.attachments : undefined,
     cwd: task.projectCwd || undefined,
     projectCwd: task.projectCwd,
     scope: 'project',

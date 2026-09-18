@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { rendererStateStorage } from '../utils/renderer-state-storage';
 import { useAppStore } from './useAppStore';
-import type { SessionView } from '../types';
+import type { Attachment, SessionView } from '../types';
 import type { PullRequestSummary, SessionStartPayload } from '../../shared/types';
 
 /**
@@ -76,6 +76,8 @@ export interface BoardTask {
   title: string;
   /** Board-only notes. The agent receives the title, never this description. */
   description: string;
+  /** Reference files saved with the task and sent when its first run starts. */
+  attachments?: Attachment[];
   projectCwd: string | null;
   /** Runtime choices captured when the task is composed. */
   sessionConfig: Partial<BoardSessionConfig>;
@@ -137,6 +139,7 @@ export interface BoardStore {
   addTask: (input: {
     title: string;
     description?: string;
+    attachments?: Attachment[];
     projectCwd?: string | null;
     sessionConfig?: Partial<BoardSessionConfig>;
     sessionId?: string | null;
@@ -145,7 +148,7 @@ export interface BoardStore {
   }) => string;
   updateTask: (
     taskId: string,
-    patch: Partial<Pick<BoardTask, 'title' | 'description' | 'projectCwd' | 'sessionConfig'>>
+    patch: Partial<Pick<BoardTask, 'title' | 'description' | 'attachments' | 'projectCwd' | 'sessionConfig'>>
   ) => void;
   setStage: (taskId: string, stage: BoardStage, opts?: { auto?: boolean }) => void;
   /** Record whether the follow-up being sent opens a new thread card. */
@@ -273,6 +276,7 @@ export const useBoardStore = create<BoardStore>()(
       addTask: ({
         title,
         description = '',
+        attachments = [],
         projectCwd = null,
         sessionConfig = {},
         sessionId = null,
@@ -288,6 +292,7 @@ export const useBoardStore = create<BoardStore>()(
               id,
               title: title.trim() || 'Untitled task',
               description: description.trim(),
+              attachments,
               projectCwd: projectCwd?.trim() || null,
               sessionConfig,
               stage,

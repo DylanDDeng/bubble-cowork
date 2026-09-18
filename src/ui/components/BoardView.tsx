@@ -18,6 +18,7 @@ import {
   GitBranch,
   Loader2,
   MoreHorizontal,
+  Paperclip,
   Play,
   Plus,
   SlidersHorizontal,
@@ -25,6 +26,8 @@ import {
 } from './icons';
 import { SettingsToggle } from './settings/SettingsPrimitives';
 import { AgentIcon, ComposerAgentModelPicker } from './ComposerAgentControls';
+import { AttachmentChips } from './AttachmentChips';
+import { useAttachmentImport } from '../hooks/useAttachmentImport';
 import { BoardTaskDetail } from './BoardTaskDetail';
 import { confirmDialog } from './ui/confirm-dialog';
 import { useAppStore } from '../store/useAppStore';
@@ -509,6 +512,7 @@ export function BoardView() {
 
       {composerTaskId !== undefined ? (
         <BoardTaskComposer
+          key={composerTaskId || 'new-task'}
           task={composerTaskId ? tasks[composerTaskId] || null : null}
           stage={(composerTaskId && tasks[composerTaskId]?.stage) || composerStage}
           projectOptions={composerProjectOptions}
@@ -516,12 +520,12 @@ export function BoardView() {
             (projectFilter !== 'all' && projectFilter) || currentProjectCwd || composerProjectOptions[0] || ''
           }
           onClose={() => setComposerTaskId(undefined)}
-          onSubmit={async ({ title, description, projectCwd, sessionConfig, stage: nextStage, startNow }) => {
+          onSubmit={async ({ title, description, attachments, projectCwd, sessionConfig, stage: nextStage, startNow }) => {
             const taskId = composerTaskId
               ? composerTaskId
-              : addTask({ title, description, projectCwd, sessionConfig, stage: nextStage });
+              : addTask({ title, description, attachments, projectCwd, sessionConfig, stage: nextStage });
             if (composerTaskId) {
-              updateTask(composerTaskId, { title, description, projectCwd, sessionConfig });
+              updateTask(composerTaskId, { title, description, attachments, projectCwd, sessionConfig });
               if (tasks[composerTaskId]?.stage !== nextStage) setStage(composerTaskId, nextStage);
             }
             setComposerTaskId(undefined);
@@ -950,6 +954,7 @@ function BoardTaskComposer({
   onSubmit: (input: {
     title: string;
     description: string;
+    attachments: Attachment[];
     projectCwd: string | null;
     sessionConfig: Partial<BoardSessionConfig>;
     stage: BoardStage;
@@ -962,6 +967,17 @@ function BoardTaskComposer({
   const [stageValue, setStageValue] = useState<BoardStage>(stage);
   const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>(task?.attachments ?? []);
+  const attachmentImport = useAttachmentImport(task?.id ?? '__board_new_task__', submitting, (created) => {
+    setAttachments((current) => {
+      const paths = new Set(current.map((attachment) => attachment.path));
+      return [...current, ...created.filter((attachment) => {
+        if (paths.has(attachment.path)) return false;
+        paths.add(attachment.path);
+        return true;
+      })];
+    });
+  });
   const agentSelection = useComposerAgentSelection({
     selectionKey: task?.id || '__board_new_task__',
     provider: task?.sessionConfig.provider || null,
@@ -1042,6 +1058,7 @@ function BoardTaskComposer({
   });
 
   const submit = async (startNow: boolean) => {
+    if (submitting || attachmentImport.pending.current > 0) return;
     const normalizedTitle = title.trim();
     if (!normalizedTitle) return;
     if (startNow && !projectCwd.trim()) {
@@ -1057,6 +1074,7 @@ function BoardTaskComposer({
       await onSubmit({
         title: normalizedTitle,
         description: description.trim(),
+        attachments,
         projectCwd: projectCwd.trim() || null,
         sessionConfig: buildSessionConfig(),
         stage: stageValue,
@@ -1076,7 +1094,21 @@ function BoardTaskComposer({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/25" />
         {/* Linear "New issue" sheet: anchored near the top, borderless inputs,
             properties as a chip row, actions in a quiet footer. */}
-        <Dialog.Content className="fixed left-1/2 top-[14vh] z-50 flex max-h-[76vh] w-[min(760px,calc(100vw-40px))] -translate-x-1/2 flex-col rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_70px_rgba(15,18,25,0.24)]">
+        <Dialog.Content
+          {...attachmentImport.dropProps}
+          onPaste={(event) => {
+            if (attachmentImport.pasteNative()) {
+              event.preventDefault();
+              return;
+            }
+            const files = Array.from(event.clipboardData.files);
+            if (files.length) {
+              event.preventDefault();
+              attachmentImport.files(files);
+            }
+          }}
+          className="fixed left-1/2 top-[14vh] z-50 flex max-h-[76vh] w-[min(760px,calc(100vw-40px))] -translate-x-1/2 flex-col rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_70px_rgba(15,18,25,0.24)]"
+        >
           <div className="flex items-center gap-2 px-4 pt-3.5">
             <span className="inline-flex h-6 max-w-[220px] items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--border)_70%,transparent)] px-2 text-[12px] text-[var(--text-secondary)]">
               <Folder className="h-3 w-3 flex-shrink-0" />
@@ -1090,37 +1122,45 @@ function BoardTaskComposer({
               {`Save the task to ${stageLabel}, or start an agent on it right away.`}
             </Dialog.Description>
             <span className="flex-1" />
-            <Dialog.Close className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]">
+            <Dialog.Close aria-label="Close task composer" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]">
               <X className="h-4 w-4" />
             </Dialog.Close>
           </div>
 
-          <div className="min-h-0 flex-1 px-5 pb-2 pt-4">
-            <input
-              autoFocus
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  descriptionRef.current?.focus();
-                }
-              }}
-              placeholder="What should the agent do?"
-              aria-label="Task title"
-              className="w-full bg-transparent text-[18px] font-semibold leading-7 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-            />
-            <textarea
-              ref={descriptionRef}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Add task notes (not sent to the agent)…"
-              aria-label="Task description"
-              rows={5}
-              className="mt-2 max-h-[40vh] min-h-[120px] w-full resize-none overflow-y-auto bg-transparent text-[13.5px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-            />
+          <div className="flex min-h-0 flex-1 flex-col px-5 pb-2 pt-4">
+            <div className="min-h-0 overflow-y-auto">
+              <input
+                autoFocus
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    descriptionRef.current?.focus();
+                  }
+                }}
+                placeholder="What should the agent do?"
+                aria-label="Task title"
+                className="w-full bg-transparent text-[18px] font-semibold leading-7 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+              />
+              <textarea
+                ref={descriptionRef}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Add task notes (not sent to the agent)…"
+                aria-label="Task description"
+                rows={5}
+                className="mt-2 max-h-[40vh] min-h-[120px] w-full resize-none overflow-y-auto bg-transparent text-[13.5px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+              />
 
-            <div className="mt-3 flex flex-wrap items-center gap-1.5 [&_.composer-pill-trigger]:h-7 [&_.composer-pill-trigger]:rounded-full [&_.composer-pill-trigger]:border [&_.composer-pill-trigger]:border-[color-mix(in_srgb,var(--border)_70%,transparent)] [&_.composer-pill-trigger]:px-2.5">
+              {attachments.length > 0 && (
+                <div className="pb-1 pt-3" aria-label="Task attachments">
+                  <AttachmentChips attachments={attachments} onRemove={submitting ? undefined : (id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex shrink-0 flex-wrap items-center gap-1.5 [&_.composer-pill-trigger]:h-7 [&_.composer-pill-trigger]:rounded-full [&_.composer-pill-trigger]:border [&_.composer-pill-trigger]:border-[color-mix(in_srgb,var(--border)_70%,transparent)] [&_.composer-pill-trigger]:px-2.5">
               <ChipMenu
                 label={stageLabel}
                 icon={<StageIcon stage={stageValue} className="h-3.5 w-3.5" />}
@@ -1237,7 +1277,18 @@ function BoardTaskComposer({
           <div className="flex items-center justify-end gap-2 px-4 py-3">
             <button
               type="button"
-              disabled={submitting || !title.trim()}
+              onClick={() => void attachmentImport.choose()}
+              disabled={submitting || attachmentImport.isImporting}
+              aria-label="Attach files"
+              title="Attach files"
+              className="mr-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--border)_70%,transparent)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {attachmentImport.isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+            </button>
+            {attachmentImport.isImporting && <span role="status" className="sr-only">Adding attachments…</span>}
+            <button
+              type="button"
+              disabled={submitting || attachmentImport.isImporting || !title.trim()}
               onClick={() => void submit(false)}
               className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -1248,7 +1299,7 @@ function BoardTaskComposer({
               // its detail page, never started a second time.
               <button
                 type="button"
-                disabled={submitting || !title.trim() || !projectCwd.trim()}
+                disabled={submitting || attachmentImport.isImporting || !title.trim() || !projectCwd.trim()}
                 onClick={() => void submit(true)}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--text-primary)] px-3.5 text-[12.5px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
               >
