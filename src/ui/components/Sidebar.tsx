@@ -17,7 +17,6 @@ import {
   GitPullRequest,
   Script,
   Search,
-  Settings,
   SquarePen,
   Clock,
 } from './icons';
@@ -35,6 +34,7 @@ import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { getMessageContentBlocks } from '../utils/message-content';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from '../utils/sidebar-width';
 import { SessionHistoryButtons } from './SessionHistoryButtons';
+import { SidebarProfileMenu } from './sidebar/SidebarProfileMenu';
 
 const SIDEBAR_TRIGGER_CLASS =
   'no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] active:scale-95';
@@ -172,6 +172,8 @@ export function Sidebar() {
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const sidebarResizingRef = useRef(false);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
+  const sidebarPanelRef = useRef<HTMLDivElement>(null);
+  const profileMenuOpenRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
@@ -263,6 +265,7 @@ export function Sidebar() {
     cancelScheduledPeekClose();
     peekCloseTimerRef.current = window.setTimeout(() => {
       peekCloseTimerRef.current = null;
+      if (profileMenuOpenRef.current) return;
       setSidebarPeek(false);
     }, SIDEBAR_PEEK_CLOSE_DELAY_MS);
   }, [cancelScheduledPeekClose, setSidebarPeek]);
@@ -535,6 +538,7 @@ export function Sidebar() {
           style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
         >
           <div
+            ref={sidebarPanelRef}
             className={`${
                 peekOverlayActive
                   ? // Hover-peek overlay: the sidebar stays collapsed in layout
@@ -687,16 +691,17 @@ export function Sidebar() {
                 <CappedScrollbar scrollRef={sidebarScrollRef} />
               </div>
 
-              <div className="px-2 py-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSettings(true)}
-                  className="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                  aria-label="Settings"
-                >
-                  <Settings className="h-[15px] w-[15px] text-[var(--text-muted)]" />
-                  <span className="truncate text-[13px] font-normal">Settings</span>
-                </button>
+              <div className="shrink-0 px-2 py-2">
+                <SidebarProfileMenu
+                  onOpenSettings={() => setShowSettings(true)}
+                  onOpenChange={(open) => {
+                    profileMenuOpenRef.current = open;
+                    cancelScheduledPeekClose();
+                    if (!open && sidebarCollapsed && !sidebarPanelRef.current?.matches(':hover')) {
+                      schedulePeekClose();
+                    }
+                  }}
+                />
               </div>
             </div>
           </div>

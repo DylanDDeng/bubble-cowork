@@ -1,0 +1,8 @@
+/* Follow Aegis' theme rather than the OS theme embedded in some SVG assets. */
+.sidebar-usage-monochrome img {
+  filter: brightness(0);
+}
+
+.dark .sidebar-usage-monochrome img {
+  filter: brightness(0) invert(1);
+}

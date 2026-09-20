@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import { claudeUsageSummary, codexUsageSummary, grokUsageSummary, qoderUsageSummary, tokenUsageSummary } from '../../src/ui/utils/usage-menu-summary';
+import type { ClaudePlanUsageReport, CodexRateLimitReport, GrokPlanUsageReport, QoderPlanUsageReport, ClaudeUsageReport } from '../../src/ui/types';
+
+const claude = { rateLimitsAvailable: true, fiveHour: { utilization: 28 }, sevenDay: { utilization: 62 } } as ClaudePlanUsageReport;
+assert.equal(claudeUsageSummary(claude), 'Remaining · 5h 72% · Weekly 38%');
+assert.equal(claudeUsageSummary({ ...claude, rateLimitsAvailable: false }), null, 'API accounts do not get invented plan quotas');
+assert.equal(claudeUsageSummary({ ...claude, fiveHour: null, sevenDay: null }), null);
+assert.equal(claudeUsageSummary({ ...claude, fiveHour: { utilization: 100, resetsAt: null }, sevenDay: null }), 'Remaining · 5h 0%', 'exhausted quotas stay visible');
+const codex = { fetchedAt: 1, rateLimits: null, rateLimitsByLimitId: { codex: { primary: { usedPercent: 15, remainingPercent: 85, windowDurationMins: 300 }, secondary: { usedPercent: 36, remainingPercent: 64, windowDurationMins: 10080 } } } } as unknown as CodexRateLimitReport;
+assert.equal(codexUsageSummary(codex), 'Remaining · 5h 85% · Weekly 64%');
+assert.equal(codexUsageSummary({ ...codex, rateLimitsByLimitId: { codex: { ...codex.rateLimitsByLimitId.codex, primary: { usedPercent: 110, remainingPercent: -10, windowDurationMins: 60, resetsAt: null }, secondary: null } } }), 'Remaining · 1h 0%', 'use the actual window, clamp exhausted quota');
+assert.equal(codexUsageSummary({ ...codex, rateLimitsByLimitId: {} }), null);
+assert.equal(grokUsageSummary({ creditUsagePercent: 10, currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY' } } as GrokPlanUsageReport), 'Weekly · 90% remaining');
+assert.equal(qoderUsageSummary({ totalUsagePercentage: null, userQuota: { percentage: 40 } } as QoderPlanUsageReport), 'Plan quota · 60% remaining');
+assert.equal(qoderUsageSummary(null), null);
+const usage = { totals: { sessionCount: 2, totalTokens: 999 }, daily: [{ date: '2026-09-20', totalTokens: 1200000 }] } as ClaudeUsageReport;
+assert.equal(tokenUsageSummary(usage), 'Last 30 days · 1.2M tokens', 'same daily-series basis as the detail page');
+assert.equal(tokenUsageSummary({ ...usage, daily: [] }), 'Tokens not reported');
+assert.equal(tokenUsageSummary({ ...usage, daily: [], totals: { ...usage.totals, sessionCount: 0 } }), 'No usage in last 30 days');
+assert.equal(tokenUsageSummary(null), 'No usage data');
+console.log('usage-menu-summary: all assertions passed');

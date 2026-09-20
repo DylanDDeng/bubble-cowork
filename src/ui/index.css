@@ -562,6 +562,15 @@ body {
   font-size: calc(18px * var(--ui-font-scale, 1)) !important;
 }
 
+/* Keep the profile footer compact despite the sidebar's uniform text sizing. */
+.aegis-sidebar .sidebar-profile-avatar {
+  font-size: calc(8px * var(--ui-font-scale, 1)) !important;
+}
+
+.aegis-sidebar .sidebar-profile-name {
+  font-size: calc(12px * var(--ui-font-scale, 1)) !important;
+}
+
 .aegis-sidebar button[aria-expanded] > span {
   font-weight: 400 !important;
 }

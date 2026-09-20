@@ -16,6 +16,7 @@ import {
 } from './layout-adapter';
 import type {
   ActiveWorkspace,
+  AgentProvider,
   AppState,
   AppActions,
   ChatLayoutMode,
@@ -976,6 +977,7 @@ export const useAppStore = create<Store>()(
       showSettings: false,
       draftStartMode: {},
       activeSettingsTab: 'general' as SettingsTab,
+      usageSettingsProvider: 'claude' as AgentProvider,
       mcpSettingsRuntime: 'claude' as McpSettingsRuntime,
       agentSetupOpen: false,
       agentSetupDismissedAt: null,
@@ -2502,6 +2504,7 @@ export const useAppStore = create<Store>()(
     set((state) => ({ draftStartMode: { ...state.draftStartMode, [sessionId]: mode } })),
 
   setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
+  setUsageSettingsProvider: (provider) => set({ usageSettingsProvider: provider }),
   setMcpSettingsRuntime: (runtime) => set({ mcpSettingsRuntime: runtime }),
   setAgentSetupOpen: (open) => set({ agentSetupOpen: open }),
   dismissAgentSetup: () =>

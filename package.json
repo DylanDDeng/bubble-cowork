@@ -73,6 +73,7 @@
     "verify:grok-permissions-native": "npm run transpile:electron && node scripts/tests/grok-permissions-native.test.cjs",
     "verify:review-diff-panel": "node scripts/verify-review-diff-panel.mjs",
     "verify:board-attachments": "node scripts/tests/board-attachments-electron.test.mjs",
+    "verify:sidebar-usage": "npx tsx scripts/tests/usage-menu-summary.test.ts && npx tsx scripts/tests/plan-usage-cache.test.ts && node scripts/tests/sidebar-profile-usage-electron.test.mjs",
     "verify:board-task-semantics": "npx tsx scripts/tests/board-task-start.test.ts && npx tsx scripts/tests/board-title-sync.test.ts && npx tsx scripts/tests/session-continue-permissions.test.ts && node scripts/verify-board-task-semantics.mjs && node scripts/tests/board-task-actions-electron.test.mjs",
     "verify:workstream-stages": "node scripts/verify-workstream-stages.mjs",
     "verify:workstream-preamble-order": "node scripts/verify-workstream-preamble-order.mjs",

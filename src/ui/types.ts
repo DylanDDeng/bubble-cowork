@@ -491,6 +491,7 @@ export interface AppState {
   // 按 draft session id 记，默认 local。
   draftStartMode: Record<string, 'local' | 'worktree'>;
   activeSettingsTab: SettingsTab;
+  usageSettingsProvider: AgentProvider;
   // Which runtime's MCP servers the settings pane shows; drives the sidebar sub-nav too.
   mcpSettingsRuntime: McpSettingsRuntime;
   agentSetupOpen: boolean;
@@ -661,6 +662,7 @@ export interface AppActions {
   // Settings Actions
   setShowSettings: (show: boolean) => void;
   setActiveSettingsTab: (tab: SettingsTab) => void;
+  setUsageSettingsProvider: (provider: AgentProvider) => void;
   setMcpSettingsRuntime: (runtime: McpSettingsRuntime) => void;
   setAgentSetupOpen: (open: boolean) => void;
   dismissAgentSetup: () => void;

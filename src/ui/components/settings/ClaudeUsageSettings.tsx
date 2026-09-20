@@ -24,6 +24,8 @@ import type {
 } from '../../types';
 import { useKimiModelConfig } from '../../hooks/useKimiModelConfig';
 import { usePlanUsage } from '../../hooks/usePlanUsage';
+import { useAgentUsageReport } from '../../hooks/useAgentUsageReport';
+import { useAppStore } from '../../store/useAppStore';
 import { PreferenceSelect } from './GeneralSettingsContent';
 import { SettingsGroup } from './SettingsPrimitives';
 
@@ -57,16 +59,12 @@ const USAGE_PROVIDERS: Array<{ id: AgentProvider; title: string; logoSrc?: strin
   { id: 'deepseek', title: 'DeepSeek Harness', logoSrc: deepseekLogo },
 ];
 
-const INITIAL_PROVIDER_USAGE: Record<AgentProvider, ProviderUsageState> = Object.fromEntries(
-  USAGE_PROVIDERS.map((provider) => [provider.id, { report: null, loading: true, error: null }])
-) as Record<AgentProvider, ProviderUsageState>;
-
 type ActivityViewMode = 'daily' | 'weekly' | 'cumulative';
 
 export function ClaudeUsageSettingsContent() {
-  const [activeProvider, setActiveProvider] = useState<AgentProvider>('claude');
-  const [usageByProvider, setUsageByProvider] =
-    useState<Record<AgentProvider, ProviderUsageState>>(INITIAL_PROVIDER_USAGE);
+  const activeProvider = useAppStore((state) => state.usageSettingsProvider);
+  const setActiveProvider = useAppStore((state) => state.setUsageSettingsProvider);
+  const usage = useAgentUsageReport(activeProvider, 365);
   const { report: codexRateLimits, loading: codexRateLimitsLoading, error: codexRateLimitsError } =
     usePlanUsage('codex', activeProvider === 'codex');
   const { report: claudePlanUsage, loading: claudePlanUsageLoading, error: claudePlanUsageError } =
@@ -86,46 +84,12 @@ export function ClaudeUsageSettingsContent() {
     return labels;
   }, [kimiModelConfig]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      const results = await Promise.allSettled(
-        USAGE_PROVIDERS.map((provider) => window.electron.getAgentUsageReport(provider.id, 365))
-      );
-
-      if (cancelled) {
-        return;
-      }
-
-      setUsageByProvider(() => {
-        const next = {} as Record<AgentProvider, ProviderUsageState>;
-        USAGE_PROVIDERS.forEach((provider, index) => {
-          const result = results[index];
-          next[provider.id] =
-            result.status === 'fulfilled'
-              ? { report: result.value, loading: false, error: null }
-              : {
-                  report: null,
-                  loading: false,
-                  error: normalizeUsageLoadError(result.reason, 'get-agent-usage-report'),
-                };
-        });
-        return next;
-      });
-    };
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const providers = useMemo<UsageProviderCard[]>(
     () =>
       USAGE_PROVIDERS.map((provider) => {
-        const state = usageByProvider[provider.id];
+        const state: ProviderUsageState = provider.id === activeProvider
+          ? { report: usage.report?.usage ?? null, loading: usage.loading, error: usage.error }
+          : { report: null, loading: false, error: null };
         return {
           id: provider.id,
           title: provider.title,
@@ -144,7 +108,7 @@ export function ClaudeUsageSettingsContent() {
               : state.report,
         };
       }),
-    [kimiModelLabels, usageByProvider]
+    [kimiModelLabels, activeProvider, usage]
   );
 
   const activeProviderCard = providers.find((provider) => provider.id === activeProvider) || providers[0];
@@ -160,11 +124,19 @@ export function ClaudeUsageSettingsContent() {
 
   return (
     <div className="space-y-8 pb-10">
-      <UsageProviderPicker
-        provider={activeProviderCard}
-        providers={providers}
-        onSelectProvider={setActiveProvider}
-      />
+      <div className="space-y-2">
+        <UsageProviderPicker
+          provider={activeProviderCard}
+          providers={providers}
+          onSelectProvider={setActiveProvider}
+        />
+        <div className="h-4 truncate text-[11px] leading-4 text-[var(--text-muted)]" role="status" data-usage-report-status="">
+          {usage.report ? <>
+            Updated {formatLocalTime(usage.report.fetchedAt)}
+            {usage.loading ? ' · Refreshing…' : usage.error ? ' · Update failed; showing saved data' : ''}
+          </> : null}
+        </div>
+      </div>
 
       {tokenReportHidden
         ? null
@@ -698,10 +670,10 @@ function renderUsageState(provider: UsageProviderCard) {
     return <InlineEmpty label="Loading usage…" />;
   }
 
-  if (provider.error && !provider.loading) {
+  if (provider.error && !provider.loading && !provider.report) {
     return (
       <div className="px-4 py-4 text-center text-[12px] text-[var(--error)]">
-        <span className="font-medium">Unable to load usage.</span> {provider.error}
+        <span className="font-medium">Unable to load usage.</span> {normalizeUsageLoadError(new Error(provider.error), 'get-agent-usage-report')}
       </div>
     );
   }
