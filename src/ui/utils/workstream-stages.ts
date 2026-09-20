@@ -370,7 +370,9 @@ function buildEditTitle(files: WorkstreamStageFile[], entries: WorkstreamEntry[]
   } else if (operations.size === 1 && operations.has('delete')) {
     verb = 'Deleted';
   }
-  return `${verb} ${plural(targetCount, files.length === 1 || files.length > 1 ? 'file' : 'item')}`;
+  return files.length === 1
+    ? `${verb} ${files[0].fileName}`
+    : `${verb} ${plural(targetCount, files.length > 1 ? 'file' : 'item')}`;
 }
 
 function buildCommandTitle(commands: WorkstreamStageCommand[], entries: WorkstreamEntry[]): string {
@@ -474,6 +476,8 @@ function shouldMergeStageEntries(
   if (!currentKind || currentKind !== nextKind) return false;
   if (nextKind === 'approval' || nextKind === 'error' || nextKind === 'other') return false;
   if (nextKind === 'computer_use') return false;
+  // Each edit owns its own diff, including consecutive edits of the same file.
+  if (nextKind === 'edit') return false;
   if (nextKind === 'task') {
     // Only Tasks fanned out by the same assistant message actually ran in
     // parallel. Sequential Tasks (each launched after the previous resolved)

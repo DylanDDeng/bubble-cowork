@@ -70,6 +70,25 @@ function inferLanguage(fileName?: string): string | undefined {
   return ext ? map[ext] : undefined;
 }
 
+export function highlightCodeLines(code: string, language?: string, fileName?: string): string[] {
+  const lang = language || inferLanguage(fileName);
+  let result: string;
+  try {
+    if (lang && hljs.getLanguage(lang)) {
+      result = hljs.highlight(code, { language: lang }).value;
+    } else {
+      result = hljs.highlightAuto(code).value;
+    }
+  } catch {
+    result = code
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  return splitHighlightedLines(result);
+}
+
 interface HighlightedCodeProps {
   code: string;
   language?: string;
@@ -91,24 +110,7 @@ export function HighlightedCode({
   revealTarget,
 }: HighlightedCodeProps) {
   const { lines } = useMemo(() => {
-    const lang = language || inferLanguage(fileName);
-    let result: string;
-    try {
-      if (lang && hljs.getLanguage(lang)) {
-        result = hljs.highlight(code, { language: lang }).value;
-      } else {
-        result = hljs.highlightAuto(code).value;
-      }
-    } catch {
-      result = code
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-    }
-
-    // 按行拆分，保留每行的 HTML（处理跨行 span 标签）
-    const lineArray = splitHighlightedLines(result);
-    return { lines: lineArray };
+    return { lines: highlightCodeLines(code, language, fileName) };
   }, [code, language, fileName]);
 
   const lineCount = lines.length;

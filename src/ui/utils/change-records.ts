@@ -70,6 +70,26 @@ function getFirstString(input: Record<string, unknown>, keys: string[]): string 
   return null;
 }
 
+// Empty text is meaningful for edits (deleting text or inserting into an empty
+// file), unlike an empty path or label.
+function getFirstText(input: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    if (typeof input[key] === 'string') return input[key];
+  }
+  return null;
+}
+
+function getInputEditDiff(filePath: string, input: Record<string, unknown>): string | null {
+  const edits = Array.isArray(input.edits) ? input.edits : [input];
+  const patches = edits.flatMap((edit) => {
+    if (!isRecord(edit)) return [];
+    const oldText = getFirstText(edit, ['old_string', 'oldText', 'old_text', 'search', 'before', 'original', 'old_source']);
+    const newText = getFirstText(edit, ['new_string', 'newText', 'new_text', 'replace', 'replacement', 'after', 'updated', 'new_source']);
+    return oldText !== null && newText !== null ? [createEditDiff(filePath, oldText, newText)] : [];
+  });
+  return patches.filter(Boolean).join('\n') || null;
+}
+
 function normalizePath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
 }
@@ -598,8 +618,7 @@ function extractPathFromDiff(diffContent: string): string | null {
 
 function getToolResultFilePath(result: ToolResultBlock | undefined): string | null {
   const payload = parseToolResultPayload(result);
-  const metadata = getToolResultMetadata(payload);
-  const metadataDiff = getString(metadata?.diff);
+  const metadataDiff = getToolResultPatch(result);
   if (metadataDiff) {
     const filePath = extractPathFromDiff(metadataDiff);
     if (filePath) {
@@ -618,13 +637,22 @@ function getToolResultFilePath(result: ToolResultBlock | undefined): string | nu
   return null;
 }
 
+function getToolResultPatch(result: ToolResultBlock | undefined): string | null {
+  const payload = parseToolResultPayload(result);
+  const metadataDiff = getString(getToolResultMetadata(payload)?.diff);
+  if (metadataDiff) return metadataDiff;
+  // Kimi returns "Edited …\n\nDiff:\nIndex: …\n--- …\n+++ …\n@@ …"
+  // as plain text. Keep the actual hunk positions instead of reconstructing
+  // a fragment at line 1 from its edits[] arguments.
+  const output = getString(payload?.output) || (typeof result?.content === 'string' ? result.content : null);
+  return output && /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m.test(output) ? output : null;
+}
+
 function getToolResultDiffContent(
   result: ToolResultBlock | undefined,
   fallbackFilePath?: string | null
 ): string | null {
-  const payload = parseToolResultPayload(result);
-  const metadata = getToolResultMetadata(payload);
-  const metadataDiff = getString(metadata?.diff);
+  const metadataDiff = getToolResultPatch(result);
   if (!metadataDiff) {
     return null;
   }
@@ -675,7 +703,8 @@ function buildRecordsFromStructuredChanges(
     } else if (type === 'update' || type === 'edit' || type === 'modify') {
       status = 'M';
       operation = 'edit';
-    } else if (getString(rawSpec.move_path)) {
+    }
+    if (getString(rawSpec.move_path)) {
       status = 'R';
       operation = 'renamed';
     }
@@ -733,7 +762,11 @@ function buildToolRecords(
 
   const state: ChangeRecordState = result ? 'success' : 'pending';
 
-  const structuredChangeRecords = buildRecordsFromStructuredChanges(input, block.id, state, index);
+  const resultPayload = parseToolResultPayload(result);
+  const structuredInput = isRecord(resultPayload?.changes)
+    ? { ...input, changes: resultPayload.changes }
+    : input;
+  const structuredChangeRecords = buildRecordsFromStructuredChanges(structuredInput, block.id, state, index);
   if (structuredChangeRecords.length > 0) {
     return structuredChangeRecords;
   }
@@ -784,29 +817,7 @@ function buildToolRecords(
   }
 
   if (operation === 'edit') {
-    const oldText = getFirstString(input, [
-      'old_string',
-      'oldText',
-      'old_text',
-      'search',
-      'before',
-      'original',
-      'old_source',
-    ]);
-    const newText = getFirstString(input, [
-      'new_string',
-      'newText',
-      'new_text',
-      'replace',
-      'replacement',
-      'after',
-      'updated',
-      'new_source',
-    ]);
-    const diffContent =
-      oldText !== null && newText !== null
-        ? createEditDiff(filePath, oldText, newText)
-        : getToolResultDiffContent(result, filePath);
+    const diffContent = getToolResultDiffContent(result, filePath) || getInputEditDiff(filePath, input);
     const stats = diffContent ? countDiffStats(diffContent) : { addedLines: 0, removedLines: 0 };
 
     return [{

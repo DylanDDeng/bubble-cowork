@@ -1,5 +1,6 @@
 import { goalCanResume, type GoalAction, type GoalSettings, type ThreadGoal } from '../../../shared/session-goal';
 import { EventEmitter } from 'events';
+import { normalizeCodexFileChanges } from '../../../shared/codex-file-changes';
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
@@ -548,7 +549,7 @@ export class CodexAdapter implements ProviderAdapter {
     on('tool_result', ({ threadId, params }) => {
       const p = params as Record<string, unknown>;
       const { item, toolUseId, rawContent } = this.extractToolResultInfo(threadId, p);
-      const isError = Boolean(item.isError ?? item.error ?? p.isError);
+      const isError = Boolean(item.isError ?? item.error ?? p.isError) || item.status === 'failed' || item.status === 'declined';
 
       if (toolUseId && !this.markEmitted(this.emittedToolResults, threadId, toolUseId)) {
         return;
@@ -2303,6 +2304,10 @@ export class CodexAdapter implements ProviderAdapter {
       }
     }
 
+    // fileChange carries changes on the item itself, outside input/arguments.
+    const changes = normalizeCodexFileChanges(item.changes ?? nested?.changes ?? toolInput.changes);
+    if (changes) toolInput.changes = changes;
+
     const command = getFirstString(
       toolInput.command,
       toolInput.cmd,
@@ -2475,7 +2480,7 @@ export class CodexAdapter implements ProviderAdapter {
     const knownCalls = this.emittedToolCalls.get(threadId);
     const knownId = candidates.find((candidate) => knownCalls?.has(candidate));
     const toolUseId = knownId || this.latestPendingToolCallId(threadId) || candidates[0] || '';
-    const rawContent =
+    let rawContent =
       item.output ??
       item.rawOutput ??
       item.result ??
@@ -2490,6 +2495,11 @@ export class CodexAdapter implements ProviderAdapter {
       params.result ??
       params.content ??
       'Done';
+
+    // Completion may contain the final diff even when item/started had none.
+    // Persist it on the result rather than emitting a duplicate tool_use.
+    const changes = normalizeCodexFileChanges(item.changes ?? nested?.changes);
+    if (changes) rawContent = JSON.stringify({ output: rawContent, changes });
 
     return { item, toolUseId, rawContent };
   }

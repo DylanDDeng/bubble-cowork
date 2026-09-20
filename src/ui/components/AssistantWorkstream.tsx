@@ -39,6 +39,7 @@ import {
   type UnifiedDiffHunk,
 } from '../utils/unified-diff';
 import { DiffHunkView } from './UnifiedDiffView';
+import { InlineEditDiff } from './InlineEditDiff';
 import { ComputerUseAppIcon } from './ComputerUseAppIcon';
 import { TodoProgressCard } from './TodoProgressCard';
 import { DiffStatLabel } from './DiffStatLabel';
@@ -278,7 +279,7 @@ function StageRow({
         aria-expanded={canExpand ? expanded : undefined}
       >
         <StageKindIcon stage={stage} />
-        <span className={`min-w-0 truncate ${titleClass}`}><WorkstreamActivityLabel active={isPending}>{stage.title}</WorkstreamActivityLabel></span>
+        <span title={stage.files.length === 1 ? stage.files[0].filePath : undefined} className={`min-w-0 truncate ${titleClass}`}><WorkstreamActivityLabel active={isPending}>{stage.title}</WorkstreamActivityLabel></span>
         {stage.kind === 'edit' ? (
           <DiffStatLabel additions={stage.addedLines} deletions={stage.removedLines} muted />
         ) : null}
@@ -364,7 +365,11 @@ function StageDetails({
       {images.length > 0 && !showGenericDetail && stage.kind !== 'computer_use' ? <AttachmentPreviewGrid attachments={images} align="start" /> : null}
       {stage.commands.length > 0 ? <StageCommandsDetail commands={stage.commands} /> : null}
       {stage.kind === 'computer_use' ? <StageComputerUseDetail entries={stage.entries} /> : null}
-      {showGenericDetail ? (
+      {showGenericDetail && stage.kind === 'edit' && stage.status !== 'error' ? (
+        <div className="px-2 py-1 text-[11px] text-[var(--text-muted)]">
+          {stage.status === 'pending' ? 'Waiting for file change details…' : 'File change details were not recorded for this edit.'}
+        </div>
+      ) : showGenericDetail ? (
         <StageGenericDetail entries={stage.entries} />
       ) : stage.status === 'error' ? (
         <StageFailureNotes entries={stage.entries} />
@@ -518,7 +523,9 @@ function StageFilesDetail({
   const records = getStageChangeRecords(stage);
   return (
     <div className="space-y-px">
-      {stage.files.map((file) => (
+      {stage.files.map((file) => stage.kind === 'edit' && file.record ? (
+        <InlineEditDiff key={file.id} record={file.record} onOpen={onOpenDiff ? () => onOpenDiff(file.record!, { records, label: stageFileScopeLabel(records.length) }) : undefined} />
+      ) : (
         <StageFileRow
           key={file.id}
           file={file}
