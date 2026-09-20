@@ -78,6 +78,8 @@ export interface BoardTask {
   description: string;
   /** Reference files saved with the task and sent when its first run starts. */
   attachments?: Attachment[];
+  /** Context-only reference; never attached as an owned run of this task. */
+  sourceSessionId?: string;
   projectCwd: string | null;
   /** Runtime choices captured when the task is composed. */
   sessionConfig: Partial<BoardSessionConfig>;
@@ -140,6 +142,7 @@ export interface BoardStore {
     title: string;
     description?: string;
     attachments?: Attachment[];
+    sourceSessionId?: string;
     projectCwd?: string | null;
     sessionConfig?: Partial<BoardSessionConfig>;
     sessionId?: string | null;
@@ -148,7 +151,7 @@ export interface BoardStore {
   }) => string;
   updateTask: (
     taskId: string,
-    patch: Partial<Pick<BoardTask, 'title' | 'description' | 'attachments' | 'projectCwd' | 'sessionConfig'>>
+    patch: Partial<Pick<BoardTask, 'title' | 'description' | 'attachments' | 'sourceSessionId' | 'projectCwd' | 'sessionConfig'>>
   ) => void;
   setStage: (taskId: string, stage: BoardStage, opts?: { auto?: boolean }) => void;
   /** Record whether the follow-up being sent opens a new thread card. */
@@ -277,6 +280,7 @@ export const useBoardStore = create<BoardStore>()(
         title,
         description = '',
         attachments = [],
+        sourceSessionId,
         projectCwd = null,
         sessionConfig = {},
         sessionId = null,
@@ -293,6 +297,7 @@ export const useBoardStore = create<BoardStore>()(
               title: title.trim() || 'Untitled task',
               description: description.trim(),
               attachments,
+              ...(sourceSessionId ? { sourceSessionId } : {}),
               projectCwd: projectCwd?.trim() || null,
               sessionConfig,
               stage,

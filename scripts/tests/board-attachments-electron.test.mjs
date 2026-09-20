@@ -28,7 +28,7 @@ window.electron={
  getPathForFile:()=>'',getClipboardFilePaths:()=>native,
  createFileAttachment:async name=>attachment(name),importAttachments:async paths=>({attachments:paths.map(p=>attachment(p.split('/').pop())),errors:[]}),
  readAttachmentPreview:async()=>preview,
- startBackgroundSession:async payload=>{sent.push(payload);return {ok:true}},
+ startBackgroundSession:async payload=>{sent.push(payload);return {ok:true,sessionId:'board-run-'+sent.length}},
 };
 for(const p of ['Claude','Codex','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
 window.electron.getClaudeModelConfig=async()=>({defaultModel:'claude-sonnet-4-6',options:['claude-sonnet-4-6']});
@@ -65,6 +65,8 @@ app.whenReady().then(async()=>{
   await js('qa.fail(true)');await click('[aria-label="Attach files"]');assert.equal(await js(thumbs),3,'failed import preserves references');await js('qa.fail(false)');
   await button('Save to Todo');await until('!document.querySelector("[role=dialog]")','saved');
   assert.equal(await js('Object.values(qa.board.getState().tasks)[0].attachments.length'),3);
+  assert.equal(await js('qa.board.getState().selectedTaskId'),null,'saving a new task stays on the board');
+  await click('button[draggable="true"]');
   await until('document.querySelectorAll("[aria-label=\\"Task attachments\\"] img").length===3','detail images');
   await click('[aria-label="Open image attachment reference.png"]');await until('!!document.querySelector("[aria-label=\\"Close image preview\\"]")','image preview');await click('[aria-label="Close image preview"]');
   await w.reload();await until('!!window.qa && Object.values(qa.board.getState().tasks).length===1','persisted task');
@@ -72,12 +74,19 @@ app.whenReady().then(async()=>{
   await js('qa.board.getState().setSelectedTask(null)');await delay(100);
   await js('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Inspect the references")).dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,clientX:450,clientY:180}))');await delay(100);await button('Edit details');
   await until(thumbs+'===3','edit retains references');await click('[aria-label="Remove attachment"]');await until(thumbs+'===2','remove reference');
-  await button('Save to Todo');await button('Start Task');
+  await button('Save to Todo');
+  assert.equal(await js('qa.board.getState().selectedTaskId'),null,'editing from the board stays on the board');
+  await click('button[draggable="true"]');await button('Start Task');
+  assert.equal(await js('qa.board.getState().selectedTaskId'),null,'starting from task detail returns to the board');
   assert.deepEqual(await js('qa.sent[0].attachments.map(a=>a.name)'),['pasted.png','dropped.png']);
   assert.equal(await js('qa.sent[0].prompt'),'Inspect the references');
   await js('qa.board.getState().setSelectedTask(null)');await delay(100);await click('[aria-label="New task in Todo"]');await title('Start with image');
   await click('[aria-label="Attach files"]');await until(thumbs+'===1','new reference');await button('Start now');
   assert.deepEqual(await js('qa.sent[1].attachments.map(a=>a.name)'),['reference.png'],'Start now sends images too');
+  assert.equal(await js('qa.board.getState().selectedTaskId'),null,'Start now stays on the board');
+  assert.equal(await js('Object.values(qa.board.getState().tasks).find(t=>t.title==="Start with image").stage'),'working','started task moves to Working');
+  assert.equal(await js('document.querySelectorAll("button[draggable=true]").length'),2,'task cards remain visible after starting');
+  await shot('board-after-start');
   await js('qa.board.getState().setSelectedTask(null)');await delay(100);await click('[aria-label="New task in Todo"]');await js('qa.slow(400)');await click('[aria-label="Attach files"]');
   await js('document.querySelector("[aria-label=\\\"Close task composer\\\"]").click()');await delay(100);await click('[aria-label="New task in Todo"]');await delay(450);
   assert.equal(await js(thumbs),0,'cancelled imports cannot leak into a new task');

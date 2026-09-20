@@ -64,6 +64,8 @@ import type { Attachment, SessionView } from '../types';
 import type { CodexReferencePayload } from '../utils/codex-composer';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { createBoardTaskStartPayload } from '../utils/board-task-start';
+import { sessionContinuePermissions } from '../utils/session-continue-permissions';
+import { createSessionLink, getSessionReferenceCapabilityError } from '../../shared/session-links';
 
 export function BoardView() {
   const sessions = useAppStore((state) => state.sessions);
@@ -197,6 +199,20 @@ export function BoardView() {
       return;
     }
 
+    if (task.sourceSessionId) {
+      const source = useAppStore.getState().sessions[task.sourceSessionId];
+      if (!source || source.hiddenFromThreads || source.isDraft) {
+        toast.error('The source conversation is no longer available. Edit the task to choose another source.');
+        return;
+      }
+      const error = getSessionReferenceCapabilityError(createSessionLink(source.id), task.sessionConfig.provider || 'claude');
+      if (error) {
+        toast.error(error);
+        return;
+      }
+    }
+
+    const startedFromDetail = useBoardStore.getState().selectedTaskId === task.id;
     const result = await window.electron.startBackgroundSession(
       createBoardTaskStartPayload(
         task,
@@ -206,6 +222,11 @@ export function BoardView() {
     if (result.sessionId) {
       attachSession(task.id, result.sessionId);
       setStage(task.id, 'working', { auto: true });
+      // Starting work returns to the Kanban overview. Do not pull the user
+      // back if they navigated to another task while the runner was starting.
+      if (result.ok && startedFromDetail && useBoardStore.getState().selectedTaskId === task.id) {
+        setSelectedTaskId(null);
+      }
     }
     if (!result.ok) {
       // The session row may have been created before a runtime readiness
@@ -234,7 +255,7 @@ export function BoardView() {
       references?: CodexReferencePayload;
     }
   ): boolean => {
-    const latest = latestTaskSession(task, sessions);
+    const latest = latestTaskSession(task, useAppStore.getState().sessions);
     if (!latest) {
       toast.error('This task has no session to continue.');
       return false;
@@ -264,6 +285,7 @@ export function BoardView() {
       payload: {
         sessionId: latest.id,
         prompt,
+        ...sessionContinuePermissions(latest),
         effectivePrompt: opts?.effectivePrompt,
         attachments: opts?.attachments && opts.attachments.length > 0 ? opts.attachments : undefined,
         // Codex runs a picked skill from its reference, like the chat composer.
@@ -520,16 +542,38 @@ export function BoardView() {
             (projectFilter !== 'all' && projectFilter) || currentProjectCwd || composerProjectOptions[0] || ''
           }
           onClose={() => setComposerTaskId(undefined)}
-          onSubmit={async ({ title, description, attachments, projectCwd, sessionConfig, stage: nextStage, startNow }) => {
+          onOpenTask={(taskId) => {
+            const target = useBoardStore.getState().tasks[taskId];
+            if (!target) return;
+            setComposerTaskId(undefined);
+            openTask(target);
+          }}
+          onContinueTask={(taskId, prompt, attachments) => {
+            const target = useBoardStore.getState().tasks[taskId];
+            const latest = target && latestTaskSession(target, useAppStore.getState().sessions);
+            if (!target || !latest || latest.isDraft || latest.hiddenFromThreads || latest.readOnly) {
+              toast.error('This task has no available conversation. Open the task to start it.');
+              return false;
+            }
+            if (latest.status === 'running' || latest.status === 'stopping') {
+              toast.error('This task is already running. Open it to follow its progress.');
+              return false;
+            }
+            if (!continueTask(target, prompt, { attachments })) return false;
+            setComposerTaskId(undefined);
+            setSelectedTaskId(null);
+            return true;
+          }}
+          onSubmit={async ({ title, description, attachments, sourceSessionId, projectCwd, sessionConfig, stage: nextStage, startNow }) => {
             const taskId = composerTaskId
               ? composerTaskId
-              : addTask({ title, description, attachments, projectCwd, sessionConfig, stage: nextStage });
+              : addTask({ title, description, attachments, sourceSessionId, projectCwd, sessionConfig, stage: nextStage });
             if (composerTaskId) {
-              updateTask(composerTaskId, { title, description, attachments, projectCwd, sessionConfig });
+              updateTask(composerTaskId, { title, description, attachments, sourceSessionId, projectCwd, sessionConfig });
               if (tasks[composerTaskId]?.stage !== nextStage) setStage(composerTaskId, nextStage);
             }
             setComposerTaskId(undefined);
-            setSelectedTaskId(taskId);
+            setSelectedTaskId(null);
             if (startNow) {
               const task = useBoardStore.getState().tasks[taskId];
               if (task) await startTask(task);
@@ -937,12 +981,22 @@ function BoardCard({
   );
 }
 
+type TaskComposerMode = 'new' | 'reference' | 'continue';
+
+const TASK_COMPOSER_MODES = [
+  { value: 'new', label: 'New task', description: 'Start a new task and conversation.' },
+  { value: 'reference', label: 'Based on a task', description: 'Start a new conversation with a link to earlier work, in the project selected below.' },
+  { value: 'continue', label: 'Continue a task', description: 'Send instructions to an existing task using its current agent and workspace.' },
+] as const;
+
 function BoardTaskComposer({
   task,
   stage,
   projectOptions,
   initialProjectCwd,
   onClose,
+  onOpenTask,
+  onContinueTask,
   onSubmit,
 }: {
   task: BoardTask | null;
@@ -951,22 +1005,37 @@ function BoardTaskComposer({
   projectOptions: string[];
   initialProjectCwd: string;
   onClose: () => void;
+  onOpenTask: (taskId: string) => void;
+  onContinueTask: (taskId: string, prompt: string, attachments: Attachment[]) => boolean;
   onSubmit: (input: {
     title: string;
     description: string;
     attachments: Attachment[];
+    sourceSessionId?: string;
     projectCwd: string | null;
     sessionConfig: Partial<BoardSessionConfig>;
     stage: BoardStage;
     startNow: boolean;
   }) => Promise<void>;
 }) {
+  const tasks = useBoardStore((state) => state.tasks);
+  const sessions = useAppStore((state) => state.sessions);
+  const [mode, setMode] = useState<TaskComposerMode>(task?.sourceSessionId ? 'reference' : 'new');
+  const [targetTaskId, setTargetTaskId] = useState('');
+  const [sourceSessionId, setSourceSessionId] = useState(task?.sourceSessionId);
+  const [targetSearch, setTargetSearch] = useState('');
+  const [pickingTarget, setPickingTarget] = useState(!task?.sourceSessionId);
+  const continuing = !task && mode === 'continue';
+  const targetTask = tasks[targetTaskId];
+  const targetSession = targetTask ? latestTaskSession(targetTask, sessions) : null;
+  const sourceSession = sourceSessionId ? sessions[sourceSessionId] : undefined;
   const [title, setTitle] = useState(task?.title === 'Untitled task' ? '' : task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [projectCwd, setProjectCwd] = useState(task?.projectCwd || initialProjectCwd);
   const [stageValue, setStageValue] = useState<BoardStage>(stage);
   const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const submitPending = useRef(false);
   const [attachments, setAttachments] = useState<Attachment[]>(task?.attachments ?? []);
   const attachmentImport = useAttachmentImport(task?.id ?? '__board_new_task__', submitting, (created) => {
     setAttachments((current) => {
@@ -995,6 +1064,32 @@ function BoardTaskComposer({
     bubbleThinkingLevel: task?.sessionConfig.bubbleThinkingLevel || null,
     deepseekAgentPreset: task?.sessionConfig.deepseekAgentPreset || null,
   });
+
+  const targetUnavailable = !targetSession || targetSession.isDraft || targetSession.hiddenFromThreads || targetSession.readOnly;
+  const targetRunning = targetSession?.status === 'running' || targetSession?.status === 'stopping';
+  const openOnly = continuing && !!targetTask && (targetUnavailable || targetRunning);
+  const sourceUnavailable = mode === 'reference' && (!sourceSession || sourceSession.isDraft || sourceSession.hiddenFromThreads);
+  const referenceError = mode === 'reference' && sourceSessionId
+    ? getSessionReferenceCapabilityError(createSessionLink(sourceSessionId), agentSelection.provider)
+    : null;
+  const targetOptions = useMemo(() => Object.values(tasks)
+    .filter((candidate) => {
+      if (candidate.id === task?.id) return false;
+      if (continuing && (candidate.projectCwd || '') !== projectCwd) return false;
+      const session = latestTaskSession(candidate, sessions);
+      if (mode === 'reference' && (!session || session.isDraft || session.hiddenFromThreads)) return false;
+      return `${candidate.title} ${candidate.projectCwd || ''}`.toLowerCase().includes(targetSearch.trim().toLowerCase());
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt), [tasks, sessions, task?.id, continuing, projectCwd, mode, targetSearch]);
+
+  const changeProject = (cwd: string) => {
+    setProjectCwd(cwd);
+    if (continuing) {
+      setTargetTaskId('');
+      setPickingTarget(true);
+      setTargetSearch('');
+    }
+  };
 
   const buildSessionConfig = (): Partial<BoardSessionConfig> => ({
     provider: agentSelection.provider,
@@ -1058,9 +1153,34 @@ function BoardTaskComposer({
   });
 
   const submit = async (startNow: boolean) => {
-    if (submitting || attachmentImport.pending.current > 0) return;
+    if (submitPending.current || attachmentImport.pending.current > 0) return;
     const normalizedTitle = title.trim();
     if (!normalizedTitle) return;
+    if (continuing) {
+      if (!targetTask || targetUnavailable || targetRunning) return;
+      submitPending.current = true;
+      setSubmitting(true);
+      let sent = false;
+      try {
+        sent = onContinueTask(targetTask.id, normalizedTitle, attachments);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Could not send the instructions.');
+      } finally {
+        if (!sent) {
+          submitPending.current = false;
+          setSubmitting(false);
+        }
+      }
+      return;
+    }
+    if (mode === 'reference' && sourceUnavailable && (!task || startNow)) {
+      toast.error('Choose an available source conversation.');
+      return;
+    }
+    if (startNow && referenceError) {
+      toast.error(referenceError);
+      return;
+    }
     if (startNow && !projectCwd.trim()) {
       toast.error('Select a project before starting the task.');
       return;
@@ -1069,18 +1189,23 @@ function BoardTaskComposer({
       toast.error(agentSelection.modelSetup.title);
       return;
     }
+    submitPending.current = true;
     setSubmitting(true);
     try {
       await onSubmit({
         title: normalizedTitle,
         description: description.trim(),
         attachments,
+        sourceSessionId: mode === 'reference' ? sourceSessionId : undefined,
         projectCwd: projectCwd.trim() || null,
         sessionConfig: buildSessionConfig(),
         stage: stageValue,
         startNow,
       });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save the task.');
     } finally {
+      submitPending.current = false;
       setSubmitting(false);
     }
   };
@@ -1116,10 +1241,10 @@ function BoardTaskComposer({
             </span>
             <ChevronRight className="h-3 w-3 text-[var(--text-muted)]" />
             <Dialog.Title className="text-[13px] font-medium text-[var(--text-primary)]">
-              {task ? 'Edit task' : 'New task'}
+              {task ? 'Edit task' : 'Start a task'}
             </Dialog.Title>
             <Dialog.Description className="sr-only">
-              {`Save the task to ${stageLabel}, or start an agent on it right away.`}
+              {continuing ? 'Continue an existing task without creating another card.' : `Save the task to ${stageLabel}, or start an agent on it right away.`}
             </Dialog.Description>
             <span className="flex-1" />
             <Dialog.Close aria-label="Close task composer" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]">
@@ -1129,7 +1254,103 @@ function BoardTaskComposer({
 
           <div className="flex min-h-0 flex-1 flex-col px-5 pb-2 pt-4">
             <div className="min-h-0 overflow-y-auto">
-              <input
+              {!task && (
+                <div className="mb-4">
+                  <div role="group" aria-label="Task action" className="flex flex-wrap gap-1 rounded-lg bg-[var(--bg-secondary)] p-1">
+                    {TASK_COMPOSER_MODES.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={mode === option.value}
+                        disabled={submitting}
+                        onClick={() => {
+                          if (mode === option.value) return;
+                          setMode(option.value);
+                          setTargetTaskId('');
+                          setSourceSessionId(undefined);
+                          setTargetSearch('');
+                          setPickingTarget(true);
+                        }}
+                        className={`flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-[12.5px] transition-colors ${mode === option.value ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)]'}`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[12px] leading-5 text-[var(--text-muted)]">
+                    {TASK_COMPOSER_MODES.find((option) => option.value === mode)?.description}
+                  </p>
+                </div>
+              )}
+              {mode !== 'new' && (
+                <div className="mb-4 rounded-lg border border-[var(--border)] p-3" aria-label={continuing ? 'Task to continue' : 'Source task'}>
+                  <div className="mb-2 flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                    <span>{continuing ? 'Task to continue' : 'Source task'}</span>
+                    {!pickingTarget && (
+                      <button type="button" disabled={submitting} onClick={() => setPickingTarget(true)} className="ml-auto hover:text-[var(--text-primary)]">Change</button>
+                    )}
+                    {task && <button type="button" disabled={submitting} onClick={() => { setMode('new'); setSourceSessionId(undefined); }} className="ml-auto hover:text-[var(--text-primary)]">Remove reference</button>}
+                  </div>
+                  {pickingTarget ? (
+                    <>
+                      <input
+                        value={targetSearch}
+                        onChange={(event) => setTargetSearch(event.target.value)}
+                        aria-label="Search tasks"
+                        placeholder={continuing ? 'Search tasks in this project…' : 'Search tasks across projects…'}
+                        className="mb-2 w-full rounded-md bg-[var(--bg-secondary)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)] outline-none focus:ring-1 focus:ring-[var(--border-focus)]"
+                      />
+                      <div className="max-h-36 overflow-y-auto" role="group" aria-label="Available tasks">
+                        {targetOptions.map((candidate) => {
+                          const session = latestTaskSession(candidate, sessions);
+                          return (
+                            <button
+                              type="button"
+                              key={candidate.id}
+                              disabled={submitting}
+                              onClick={() => {
+                                setTargetTaskId(candidate.id);
+                                setSourceSessionId(mode === 'reference' ? session?.id : undefined);
+                                setPickingTarget(false);
+                              }}
+                              className="block w-full rounded-md px-2 py-2 text-left hover:bg-[var(--sidebar-item-hover)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--border-focus)]"
+                            >
+                              <span className="block truncate text-[12.5px] text-[var(--text-primary)]">{candidate.title}</span>
+                              <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                                {projectName(candidate.projectCwd)} · {session ? `${providerLabel(session.provider)} · ${session.status}` : 'Not started'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        {targetOptions.length === 0 && <p className="px-2 py-3 text-[12px] text-[var(--text-muted)]">{continuing ? 'No matching tasks in this project.' : 'No matching tasks with an available conversation.'}</p>}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="truncate text-[13px] font-medium text-[var(--text-primary)]">{continuing ? targetTask?.title || 'Task no longer available' : sourceSession?.title || 'Source conversation unavailable'}</p>
+                      {(continuing ? targetSession : sourceSession) && (
+                        <p className="mt-1 truncate text-[12px] text-[var(--text-muted)]">
+                          {providerLabel((continuing ? targetSession : sourceSession)?.provider)} · {(continuing ? targetSession : sourceSession)?.status}
+                        </p>
+                      )}
+                      {continuing && targetSession && <p className="mt-1 break-all text-[11px] text-[var(--text-muted)]">{targetSession.worktreePath || targetSession.cwd}</p>}
+                    </>
+                  )}
+                  {openOnly && <p role="status" className="mt-2 text-[12px] text-[var(--text-muted)]">{targetRunning ? 'This task is running. Open it to follow progress or add instructions there.' : 'Open this task to start or restore its conversation.'}</p>}
+                  {referenceError && <p role="status" className="mt-2 text-[12px] text-[var(--warning)]">{referenceError}</p>}
+                </div>
+              )}
+              {continuing ? (
+                <textarea
+                  value={title}
+                  readOnly={openOnly || submitting}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder={openOnly ? 'Open the task to add instructions.' : 'What should the agent do next?'}
+                  aria-label="Task instructions"
+                  rows={4}
+                  className="w-full resize-none bg-transparent text-[14px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                />
+              ) : <input
                 autoFocus
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
@@ -1142,8 +1363,8 @@ function BoardTaskComposer({
                 placeholder="What should the agent do?"
                 aria-label="Task title"
                 className="w-full bg-transparent text-[18px] font-semibold leading-7 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-              />
-              <textarea
+              />}
+              {!continuing && <textarea
                 ref={descriptionRef}
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
@@ -1151,7 +1372,7 @@ function BoardTaskComposer({
                 aria-label="Task description"
                 rows={5}
                 className="mt-2 max-h-[40vh] min-h-[120px] w-full resize-none overflow-y-auto bg-transparent text-[13.5px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-              />
+              />}
 
               {attachments.length > 0 && (
                 <div className="pb-1 pt-3" aria-label="Task attachments">
@@ -1161,7 +1382,7 @@ function BoardTaskComposer({
             </div>
 
             <div className="mt-3 flex shrink-0 flex-wrap items-center gap-1.5 [&_.composer-pill-trigger]:h-7 [&_.composer-pill-trigger]:rounded-full [&_.composer-pill-trigger]:border [&_.composer-pill-trigger]:border-[color-mix(in_srgb,var(--border)_70%,transparent)] [&_.composer-pill-trigger]:px-2.5">
-              <ChipMenu
+              {!continuing && <ChipMenu
                 label={stageLabel}
                 icon={<StageIcon stage={stageValue} className="h-3.5 w-3.5" />}
                 ariaLabel="Stage"
@@ -1181,7 +1402,7 @@ function BoardTaskComposer({
                     </ChipMenuItem>
                   ))
                 }
-              </ChipMenu>
+              </ChipMenu>}
               <ChipMenu
                 label={projectLabel}
                 icon={<Folder className="h-3.5 w-3.5" />}
@@ -1193,7 +1414,7 @@ function BoardTaskComposer({
                     <ChipMenuItem
                       selected={!projectCwd.trim()}
                       onClick={() => {
-                        setProjectCwd('');
+                        changeProject('');
                         close();
                       }}
                     >
@@ -1210,7 +1431,7 @@ function BoardTaskComposer({
                         selected={cwd === projectCwd}
                         detail={cwd}
                         onClick={() => {
-                          setProjectCwd(cwd);
+                          changeProject(cwd);
                           close();
                         }}
                       >
@@ -1222,7 +1443,7 @@ function BoardTaskComposer({
                       onClick={async () => {
                         close();
                         const selected = await window.electron.selectDirectory();
-                        if (selected) setProjectCwd(selected);
+                        if (selected) changeProject(selected);
                       }}
                     >
                       <FolderOpen className="h-3.5 w-3.5" />
@@ -1231,7 +1452,7 @@ function BoardTaskComposer({
                   </>
                 )}
               </ChipMenu>
-            <ComposerAgentModelPicker
+            {!continuing && <ComposerAgentModelPicker
               agentProvider={agentSelection.provider}
               modelLabel={agentSelection.selectedModelLabel}
               modelValue={agentSelection.model}
@@ -1270,7 +1491,7 @@ function BoardTaskComposer({
               onKimiThinkingChange={agentSelection.setKimiThinking}
               menuSide="bottom"
               bubbleModelsLoading={agentSelection.bubbleModelsLoading}
-            />
+            />}
             </div>
           </div>
 
@@ -1278,7 +1499,7 @@ function BoardTaskComposer({
             <button
               type="button"
               onClick={() => void attachmentImport.choose()}
-              disabled={submitting || attachmentImport.isImporting}
+              disabled={submitting || attachmentImport.isImporting || openOnly}
               aria-label="Attach files"
               title="Attach files"
               className="mr-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--border)_70%,transparent)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
@@ -1286,20 +1507,29 @@ function BoardTaskComposer({
               {attachmentImport.isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
             </button>
             {attachmentImport.isImporting && <span role="status" className="sr-only">Adding attachments…</span>}
-            <button
+            {!continuing && <button
               type="button"
-              disabled={submitting || attachmentImport.isImporting || !title.trim()}
+              disabled={submitting || attachmentImport.isImporting || !title.trim() || (!task && sourceUnavailable)}
               onClick={() => void submit(false)}
               className="inline-flex h-8 items-center rounded-lg border border-[var(--border)] px-3 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {`Save to ${stageLabel}`}
-            </button>
-            {task && task.sessionIds.length > 0 ? null : (
+            </button>}
+            {continuing ? (
+              <button
+                type="button"
+                disabled={submitting || attachmentImport.isImporting || !targetTask || (!openOnly && (!title.trim() || targetUnavailable))}
+                onClick={() => openOnly ? onOpenTask(targetTask.id) : void submit(true)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--text-primary)] px-3.5 text-[12.5px] font-medium text-[var(--bg-primary)] disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                {openOnly ? 'Open task' : targetTask?.stage === 'done' || targetTask?.stage === 'canceled' ? 'Reopen and continue' : 'Send and continue'}
+              </button>
+            ) : task && task.sessionIds.length > 0 ? null : (
               // One task, one run: a task that already ran is continued from
               // its detail page, never started a second time.
               <button
                 type="button"
-                disabled={submitting || attachmentImport.isImporting || !title.trim() || !projectCwd.trim()}
+                disabled={submitting || attachmentImport.isImporting || !title.trim() || !projectCwd.trim() || sourceUnavailable || !!referenceError}
                 onClick={() => void submit(true)}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--text-primary)] px-3.5 text-[12.5px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
               >

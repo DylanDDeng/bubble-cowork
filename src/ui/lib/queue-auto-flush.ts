@@ -2,14 +2,16 @@ import type { AgentProvider } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { hasQueueFlushOwner, useComposerQueueStore } from '../store/useComposerQueueStore';
 import { sendEvent } from '../hooks/useIPC';
+import { sessionContinuePermissions } from '../utils/session-continue-permissions';
 
 /**
  * Store-level queue auto-flush: when ANY session's running turn completes,
  * its queued composer messages are sent as the next turn — even when no pane
  * is showing that session. The mounted-composer effect in PromptInput claims
  * flush ownership for its bound session (it applies the live composer
- * selection); this watcher only covers ownerless sessions and sends WITHOUT
- * composer overrides, so the session's sticky model/config apply.
+ * selection); this watcher only covers ownerless sessions. Stored model/config
+ * apply, with explicit permission preferences for providers that do not store
+ * a per-session permission mode (the same settings as the chat composer).
  */
 
 let started = false;
@@ -58,6 +60,7 @@ function flushIfUnowned(sessionId: string, provider: AgentProvider | undefined):
       effectivePrompt: items.map((item) => item.effectivePrompt).join('\n\n'),
       attachments: attachments.length > 0 ? attachments : undefined,
       provider,
+      ...sessionContinuePermissions(useAppStore.getState().sessions[sessionId] ?? { provider }),
       codexSkills: items.flatMap((item) => item.references.codexSkills ?? []),
       codexMentions: items.flatMap((item) => item.references.codexMentions ?? []),
       teamMode: 'solo',

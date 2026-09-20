@@ -61,4 +61,28 @@ assert.equal(
 attachedState.updateTask(explicitTaskId, { attachments: [] });
 assert.deepEqual(useBoardStore.getState().tasks[explicitTaskId]?.attachments, [], 'removing all references stays saved');
 
+// Referencing earlier work must not transfer its session ownership or workspace.
+const sourceSessionId = 'af98b1a1-65ef-4ca9-8a3d-a6562939f0cc';
+const sourceTaskId = useBoardStore.getState().addTask({
+  title: 'Earlier work', sessionId: sourceSessionId, projectCwd: '/tmp/old-project', stage: 'done',
+});
+const nextTaskId = useBoardStore.getState().addTask({
+  title: 'Build on the result', sourceSessionId, projectCwd: '/tmp/new-project',
+  description: 'Do not send these notes', sessionConfig: { provider: 'codex' },
+});
+const referenced = useBoardStore.getState().tasks[nextTaskId];
+const nextPayload = createBoardTaskStartPayload(referenced, 'workspace');
+assert.equal(nextPayload.title, 'Build on the result');
+assert.match(nextPayload.prompt, new RegExp(`aegis://sessions/${sourceSessionId}`));
+assert.equal(nextPayload.prompt.includes('Do not send these notes'), false);
+assert.equal(nextPayload.cwd, '/tmp/new-project');
+assert.equal(nextPayload.worktreePath, undefined);
+assert.deepEqual(referenced.sessionIds, [], 'a source reference is not an owned session');
+useBoardStore.getState().attachSession(nextTaskId, 'new-session');
+assert.deepEqual(useBoardStore.getState().tasks[sourceTaskId].sessionIds, [sourceSessionId]);
+assert.equal(useBoardStore.getState().tasks[sourceTaskId].stage, 'done');
+assert.equal(useBoardStore.getState().tasks[nextTaskId].sourceSessionId, sourceSessionId);
+useBoardStore.getState().removeTask(nextTaskId);
+assert.ok(useBoardStore.getState().tasks[sourceTaskId], 'removing the new card keeps the source');
+
 console.log('board task start payload tests passed');

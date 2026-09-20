@@ -40,6 +40,7 @@ import { avatarColorFor, initialsOf } from '../utils/user-avatar';
 import { useAppStore } from '../store/useAppStore';
 import { useTaskGit, useTaskGitStore } from '../store/useTaskGitStore';
 import { selectQueuedMessages, useComposerQueueStore } from '../store/useComposerQueueStore';
+import { sessionContinuePermissions } from '../utils/session-continue-permissions';
 import { PROVIDERS } from '../utils/provider';
 import {
   BOARD_STAGES,
@@ -321,7 +322,7 @@ export function BoardTaskDetail({
   const removeQueuedMessage = useComposerQueueStore((state) => state.remove);
   // Inject a queued message into the running turn now (Codex-Desktop "Steer").
   const steerQueuedMessage = (itemId: string) => {
-    if (!latestId) return;
+    if (!latestId || !latest) return;
     const item = useComposerQueueStore.getState().takeOne(latestId, itemId);
     if (!item) return;
     window.electron.sendClientEvent({
@@ -329,6 +330,7 @@ export function BoardTaskDetail({
       payload: {
         sessionId: latestId,
         prompt: item.displayPrompt,
+        ...sessionContinuePermissions(latest),
         effectivePrompt: item.effectivePrompt,
         attachments: item.attachments.length > 0 ? item.attachments : undefined,
         ...item.references,
