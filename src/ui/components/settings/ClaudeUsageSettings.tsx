@@ -23,6 +23,7 @@ import type {
   QoderPlanUsageReport,
 } from '../../types';
 import { useKimiModelConfig } from '../../hooks/useKimiModelConfig';
+import { usePlanUsage } from '../../hooks/usePlanUsage';
 import { PreferenceSelect } from './GeneralSettingsContent';
 import { SettingsGroup } from './SettingsPrimitives';
 
@@ -66,18 +67,14 @@ export function ClaudeUsageSettingsContent() {
   const [activeProvider, setActiveProvider] = useState<AgentProvider>('claude');
   const [usageByProvider, setUsageByProvider] =
     useState<Record<AgentProvider, ProviderUsageState>>(INITIAL_PROVIDER_USAGE);
-  const [codexRateLimits, setCodexRateLimits] = useState<CodexRateLimitReport | null>(null);
-  const [codexRateLimitsLoading, setCodexRateLimitsLoading] = useState(true);
-  const [codexRateLimitsError, setCodexRateLimitsError] = useState<string | null>(null);
-  const [claudePlanUsage, setClaudePlanUsage] = useState<ClaudePlanUsageReport | null>(null);
-  const [claudePlanUsageLoading, setClaudePlanUsageLoading] = useState(true);
-  const [claudePlanUsageError, setClaudePlanUsageError] = useState<string | null>(null);
-  const [grokPlanUsage, setGrokPlanUsage] = useState<GrokPlanUsageReport | null>(null);
-  const [grokPlanUsageLoading, setGrokPlanUsageLoading] = useState(true);
-  const [grokPlanUsageError, setGrokPlanUsageError] = useState<string | null>(null);
-  const [qoderPlanUsage, setQoderPlanUsage] = useState<QoderPlanUsageReport | null>(null);
-  const [qoderPlanUsageLoading, setQoderPlanUsageLoading] = useState(true);
-  const [qoderPlanUsageError, setQoderPlanUsageError] = useState<string | null>(null);
+  const { report: codexRateLimits, loading: codexRateLimitsLoading, error: codexRateLimitsError } =
+    usePlanUsage('codex', activeProvider === 'codex');
+  const { report: claudePlanUsage, loading: claudePlanUsageLoading, error: claudePlanUsageError } =
+    usePlanUsage('claude', activeProvider === 'claude');
+  const { report: grokPlanUsage, loading: grokPlanUsageLoading, error: grokPlanUsageError } =
+    usePlanUsage('grok', activeProvider === 'grok');
+  const { report: qoderPlanUsage, loading: qoderPlanUsageLoading, error: qoderPlanUsageError } =
+    usePlanUsage('qoder', activeProvider === 'qoder');
   const kimiModelConfig = useKimiModelConfig();
   const kimiModelLabels = useMemo(() => {
     const labels: Record<string, string> = {};
@@ -124,169 +121,6 @@ export function ClaudeUsageSettingsContent() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadRateLimits = async () => {
-      setCodexRateLimitsLoading(true);
-      setCodexRateLimitsError(null);
-
-      try {
-        const report = await window.electron.getCodexRateLimits();
-        if (cancelled) {
-          return;
-        }
-        setCodexRateLimits(report);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        setCodexRateLimits(null);
-        setCodexRateLimitsError(normalizeUsageLoadError(error, 'get-codex-rate-limits'));
-      } finally {
-        if (!cancelled) {
-          setCodexRateLimitsLoading(false);
-        }
-      }
-    };
-
-    void loadRateLimits();
-    const refreshTimer = window.setInterval(() => {
-      void loadRateLimits();
-    }, 60_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(refreshTimer);
-    };
-  }, []);
-
-  useEffect(() => {
-    // The Claude probe spawns a short-lived CLI session, so only poll while
-    // the Claude provider is in view (main process caches between ticks).
-    if (activeProvider !== 'claude') {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadPlanUsage = async () => {
-      setClaudePlanUsageLoading(true);
-      setClaudePlanUsageError(null);
-
-      try {
-        const report = await window.electron.getClaudePlanUsage();
-        if (cancelled) {
-          return;
-        }
-        setClaudePlanUsage(report);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        setClaudePlanUsageError(normalizeUsageLoadError(error, 'get-claude-plan-usage'));
-      } finally {
-        if (!cancelled) {
-          setClaudePlanUsageLoading(false);
-        }
-      }
-    };
-
-    void loadPlanUsage();
-    const refreshTimer = window.setInterval(() => {
-      void loadPlanUsage();
-    }, 60_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(refreshTimer);
-    };
-  }, [activeProvider]);
-
-  useEffect(() => {
-    // The Grok probe spawns a short-lived CLI session, so only poll while
-    // the Grok provider is in view (main process caches between ticks).
-    if (activeProvider !== 'grok') {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadPlanUsage = async () => {
-      setGrokPlanUsageLoading(true);
-      setGrokPlanUsageError(null);
-
-      try {
-        const report = await window.electron.getGrokPlanUsage();
-        if (cancelled) {
-          return;
-        }
-        setGrokPlanUsage(report);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        setGrokPlanUsageError(normalizeUsageLoadError(error, 'get-grok-plan-usage'));
-      } finally {
-        if (!cancelled) {
-          setGrokPlanUsageLoading(false);
-        }
-      }
-    };
-
-    void loadPlanUsage();
-    const refreshTimer = window.setInterval(() => {
-      void loadPlanUsage();
-    }, 60_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(refreshTimer);
-    };
-  }, [activeProvider]);
-
-  useEffect(() => {
-    // The Qoder probe may spawn a short-lived CLI session (it reuses a live
-    // one when available), so only poll while the Qoder provider is in view.
-    if (activeProvider !== 'qoder') {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadPlanUsage = async () => {
-      setQoderPlanUsageLoading(true);
-      setQoderPlanUsageError(null);
-
-      try {
-        const report = await window.electron.getQoderPlanUsage();
-        if (cancelled) {
-          return;
-        }
-        setQoderPlanUsage(report);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        setQoderPlanUsageError(normalizeUsageLoadError(error, 'get-qoder-plan-usage'));
-      } finally {
-        if (!cancelled) {
-          setQoderPlanUsageLoading(false);
-        }
-      }
-    };
-
-    void loadPlanUsage();
-    const refreshTimer = window.setInterval(() => {
-      void loadPlanUsage();
-    }, 60_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(refreshTimer);
-    };
-  }, [activeProvider]);
 
   const providers = useMemo<UsageProviderCard[]>(
     () =>
@@ -953,6 +787,9 @@ function ClaudePlanUsagePanel({
               </div>
               <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
                 Updated {formatLocalTime(report!.fetchedAt)}
+                <span role="status" title={error || undefined}>
+                  {loading ? ' · Refreshing…' : error ? ' · Update failed; showing saved data' : ''}
+                </span>
               </div>
             </div>
             {report!.subscriptionType ? (
@@ -1149,6 +986,9 @@ function GrokPlanUsagePanel({
               </div>
               <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
                 Updated {formatLocalTime(report!.fetchedAt)}
+                <span role="status" title={error || undefined}>
+                  {loading ? ' · Refreshing…' : error ? ' · Update failed; showing saved data' : ''}
+                </span>
               </div>
             </div>
             {report!.subscriptionTier ? (
@@ -1260,6 +1100,9 @@ function QoderPlanUsagePanel({
               </div>
               <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
                 Updated {formatLocalTime(report!.fetchedAt)}
+                <span role="status" title={error || undefined}>
+                  {loading ? ' · Refreshing…' : error ? ' · Update failed; showing saved data' : ''}
+                </span>
                 {report!.isQuotaExceeded ? ' · Quota exceeded' : ''}
               </div>
             </div>
@@ -1418,6 +1261,9 @@ function CodexRateLimitsPanel({
               </div>
               <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
                 Updated {formatLocalTime(report!.fetchedAt)}
+                <span role="status" title={error || undefined}>
+                  {loading ? ' · Refreshing…' : error ? ' · Update failed; showing saved data' : ''}
+                </span>
               </div>
             </div>
             {mainLimit?.planType ? (
@@ -1467,7 +1313,7 @@ function renderCodexRateLimitState(
     return <InlineEmpty label="Loading Codex limits…" />;
   }
 
-  if (error && !loading) {
+  if (error && !report) {
     return (
       <div className="px-4 py-4 text-[12px] text-[var(--error)]">
         <span className="font-medium">Unable to load Codex limits.</span> {error}
