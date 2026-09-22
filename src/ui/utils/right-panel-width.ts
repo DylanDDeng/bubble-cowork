@@ -1,9 +1,16 @@
-const DOCKED_RIGHT_PANEL_MAX_RATIO = 0.58;
+export const RIGHT_PANEL_MIN_WIDTH = 320;
+const CHAT_PANE_MIN_WIDTH = 352;
+
+export function getDockedRightPanelMaxWidth(availableWidth: number): number {
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) return Infinity;
+  // On compact windows let the chat shrink before making the utility pane
+  // unusable, but never let the pane overflow its host.
+  return Math.min(availableWidth, Math.max(RIGHT_PANEL_MIN_WIDTH, availableWidth - CHAT_PANE_MIN_WIDTH));
+}
 
 /**
- * Keep a docked utility panel visibly attached to the right side instead of
- * letting a desktop-sized saved width consume a compact window. The preferred
- * width remains untouched, so expanding the app restores the user's layout.
+ * Reserve room for the conversation while retaining the preferred width, so
+ * expanding the app restores the user's layout without disabling the divider.
  */
 export function resolveDockedRightPanelWidth(
   preferredWidth: number,
@@ -14,8 +21,5 @@ export function resolveDockedRightPanelWidth(
     return safePreferredWidth;
   }
 
-  return Math.min(
-    safePreferredWidth,
-    Math.max(0, Math.floor(availableWidth * DOCKED_RIGHT_PANEL_MAX_RATIO))
-  );
+  return Math.min(safePreferredWidth, Math.floor(getDockedRightPanelMaxWidth(availableWidth)));
 }

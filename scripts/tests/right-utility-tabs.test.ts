@@ -6,18 +6,28 @@ import { resolveDockedRightPanelWidth } from '../../src/ui/utils/right-panel-wid
 async function main() {
   assert.equal(
     resolveDockedRightPanelWidth(820, 560),
-    324,
+    320,
     'a desktop-sized panel must remain docked at the right of the minimum window'
   );
   assert.equal(
     resolveDockedRightPanelWidth(820, 692),
-    401,
+    340,
     'compact windows must preserve a visible conversation pane'
   );
   assert.equal(
     resolveDockedRightPanelWidth(820, 1600),
     820,
     'wide windows must preserve the saved panel width'
+  );
+  assert.equal(
+    resolveDockedRightPanelWidth(1500, 2000),
+    1500,
+    'large windows can use more than 58 percent without crowding the conversation'
+  );
+  assert.equal(
+    resolveDockedRightPanelWidth(820, 280),
+    280,
+    'a host narrower than the panel minimum must not overflow'
   );
 
   const first = resolveRightUtilityTabOpen([], 'files', { newTab: true });

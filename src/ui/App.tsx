@@ -96,7 +96,8 @@ import { resolveCodexModel } from './utils/codex-model';
 import { startQueueAutoFlush } from './lib/queue-auto-flush';
 import * as DialogPrimitive from '@/ui/components/ui/dialog';
 import { isSideChatPendingTab } from './utils/right-utility-tabs';
-import { resolveDockedRightPanelWidth } from './utils/right-panel-width';
+import { getDockedRightPanelMaxWidth, resolveDockedRightPanelWidth, RIGHT_PANEL_MIN_WIDTH } from './utils/right-panel-width';
+import { ResizableRightPane } from './components/ResizableRightPane';
 import {
   deriveTurnPhase,
   hasRunningToolInMessages,
@@ -116,16 +117,11 @@ import type {
 const COMMIT_GENERATION_MIN_VISIBLE_MS = 450;
 const RIGHT_UTILITY_PANEL_WIDTH_STORAGE_KEY = 'cowork.rightUtilityPanelWidth';
 const RIGHT_UTILITY_PANEL_DEFAULT_WIDTH = 820;
-const RIGHT_UTILITY_PANEL_MIN_WIDTH = 580;
-const RIGHT_UTILITY_PANEL_MAX_WIDTH = 1200;
 // Codex-parity “Don’t ask again” flag for destroying a side chat on close.
 const SIDE_CHAT_CLOSE_CONFIRM_STORAGE_KEY = 'cowork.skipSideChatCloseConfirm';
 
 function clampRightUtilityPanelWidth(width: number): number {
-  return Math.min(
-    RIGHT_UTILITY_PANEL_MAX_WIDTH,
-    Math.max(RIGHT_UTILITY_PANEL_MIN_WIDTH, Math.round(width))
-  );
+  return Math.max(RIGHT_PANEL_MIN_WIDTH, Math.round(width));
 }
 
 function isProjectUtilityFileTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
@@ -1165,7 +1161,8 @@ export function App() {
           browserAvailable={true}
           width={renderedRightUtilityPanelWidth}
           onWidthChange={setRightUtilityPanelWidth}
-          resizable={renderedRightUtilityPanelWidth === rightUtilityPanelWidth}
+          resizable
+          maximumWidth={getDockedRightPanelMaxWidth(skinHostWidth)}
           fullscreen={rightPanelFullscreen !== null}
           windowControlsInset={rightPanelFullscreen !== null && sidebarCollapsed}
           onSelectTab={selectRightUtilityTab}
@@ -1381,6 +1378,7 @@ function RightUtilityWorkspace({
   browserAvailable,
   width,
   resizable,
+  maximumWidth = 1200,
   fullscreen,
   windowControlsInset,
   onWidthChange,
@@ -1393,7 +1391,7 @@ function RightUtilityWorkspace({
 }: {
   hidden: boolean;
   /**
-   * Skip the width tween for this reveal. Content-driven opens (file links)
+   * Skip the width transition for this reveal. Content-driven opens (file links)
    * lay out in one step: animating layout width reflows the chat pane every
    * frame, which janks on heavy transcripts.
    */
@@ -1404,6 +1402,7 @@ function RightUtilityWorkspace({
   browserAvailable: boolean;
   width: number;
   resizable: boolean;
+  maximumWidth?: number;
   fullscreen: boolean;
   windowControlsInset: boolean;
   onWidthChange: (width: number) => void;
@@ -1415,17 +1414,6 @@ function RightUtilityWorkspace({
   onToggleFullscreen: (() => void) | null;
   children: ReactNode;
 }) {
-  const [isResizing, setIsResizing] = useState(false);
-  const resizingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(width);
-  // Fullscreen swaps to flex-1/auto sizing while the chat pane hides instantly,
-  // so animating width across that toggle would lag behind the layout change.
-  const wasFullscreenRef = useRef(fullscreen);
-  const skipWidthAnimation = isResizing || fullscreen || wasFullscreenRef.current || instantReveal;
-  useEffect(() => {
-    wasFullscreenRef.current = fullscreen;
-  }, [fullscreen]);
   // Consume the instant-reveal flag once the reveal has painted; later
   // opens/closes animate normally again.
   useEffect(() => {
@@ -1439,94 +1427,37 @@ function RightUtilityWorkspace({
   const [nativeOverlayOpen, setNativeOverlayOpen] = useState(false);
   useBrowserNativeOverlayRegistration(nativeOverlayOpen);
 
-  const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (fullscreen || !resizable) return;
-    event.preventDefault();
-    resizingRef.current = true;
-    startXRef.current = event.clientX;
-    startWidthRef.current = width;
-    setIsResizing(true);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  };
-
-  useEffect(() => {
-    if (!isResizing) return;
-    const onMove = (event: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const delta = startXRef.current - event.clientX;
-      onWidthChange(startWidthRef.current + delta);
-    };
-    const onUp = () => {
-      resizingRef.current = false;
-      setIsResizing(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('blur', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('blur', onUp);
-    };
-  }, [isResizing, onWidthChange]);
-
   return (
-    <motion.div
-      data-right-utility-workspace
-      data-active-panel={activePanel ?? 'none'}
-      aria-hidden={hidden}
-      className={`relative flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--utility-pane-surface)] backdrop-[var(--utility-pane-backdrop)] ${
-        fullscreen ? 'flex-1' : 'flex-shrink-0'
-      }`}
-      style={{
-        pointerEvents: hidden ? 'none' : undefined,
-        borderLeftWidth: hidden ? 0 : undefined,
-      }}
-      initial={{ width: 0 }}
-      animate={{ width: hidden ? 0 : fullscreen ? 'auto' : width }}
-      exit={{ width: 0, transition: { type: 'tween', duration: 0.2, ease: [0.32, 0.72, 0, 1] } }}
-      transition={
-        skipWidthAnimation
-          ? { duration: 0 }
-          : { type: 'tween', duration: 0.24, ease: [0.32, 0.72, 0, 1] }
-      }
+    <ResizableRightPane
+      width={width}
+      maximumWidth={maximumWidth}
+      defaultWidth={RIGHT_UTILITY_PANEL_DEFAULT_WIDTH}
+      hidden={hidden}
+      instantReveal={instantReveal}
+      fullscreen={fullscreen}
+      resizable={resizable}
+      activePanel={activePanel}
+      onWidthChange={onWidthChange}
     >
-      {!fullscreen && !hidden && resizable ? (
-        <div
-          className="group absolute bottom-0 left-0 top-0 z-20 w-3 -translate-x-1/2 cursor-col-resize no-drag"
-          onMouseDown={handleResizeStart}
-        >
-          <div className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
-        </div>
-      ) : null}
+      <RightUtilityTabStrip
+        tabs={tabs}
+        activeTab={activeTab}
+        activePanel={activePanel}
+        browserAvailable={browserAvailable}
+        windowControlsInset={windowControlsInset}
+        fullscreen={fullscreen}
+        onSelectTab={onSelectTab}
+        onCloseTab={onCloseTab}
+        onOpenTab={onOpenTab}
+        onTogglePanel={onTogglePanel}
+        onToggleFullscreen={onToggleFullscreen}
+        onNativeOverlayChange={setNativeOverlayOpen}
+      />
 
-      <div
-        className="flex h-full min-h-0 flex-col"
-        style={fullscreen ? { width: '100%' } : { width }}
-      >
-        <RightUtilityTabStrip
-          tabs={tabs}
-          activeTab={activeTab}
-          activePanel={activePanel}
-          browserAvailable={browserAvailable}
-          windowControlsInset={windowControlsInset}
-          fullscreen={fullscreen}
-          onSelectTab={onSelectTab}
-          onCloseTab={onCloseTab}
-          onOpenTab={onOpenTab}
-          onTogglePanel={onTogglePanel}
-          onToggleFullscreen={onToggleFullscreen}
-          onNativeOverlayChange={setNativeOverlayOpen}
-        />
-
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          {children}
-        </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {children}
       </div>
-    </motion.div>
+    </ResizableRightPane>
   );
 }
 
