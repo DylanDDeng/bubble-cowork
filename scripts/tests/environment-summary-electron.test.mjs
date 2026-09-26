@@ -91,8 +91,10 @@ app.whenReady().then(async()=>{
  for(let i=0;i<100;i++){if(await js('!!window.qa?.setMode'))break;await delay(100)}
  assert.equal(await js('!!document.querySelector("button[title=Environment]")'),false,'non-Git without other sections has no empty card');
  await js('qa.organization.setState({projectSources:{"/projects/podcast":["/projects/podcast","/projects/shared-assets"]}})');await delay(100);
- await click('Open environment panel');assert.match(await visible(),/Project folders/);assert.match(await visible(),/shared-assets/);await snap('project-folders');
- await click('shared-assets');assert.equal(await js('qa.copied'),'/projects/shared-assets');await click('Open environment panel');
+ assert.equal(await js('!!document.querySelector("button[title=Environment]")'),false,'project folders alone do not create an Environment card');
+ await mode('git');await click('Open environment panel');
+ assert.match(await visible(),/Changes/);assert.doesNotMatch(await visible(),/Project folders|shared-assets/);await snap('git-without-project-folders');
+ await click('Open environment panel');
  await js('qa.organization.setState({projectSources:{}})');await delay(100);
  await mode('local-extras');await click('Open environment panel');assert.match(await visible(),/Computer Use/);assert.doesNotMatch(await visible(),/Local|Changes|Commit or push/);await snap('non-git-extras');
  await mode('loading');assert.match(await visible(),/Checking environment/);assert.doesNotMatch(await visible(),/HEAD|stale/);

@@ -113,13 +113,13 @@ function getSerializedLength(root: HTMLDivElement): number {
   return Array.from(root.childNodes).reduce((total, child) => total + getChildTextLength(child), 0);
 }
 
-function getCursorIndex(root: HTMLDivElement): number {
+function getCursorIndex(root: HTMLDivElement, selectedRange?: Range): number {
   const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) {
+  if (!selectedRange && (!selection || selection.rangeCount === 0)) {
     return 0;
   }
 
-  const range = selection.getRangeAt(0);
+  const range = selectedRange ?? selection!.getRangeAt(0);
   const { startContainer, startOffset } = range;
 
   if (!root.contains(startContainer)) {
@@ -289,12 +289,7 @@ function isCaretOnFirstVisualLine(root: HTMLDivElement): boolean | null {
   return anchor.top - firstTop < tolerance;
 }
 
-function setCursorIndex(root: HTMLDivElement, index: number): void {
-  const selection = window.getSelection();
-  if (!selection) {
-    return;
-  }
-
+function createCursorRange(root: HTMLDivElement, index: number): Range {
   const targetIndex = Math.max(0, Math.min(index, getSerializedLength(root)));
   let remaining = targetIndex;
   const range = document.createRange();
@@ -306,9 +301,7 @@ function setCursorIndex(root: HTMLDivElement, index: number): void {
   if (targetIndex === getSerializedLength(root) && trailingBreakIndex >= 0) {
     range.setStart(root, trailingBreakIndex);
     range.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    return;
+    return range;
   }
   for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
     const child = children[childIndex]!;
@@ -318,16 +311,12 @@ function setCursorIndex(root: HTMLDivElement, index: number): void {
       if (remaining <= 0) {
         range.setStart(root, childIndex);
         range.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        return;
+        return range;
       }
       if (remaining <= childLength) {
         range.setStart(root, childIndex + 1);
         range.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        return;
+        return range;
       }
       remaining -= childLength;
       continue;
@@ -342,9 +331,7 @@ function setCursorIndex(root: HTMLDivElement, index: number): void {
             : child;
       range.setStart(textNode, remaining);
       range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return;
+      return range;
     }
 
     remaining -= childLength;
@@ -352,11 +339,37 @@ function setCursorIndex(root: HTMLDivElement, index: number): void {
 
   range.selectNodeContents(root);
   range.collapse(false);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  return range;
+}
+
+function setCursorIndex(root: HTMLDivElement, index: number): void {
+  setEditorSelection(root, index, index);
+}
+
+function getEditorSelection(root: HTMLDivElement) {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+  const end = range.cloneRange();
+  end.collapse(false);
+  return {
+    start: getCursorIndex(root, range),
+    end: getCursorIndex(root, end),
+    backward: selection.anchorNode === range.endContainer && selection.anchorOffset === range.endOffset,
+  };
+}
+
+function setEditorSelection(root: HTMLDivElement, start: number, end: number, backward = false): void {
+  const from = createCursorRange(root, backward ? end : start);
+  const to = start === end ? from : createCursorRange(root, backward ? start : end);
+  window.getSelection()?.setBaseAndExtent(from.startContainer, from.startOffset, to.startContainer, to.startOffset);
 }
 
 function serializeEditorValue(root: HTMLDivElement): string {
+  // Chromium leaves a placeholder BR after deleting the entire selection.
+  // Authored newlines are text nodes (plus our marked trailing break).
+  if (root.childNodes.length === 1 && root.firstChild?.nodeName === 'BR') return '';
   const serializeNode = (node: ChildNode): string => {
     if (node instanceof HTMLElement && node.hasAttribute('data-composer-trailing-break')) {
       return '';
@@ -699,14 +712,23 @@ export const ComposerPromptEditor = forwardRef<
       return;
     }
 
+    const valueChanged = serializeEditorValue(editorRef.current) !== props.value;
+    const selection = getEditorSelection(editorRef.current);
+    // A native selection reports its start through onChange. That state echo
+    // must not turn Cmd+A, Shift+Arrow or a mouse selection into a caret.
+    const preservedSelection =
+      !valueChanged && selection?.start === props.cursorIndex && selection.start !== selection.end
+        ? selection
+        : null;
     const slashContextChanged = lastRenderedSlashContextRef.current !== props.slashContext;
     const slashDisplayLabelsChanged =
       lastRenderedSlashDisplayLabelsRef.current !== props.slashDisplayLabels;
-    if (
-      serializeEditorValue(editorRef.current) !== props.value ||
+    const needsRender =
+      valueChanged ||
       slashContextChanged ||
-      slashDisplayLabelsChanged || lastPlainText.current !== plainText
-    ) {
+      slashDisplayLabelsChanged ||
+      lastPlainText.current !== plainText;
+    if (needsRender) {
       renderSegments(
         editorRef.current,
         props.value,
@@ -739,8 +761,18 @@ export const ComposerPromptEditor = forwardRef<
       return;
     }
 
+    if (preservedSelection && !needsRender) return;
     isApplyingSelectionRef.current = true;
-    setCursorIndex(editorRef.current, props.cursorIndex);
+    if (preservedSelection) {
+      setEditorSelection(
+        editorRef.current,
+        preservedSelection.start,
+        preservedSelection.end,
+        preservedSelection.backward
+      );
+    } else {
+      setCursorIndex(editorRef.current, props.cursorIndex);
+    }
     queueMicrotask(() => {
       isApplyingSelectionRef.current = false;
     });
@@ -774,7 +806,13 @@ export const ComposerPromptEditor = forwardRef<
   };
 
   const insertTextAtCursor = (text: string) => {
-    const next = replaceRange(props.value, props.cursorIndex, props.cursorIndex, text);
+    const selection = editorRef.current && getEditorSelection(editorRef.current);
+    const next = replaceRange(
+      props.value,
+      selection?.start ?? props.cursorIndex,
+      selection?.end ?? props.cursorIndex,
+      text
+    );
     props.onChange(next.value, next.cursorIndex);
   };
 
@@ -835,10 +873,11 @@ export const ComposerPromptEditor = forwardRef<
     if (!text) return;
     event.preventDefault();
     const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const selection = editorRef.current && getEditorSelection(editorRef.current);
     const context = {
       text: normalized,
-      start: props.cursorIndex,
-      end: props.cursorIndex,
+      start: selection?.start ?? props.cursorIndex,
+      end: selection?.end ?? props.cursorIndex,
     };
     const handled = props.onPasteText?.(context);
     if (handled instanceof Promise) {
@@ -869,7 +908,7 @@ export const ComposerPromptEditor = forwardRef<
         role="textbox"
         aria-multiline="true"
         spellCheck={false}
-        className={`${props.className ?? ''} whitespace-pre-wrap break-words aegis-composer-editor [overflow-wrap:anywhere]`}
+        className={`${props.className ?? ''} whitespace-pre-wrap break-words overflow-y-auto overscroll-contain aegis-composer-editor [overflow-wrap:anywhere]`}
         onInput={handleInput}
         onPaste={handlePaste}
         onKeyDown={(event) => {

@@ -10,10 +10,6 @@ import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { buildCodexReferencePayload, type CodexReferencePayload } from '../utils/codex-composer';
-import {
-  LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
-  maybeConvertLongPromptToAttachment,
-} from '../utils/long-prompt-attachment';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import type { Attachment, SessionView } from '../types';
@@ -37,8 +33,8 @@ export interface TaskFollowUpEditorHandle {
 /**
  * The board's follow-up input with the session composer's capabilities:
  * "/" and "$" for commands and skills, "@" for project files, pasted
- * images and picked files as attachment chips, long pastes converted to a
- * text attachment. Enter sends; Shift+Enter breaks the line.
+ * images and picked files as attachment chips, and text pasted inline.
+ * Enter sends; Shift+Enter breaks the line.
  */
 export const TaskFollowUpEditor = forwardRef<
   TaskFollowUpEditorHandle,
@@ -165,41 +161,6 @@ export const TaskFollowUpEditor = forwardRef<
     return created.length > 0;
   };
 
-  const handleLongPaste = (context: { text: string; start: number; end: number }): boolean => {
-    const pastedText = context.text.trim();
-    if (pastedText.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) return false;
-    const pasteInline = () => {
-      const nextPrompt = `${value.slice(0, context.start)}${context.text}${value.slice(context.end)}`;
-      const nextCursorIndex = context.start + context.text.length;
-      onChange(nextPrompt);
-      setCursorIndex(nextCursorIndex);
-      focusAt(nextCursorIndex);
-    };
-    const toastId = toast.loading('Creating text attachment...');
-    void (async () => {
-      try {
-        const result = await maybeConvertLongPromptToAttachment({
-          cwd,
-          prompt: pastedText,
-          attachments,
-          allowProjectMentions: true,
-        });
-        if (!result.converted) {
-          pasteInline();
-          if (result.reason === 'attachment_create_failed') {
-            toast.error('Failed to convert the long paste into an attachment.');
-          }
-          return;
-        }
-        setAttachments(() => result.attachments);
-        window.requestAnimationFrame(() => editorRef.current?.focus());
-      } finally {
-        toast.dismiss(toastId);
-      }
-    })();
-    return true;
-  };
-
   const submit = async () => {
     if (attachmentImport.pending.current > 0) return;
     const displayPrompt = value.trim();
@@ -212,18 +173,10 @@ export const TaskFollowUpEditor = forwardRef<
         prompt: codexSkill ? capabilityMenu.selectedSkillRemainder.trim() : displayPrompt,
         ignoredMentionPaths: [],
       });
-      const withAttachment = await maybeConvertLongPromptToAttachment({
-        cwd,
-        prompt: displayPrompt,
-        attachments,
-      });
-      if (withAttachment.reason === 'attachment_create_failed') {
-        toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
-      }
       const sent = onSubmit({
-        prompt: withAttachment.converted ? withAttachment.prompt : displayPrompt,
-        effectivePrompt: withAttachment.converted ? withAttachment.prompt : normalized,
-        attachments: withAttachment.attachments,
+        prompt: displayPrompt,
+        effectivePrompt: normalized,
+        attachments,
         references: buildCodexReferencePayload(codexSkill),
       });
       if (sent) {
@@ -292,7 +245,6 @@ export const TaskFollowUpEditor = forwardRef<
           onChange(next);
           setCursorIndex(nextCursorIndex);
         }}
-        onPasteText={handleLongPaste}
         onPasteFiles={attachmentImport.files}
         onPasteNativeFiles={attachmentImport.pasteNative}
         onPasteImages={handlePasteImages}

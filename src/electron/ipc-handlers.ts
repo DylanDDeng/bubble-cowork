@@ -27,6 +27,7 @@ import { setupSessionLinksIPC, openSessionLink, flushSessionLink } from './ipc/s
 import { appendSessionReferences } from './libs/session-reference';
 import { setupSessionTitleIPC } from './ipc/session-title';
 import { setupAttachmentIPC } from './ipc/attachments';
+import { setupScreenshotIPC } from './ipc/screenshot';
 import { ATTACHMENT_MIME_TYPES, MAX_ATTACHMENT_BYTES, attachmentSizeLimit } from '../shared/attachment-policy';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
 import {
@@ -314,9 +315,6 @@ import {
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
 const MAX_STREAMING_PDF_PREVIEW_BYTES = 200 * 1024 * 1024; // 200MB
 const DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS = 20_000;
-const LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD = 500;
-const LONG_PROMPT_ATTACHMENT_INSTRUCTION =
-  'The main request is attached as a text file. Read the attachment first, then respond normally.';
 
 const MAX_SKIN_IMAGE_BYTES = 24 * 1024 * 1024; // 24MB
 const SKIN_IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
@@ -2658,13 +2656,8 @@ async function handleEditLatestPrompt(
     return;
   }
 
-  const longPromptAttachment = await maybeConvertLongPromptToAttachment({
-    cwd: session.cwd,
-    prompt,
-    attachments,
-  });
-  const nextPromptText = longPromptAttachment.prompt;
-  const nextAttachments = longPromptAttachment.attachments;
+  const nextPromptText = prompt.trim();
+  const nextAttachments = (attachments ?? []).filter((attachment) => !!attachment?.path);
 
   if (session.provider === 'codex') {
     await handleEditLatestCodexPrompt(mainWindow, {
@@ -3487,87 +3480,6 @@ async function createInlineImageAttachment(
   }
 
   return toAttachment(targetPath);
-}
-
-async function createInlineTextAttachment(cwd: string, text: string): Promise<Attachment | null> {
-  const normalizedCwd = cwd?.trim();
-  const normalizedText = text ?? '';
-  if (!normalizedCwd || !normalizedText.trim()) {
-    return null;
-  }
-  if (Buffer.byteLength(normalizedText, 'utf8') > MAX_ATTACHMENT_BYTES) {
-    return null;
-  }
-
-  const attachmentsDir = resolve(app.getPath('temp'), 'aegis-pasted-text');
-  const fileName = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`;
-  const targetPath = resolve(attachmentsDir, fileName);
-
-  try {
-    await fsPromises.mkdir(attachmentsDir, { recursive: true });
-    await fsPromises.writeFile(targetPath, normalizedText, 'utf8');
-    const attachment = toAttachment(targetPath);
-    if (!attachment) {
-      return null;
-    }
-
-    return {
-      ...attachment,
-      uiType: 'pasted_text',
-      previewText: normalizedText,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function maybeConvertLongPromptToAttachment(params: {
-  cwd?: string | null;
-  prompt: string;
-  attachments?: Attachment[];
-}): Promise<{
-  prompt: string;
-  attachments: Attachment[];
-  converted: boolean;
-}> {
-  const prompt = params.prompt.trim();
-  const attachments = params.attachments?.filter((attachment) => !!attachment?.path) || [];
-  if (!prompt || prompt.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
-    return {
-      prompt,
-      attachments,
-      converted: false,
-    };
-  }
-
-  const cwd = params.cwd?.trim();
-  if (!cwd) {
-    console.warn('[Long Prompt Attachment] Missing cwd; sending inline prompt instead.');
-    return {
-      prompt,
-      attachments,
-      converted: false,
-    };
-  }
-
-  const attachment = await createInlineTextAttachment(cwd, prompt);
-  if (!attachment) {
-    console.warn('[Long Prompt Attachment] Failed to create attachment; sending inline prompt instead.', {
-      cwd,
-      promptLength: prompt.length,
-    });
-    return {
-      prompt,
-      attachments,
-      converted: false,
-    };
-  }
-
-  return {
-    prompt: LONG_PROMPT_ATTACHMENT_INSTRUCTION,
-    attachments: [...attachments, attachment],
-    converted: true,
-  };
 }
 
 // Runner 句柄映射（带 Provider）
@@ -5194,6 +5106,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     broadcast(mainWindow, event);
   });
   setupAttachmentIPC(mainWindow);
+  setupScreenshotIPC(mainWindow);
 
   // Board/background starts need the real persisted session id without
   // routing through a renderer draft. `handleSessionStart` can still return
@@ -7033,14 +6946,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return createMarkdownImageAsset(cwd, markdownFilePath, fileName, mimeType, data);
     }
   );
-
-  ipcMainHandle('create-inline-text-attachment', async (_event, cwd: string, text: string) => {
-    if (!cwd || typeof text !== 'string') {
-      return null;
-    }
-
-    return createInlineTextAttachment(cwd, text);
-  });
 
   // RPC: 把剪贴板中的图片（PNG/JPEG 二进制）写入临时文件并返回 Attachment
   ipcMainHandle(
@@ -9080,18 +8985,9 @@ async function handleSessionStart(
     }
   }
   const sourcePrompt = prompt.trim();
-  const longPromptAttachment = chosenProvider === 'claude' && parseGoalInput(sourcePrompt, false).isGoal
-    ? { prompt: sourcePrompt, attachments: attachments ?? [], converted: false }
-    : await maybeConvertLongPromptToAttachment({
-    cwd: sessionCwd,
-    prompt: sourcePrompt,
-    attachments,
-  });
-  const outgoingPrompt = longPromptAttachment.prompt;
-  const outgoingAttachments = longPromptAttachment.attachments;
-  const effectiveRunnerPrompt = longPromptAttachment.converted
-    ? outgoingPrompt
-    : (effectivePrompt ?? sourcePrompt).trim();
+  const outgoingPrompt = sourcePrompt;
+  const outgoingAttachments = (attachments ?? []).filter((attachment) => !!attachment?.path);
+  const effectiveRunnerPrompt = (effectivePrompt ?? sourcePrompt).trim();
   const runnerPrompt = chosenProvider === 'claude' && parseGoalInput(sourcePrompt, false).isGoal ? sourcePrompt : augmentPromptForLiveWidgetProtocol(
     await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt + referenceContext + sessions.buildProjectSourcesContext(normalizedProjectCwd, isolated?.worktreePath || normalizedWorktreePath || sessionCwd, Boolean(isolated) || normalizedEnvMode === 'worktree'), sessionCwd),
   );
@@ -9485,14 +9381,9 @@ async function handleSessionContinue(
     return false;
   }
 
-  const longPromptAttachment = (provider || session.provider) === 'claude' && parseGoalInput(prompt, false).isGoal
-    ? { prompt, attachments: attachments ?? [], converted: false }
-    : await maybeConvertLongPromptToAttachment({ cwd: session.cwd, prompt, attachments });
-  const outgoingPrompt = longPromptAttachment.prompt;
-  const outgoingAttachments = longPromptAttachment.attachments;
-  let effectiveRunnerPrompt = longPromptAttachment.converted
-    ? outgoingPrompt
-    : (effectivePrompt ?? outgoingPrompt).trim();
+  const outgoingPrompt = prompt.trim();
+  const outgoingAttachments = (attachments ?? []).filter((attachment) => !!attachment?.path);
+  let effectiveRunnerPrompt = (effectivePrompt ?? outgoingPrompt).trim();
 
   if (await maybeHandleLocalSlashCommand(mainWindow, session, outgoingPrompt, outgoingAttachments)) {
     return true;

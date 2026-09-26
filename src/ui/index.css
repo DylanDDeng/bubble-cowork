@@ -709,6 +709,20 @@ body {
   background: var(--text-muted);
 }
 
+/* Keep the editor scrollbar inside the composer and clear of its rounded corners.
+   A transparent border insets the native scrollbar without clipping editor popovers. */
+.aegis-composer-editor {
+  border-inline-end: 6px solid transparent;
+}
+
+.aegis-composer-editor::-webkit-scrollbar {
+  width: 6px;
+}
+
+.aegis-composer-editor::-webkit-scrollbar-track {
+  margin-block: 12px 4px;
+}
+
 /* Hosts of CappedScrollbar (sidebar, task detail) draw their own capped,
    draggable thumb instead of the proportional native one. */
 .sidebar-scrollbar,

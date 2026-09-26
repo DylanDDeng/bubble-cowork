@@ -45,9 +45,9 @@ assert.equal(
   'a clamped step at the oldest entry must not re-apply text or move the caret'
 );
 assert.equal(
-  promptInput.includes('value === historyAppliedTextRef.current'),
-  true,
-  'history-applied text must be exempt from long-prompt auto-attachment conversion'
+  promptInput.includes('maybeConvertLongPromptToAttachment'),
+  false,
+  'prompt history and new input must stay inline regardless of length'
 );
 assert.equal(
   promptInput.includes('remapPromptHistoryNav('),

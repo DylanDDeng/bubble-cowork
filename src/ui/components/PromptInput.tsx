@@ -85,11 +85,6 @@ import { buildPromptWithProjectFileMentions } from '../utils/project-file-mentio
 import { buildSideChatEffectivePrompt } from '../utils/side-chat';
 import { removeSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import {
-  getLongPromptAttachmentFallbackMessage,
-  LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
-  maybeConvertLongPromptToAttachment,
-} from '../utils/long-prompt-attachment';
-import {
   buildClaudeContextSnapshot,
   getLatestClaudeContextSnapshot,
   getLatestClaudeTurnUsage,
@@ -733,53 +728,6 @@ export function PromptInput({
     });
   };
 
-  const autoConvertComposerTextToAttachment = useCallback(async (
-    value: string,
-    nextCursorIndex: number
-  ): Promise<boolean> => {
-    if (isComposingRef.current) {
-      setPrompt(value);
-      setCursorIndex(nextCursorIndex);
-      return false;
-    }
-
-    // Text recalled from prompt history is exempt from long-prompt conversion:
-    // silently swapping a recalled prompt for an attachment would wipe the
-    // composer and drop the stashed draft.
-    if (historyAppliedTextRef.current !== null && value === historyAppliedTextRef.current) {
-      setPrompt(value);
-      setCursorIndex(nextCursorIndex);
-      return false;
-    }
-
-    if ((supportsGoalUI(runtimeProvider) && parseGoalInput(value, sessionGoal.drafting).isGoal) || value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
-      setPrompt(value);
-      setCursorIndex(nextCursorIndex);
-      return false;
-    }
-
-    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
-      cwd: activeSession?.cwd || null,
-      prompt: value,
-      attachments,
-    });
-
-    if (!promptWithAttachment.converted) {
-      setPrompt(value);
-      setCursorIndex(nextCursorIndex);
-      if (promptWithAttachment.reason === 'attachment_create_failed') {
-        toast.error('Failed to convert the long message into an attachment.');
-      }
-      return false;
-    }
-
-    setAttachments(promptWithAttachment.attachments);
-    setPrompt('');
-    setCursorIndex(0);
-    window.requestAnimationFrame(() => editorRef.current?.focus());
-    return true;
-  }, [activeSession?.cwd, attachments, runtimeProvider, sessionGoal.drafting]);
-
   const handleSend = async (invertFollowUp = false) => {
     const goalInput = parseGoalInput(prompt, sessionGoal.drafting);
     const isGoal = supportsGoalUI(agentSelection.provider) && goalInput.isGoal;
@@ -856,12 +804,7 @@ export function PromptInput({
     if (normalizedPrompt === null) {
       return;
     }
-    const promptWithAttachment = isGoal ? { prompt: displayPrompt, attachments, converted: false, reason: undefined } : await maybeConvertLongPromptToAttachment({
-      cwd: activeSession?.cwd || null,
-      prompt: displayPrompt,
-      attachments,
-    });
-    const outgoingPrompt = promptWithAttachment.converted ? promptWithAttachment.prompt : displayPrompt;
+    const outgoingPrompt = displayPrompt;
     // Side chats (Codex parity): the FIRST send carries the side-conversation
     // preamble on the effective prompt so the fork doesn't continue the
     // parent thread's task; the displayed prompt stays exactly what the user
@@ -873,16 +816,9 @@ export function PromptInput({
       useAppStore.getState().noteSideChatUserTurn(activeSession.id);
     }
     const outgoingEffectivePrompt = sideChatEntry?.constraintPending
-      ? buildSideChatEffectivePrompt(
-          promptWithAttachment.converted ? promptWithAttachment.prompt : normalizedPrompt
-        )
-      : promptWithAttachment.converted
-        ? promptWithAttachment.prompt
-        : normalizedPrompt;
-    const outgoingAttachments = promptWithAttachment.attachments;
-    if (promptWithAttachment.reason === 'attachment_create_failed') {
-      toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
-    }
+      ? buildSideChatEffectivePrompt(normalizedPrompt)
+      : normalizedPrompt;
+    const outgoingAttachments = attachments;
     const imageEdit = attachments.some(item => item.id.startsWith('image-studio:')) && supportsImageStudio(runtimeProvider);
     const codexReferences = runtimeProvider === 'codex'
       ? capabilityMenu.selectedSkill ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
@@ -1242,7 +1178,8 @@ export function PromptInput({
   );
 
   const handlePromptChange = async (value: string, nextCursorIndex: number) => {
-    await autoConvertComposerTextToAttachment(value, nextCursorIndex);
+    setPrompt(value);
+    setCursorIndex(nextCursorIndex);
   };
 
   const handlePasteImages = useCallback(async (
@@ -1287,65 +1224,6 @@ export function PromptInput({
 
     return created.length > 0;
   }, [isBusy]);
-
-  const handleLongPaste = useCallback((
-    context: { text: string; start: number; end: number }
-  ): boolean => {
-    if (supportsGoalUI(runtimeProvider) && (sessionGoal.drafting || parseGoalInput(prompt || context.text, false).isGoal)) return false;
-    const pastedText = context.text.trim();
-    if (pastedText.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
-      return false;
-    }
-
-    const pasteInline = () => {
-      const nextPrompt = `${prompt.slice(0, context.start)}${context.text}${prompt.slice(context.end)}`;
-      const nextCursorIndex = context.start + context.text.length;
-      setPrompt(nextPrompt);
-      setCursorIndex(nextCursorIndex);
-      window.requestAnimationFrame(() => {
-        editorRef.current?.focus();
-        editorRef.current?.setCursorIndex(nextCursorIndex);
-      });
-    };
-
-    const toastId = toast.loading('Creating text attachment...');
-    void (async () => {
-      try {
-        const promptWithAttachment = await maybeConvertLongPromptToAttachment({
-          cwd: activeSession?.cwd || null,
-          prompt: pastedText,
-          attachments,
-          allowProjectMentions: true,
-        });
-
-        if (!promptWithAttachment.converted) {
-          pasteInline();
-          toast.error(getLongPromptAttachmentFallbackMessage(promptWithAttachment.reason), {
-            id: toastId,
-          });
-          return;
-        }
-
-        const nextPrompt = `${prompt.slice(0, context.start)}${prompt.slice(context.end)}`;
-        setAttachments(promptWithAttachment.attachments);
-        setPrompt(nextPrompt);
-        setCursorIndex(context.start);
-        toast.dismiss(toastId);
-        window.requestAnimationFrame(() => {
-          editorRef.current?.focus();
-          editorRef.current?.setCursorIndex(context.start);
-        });
-      } catch {
-        pasteInline();
-        toast.error('Could not create a text attachment. Pasted inline instead.', {
-          id: toastId,
-        });
-        return;
-      }
-    })();
-
-    return true;
-  }, [activeSession?.cwd, attachments, prompt, runtimeProvider, sessionGoal.drafting]);
 
   // ArrowUp on the first visual line ENTERS history browsing; while a browse
   // is active the arrows always step (terminal-style) — recalled multiline
@@ -1657,9 +1535,6 @@ export function PromptInput({
             slashDisplayLabels={capabilityMenu.slashDisplayLabels}
             onChange={(value, nextCursorIndex) => {
               void handlePromptChange(value, nextCursorIndex);
-            }}
-            onPasteText={(context) => {
-              return handleLongPaste(context);
             }}
             onPasteFiles={attachmentImport.files}
             onPasteNativeFiles={attachmentImport.pasteNative}

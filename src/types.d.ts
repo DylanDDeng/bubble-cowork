@@ -344,6 +344,21 @@ declare global {
     importAttachments: (paths: string[]) => Promise<import('./shared/attachment-policy').AttachmentImportResult>;
     chooseAttachments: () => Promise<import('./shared/attachment-policy').AttachmentImportResult>;
     createFileAttachment: (name: string, data: Uint8Array) => Promise<Attachment>;
+    captureScreenshot: (mode: import('./shared/screenshot').ScreenshotMode) => Promise<import('./shared/screenshot').ScreenshotCaptureResult>;
+    completeScreenshotSelection: (id: string, rect: import('./shared/screenshot').ScreenshotRect | null) => Promise<void>;
+    onScreenshotSelectArea: (callback: (id: string) => void) => () => void;
+    openLastScreenshot: () => Promise<import('./shared/screenshot').ScreenshotCaptureResult>;
+    requestScreenRecordingPermission: () => Promise<void>;
+    loadScreenshotEditor: () => Promise<import('./shared/screenshot').ScreenshotEditorPayload | null>;
+    exportScreenshot: (
+      action: import('./shared/screenshot').ScreenshotExportAction,
+      data: Uint8Array,
+      name?: string
+    ) => Promise<import('./shared/screenshot').ScreenshotExportResult>;
+    closeScreenshotEditor: () => Promise<void>;
+    retakeScreenshot: () => Promise<import('./shared/screenshot').ScreenshotCaptureResult>;
+    onScreenshotAttach: (callback: (attachment: Attachment) => void) => () => void;
+    onScreenshotEditorUpdated: (callback: () => void) => () => void;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
     readComputerUseArtifact: (sessionId: string, sha256: string) => Promise<string | null>;
@@ -375,7 +390,6 @@ declare global {
     readMarkdownImageAsset: (cwd: string, markdownFilePath: string, imageSrc: string) => Promise<{ ok: boolean; dataUrl?: string; message?: string }>;
     resolveMarkdownImageAssetUrl: (cwd: string, markdownFilePath: string, imageSrc: string) => Promise<{ ok: boolean; url?: string; size?: number; mtimeMs?: number; message?: string }>;
     createMarkdownImageAsset: (cwd: string, markdownFilePath: string, fileName: string, mimeType: string | undefined, data: Uint8Array) => Promise<{ ok: boolean; relativePath?: string; name?: string; message?: string }>;
-    createInlineTextAttachment: (cwd: string, text: string) => Promise<Attachment | null>;
     createInlineImageAttachment: (mimeType: string, data: Uint8Array) => Promise<Attachment | null>;
     writeProjectTextFile: (cwd: string, filePath: string, content: string) => Promise<{ ok: boolean; message?: string; size?: number; mtimeMs?: number }>;
     previewArtifactPath: (cwd: string, filePath: string, options?: { openInBrowser?: boolean }) => Promise<{ ok: boolean; url?: string; message?: string }>;

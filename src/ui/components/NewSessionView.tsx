@@ -49,11 +49,6 @@ import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import { removeSelectedSlashCommandPrompt } from '../utils/claude-slash';
-import {
-  getLongPromptAttachmentFallbackMessage,
-  LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
-  maybeConvertLongPromptToAttachment,
-} from '../utils/long-prompt-attachment';
 
 function isImeComposingEvent(
   event: ReactKeyboardEvent,
@@ -190,44 +185,6 @@ export function NewSessionView() {
     setShowSettings(true);
   }, [agentSelection.modelSetup, setActiveSettingsTab, setShowSettings]);
 
-  const autoConvertComposerTextToAttachment = useCallback(async (
-    value: string,
-    nextCursorIndex: number
-  ): Promise<boolean> => {
-    if (isComposingRef.current) {
-      setPrompt(value);
-      setCursorIndex(nextCursorIndex);
-      return false;
-    }
-
-    if ((supportsGoalUI(agentSelection.provider) && parseGoalInput(value, sessionGoal.drafting).isGoal) || value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
-      setPrompt(value);
-      setCursorIndex(nextCursorIndex);
-      return false;
-    }
-
-    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
-      cwd,
-      prompt: value,
-      attachments,
-    });
-
-    if (!promptWithAttachment.converted) {
-      setPrompt(value);
-      setCursorIndex(nextCursorIndex);
-      if (promptWithAttachment.reason === 'attachment_create_failed') {
-        toast.error('Failed to convert the long message into an attachment.');
-      }
-      return false;
-    }
-
-    setAttachments(promptWithAttachment.attachments);
-    setPrompt('');
-    setCursorIndex(0);
-    window.requestAnimationFrame(() => editorRef.current?.focus());
-    return true;
-  }, [attachments, cwd, agentSelection.provider, sessionGoal.drafting]);
-
   const handleStart = async () => {
     const goalInput = parseGoalInput(prompt, sessionGoal.drafting);
     const isGoal = supportsGoalUI(agentSelection.provider) && goalInput.isGoal;
@@ -276,19 +233,9 @@ export function NewSessionView() {
       setPendingStart(false);
       return;
     }
-    const promptWithAttachment = isGoal ? { prompt: displayPrompt, attachments, converted: false, reason: undefined } : await maybeConvertLongPromptToAttachment({
-      cwd: dispatchCwd,
-      prompt: displayPrompt,
-      attachments,
-    });
-    const outgoingPrompt = promptWithAttachment.converted ? promptWithAttachment.prompt : displayPrompt;
-    const outgoingEffectivePrompt = promptWithAttachment.converted
-      ? promptWithAttachment.prompt
-      : normalizedPrompt;
-    const outgoingAttachments = promptWithAttachment.attachments;
-    if (promptWithAttachment.reason === 'attachment_create_failed') {
-      toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
-    }
+    const outgoingPrompt = displayPrompt;
+    const outgoingEffectivePrompt = normalizedPrompt;
+    const outgoingAttachments = attachments;
     const codexReferences =
       agentSelection.provider === 'codex'
         ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
@@ -424,7 +371,8 @@ export function NewSessionView() {
   );
 
   const handlePromptChange = async (value: string, nextCursorIndex: number) => {
-    await autoConvertComposerTextToAttachment(value, nextCursorIndex);
+    setPrompt(value);
+    setCursorIndex(nextCursorIndex);
   };
 
   const handlePasteImages = useCallback(async (
@@ -469,65 +417,6 @@ export function NewSessionView() {
 
     return created.length > 0;
   }, [pendingStart]);
-
-  const handleLongPaste = useCallback((
-    context: { text: string; start: number; end: number }
-  ): boolean => {
-    if (supportsGoalUI(agentSelection.provider) && (sessionGoal.drafting || parseGoalInput(prompt || context.text, false).isGoal)) return false;
-    const pastedText = context.text.trim();
-    if (pastedText.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
-      return false;
-    }
-
-    const pasteInline = () => {
-      const nextPrompt = `${prompt.slice(0, context.start)}${context.text}${prompt.slice(context.end)}`;
-      const nextCursorIndex = context.start + context.text.length;
-      setPrompt(nextPrompt);
-      setCursorIndex(nextCursorIndex);
-      window.requestAnimationFrame(() => {
-        editorRef.current?.focus();
-        editorRef.current?.setCursorIndex(nextCursorIndex);
-      });
-    };
-
-    const toastId = toast.loading('Creating text attachment...');
-    void (async () => {
-      try {
-        const promptWithAttachment = await maybeConvertLongPromptToAttachment({
-          cwd,
-          prompt: pastedText,
-          attachments,
-          allowProjectMentions: true,
-        });
-
-        if (!promptWithAttachment.converted) {
-          pasteInline();
-          toast.error(getLongPromptAttachmentFallbackMessage(promptWithAttachment.reason), {
-            id: toastId,
-          });
-          return;
-        }
-
-        const nextPrompt = `${prompt.slice(0, context.start)}${prompt.slice(context.end)}`;
-        setAttachments(promptWithAttachment.attachments);
-        setPrompt(nextPrompt);
-        setCursorIndex(context.start);
-        toast.dismiss(toastId);
-        window.requestAnimationFrame(() => {
-          editorRef.current?.focus();
-          editorRef.current?.setCursorIndex(context.start);
-        });
-      } catch {
-        pasteInline();
-        toast.error('Could not create a text attachment. Pasted inline instead.', {
-          id: toastId,
-        });
-        return;
-      }
-    })();
-
-    return true;
-  }, [attachments, cwd, prompt, agentSelection.provider, sessionGoal.drafting]);
 
   const canStartTask =
     (prompt.trim().length > 0 || attachments.length > 0) &&
@@ -661,9 +550,6 @@ export function NewSessionView() {
                   slashDisplayLabels={capabilityMenu.slashDisplayLabels}
                   onChange={(value, nextCursorIndex) => {
                     void handlePromptChange(value, nextCursorIndex);
-                  }}
-                  onPasteText={(context) => {
-                    return handleLongPaste(context);
                   }}
                   onPasteFiles={attachmentImport.files}
                   onPasteNativeFiles={attachmentImport.pasteNative}

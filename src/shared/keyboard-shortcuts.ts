@@ -8,6 +8,7 @@ export const SHORTCUT_COMMANDS = [
   { id: 'settings', title: 'Open settings', group: 'Navigation', defaults: ['Mod+Comma'] },
   { id: 'newTask', title: 'New task', group: 'Conversation', defaults: ['Mod+KeyN'] },
   { id: 'find', title: 'Find in conversation', group: 'Conversation', defaults: ['Mod+KeyF'] },
+  { id: 'screenshot', title: 'Capture screenshot', group: 'Conversation', defaults: ['Mod+Shift+Digit2'] },
   { id: 'newTab', title: 'New tab', group: 'Tabs', defaults: ['Mod+KeyT'] },
   { id: 'closeTab', title: 'Close tab', group: 'Tabs', defaults: ['Mod+KeyW'] },
   { id: 'nextTab', title: 'Next tab', group: 'Tabs', defaults: ['Ctrl+Tab'] },
