@@ -3610,18 +3610,8 @@ button.aegis-mdx-metadata-key:hover {
 }
 
 @container new-thread (max-width: 480px) {
-  .aegis-new-thread-composer .aegis-composer-toolbar { flex-wrap: wrap; row-gap: 4px; }
-  .aegis-new-thread-composer .aegis-composer-leading-controls { flex: 0 1 auto; }
-  .aegis-new-thread-composer .aegis-composer-trailing-controls { margin-left: auto; }
   .aegis-composer-context-pill { padding-inline: 6px; gap: 4px; }
   .aegis-composer-project-control { flex: 1 1 0; }
-  .aegis-new-thread-composer [data-composer-control="permission"][data-tone="full-access"] > span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
 }
 
 :root[data-reduce-motion='true'] {
@@ -3650,19 +3640,59 @@ button.aegis-mdx-metadata-key:hover {
   .aegis-header-editor-actions {
     display: none;
   }
+}
 
-  .aegis-composer-toolbar {
-    gap: 0.25rem;
-  }
+/* Match Codex's desktop composer-footer container query: side panels can
+   narrow the composer while the window itself remains wide. */
+.aegis-composer-toolbar {
+  container: composer-footer / inline-size;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 4px;
+}
 
-  .aegis-composer-leading-controls {
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-  }
+.aegis-composer-leading-controls {
+  flex: 0 0 auto;
+}
 
-  .aegis-composer-leading-controls::-webkit-scrollbar {
+/* Preserve whole controls even when a pane is narrower than the icon row. */
+.aegis-composer-leading-controls,
+.aegis-composer-trailing-controls {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.aegis-composer-trailing-controls {
+  margin-left: auto;
+}
+
+.aegis-composer-toolbar button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.aegis-composer-responsive-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aegis-composer-compact-icon {
+  display: none;
+}
+
+@container composer-footer (max-width: 475px) {
+  .aegis-composer-responsive-label {
     display: none;
+  }
+
+  .aegis-composer-compact-icon {
+    display: inline-flex;
+  }
+
+  /* Opening a picker must not restore its measured wide text width. */
+  [data-composer-control="model"] {
+    width: auto !important;
   }
 }
 

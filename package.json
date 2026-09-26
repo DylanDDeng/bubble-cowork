@@ -83,6 +83,7 @@
     "verify:workstream-duration": "node scripts/verify-workstream-duration.mjs",
     "verify:workstream-providers": "npm run transpile:electron && node scripts/tests/provider-assistant-phase.test.cjs",
     "verify:workstream-ui": "npx tsx scripts/tests/tool-result-content.test.ts && node scripts/tests/workstream-disclosure-electron.test.mjs",
+    "verify:composer-picker-layout": "node scripts/tests/composer-picker-layout-electron.test.mjs",
     "verify:composer-agent-selection": "node scripts/verify-composer-agent-selection.mjs",
     "verify:reasoning-picker": "node scripts/tests/reasoning-picker-electron.test.mjs",
     "verify:codex-reasoning": "npm run transpile:electron && npx tsx scripts/tests/codex-reasoning-effort.test.ts && node scripts/tests/codex-reasoning-catalog.test.cjs",

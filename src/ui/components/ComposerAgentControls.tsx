@@ -1007,16 +1007,19 @@ export function ComposerAgentModelPicker({
                   agentProvider === 'codex' && codexFastMode ? ' – Fast mode' : ''
                 }`
           }
+          data-composer-control="model"
           aria-label="Select agent and model"
         >
           <span ref={pickerTrigger.measurementRef} style={{ position: 'absolute' }} className="pointer-events-none invisible whitespace-nowrap" aria-hidden="true">Select effort</span>
-          {pickerTrigger.open ? <span className="flex-1 whitespace-nowrap text-center">{pickerTrigger.openLabel}</span> : <>
-          <AgentIcon provider={agentProvider} />
+          <span className={pickerTrigger.open ? "aegis-composer-compact-icon" : "inline-flex shrink-0"}><AgentIcon provider={agentProvider} /></span>
+          {pickerTrigger.open ? <span className="aegis-composer-responsive-label flex-1 whitespace-nowrap text-center">{pickerTrigger.openLabel}</span> : <>
           {agentProvider === 'codex' && codexFastMode ? (
             <FastModeIcon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-primary)]" aria-hidden="true" />
           ) : null}
-          <ModelEffortLabel model={modelLabel} effort={effortSuffix}
-            maximum={agentProvider === 'codex' && codexReasoningEffort === 'ultra'} />
+          <span className="aegis-composer-responsive-label">
+            <ModelEffortLabel model={modelLabel} effort={effortSuffix}
+              maximum={agentProvider === 'codex' && codexReasoningEffort === 'ultra'} />
+          </span>
           {currentReadiness && currentReadiness.state !== 'ready' && currentReadiness.state !== 'checking' ? (
             <span
               className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(currentReadiness.state)}`}

@@ -9,6 +9,7 @@ import type {
   OpenCodePermissionMode,
   QoderPermissionMode,
 } from '../types';
+import { ShieldCheck } from './icons';
 import { FullAccessPermissionIcon } from './FullAccessPermissionIcon';
 
 /**
@@ -62,7 +63,7 @@ export function PermissionModePicker<M extends string>({
         title={`Permission mode: ${current?.label ?? value}`}
         data-composer-control="permission"
         data-tone={tone}
-        className={`inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[12px] font-medium transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 rounded-lg px-1.5 py-1 text-[12px] font-medium transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 ${
           tone === 'full-access'
             ? 'text-[var(--warning)] hover:text-[var(--warning)]'
             : tone === 'danger'
@@ -72,8 +73,8 @@ export function PermissionModePicker<M extends string>({
       >
         {tone === 'full-access' ? (
           <FullAccessPermissionIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-        ) : null}
-        <span>{current?.label ?? value}</span>
+        ) : <ShieldCheck className="aegis-composer-compact-icon h-4 w-4 shrink-0" aria-hidden="true" />}
+        <span className="aegis-composer-responsive-label">{current?.label ?? value}</span>
       </button>
 
       </DropdownMenu.Trigger>
