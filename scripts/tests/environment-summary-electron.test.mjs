@@ -42,7 +42,9 @@ const draft=useAppStore.getState().createDraftSession('/projects/podcast');
 const base={...useAppStore.getState().sessions[draft],id:'fixture',isDraft:false,status:'idle',messages:[]};
 function GitProbe(){
  const [cwd,setCwd]=useState('/repo/a');qa.setProbeCwd=setCwd;
- const git=useGitEnvironment(cwd,cwd);qa.probe=git;
+ const [context,setContext]=useState('session-a');qa.setProbeContext=setContext;
+ const git=useGitEnvironment(cwd,context);qa.probe=git;
+ qa.secondProbe=useGitEnvironment(cwd,'second-pane');
  return <output id="probe-branch">{git.overview.branch||'unknown'}</output>;
 }
 function Harness(){
@@ -170,13 +172,59 @@ app.whenReady().then(async()=>{
  await js('document.querySelector("#outside").dispatchEvent(new MouseEvent("mousedown",{bubbles:true}))');assert.equal(await js('document.querySelector("button[title=Environment]").getAttribute("aria-expanded")'),'false');
  await click('Open environment panel');await js('document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');assert.equal(await js('document.querySelector("button[title=Environment]").getAttribute("aria-expanded")'),'false');
  // Delayed replies from a previous directory must not appear in a new one.
- await js('qa.pending=[];window.electron.getGitOverview=cwd=>new Promise(resolve=>qa.pending.push({cwd,resolve}));qa.setProbe(true)');await delay(100);
+ await js('qa.pending=[];window.electron.getGitOverview=cwd=>new Promise((resolve,reject)=>qa.pending.push({cwd,resolve,reject}));qa.setProbe(true)');await delay(100);
  assert.equal(await js('qa.probe.overview.branch'),null);
  await js('qa.pending[0].resolve({...qa.overview,branch:"branch-a"})');await delay(100);assert.equal(await js('qa.probe.overview.branch'),'branch-a');
  await js('void qa.probe.refresh()');await delay(50);
  await js('qa.setProbeCwd("/repo/b")');await delay(100);assert.equal(await js('qa.probe.overview.branch'),null);
  await js('qa.pending[1].resolve({...qa.overview,branch:"stale-a"})');await delay(100);assert.equal(await js('qa.probe.overview.branch'),null);
  await js('qa.pending[2].resolve({...qa.overview,branch:"branch-b"})');await delay(100);assert.equal(await js('qa.probe.overview.branch'),'branch-b');
+ // Session identity must not reset Git data, and shared panes deduplicate checks.
+ assert.equal(await js('qa.pending.length'),3,'two panes share each automatic request');
+ await js('qa.setProbeContext("session-b");window.dispatchEvent(new Event("focus"))');await delay(100);
+ assert.equal(await js('qa.probe.overview.branch'),'branch-b');
+ assert.equal(await js('qa.probe.loading'),false);
+ assert.equal(await js('qa.probe.getSnapshot().contextKey'),'session-b');
+ assert.equal(await js('qa.pending.length'),3,'fresh tab switches and focus reuse cache');
+ await js('qa.setProbeCwd("/repo/a")');await delay(100);
+ assert.equal(await js('qa.probe.overview.branch'),'stale-a','returning to a directory restores its latest result');
+ assert.equal(await js('qa.probe.loading'),false);
+ assert.equal(await js('qa.pending.length'),3);
+ await js('qa.setProbe(false)');await delay(50);
+ await js('qa.setProbe(true)');await delay(100);
+ assert.equal(await js('qa.probe.overview.branch'),'stale-a','cache survives component remount');
+ assert.equal(await js('qa.pending.length'),3);
+ // Expiration revalidates in the background without losing the branch or flashing loading.
+ await js('qa.realNow=Date.now;Date.now=()=>qa.realNow()+61000;window.dispatchEvent(new Event("focus"))');await delay(100);
+ assert.equal(await js('qa.pending.length'),4);
+ assert.equal(await js('qa.probe.loading'),false);
+ assert.equal(await js('qa.probe.overview.branch'),'stale-a');
+ await js('window.dispatchEvent(new Event("focus"));void qa.probe.refresh({force:false})');await delay(50);
+ assert.equal(await js('qa.pending.length'),4,'automatic revalidations share the pending request');
+ await js('qa.pending[3].resolve({...qa.overview,branch:"updated-a"})');await delay(100);
+ assert.equal(await js('qa.probe.overview.branch'),'updated-a');
+ assert.equal(await js('qa.secondProbe.overview.branch'),'updated-a','all panes receive refreshed data');
+ // Explicit post-mutation refresh supersedes an older request.
+ await js('void qa.probe.refresh()');await delay(50);
+ await js('void qa.probe.refresh()');await delay(50);
+ await js('qa.pending[5].resolve({...qa.overview,branch:"after-mutation"})');await delay(50);
+ await js('qa.pending[4].resolve({...qa.overview,branch:"before-mutation"})');await delay(100);
+ assert.equal(await js('qa.probe.overview.branch'),'after-mutation');
+ const updatedAt=await js('qa.probe.lastUpdatedAt');
+ await js('void qa.probe.refresh()');await delay(50);
+ await js('qa.pending[6].reject(new Error("temporary failure"))');await delay(100);
+ assert.equal(await js('qa.probe.overview.branch'),'after-mutation','background failure preserves usable content');
+ assert.equal(await js('qa.probe.lastUpdatedAt'),updatedAt);
+ // Non-Git directories are cached too; distinct worktrees start without another branch.
+ await js('qa.setProbeCwd("/repo/worktree")');await delay(100);
+ assert.equal(await js('qa.probe.overview.branch'),null);
+ assert.equal(await js('qa.probe.loading'),true);
+ await js('qa.pending[7].resolve({...qa.overview,ok:false,hasRepo:false,repoRoot:null,branch:null,error:"not-a-repo"})');await delay(100);
+ assert.equal(await js('qa.probe.loading'),false);
+ await js('qa.setProbeContext("non-git-session");window.dispatchEvent(new Event("focus"))');await delay(100);
+ assert.equal(await js('qa.pending.length'),8);
+ assert.equal(await js('qa.probe.overview.error'),'not-a-repo');
+ await js('Date.now=qa.realNow;qa.setProbe(false)');await delay(50);
  // A delayed association response from another task must never flash here.
  await click('Open environment panel');
  await js('qa.pendingPr=[];window.electron.listSessionPullRequests=id=>new Promise(resolve=>qa.pendingPr.push({id,resolve}));qa.listeners.forEach(fn=>fn("fixture"))');await delay(50);

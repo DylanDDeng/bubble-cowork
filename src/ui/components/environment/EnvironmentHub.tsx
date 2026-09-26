@@ -322,8 +322,8 @@ export function EnvironmentHub({
 
   useEffect(() => {
     if (!open) return;
-    void git.refresh();
-  }, [context.contextKey, open]);
+    void git.refresh({ force: false });
+  }, [context.contextKey, open, git.refresh]);
 
 
   const copyPath = async (path: string | null) => {
