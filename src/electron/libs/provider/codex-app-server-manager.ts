@@ -331,9 +331,12 @@ export class CodexAppServerManager extends EventEmitter {
   private pluginDetailCache = new Map<string, ProviderReadPluginResult>();
   private lastActiveThreadId: string | null = null;
   // One compaction reaches us twice (deprecated `thread/compacted` notification
-  // + `contextCompaction` item) with no shared id, so dedupe by time instead.
+  // + `contextCompaction` item). Use native item IDs; older ID-less events
+  // need a bounded time fallback.
   private static readonly COMPACTION_DEDUPE_MS = 5000;
   private lastCompactionEmitAt = new Map<string, number>();
+  private lastCompactionItemId = new Map<string, string>();
+  private activeCompactionItemId = new Map<string, string>();
   // $CODEX_HOME as reported by the server's initialize response — where
   // auth.json lives for chatgptAuthTokens/refresh answers.
   private codexHome: string | null = null;
@@ -613,6 +616,9 @@ export class CodexAppServerManager extends EventEmitter {
         clearTimeout(pendingInterrupt.timer);
         this.pendingInterrupts.delete(session.providerThreadId);
       }
+      this.activeCompactionItemId.delete(threadId);
+      this.lastCompactionItemId.delete(threadId);
+      this.lastCompactionEmitAt.delete(threadId);
       this.sessions.delete(threadId);
       if (this.lastActiveThreadId === threadId) {
         this.lastActiveThreadId = this.findMostRecentFallbackThreadId();
@@ -677,6 +683,9 @@ export class CodexAppServerManager extends EventEmitter {
       this.child = null;
     }
     this.initialized = false;
+    this.activeCompactionItemId.clear();
+    this.lastCompactionItemId.clear();
+    this.lastCompactionEmitAt.clear();
     this.sessions.clear();
     this.descendantThreadMap.clear();
     this.modelCatalog = null;
@@ -1508,6 +1517,9 @@ export class CodexAppServerManager extends EventEmitter {
     // adapter-side state is always released by the same signal.
     if (!session.activeTurnId || session.generation !== this.generation) {
       const { providerThreadId, generation } = session;
+      this.activeCompactionItemId.delete(threadId);
+      this.lastCompactionItemId.delete(threadId);
+      this.lastCompactionEmitAt.delete(threadId);
       this.sessions.delete(threadId);
       if (this.lastActiveThreadId === threadId) {
         this.lastActiveThreadId = this.findMostRecentFallbackThreadId();
@@ -1608,6 +1620,9 @@ export class CodexAppServerManager extends EventEmitter {
       session.generation === settle.generation &&
       (!session.activeTurnId || session.activeTurnId === settle.turnId)
     ) {
+      this.activeCompactionItemId.delete(settle.aegisThreadId);
+      this.lastCompactionItemId.delete(settle.aegisThreadId);
+      this.lastCompactionEmitAt.delete(settle.aegisThreadId);
       this.sessions.delete(settle.aegisThreadId);
       if (this.lastActiveThreadId === settle.aegisThreadId) {
         this.lastActiveThreadId = this.findMostRecentFallbackThreadId();
@@ -2338,6 +2353,7 @@ export class CodexAppServerManager extends EventEmitter {
 
         const threadId = this.findThreadByProviderThreadId(providerThreadId);
         if (threadId && status !== 'inProgress') {
+          this.activeCompactionItemId.delete(threadId);
           const session = this.sessions.get(threadId);
           if (session) {
             session.status = 'ready';
@@ -2516,6 +2532,13 @@ export class CodexAppServerManager extends EventEmitter {
         this.registerDescendantsFromItem(threadId, item);
 
         switch (itemType) {
+          case 'contextCompaction': {
+            const itemId = this.readString(item, 'id') ?? undefined;
+            if (itemId && this.lastCompactionItemId.get(threadId) === itemId) break;
+            if (itemId) this.activeCompactionItemId.set(threadId, itemId);
+            this.emit('context_compaction_started', { threadId, itemId });
+            break;
+          }
           case 'agentMessage': {
             this.emit('agent_message_started', { threadId, phase: item.phase });
             const text = this.extractTextContent(item);
@@ -2571,7 +2594,7 @@ export class CodexAppServerManager extends EventEmitter {
             break;
           }
           case 'contextCompaction': {
-            this.emitContextCompacted(threadId);
+            this.emitContextCompacted(threadId, this.readString(item, 'id') ?? undefined);
             break;
           }
           case 'imageGeneration': {
@@ -2690,14 +2713,24 @@ export class CodexAppServerManager extends EventEmitter {
     }
   }
 
-  private emitContextCompacted(threadId: string): void {
+  private emitContextCompacted(threadId: string, itemId?: string): void {
+    const activeId = this.activeCompactionItemId.get(threadId);
+    itemId ??= activeId;
     const now = Date.now();
     const last = this.lastCompactionEmitAt.get(threadId) || 0;
-    if (now - last < CodexAppServerManager.COMPACTION_DEDUPE_MS) {
+    const lastId = this.lastCompactionItemId.get(threadId);
+    if (itemId && lastId === itemId) return;
+    // New item IDs are distinct operations, even less than five seconds apart.
+    // Older servers send a second, ID-less notification for the same item.
+    if (!activeId && now - last < CodexAppServerManager.COMPACTION_DEDUPE_MS && (!itemId || !lastId)) {
+      if (itemId) this.lastCompactionItemId.set(threadId, itemId);
       return;
     }
+    if (itemId) this.lastCompactionItemId.set(threadId, itemId);
+    else this.lastCompactionItemId.delete(threadId);
+    this.activeCompactionItemId.delete(threadId);
     this.lastCompactionEmitAt.set(threadId, now);
-    this.emit('context_compacted', { threadId });
+    this.emit('context_compacted', { threadId, itemId });
   }
 
   /**

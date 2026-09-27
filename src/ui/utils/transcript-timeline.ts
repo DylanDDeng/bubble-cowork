@@ -1,3 +1,4 @@
+import { isCompactionMessage, type WorkstreamMessage } from './compaction';
 import { getAssistantPhase } from '../../shared/assistant-phase';
 import type { ContentBlock, StreamMessage } from '../types';
 import type { ThreadGoal } from '../../shared/session-goal';
@@ -14,7 +15,7 @@ export type AssistantTimelinePresentation = 'answer' | 'progress';
 
 export interface TimelineWorkGroup {
   id: string;
-  messages: AssistantMessage[];
+  messages: WorkstreamMessage[];
   originalIndices: number[];
   /** Completed turn duration resolved from provider metadata or turn timestamps. */
   durationMs?: number;
@@ -74,7 +75,7 @@ function cloneAssistantMessageWithContent(
 }
 
 function createWorkGroup(
-  messages: AssistantMessage[],
+  messages: WorkstreamMessage[],
   originalIndices: number[]
 ): TimelineWorkGroup {
   const firstMessage = messages[0];
@@ -91,7 +92,7 @@ function createWorkGroup(
   };
 }
 
-function getAssistantRunBoundaryKey(message: AssistantMessage): string {
+function getAssistantRunBoundaryKey(message: WorkstreamMessage): string {
   const agentRunId = typeof message.agentRunId === 'string' ? message.agentRunId.trim() : '';
   if (agentRunId) {
     return `run:${agentRunId}`;
@@ -106,7 +107,9 @@ function getAssistantRunBoundaryKey(message: AssistantMessage): string {
 }
 
 function getWorkGroupRunBoundaryKey(group: TimelineWorkGroup): string | null {
-  const keys = new Set(group.messages.map(getAssistantRunBoundaryKey));
+  const attributed = group.messages.filter(message => message.type === 'assistant' || message.agentRunId || message.agentId);
+  const keys = new Set(attributed.map(getAssistantRunBoundaryKey));
+  if (keys.size === 0) return UNATTRIBUTED_ASSISTANT_RUN_KEY;
   if (keys.size !== 1) {
     return null;
   }
@@ -115,6 +118,7 @@ function getWorkGroupRunBoundaryKey(group: TimelineWorkGroup): string | null {
 
 function getTimelineItemRunBoundaryKey(item: TranscriptTimelineItem): string | undefined {
   if (item.type === 'work') {
+    if (item.group.messages.every(message => isCompactionMessage(message) && !message.agentId && !message.agentRunId)) return undefined;
     return getWorkGroupRunBoundaryKey(item.group) || 'assistant:mixed';
   }
 
@@ -573,7 +577,7 @@ export function deriveTranscriptTimelineItems(
   } = {}
 ): TranscriptTimelineItem[] {
   const items: TranscriptTimelineItem[] = [];
-  let pendingWorkMessages: AssistantMessage[] = [];
+  let pendingWorkMessages: WorkstreamMessage[] = [];
   let pendingWorkOriginalIndices: number[] = [];
 
   const flushPendingWork = (attachToPreviousAssistant = true) => {
@@ -638,6 +642,12 @@ export function deriveTranscriptTimelineItems(
     if (message.type === 'user_prompt') {
       flushPendingWork();
       items.push({ type: 'message', message, originalIndex });
+      continue;
+    }
+
+    if (isCompactionMessage(message)) {
+      pendingWorkMessages.push(message);
+      pendingWorkOriginalIndices.push(originalIndex);
       continue;
     }
 

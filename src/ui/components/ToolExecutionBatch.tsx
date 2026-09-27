@@ -13,10 +13,10 @@ import { GeneratedMediaGallery } from './GeneratedMediaGallery';
 import { WorkstreamCollapse } from './WorkstreamPrimitives';
 import type { GeneratedMediaItem } from '../utils/generated-media';
 
-type AssistantMessage = StreamMessage & { type: 'assistant' };
+import type { WorkstreamMessage } from '../utils/compaction';
 
 interface ToolExecutionBatchProps {
-  messages: AssistantMessage[];
+  messages: WorkstreamMessage[];
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   isSessionRunning: boolean;
@@ -123,7 +123,8 @@ export function WorkstreamDisclosure({
   const [choice, setChoice] = useState<{ key: typeof resetKey; expanded: boolean }>();
   const interrupted = model.entries.some((entry) =>
     (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') && entry.status === 'interrupted');
-  const canCollapse = allowCollapse && !isRunning && !interrupted;
+  const compactionOnly = model.entries.length === 1 && model.entries[0].type === 'compaction';
+  const canCollapse = allowCollapse && !isRunning && !interrupted && !compactionOnly;
   const resolvedExpanded = !canCollapse || (isControlled ? expanded
     : choice && choice.key === resetKey ? choice.expanded : defaultExpanded);
   const setExpanded = (nextExpanded: boolean) => {

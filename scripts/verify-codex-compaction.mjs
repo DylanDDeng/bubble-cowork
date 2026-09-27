@@ -64,6 +64,14 @@ assert.equal(
   'token usage must report the current context (last), not the cumulative thread total'
 );
 
+// Begin compaction before the runtime publishes its post-compaction occupancy.
+notify('item/started', { threadId: 'prov-1', item: { id: 'item_compact_1', type: 'contextCompaction' } });
+const started = messages.find(m => m.subtype === 'compact_status');
+assert.equal(started?.status, 'started');
+notify('thread/tokenUsage/updated', { threadId: 'prov-1', tokenUsage: {
+  modelContextWindow: 272000, last: { totalTokens: 21699 },
+} });
+
 // 2. Compaction completes: new-style item AND deprecated notification fire for
 // the same compaction. Exactly one compact_boundary must come out.
 notify('item/completed', {
@@ -81,7 +89,7 @@ assert.equal(boundary.compactMetadata.trigger, 'auto', 'codex compaction must re
 assert.equal(
   boundary.compactMetadata.preTokens,
   258000,
-  'boundary must carry the last token_usage totalTokens as preTokens'
+  'boundary must carry the start snapshot, never post-compaction usage'
 );
 assert.ok(boundary.uuid, 'boundary must have a uuid');
 
@@ -109,11 +117,35 @@ notify('thread/tokenUsage/updated', {
     },
   },
 });
-assert.equal(usageMessages().length, 2, 'total-only token usage must still surface');
+assert.equal(usageMessages().length, 3, 'total-only token usage must still surface');
 assert.equal(
-  usageMessages()[1].usage.totalTokens,
+  usageMessages().at(-1).usage.totalTokens,
   104000,
   'without `last`, token usage must fall back to `total`'
 );
 
-console.log('verify-codex-compaction: OK');
+assert.equal(boundary.compactionId, started.compactionId);
+assert.equal(boundaries()[1].compactMetadata.preTokens, 0, 'legacy completion alone has no reliable preTokens');
+notify('item/started', { threadId: 'prov-1', item: { id: 'item_compact_2', type: 'contextCompaction' } });
+notify('item/completed', { threadId: 'prov-1', item: { id: 'item_compact_2', type: 'contextCompaction' } });
+notify('item/started', { threadId: 'prov-1', item: { id: 'item_compact_3', type: 'contextCompaction' } });
+notify('item/completed', { threadId: 'prov-1', item: { id: 'item_compact_3', type: 'contextCompaction' } });
+assert.equal(boundaries().length, 4, 'different native IDs must not be lost to a time window');
+notify('thread/compacted', { threadId: 'prov-1' });
+notify('item/completed', { threadId: 'prov-1', item: { id: 'item_compact_3', type: 'contextCompaction' } });
+assert.equal(boundaries().length, 4);
+adapter.pendingManualCompacts.add('thread-1');
+adapter.startCompaction('thread-1');
+const manualStart = messages.at(-1);
+assert.equal(manualStart.trigger, 'manual');
+notify('item/started', { threadId: 'prov-1', item: { id: 'manual', type: 'contextCompaction' } });
+assert.equal(messages.at(-1), manualStart, 'native start replaces the pending manual operation without duplicating it');
+notify('item/completed', { threadId: 'prov-1', item: { id: 'manual', type: 'contextCompaction' } });
+assert.equal(boundaries().at(-1).compactMetadata.trigger, 'manual');
+assert.equal(boundaries().at(-1).compactionId, manualStart.compactionId);
+notify('item/started', { threadId: 'prov-1', item: { id: 'cancelled', type: 'contextCompaction' } });
+manager.emit('turn_completed', { threadId: 'thread-1', turnId: 'cancel-turn', status: 'interrupted' });
+const interrupted = messages.find(m => m.subtype === 'compact_status' && m.status === 'interrupted');
+assert.equal(interrupted.compactionId, 'cancelled');
+assert.equal(adapter.activeCompactions.size, 0);
+console.log('verify-codex-compaction: start, completion, manual, interrupt and deduplication OK');

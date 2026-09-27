@@ -1682,6 +1682,7 @@ export type StreamMessage =
       subtype: 'compact_boundary';
       uuid: string;
       session_id: string;
+      compactionId?: string;
       compactMetadata: CompactMetadata;
     })
   // Emitted when the runtime starts compacting (PreCompact hook), so the UI
@@ -1692,7 +1693,8 @@ export type StreamMessage =
       subtype: 'compact_status';
       uuid: string;
       session_id: string;
-      status: 'started';
+      status: 'started' | 'interrupted';
+      compactionId?: string;
       trigger: 'manual' | 'auto';
     })
   // Emitted when an API request failed with a retryable error and the runtime

@@ -342,11 +342,14 @@ export class CodexAdapter implements ProviderAdapter {
   private streamingText = new Map<string, StreamingTextState>();
   private streamingThinking = new Map<string, StreamingThinkingState>();
   // Latest context-window occupancy per thread, so a compaction event can
-  // report roughly how many tokens it reclaimed.
+  // snapshot occupancy at the start of compaction.
   private lastKnownContextTokens = new Map<string, number>();
   private finalizedStreamingText = new Map<string, string>();
   /** Threads with an in-flight /compact — labels the next compact_boundary as manual. */
   private pendingManualCompacts = new Set<string>();
+  private activeCompactions = new Map<string, {
+    id: string; trigger: 'manual' | 'auto'; preTokens: number;
+  }>();
   private emittedToolCalls = new Map<string, Set<string>>();
   private emittedToolResults = new Map<string, Set<string>>();
   private pendingToolCallIds = new Map<string, string[]>();
@@ -475,19 +478,23 @@ export class CodexAdapter implements ProviderAdapter {
       this.emit({ type: 'message', threadId, message });
     });
 
-    on('context_compacted', ({ threadId }) => {
-      // Codex reports neither trigger nor pre-compaction size: a compaction is
-      // manual iff this thread has a pending /compact command, and the latest
-      // token_usage snapshot is the best preTokens approximation.
+    on('context_compaction_started', ({ threadId, itemId }) => {
+      this.startCompaction(threadId, itemId);
+    });
+
+    on('context_compacted', ({ threadId, itemId }) => {
+      const active = this.activeCompactions.get(threadId);
       const manual = this.pendingManualCompacts.delete(threadId);
+      this.activeCompactions.delete(threadId);
       const message: StreamMessage = {
-        type: 'system',
-        subtype: 'compact_boundary',
-        uuid: uuidv4(),
+        type: 'system', subtype: 'compact_boundary', uuid: uuidv4(),
         session_id: threadId,
+        compactionId: active?.id ?? itemId,
         compactMetadata: {
-          trigger: manual ? 'manual' : 'auto',
-          preTokens: this.lastKnownContextTokens.get(threadId) || 0,
+          trigger: active?.trigger ?? (manual ? 'manual' : 'auto'),
+          // A completion-time usage update may already be post-compaction.
+          // Only a start-time snapshot can be labelled preTokens.
+          preTokens: active?.preTokens ?? 0,
         },
       };
       this.emit({ type: 'message', threadId, message });
@@ -637,6 +644,7 @@ export class CodexAdapter implements ProviderAdapter {
     // `turn/aborted` notification). Failed turns must surface as errors —
     // never as a success result (P0-1).
     on('turn_completed', ({ threadId, turnId, status, error }) => {
+      this.interruptCompaction(threadId);
       this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
       // The turn is over — every tool has its final result, so buffered live
@@ -733,6 +741,8 @@ export class CodexAdapter implements ProviderAdapter {
         this.clearStreamingState(aegisThreadId);
         this.sessions.delete(aegisThreadId);
         this.lastStartInput.delete(aegisThreadId);
+        this.interruptCompaction(aegisThreadId);
+        this.pendingManualCompacts.delete(aegisThreadId);
         this.lastKnownContextTokens.delete(aegisThreadId);
         this.reportedErrorTurnKeys.delete(aegisThreadId);
         this.imageGenerationItems.delete(aegisThreadId);
@@ -774,6 +784,8 @@ export class CodexAdapter implements ProviderAdapter {
       const affectedThreadIds = ownerThreadId ? [ownerThreadId] : [];
       for (const threadId of affectedThreadIds) {
         if (this.runtimeManagers.get(threadId) !== manager) continue;
+        this.interruptCompaction(threadId);
+        this.pendingManualCompacts.delete(threadId);
         this.finalizeStreamingAssistant(threadId);
         this.clearStreamingState(threadId);
         this.updateSessionStatus(threadId, 'error');
@@ -793,6 +805,8 @@ export class CodexAdapter implements ProviderAdapter {
       const affectedThreadIds = ownerThreadId ? [ownerThreadId] : [];
       for (const threadId of affectedThreadIds) {
         if (this.runtimeManagers.get(threadId) !== manager) continue;
+        this.interruptCompaction(threadId);
+        this.pendingManualCompacts.delete(threadId);
         this.finalizeStreamingAssistant(threadId);
         this.clearStreamingState(threadId);
         this.updateSessionStatus(threadId, 'error');
@@ -1721,9 +1735,11 @@ export class CodexAdapter implements ProviderAdapter {
     if (slashCommand) {
       if (slashCommand.name === 'compact') {
         this.pendingManualCompacts.add(input.threadId);
+        this.startCompaction(input.threadId);
         try {
           await manager.compactThread(input.threadId);
         } catch (error) {
+          this.interruptCompaction(input.threadId);
           this.pendingManualCompacts.delete(input.threadId);
           throw error;
         }
@@ -1749,6 +1765,31 @@ export class CodexAdapter implements ProviderAdapter {
 	    );
   }
 
+  private startCompaction(threadId: string, itemId?: string): void {
+    if (this.activeCompactions.has(threadId)) return;
+    const id = itemId || uuidv4();
+    const trigger = this.pendingManualCompacts.has(threadId) ? 'manual' : 'auto';
+    this.activeCompactions.set(threadId, {
+      id, trigger, preTokens: this.lastKnownContextTokens.get(threadId) ?? 0,
+    });
+    this.emit({ type: 'message', threadId, message: {
+      type: 'system', subtype: 'compact_status', uuid: `compact-start:${id}`,
+      session_id: threadId, compactionId: id, status: 'started', trigger,
+      createdAt: Date.now(),
+    } });
+  }
+
+  private interruptCompaction(threadId: string): void {
+    const active = this.activeCompactions.get(threadId);
+    if (!active) return;
+    this.activeCompactions.delete(threadId);
+    this.emit({ type: 'message', threadId, message: {
+      type: 'system', subtype: 'compact_status', uuid: `compact-interrupted:${active.id}`,
+      session_id: threadId, compactionId: active.id, status: 'interrupted', trigger: active.trigger,
+      createdAt: Date.now(),
+    } });
+  }
+
   disposeSession(threadId: string): boolean {
     // Synchronously invalidate running and queued start/stop work. The
     // provider contract requires disposeSession itself to be synchronous.
@@ -1765,6 +1806,7 @@ export class CodexAdapter implements ProviderAdapter {
     });
     this.sessions.delete(threadId);
     this.clearStreamingState(threadId);
+    this.activeCompactions.delete(threadId);
     this.lastKnownContextTokens.delete(threadId);
     this.pendingManualCompacts.delete(threadId);
     this.reportedErrorTurnKeys.delete(threadId);
@@ -1865,6 +1907,7 @@ export class CodexAdapter implements ProviderAdapter {
       this.sessions.clear();
       this.providerThreadClaims.clear();
       this.lastStartInput.clear();
+      this.activeCompactions.clear();
       this.lastKnownContextTokens.clear();
       this.pendingManualCompacts.clear();
       this.imageGenerationItems.clear();

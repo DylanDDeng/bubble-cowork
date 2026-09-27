@@ -1,3 +1,4 @@
+import { CompactionActivity } from './CompactionActivity';
 import { useWorkstreamDisclosure } from './WorkstreamDisclosureState';
 import { ToolResultContent, ToolOutputPanel } from './ToolResultContent';
 import { WorkstreamActivityLabel, WorkstreamCollapse, WorkstreamScrollArea } from './WorkstreamPrimitives';
@@ -113,6 +114,8 @@ export function AssistantWorkstream({
         const groupKey = group.kind === 'compact' ? group.entries[0].id : group.entry.id;
         const body = group.kind === 'text' ? (
           <TextSegment key={groupKey} entry={group.entry} />
+        ) : group.kind === 'compaction' ? (
+          <CompactionActivity key={group.entry.id} entry={group.entry} />
         ) : group.kind === 'thinking' ? (
           <ThinkingRow key={group.entry.id} entry={group.entry} />
         ) : (
@@ -132,7 +135,8 @@ export function AssistantWorkstream({
         );
       })}
       {model.state === 'running' && !model.entries.some((entry) =>
-        entry.type === 'thinking' ? entry.state === 'active'
+        entry.type === 'compaction' ? entry.state === 'inProgress'
+          : entry.type === 'thinking' ? entry.state === 'active'
           : entry.type === 'approval' ? entry.state === 'waiting'
           : 'status' in entry && entry.status === 'pending'
       ) ? <WorkingFooter /> : null}
@@ -148,6 +152,7 @@ export function AssistantWorkstream({
 // ── Grouping ────────────────────────────────────────────────────────────────
 
 type EntryGroup =
+  | { kind: 'compaction'; entry: Extract<WorkstreamEntry, { type: 'compaction' }> }
   | { kind: 'text'; entry: Extract<WorkstreamEntry, { type: 'note' }> }
   | { kind: 'thinking'; entry: Extract<WorkstreamEntry, { type: 'thinking' }> }
   | { kind: 'compact'; entries: WorkstreamEntry[] };
@@ -164,7 +169,10 @@ function groupEntries(entries: WorkstreamEntry[]): EntryGroup[] {
   };
 
   for (const entry of entries) {
-    if (entry.type === 'note') {
+    if (entry.type === 'compaction') {
+      flush();
+      groups.push({ kind: 'compaction', entry });
+    } else if (entry.type === 'note') {
       flush();
       groups.push({ kind: 'text', entry });
     } else if (entry.type === 'thinking') {
@@ -810,6 +818,7 @@ function getTaskDescription(entry: TaskEntry): string | null {
 // ── Entry row dispatcher ────────────────────────────────────────────────────
 
 function EntryRow({ entry, showChangeHint = true }: { entry: WorkstreamEntry; showChangeHint?: boolean }) {
+  if (entry.type === 'compaction') return <CompactionActivity entry={entry} />;
   if (entry.type === 'task') {
     // Task entries render as a subagent chip row rather than a generic tool
     // row — clicking the chip opens the subagent's tab in the detail panel,

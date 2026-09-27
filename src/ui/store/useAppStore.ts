@@ -3520,19 +3520,6 @@ function handleStreamMessage(
 ) {
   const { sessionId, message } = payload;
   const session = get().sessions[sessionId];
-  const activeSessionId = get().activeSessionId;
-
-  if (
-    message.type === 'system' &&
-    message.subtype === 'compact_boundary' &&
-    (session?.provider === 'claude' || session?.provider === 'codex') &&
-    activeSessionId === sessionId &&
-    message.compactMetadata.trigger === 'auto'
-  ) {
-    const providerName = session.provider === 'codex' ? 'Codex' : 'Claude';
-    toast.success(`${providerName} auto-compacted the conversation context.`);
-  }
-
   // Update global MCP server status from init/mcp_status stream messages.
   // Claude reports status via system/init.mcp_servers; Codex via mcp_status.
   // OpenCode SDK and Codex can report MCP status; Kimi/Grok protocols stay Unknown.

@@ -1126,18 +1126,15 @@ export function ChatPane({
     ) ?? false,
   [session?.messages, lastUserPromptIndex]);
 
-  // Compaction produces no stream messages until its boundary lands, so the
-  // generic "Working" footer is all the user would see. Walk backwards to the
-  // most recent compaction marker: a compact_status (PreCompact hook) newer
-  // than the latest compact_boundary means compaction is in flight; a manual
-  // "/compact" prompt covers the gap before the hook fires.
+  // Fallback for providers whose manual command precedes the start hook.
+  // Once a compaction activity arrives, the timeline owns its live status.
   const isCompacting = useMemo(() => {
     if (!session || session.status !== 'running') return false;
     for (let i = session.messages.length - 1; i >= 0; i -= 1) {
       const message = session.messages[i];
       if (!message) continue;
       if (message.type === 'system' && message.subtype === 'compact_status') {
-        return true;
+        return message.status === 'started';
       }
       if (message.type === 'system' && message.subtype === 'compact_boundary') {
         return false;
@@ -1188,7 +1185,7 @@ export function ChatPane({
       const delaySeconds = Math.max(1, Math.round(apiRetry.delayMs / 1000));
       return `${kind} · retrying${attempts} in ${delaySeconds}s`;
     }
-    if (isCompacting) return 'Compacting conversation';
+    if (isCompacting) return 'Compacting context';
     return 'Working';
   }, [apiRetry, isCompacting]);
 

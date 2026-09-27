@@ -1,3 +1,4 @@
+import { deriveCompactionEntries, type CompactionEntry, type WorkstreamMessage } from './compaction';
 import type {
   AskUserQuestionInput,
   CanonicalToolKind,
@@ -46,6 +47,7 @@ export interface SubagentTrace {
 }
 
 export type WorkstreamEntry =
+  | CompactionEntry
   | {
       id: string;
       type: 'thinking';
@@ -127,6 +129,7 @@ export interface WorkstreamModel {
 }
 
 type TraceEntry =
+  | CompactionEntry
   | { type: 'thinking'; id: string; content: string; streaming?: boolean }
   | { type: 'note'; id: string; content: string; streaming?: boolean }
   | { type: 'tool'; id: string; block: ToolUseBlock; messageUuid?: string };
@@ -230,7 +233,7 @@ function normalizedToToolUseBlock(normalized: NormalizedToolUseBlock): ToolUseBl
 }
 
 export function extractToolBlocks(
-  messages: (StreamMessage & { type: 'assistant' })[]
+  messages: WorkstreamMessage[]
 ): ToolUseBlock[] {
   const blocks: ToolUseBlock[] = [];
   for (const msg of messages) {
@@ -453,7 +456,7 @@ export function isSessionEffectivelyBusy(
 }
 
 export function extractTraceEntries(
-  messages: (StreamMessage & { type: 'assistant' })[],
+  messages: WorkstreamMessage[],
   partials?: {
     partialText?: string;
     partialThinking?: string;
@@ -477,9 +480,13 @@ export function extractTraceEntries(
   // message — the natural insertion point for an unconsumed preamble partial.
   let lastMsgFirstToolEntryIndex: number | null = null;
 
+  const compactions = deriveCompactionEntries(messages);
   for (let msgIdx = 0; msgIdx < messages.length; msgIdx += 1) {
     const msg = messages[msgIdx];
     const isLast = msgIdx === lastMsgIndex;
+    const compaction = compactions.get(msgIdx);
+    if (compaction) entries.push(compaction);
+    if (msg.type !== 'assistant') continue;
 
     for (const block of getMessageContentBlocks(msg)) {
       if (block.type === 'thinking') {
@@ -681,6 +688,9 @@ function createEntryFromTrace(
   subagentContext?: SubagentTraceContext,
   toolLiveOutputMap?: Map<string, string>
 ): WorkstreamEntry | null {
+  if (entry.type === 'compaction') {
+    return { ...entry, state: entry.state === 'inProgress' && pendingFallbackStatus !== 'pending' ? 'interrupted' : entry.state };
+  }
   if (entry.type === 'thinking') {
     return {
       id: entry.id,
@@ -927,7 +937,7 @@ function buildPreviewEntries(entries: WorkstreamEntry[]): WorkstreamEntry[] {
 }
 
 export function createBatchWorkstreamModel(params: {
-  messages: (StreamMessage & { type: 'assistant' })[];
+  messages: WorkstreamMessage[];
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   isSessionRunning: boolean;
@@ -1041,7 +1051,7 @@ export function createBatchWorkstreamModel(params: {
 }
 
 function computeBatchStartedAt(
-  messages: (StreamMessage & { type: 'assistant' })[]
+  messages: WorkstreamMessage[]
 ): number | undefined {
   let min = Number.POSITIVE_INFINITY;
   for (const message of messages) {
@@ -1053,7 +1063,7 @@ function computeBatchStartedAt(
 }
 
 function computeBatchDurationMs(
-  messages: (StreamMessage & { type: 'assistant' })[],
+  messages: WorkstreamMessage[],
   state: WorkstreamState
 ): number | undefined {
   if (state !== 'completed' || messages.length === 0) {

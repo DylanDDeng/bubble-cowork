@@ -79,9 +79,6 @@ export function MessageCard({
       if (message.subtype === 'init') {
         return null;
       }
-      if (message.subtype === 'compact_boundary') {
-        return <CompactBoundaryCard message={message} />;
-      }
       return null;
 
     case 'assistant':
@@ -115,90 +112,6 @@ export function MessageCard({
     default:
       return null;
   }
-}
-
-function formatCompactTokens(value: number): string {
-  if (!Number.isFinite(value)) return '0';
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
-  return `${Math.round(value)}`;
-}
-
-function CompactBoundaryCard({
-  message,
-}: {
-  message: Extract<StreamMessage, { type: 'system'; subtype: 'compact_boundary' }>;
-}) {
-  const [open, setOpen] = useState(false);
-  const isAuto = message.compactMetadata.trigger === 'auto';
-  const label = isAuto ? 'Conversation auto-compacted' : 'Conversation compacted';
-  const tokensLabel =
-    message.compactMetadata.preTokens > 0
-      ? formatCompactTokens(message.compactMetadata.preTokens)
-      : null;
-  const explanation = isAuto
-    ? 'The context was close to the model limit, so earlier messages were automatically summarized to free up space. The AI keeps the key points, but verbatim details may be omitted.'
-    : 'You compacted the conversation manually. Earlier messages were summarized to free up context space.';
-
-  return (
-    <div className="my-6 flex justify-center">
-      <div className="w-full max-w-[720px]">
-        <div className="relative flex items-center justify-center">
-          <div className="absolute inset-x-0 top-1/2 border-t border-[var(--border)]" />
-          <div
-            className="relative z-10"
-            onMouseEnter={() => setOpen(true)}
-            onMouseLeave={() => setOpen(false)}
-            onFocus={() => setOpen(true)}
-            onBlur={() => setOpen(false)}
-          >
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
-              aria-label={`${label}${tokensLabel ? ` · ${tokensLabel} tokens before compaction` : ''}`}
-            >
-              <ArchiveIcon />
-              <span>{label}</span>
-              {tokensLabel ? (
-                <span className="text-[var(--text-muted)]">· {tokensLabel} tokens</span>
-              ) : null}
-            </button>
-
-            {open ? (
-              <div className="absolute bottom-full left-1/2 z-40 mb-2 w-[280px] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 rounded-[8px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] px-3 py-2.5 text-left text-[12px] leading-5 text-[var(--text-secondary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
-                {explanation}
-                {tokensLabel ? (
-                  <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[11px] text-[var(--text-muted)]">
-                    Context was about {tokensLabel} tokens before compaction
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ArchiveIcon() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="2" y="4" width="20" height="5" rx="1" />
-      <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9" />
-      <path d="M10 13h4" />
-    </svg>
-  );
 }
 
 function ProposedPlanCard({ planMarkdown }: { planMarkdown: string }) {
