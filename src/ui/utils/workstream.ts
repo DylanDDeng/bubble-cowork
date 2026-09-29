@@ -1,4 +1,5 @@
 import { deriveCompactionEntries, type CompactionEntry, type WorkstreamMessage } from './compaction';
+import type { ToolExecutionMetadata } from '../../shared/types';
 import type {
   AskUserQuestionInput,
   CanonicalToolKind,
@@ -53,7 +54,7 @@ export type WorkstreamEntry =
       type: 'thinking';
       summary: string;
       detail?: string;
-      state?: 'active' | 'completed';
+      state?: 'active' | 'completed' | 'interrupted';
     }
   | {
       id: string;
@@ -74,6 +75,7 @@ export type WorkstreamEntry =
       result?: ToolResultBlock;
       /** Streamed stdout/stderr tail while the tool is still running. */
       liveOutput?: string;
+      execution?: ToolExecutionMetadata;
     }
   | {
       id: string;
@@ -86,6 +88,7 @@ export type WorkstreamEntry =
       block: ToolUseBlock;
       result?: ToolResultBlock;
       subagent?: SubagentTrace;
+      execution?: ToolExecutionMetadata;
       /**
        * uuid of the assistant message that issued this Task tool call. Tasks
        * sharing a source message were fanned out together in one turn step;
@@ -112,6 +115,7 @@ export type WorkstreamState = 'running' | 'completed' | 'waiting' | 'error';
 
 export interface WorkstreamModel {
   state: WorkstreamState;
+  retrying?: boolean;
   title: string;
   summary: string;
   entries: WorkstreamEntry[];
@@ -130,9 +134,9 @@ export interface WorkstreamModel {
 
 type TraceEntry =
   | CompactionEntry
-  | { type: 'thinking'; id: string; content: string; streaming?: boolean }
+  | { type: 'thinking'; id: string; content: string; streaming?: boolean; interrupted?: boolean }
   | { type: 'note'; id: string; content: string; streaming?: boolean }
-  | { type: 'tool'; id: string; block: ToolUseBlock; messageUuid?: string };
+  | { type: 'tool'; id: string; block: ToolUseBlock; messageUuid?: string; startedAt?: number };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -228,7 +232,8 @@ function normalizedToToolUseBlock(normalized: NormalizedToolUseBlock): ToolUseBl
     type: 'tool_use',
     id: normalized.id,
     name: normalized.name,
-    input: normalized.input,
+    input: normalized.serverName ? { ...normalized.input, __aegisMcpServer: normalized.serverName } : normalized.input,
+    ...(normalized.execution ? { execution: normalized.execution } : {}),
   };
 }
 
@@ -460,6 +465,7 @@ export function extractTraceEntries(
   partials?: {
     partialText?: string;
     partialThinking?: string;
+    retrying?: boolean;
     /**
      * When the live partial is the preamble of the still-streaming message
      * (its tool calls are committed but its leading text has not landed in the
@@ -488,7 +494,7 @@ export function extractTraceEntries(
     if (compaction) entries.push(compaction);
     if (msg.type !== 'assistant') continue;
 
-    for (const block of getMessageContentBlocks(msg)) {
+    for (const [blockIndex, block] of getMessageContentBlocks(msg).entries()) {
       if (block.type === 'thinking') {
         const content = block.thinking?.trim() || '';
         if (content) {
@@ -496,6 +502,7 @@ export function extractTraceEntries(
           // match), the partial has already been merged — mark it consumed
           // so we don't append a duplicate later.
           if (
+            !msg.interrupted &&
             trimmedPartialThinking &&
             !thinkingPartialUsed &&
             (content === trimmedPartialThinking || content.startsWith(trimmedPartialThinking))
@@ -504,8 +511,9 @@ export function extractTraceEntries(
           }
           entries.push({
             type: 'thinking',
-            id: `thinking-${entries.length}`,
+            id: `thinking:${msg.uuid}:${blockIndex}`,
             content,
+            interrupted: msg.interrupted,
           });
         } else if (isLast && trimmedPartialThinking && !thinkingPartialUsed) {
           // Empty thinking slot in the streaming message — fill it with the
@@ -514,7 +522,8 @@ export function extractTraceEntries(
             type: 'thinking',
             id: 'streaming-thinking',
             content: trimmedPartialThinking,
-            streaming: true,
+            streaming: !partials?.retrying,
+            interrupted: partials?.retrying,
           });
           thinkingPartialUsed = true;
         }
@@ -525,6 +534,7 @@ export function extractTraceEntries(
         const content = block.text?.trim() || '';
         if (content) {
           if (
+            !msg.interrupted &&
             trimmedPartialText &&
             !textPartialUsed &&
             (content === trimmedPartialText || content.startsWith(trimmedPartialText))
@@ -533,7 +543,7 @@ export function extractTraceEntries(
           }
           entries.push({
             type: 'note',
-            id: `note-${entries.length}`,
+            id: `note:${msg.uuid}:${blockIndex}`,
             content,
           });
         } else if (isLast && trimmedPartialText && !textPartialUsed) {
@@ -558,6 +568,7 @@ export function extractTraceEntries(
           id: normalizedTool.id,
           block: normalizedToToolUseBlock(normalizedTool),
           messageUuid: msg.uuid,
+          startedAt: msg.createdAt,
         });
       }
     }
@@ -574,7 +585,8 @@ export function extractTraceEntries(
       type: 'thinking',
       id: 'streaming-thinking',
       content: trimmedPartialThinking,
-      streaming: true,
+      streaming: !partials?.retrying,
+      interrupted: partials?.retrying,
     });
   }
   if (trimmedPartialText && !textPartialUsed) {
@@ -697,7 +709,7 @@ function createEntryFromTrace(
       type: 'thinking',
       summary: truncateSummary(entry.content, 120),
       detail: entry.content,
-      state: entry.streaming ? 'active' : 'completed',
+      state: entry.interrupted ? 'interrupted' : entry.streaming ? 'active' : 'completed',
     };
   }
 
@@ -714,13 +726,18 @@ function createEntryFromTrace(
   const block = entry.block;
   const result = toolResultsMap.get(block.id);
   const rawStatus = toolStatusMap.get(block.id);
-  const status =
+  const status = result?.execution?.status === 'interrupted' ? 'interrupted' :
     rawStatus === 'pending' && !result
       ? pendingFallbackStatus
       : rawStatus || (result?.is_error ? 'error' : 'success');
   const display = deriveReadableToolDisplay(block.name, block.input, status);
   const summary = formatReadableToolSummary(display) || block.name;
   const kind = classifyToolUse(block.name, block.input);
+  const execution = {
+    ...(entry.startedAt != null ? { startedAt: entry.startedAt } : {}),
+    ...block.execution,
+    ...result?.execution,
+  };
   const detail = result?.is_error ? getToolResultOutputContent(result) : undefined;
 
   if (block.name === 'AskUserQuestion') {
@@ -748,6 +765,7 @@ function createEntryFromTrace(
       status,
       block,
       result,
+      execution,
       subagent: subagentContext
         ? buildSubagentTrace(block, status, subagentContext)
         : undefined,
@@ -766,6 +784,7 @@ function createEntryFromTrace(
       status,
       block,
       result,
+      execution,
     };
   }
 
@@ -779,6 +798,7 @@ function createEntryFromTrace(
     status,
     block,
     result,
+    execution,
     liveOutput: status === 'pending' && !result ? toolLiveOutputMap?.get(block.id) : undefined,
   };
 }
@@ -791,6 +811,10 @@ function deriveWorkstreamState(
     return 'waiting';
   }
 
+  if (isSessionRunning || entries.some((entry) => 'status' in entry && entry.status === 'pending')) {
+    return 'running';
+  }
+
   if (
     entries.some(
       (entry) =>
@@ -800,10 +824,6 @@ function deriveWorkstreamState(
     )
   ) {
     return 'error';
-  }
-
-  if (isSessionRunning || entries.some((entry) => 'status' in entry && entry.status === 'pending')) {
-    return 'running';
   }
 
   return 'completed';
@@ -872,6 +892,7 @@ function buildWorkstreamSummary(entries: WorkstreamEntry[], state: WorkstreamSta
 function buildLiveWorkstreamEntries(input?: {
   partialText?: string;
   partialThinking?: string;
+  retrying?: boolean;
   permissionRequests?: PermissionRequestPayload[];
 }): WorkstreamEntry[] {
   if (!input) {
@@ -887,7 +908,7 @@ function buildLiveWorkstreamEntries(input?: {
           type: 'thinking',
           summary: truncateSummary(thinking, 120),
           detail: thinking,
-          state: 'active',
+          state: input.retrying ? 'interrupted' : 'active',
         } satisfies WorkstreamEntry)
       : null;
   const text = input.partialText?.trim();
@@ -952,6 +973,7 @@ export function createBatchWorkstreamModel(params: {
   liveTrace?: {
     partialText?: string;
     partialThinking?: string;
+    retrying?: boolean;
     permissionRequests?: PermissionRequestPayload[];
   };
   /** Streamed stdout/stderr tails keyed by tool_use id (running tools only). */
@@ -981,6 +1003,7 @@ export function createBatchWorkstreamModel(params: {
   const traceEntries = extractTraceEntries(orderedMessages, {
     partialText: params.liveTrace?.partialText,
     partialThinking: params.liveTrace?.partialThinking,
+    retrying: params.liveTrace?.retrying,
     placePartialBeforeLastToolRun: lastMessageHasPendingTool,
   });
   // While the session runs, every unresolved tool is genuinely in flight —
@@ -1047,6 +1070,7 @@ export function createBatchWorkstreamModel(params: {
     startedAt,
     durationMs,
     todoProgress: extractLatestTodoProgress(allBlocks),
+    retrying: params.liveTrace?.retrying,
   };
 }
 
@@ -1090,6 +1114,7 @@ function computeBatchDurationMs(
 export function createStreamingWorkstreamModel(params: {
   partialText?: string;
   partialThinking: string;
+  retrying?: boolean;
   phase: TurnPhase;
   startedAt?: number;
   permissionRequests?: PermissionRequestPayload[];
@@ -1097,6 +1122,7 @@ export function createStreamingWorkstreamModel(params: {
   const entries = buildLiveWorkstreamEntries({
     partialText: params.partialText,
     partialThinking: params.partialThinking,
+    retrying: params.retrying,
     permissionRequests: params.permissionRequests,
   });
 
@@ -1129,6 +1155,7 @@ export function createStreamingWorkstreamModel(params: {
     hiddenEntryCount: Math.max(entries.length - previewEntries.length, 0),
     startedAt: params.startedAt,
     todoProgress: null,
+    retrying: params.retrying,
   };
 }
 

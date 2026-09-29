@@ -5,9 +5,12 @@ import { useSessionActionsMenu } from '../hooks/useSessionActionsMenu';
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { Tooltip as TooltipPrimitive } from '@base-ui-components/react/tooltip';
 import {
+  ChevronRight,
   FolderClosed,
   FolderOpen,
   GitBranch,
+  GitMerge,
+  GitPullRequest,
   Loader2,
   MoreHorizontal,
   Pin,
@@ -25,7 +28,17 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { allLeaves } from '../store/layout-tree';
 import { sendEvent } from '../hooks/useIPC';
-import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import { DEFAULT_WORKSPACE_CHANNEL_ID, type GitPullRequestSummary } from '../../shared/types';
+import { useSidebarViewOptions, useSidebarViewStore } from '../store/useSidebarViewStore';
+import { useSidebarPullRequests } from '../store/useSidebarPullRequests';
+import {
+  deriveSidebarSessionState,
+  isWithinActivityWindow,
+  sessionSortTime,
+  SIDEBAR_STATE_LABELS,
+  SIDEBAR_STATE_ORDER,
+  type SidebarSessionState,
+} from '../utils/sidebar-view';
 import type { AgentProvider, SessionView } from '../types';
 import { AgentIcon } from './ComposerAgentControls';
 import { SessionHandoffProviderRoute } from './SessionHandoffIndicator';
@@ -181,12 +194,13 @@ function ProviderGlyph({ provider }: { provider?: AgentProvider }) {
   return <AgentIcon provider={provider ?? 'claude'} />;
 }
 
-// Activity view 的时间分组标签（对齐 Codex）：Today / Yesterday / 一周内用
-// 星期几。这是"最近动态"视图，一周以前的会话不显示（返回 null 表示不进组），
-// 老会话去 Projects 视图里找。
+// Group by Date 的分组标签（对齐 Codex）：Today / Yesterday / 一周内用星期几，
+// 更早的按月份（跨年再带年份），保证每个会话都有归属。
 const TIME_GROUP_WEEKDAY_FORMAT = new Intl.DateTimeFormat('en-US', { weekday: 'long' });
+const TIME_GROUP_MONTH_FORMAT = new Intl.DateTimeFormat('en-US', { month: 'long' });
+const TIME_GROUP_MONTH_YEAR_FORMAT = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' });
 
-function getTimeGroupLabel(timestamp: number, now: Date): string | null {
+function getTimeGroupLabel(timestamp: number, now: Date): string {
   const date = new Date(timestamp);
   const startOfDay = (value: Date) =>
     new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
@@ -194,7 +208,9 @@ function getTimeGroupLabel(timestamp: number, now: Date): string | null {
   if (dayDiff <= 0) return 'Today';
   if (dayDiff === 1) return 'Yesterday';
   if (dayDiff < 7) return TIME_GROUP_WEEKDAY_FORMAT.format(date);
-  return null;
+  return date.getFullYear() === now.getFullYear()
+    ? TIME_GROUP_MONTH_FORMAT.format(date)
+    : TIME_GROUP_MONTH_YEAR_FORMAT.format(date);
 }
 
 export function FolderTreeView({
@@ -209,12 +225,14 @@ export function FolderTreeView({
     activeSessionId,
     workspaceLayout,
     sidebarSearchQuery,
-    sidebarActivityView,
     setProjectCwd,
   } = useAppStore();
   const organization = useSessionOrganization();
-  const [showArchived, setShowArchived] = useState(false);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const view = useSidebarViewOptions();
+  const setViewOption = useSidebarViewStore((state) => state.setOption);
+  const prsBySession = useSidebarPullRequests(view.showPullRequests || view.groupBy === 'state');
+  // Completed starts folded: Group by State is for what still needs you.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set(['state:completed']));
   const [expandedSessionGroups, setExpandedSessionGroups] = useState<Set<string>>(
     () => new Set()
   );
@@ -247,17 +265,25 @@ export function FolderTreeView({
     [workspaceLayout]
   );
 
-  // Activity 分组的成员是粘性的：一旦因"正在运行/未读完成"进组，任务结束、
-  // 未读清除后也留在组里（否则任务一跑完就跳回项目分组）。关闭 activity
-  // view 时整组重置。
-  const stickyActivityIdsRef = useRef<Set<string>>(new Set());
-
-  const { activitySessions, pinnedSessions, projectGroups, timeGroups, archivedSessions, sectionGroups } = useMemo(() => {
-    let sessionList = Object.values(sessions).filter(
+  const {
+    pinnedSessions,
+    projectGroups,
+    flatSessions,
+    stateGroups,
+    timeGroups,
+    sectionGroups,
+    hasHiddenSessions,
+    archivedCount,
+  } = useMemo(() => {
+    const now = Date.now();
+    const searching = Boolean(sidebarSearchQuery.trim());
+    const byTime = (left: SessionView, right: SessionView) =>
+      sessionSortTime(right, view.sortBy) - sessionSortTime(left, view.sortBy);
+    const allSessions = Object.values(sessions).filter(
       (session) => !session.hiddenFromThreads && session.scope !== 'dm'
     );
-
-    if (sidebarSearchQuery.trim()) {
+    let sessionList = allSessions;
+    if (searching) {
       const query = sidebarSearchQuery.toLowerCase();
       sessionList = sessionList.filter(
         (session) =>
@@ -265,100 +291,100 @@ export function FolderTreeView({
           session.cwd?.toLowerCase().includes(query)
       );
     }
+    // 搜索时不看 Status：归档的会话也要能被搜到
+    const status = searching ? 'all' : view.status;
+    sessionList = sessionList.filter((session) => {
+      const archived = Boolean(organization.sessions[session.id]?.archived);
+      if (status === 'active' && archived) return false;
+      if (status === 'archived' && !archived) return false;
+      if (view.project && getSessionProjectPath(session) !== view.project) return false;
+      return session.isDraft || isWithinActivityWindow(session, view.activity, now);
+    });
+    const hasHiddenSessions = !searching && sessionList.length < allSessions.length;
+    const archivedCount = allSessions.filter((session) => organization.sessions[session.id]?.archived).length;
 
-    const archivedSessions = sessionList.filter(session => organization.sessions[session.id]?.archived)
-      .sort((a, b) => b.updatedAt - a.updatedAt);
-    sessionList = sessionList.filter(session => !organization.sessions[session.id]?.archived);
-    const sectionGroups = organization.sections.map(section => ({
-      ...section, sessions: sessionList.filter(session => organization.sessions[session.id]?.sectionId === section.id)
-        .sort((a, b) => b.updatedAt - a.updatedAt),
-    }));
-    sessionList = sessionList.filter(session => !organization.sessions[session.id]?.sectionId);
+    // Pinned 和自定义 section 只属于按项目/不分组的视图；State/Date 是分诊视图，
+    // 每个会话都按自身状态或时间归位
+    const usesSections = view.groupBy === 'project' || view.groupBy === 'none';
+    const sectionGroups = usesSections
+      ? organization.sections.map((section) => ({
+          ...section,
+          sessions: sessionList
+            .filter((session) => organization.sessions[session.id]?.sectionId === section.id)
+            .sort(byTime),
+        }))
+      : [];
+    const unsectioned = usesSections
+      ? sessionList.filter((session) => !organization.sessions[session.id]?.sectionId)
+      : sessionList;
+    const pinnedSessions = usesSections
+      ? unsectioned.filter((session) => session.pinned).sort(byTime)
+      : [];
+    const regularSessions = usesSections
+      ? unsectioned.filter((session) => !session.pinned)
+      : unsectioned;
 
-    // Activity view（对齐 Codex）：把有活动的会话——正在运行的、后台跑完还没
-    // 查看的——抽出来置顶成独立分组，其余分组里不再重复出现
-    const stickyIds = stickyActivityIdsRef.current;
-    if (!sidebarActivityView) {
-      stickyIds.clear();
-    } else {
-      for (const session of sessionList) {
-        if (session.status === 'running' || session.runtimeNotice) {
-          stickyIds.add(session.id);
+    const projectGroups: ProjectGroup[] = [];
+    if (view.groupBy === 'project') {
+      const grouped = new Map<string, ProjectGroup>();
+      for (const session of regularSessions) {
+        // 按项目根分组：worktree thread 的 cwd 指向 .worktrees/ 下的检出目录，
+        // 用 projectCwd 兜底才不会把它当成一个独立"项目"
+        const fullPath = getSessionProjectPath(session);
+        const key = fullPath || '__no_project__';
+        if (!grouped.has(key)) {
+          grouped.set(key, { key, label: getProjectLabel(fullPath), fullPath, sessions: [] });
         }
+        grouped.get(key)!.sessions.push(session);
       }
-      // 会话被删除后从粘性名单里剔除。注意要对全量 sessions 判断，
-      // sessionList 可能已被侧边栏搜索过滤，不能当作"仍存在"的依据
-      for (const id of stickyIds) {
-        if (!sessions[id]) {
-          stickyIds.delete(id);
-        }
-      }
-    }
-    const activitySessions = sessionList
-      .filter((session) => stickyIds.has(session.id))
-      .sort((left, right) => right.updatedAt - left.updatedAt);
-    const activitySessionIds = stickyIds;
-
-    const pinnedSessions = sessionList
-      .filter((session) => session.pinned && !activitySessionIds.has(session.id))
-      .sort((left, right) => right.updatedAt - left.updatedAt);
-    const regularSessions = sessionList.filter(
-      (session) => !session.pinned && !activitySessionIds.has(session.id)
-    );
-    const grouped = new Map<string, ProjectGroup>();
-
-    for (const session of regularSessions) {
-      // 按项目根分组：worktree thread 的 cwd 指向 .worktrees/ 下的检出目录，
-      // 用 projectCwd 兜底才不会把它当成一个独立"项目"
-      const fullPath = (session.projectCwd || session.cwd)?.trim() || null;
-      const key = fullPath || '__no_project__';
-
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          key,
-          label: getProjectLabel(fullPath),
-          fullPath,
+      const selectedProjectPath = projectCwd?.trim() || null;
+      if (
+        selectedProjectPath &&
+        !searching &&
+        status !== 'archived' &&
+        (!view.project || view.project === selectedProjectPath) &&
+        !grouped.has(selectedProjectPath)
+      ) {
+        grouped.set(selectedProjectPath, {
+          key: selectedProjectPath,
+          label: getProjectLabel(selectedProjectPath),
+          fullPath: selectedProjectPath,
           sessions: [],
         });
       }
-
-      grouped.get(key)!.sessions.push(session);
+      const latest = (group: ProjectGroup) =>
+        group.sessions[0] ? sessionSortTime(group.sessions[0], view.sortBy) : 0;
+      projectGroups.push(
+        ...Array.from(grouped.values())
+          .map((group) => ({ ...group, sessions: group.sessions.sort(byTime) }))
+          .sort((left, right) => latest(right) - latest(left))
+      );
     }
 
-    const selectedProjectPath = projectCwd?.trim() || null;
-    if (selectedProjectPath && !sidebarSearchQuery.trim() && !grouped.has(selectedProjectPath)) {
-      grouped.set(selectedProjectPath, {
-        key: selectedProjectPath,
-        label: getProjectLabel(selectedProjectPath),
-        fullPath: selectedProjectPath,
-        sessions: [],
-      });
+    const flatSessions = view.groupBy === 'none' ? [...regularSessions].sort(byTime) : [];
+
+    const stateGroups: { state: SidebarSessionState; sessions: SessionView[] }[] = [];
+    if (view.groupBy === 'state') {
+      const byState = new Map<SidebarSessionState, SessionView[]>();
+      for (const session of regularSessions) {
+        const state = deriveSidebarSessionState(session, {
+          unread: organization.sessions[session.id]?.unread,
+          pullRequest: prsBySession[session.id],
+        });
+        byState.set(state, [...(byState.get(state) ?? []), session]);
+      }
+      for (const state of SIDEBAR_STATE_ORDER) {
+        const members = byState.get(state);
+        if (members?.length) stateGroups.push({ state, sessions: members.sort(byTime) });
+      }
     }
 
-    const projectGroups = Array.from(grouped.values())
-      .map((group) => ({
-        ...group,
-        sessions: group.sessions.sort((left, right) => right.updatedAt - left.updatedAt),
-      }))
-      .sort((left, right) => {
-        const leftLatest = left.sessions[0]?.updatedAt || 0;
-        const rightLatest = right.sessions[0]?.updatedAt || 0;
-        return rightLatest - leftLatest;
-      });
-
-    // Activity view 下项目分组让位于时间分组：Priority 之外的会话按最近使用
-    // 时间归组（Today / Yesterday / 星期几 / 月份），组内按时间倒序。
     const timeGroups: { label: string; sessions: SessionView[] }[] = [];
-    if (sidebarActivityView) {
-      const now = new Date();
+    if (view.groupBy === 'date') {
+      const nowDate = new Date(now);
       const byLabel = new Map<string, SessionView[]>();
-      // activity view 没有 Pinned 分组，置顶会话也一并按时间归组
-      const sorted = sessionList
-        .filter((session) => !activitySessionIds.has(session.id))
-        .sort((left, right) => right.updatedAt - left.updatedAt);
-      for (const session of sorted) {
-        const label = getTimeGroupLabel(session.updatedAt, now);
-        if (!label) continue;
+      for (const session of [...regularSessions].sort(byTime)) {
+        const label = getTimeGroupLabel(sessionSortTime(session, view.sortBy), nowDate);
         const bucket = byLabel.get(label);
         if (bucket) {
           bucket.push(session);
@@ -370,9 +396,28 @@ export function FolderTreeView({
       }
     }
 
-    return { activitySessions, pinnedSessions, projectGroups, timeGroups, archivedSessions, sectionGroups };
-  }, [projectCwd, sessions, sidebarSearchQuery, sidebarActivityView, organization]);
-
+    return {
+      pinnedSessions,
+      projectGroups,
+      flatSessions,
+      stateGroups,
+      timeGroups,
+      sectionGroups,
+      hasHiddenSessions,
+      archivedCount,
+    };
+  }, [
+    projectCwd,
+    sessions,
+    sidebarSearchQuery,
+    organization,
+    prsBySession,
+    view.status,
+    view.project,
+    view.activity,
+    view.groupBy,
+    view.sortBy,
+  ]);
   const createDraftSession = useAppStore((s) => s.createDraftSession);
 
   // 在既有 worktree 里开新对话：新草稿的 cwd 指向同一个隔离检出
@@ -445,12 +490,29 @@ export function FolderTreeView({
     });
   };
 
-  const renderOrganizedSession = (session: SessionView) => <SessionItem
-    key={session.id} session={session} isActive={isChatWorkspaceActive && openSessionIds.has(session.id)}
-    runtimeBadge={session.runtimeNotice || (session.status === 'running' ? 'running' : null)} depth={0}
-    onClick={() => onSessionClick(session.id)}
-    onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-  />;
+  const runtimeBadgeFor = (session: SessionView, isSessionActive: boolean) =>
+    session.runtimeNotice
+      ? session.runtimeNotice
+      : !isSessionActive && session.status === 'running'
+        ? 'running'
+        : null;
+  // 平铺列表只放会话本身；所属项目在悬停卡片里
+  const renderFlatSession = (session: SessionView, keyPrefix: string) => {
+    const isSessionActive = isChatWorkspaceActive && openSessionIds.has(session.id);
+    return (
+      <SessionItem
+        key={`${keyPrefix}:${session.id}`}
+        session={session}
+        isActive={isSessionActive}
+        runtimeBadge={runtimeBadgeFor(session, isSessionActive)}
+        depth={0}
+        pullRequest={view.showPullRequests ? prsBySession[session.id] : null}
+        onClick={() => onSessionClick(session.id)}
+        onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+      />
+    );
+  };
+  const groupHeaderClass = 'mb-1 flex w-full items-center gap-1.5 px-2 text-left text-[13px] font-normal text-[var(--text-muted)]';
   const editSection = async (id: string, name: string, remove = false) => {
     try {
       if (remove) {
@@ -466,65 +528,12 @@ export function FolderTreeView({
 
   return (
     <div>
-      {activitySessions.length > 0 && (
+      {pinnedSessions.length > 0 && (
         <section className="mb-4">
-          {/* 对齐 Codex：分组标题用句首大写 + 正常字距，不用全大写小字号 */}
-          <div className="mb-1 px-2 text-[13px] font-normal text-[var(--text-muted)]">
-            Priority
-          </div>
-          {activitySessions.map((session) => {
-            const isSessionActive = isChatWorkspaceActive && openSessionIds.has(session.id);
-
-            return (
-              <SessionItem
-                key={`activity:${session.id}`}
-                session={session}
-                isActive={isSessionActive}
-                runtimeBadge={
-                  session.runtimeNotice
-                    ? session.runtimeNotice
-                    : !isSessionActive && session.status === 'running'
-                      ? 'running'
-                      : null
-                }
-                depth={0}
-                onClick={() => onSessionClick(session.id)}
-                onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-              />
-            );
-          })}
+          <div className={groupHeaderClass}>Pinned</div>
+          {pinnedSessions.map((session) => renderFlatSession(session, 'pinned'))}
         </section>
       )}
-
-      {!sidebarActivityView && pinnedSessions.length > 0 && (
-        <section className="mb-4">
-          <div className="mb-1 px-2 text-[13px] font-normal text-[var(--text-muted)]">
-            Pinned
-          </div>
-          {pinnedSessions.map((session) => {
-            const isSessionActive = isChatWorkspaceActive && openSessionIds.has(session.id);
-
-            return (
-              <SessionItem
-                key={`pinned:${session.id}`}
-                session={session}
-                isActive={isSessionActive}
-                runtimeBadge={
-                  session.runtimeNotice
-                    ? session.runtimeNotice
-                    : !isSessionActive && session.status === 'running'
-                      ? 'running'
-                      : null
-                }
-                depth={0}
-                onClick={() => onSessionClick(session.id)}
-                onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-              />
-            );
-          })}
-        </section>
-      )}
-
       {sectionGroups.filter(group => !sidebarSearchQuery || group.sessions.length > 0).map(group => (
         <section key={group.id} className="mb-4">
           <div className="group/section mb-1 flex items-center px-2 text-[13px] text-[var(--text-muted)]">
@@ -537,43 +546,35 @@ export function FolderTreeView({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          {isExpanded(group.id) && (group.sessions.length ? group.sessions.map(renderOrganizedSession) : <div className="px-2 py-1 text-[12px] text-[var(--text-muted)]">No threads yet</div>)}
+          {isExpanded(group.id) && (group.sessions.length ? group.sessions.map((session) => renderFlatSession(session, 'section')) : <div className="px-2 py-1 text-[12px] text-[var(--text-muted)]">No threads yet</div>)}
         </section>
       ))}
-
-      {sidebarActivityView &&
-        timeGroups.map((group) => (
-          <section key={group.label} className="mb-4">
-            <div className="mb-1 px-2 text-[13px] font-normal text-[var(--text-muted)]">
-              {group.label}
-            </div>
-            {group.sessions.map((session) => {
-              const isSessionActive = isChatWorkspaceActive && openSessionIds.has(session.id);
-
-              return (
-                <SessionItem
-                  key={`time:${session.id}`}
-                  session={session}
-                  isActive={isSessionActive}
-                  runtimeBadge={
-                    session.runtimeNotice
-                      ? session.runtimeNotice
-                      : !isSessionActive && session.status === 'running'
-                        ? 'running'
-                        : null
-                  }
-                  depth={0}
-                  onClick={() => onSessionClick(session.id)}
-                  onTogglePin={() =>
-                    sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })
-                  }
-                />
-              );
-            })}
+      {stateGroups.map((group) => {
+        const key = `state:${group.state}`;
+        const expanded = isExpanded(key);
+        return (
+          <section key={key} className="mb-4" data-sidebar-state={group.state}>
+            <button type="button" className={groupHeaderClass} aria-expanded={expanded} onClick={() => toggleGroupExpanded(key)}>
+              <span>{SIDEBAR_STATE_LABELS[group.state]}</span>
+              <span className="text-[11.5px] tabular-nums">{group.sessions.length}</span>
+              {!expanded ? <ChevronRight className="ml-auto h-3.5 w-3.5" /> : null}
+            </button>
+            {expanded && group.sessions.map((session) => renderFlatSession(session, 'state'))}
           </section>
-        ))}
-
-      {!sidebarActivityView && (
+        );
+      })}
+      {timeGroups.map((group) => (
+        <section key={group.label} className="mb-4">
+          <div className={groupHeaderClass}>{group.label}</div>
+          {group.sessions.map((session) => renderFlatSession(session, 'time'))}
+        </section>
+      ))}
+      {flatSessions.length > 0 && (
+        <section className="mb-4">
+          {flatSessions.map((session) => renderFlatSession(session, 'flat'))}
+        </section>
+      )}
+      {view.groupBy === 'project' && (
         <div className="mb-2 flex items-center justify-between gap-2 px-1">
           <div className="rounded-md px-1 text-[13px] text-[var(--text-muted)] transition-colors">
             Projects
@@ -591,8 +592,7 @@ export function FolderTreeView({
           </button>
         </div>
       )}
-
-      {!sidebarActivityView && projectGroups.map((group) => {
+      {projectGroups.map((group) => {
         const expanded = isExpanded(group.key);
         const sessionListExpanded = expandedSessionGroups.has(group.key);
         const hasMoreSessions =
@@ -696,14 +696,9 @@ export function FolderTreeView({
                           key={session.id}
                           session={session}
                           isActive={isSessionActive}
-                          runtimeBadge={
-                            session.runtimeNotice
-                              ? session.runtimeNotice
-                              : !isSessionActive && session.status === 'running'
-                                ? 'running'
-                                : null
-                          }
+                          runtimeBadge={runtimeBadgeFor(session, isSessionActive)}
                           depth={depth}
+                          pullRequest={view.showPullRequests ? prsBySession[session.id] : null}
                           onClick={() => onSessionClick(session.id)}
                           onTogglePin={() =>
                             sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })
@@ -778,23 +773,49 @@ export function FolderTreeView({
         );
       })}
 
-      {archivedSessions.length > 0 && <section className="mt-4">
-        <button className="mb-1 px-2 text-[13px] text-[var(--text-muted)]" aria-expanded={showArchived} onClick={() => setShowArchived(value => !value)}>Archived</button>
-        {(showArchived || sidebarSearchQuery.trim()) && archivedSessions.map(renderOrganizedSession)}
-      </section>}
-
-      {sectionGroups.every(group => group.sessions.length === 0) && archivedSessions.length === 0 && (sidebarActivityView
-        ? timeGroups.length === 0 && activitySessions.length === 0
-        : projectGroups.length === 0 && pinnedSessions.length === 0) && (
-          <div className="text-center text-[var(--text-muted)] py-8 text-[13px]">
+      {sectionGroups.every(group => group.sessions.length === 0) &&
+        projectGroups.length === 0 &&
+        pinnedSessions.length === 0 &&
+        flatSessions.length === 0 &&
+        stateGroups.length === 0 &&
+        timeGroups.length === 0 && (
+          <div className="py-8 text-center text-[13px] text-[var(--text-muted)]">
             {sidebarSearchQuery
               ? 'No matching threads'
-              : sidebarActivityView
-                ? 'No recent activity'
+              : hasHiddenSessions
+                ? 'No threads match these view options'
                 : 'No threads yet'}
           </div>
         )}
+
+      {/* 归档入口留在列表底部：点一下就是 Status → Archived，不必先找到视图菜单 */}
+      {!sidebarSearchQuery.trim() && (view.status === 'archived' || (view.status === 'active' && archivedCount > 0)) ? (
+        <button
+          type="button"
+          className="mt-2 px-2 text-[13px] text-[var(--text-muted)] transition-colors duration-150 hover:text-[var(--text-primary)]"
+          onClick={() => setViewOption('status', view.status === 'archived' ? 'active' : 'archived')}
+        >
+          {view.status === 'archived' ? 'Back to active threads' : 'Archived'}
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+const PULL_REQUEST_GLYPH: Record<GitPullRequestSummary['state'], { label: string; className: string }> = {
+  open: { label: 'Open', className: 'text-[var(--success)]' },
+  merged: { label: 'Merged', className: 'text-[#8b5cf6]' },
+  closed: { label: 'Closed', className: 'text-[var(--text-muted)]' },
+};
+
+function SessionPullRequestGlyph({ pullRequest }: { pullRequest: GitPullRequestSummary }) {
+  const meta = PULL_REQUEST_GLYPH[pullRequest.state];
+  const label = `Pull request #${pullRequest.number} · ${meta.label}`;
+  const Icon = pullRequest.state === 'merged' ? GitMerge : GitPullRequest;
+  return (
+    <span className={`flex-shrink-0 ${meta.className}`} title={label}>
+      <Icon className="h-3.5 w-3.5" aria-label={label} />
+    </span>
   );
 }
 
@@ -803,6 +824,7 @@ function SessionItem({
   isActive,
   runtimeBadge,
   depth,
+  pullRequest,
   onClick,
   onTogglePin,
 }: {
@@ -810,6 +832,7 @@ function SessionItem({
   isActive: boolean;
   runtimeBadge: 'running' | 'completed' | 'error' | null;
   depth: number;
+  pullRequest?: GitPullRequestSummary | null;
   onClick: () => void;
   onTogglePin: () => void;
 }) {
@@ -953,7 +976,9 @@ function SessionItem({
                   />
                 </span>
               ) : null}
-              {session.envMode === 'worktree' && session.worktreePath ? (
+              {pullRequest ? (
+                <SessionPullRequestGlyph pullRequest={pullRequest} />
+              ) : session.envMode === 'worktree' && session.worktreePath ? (
                 <span
                   className="flex-shrink-0"
                   title={`Runs on an isolated branch${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
@@ -961,7 +986,13 @@ function SessionItem({
                   <GitBranch className="h-3.5 w-3.5 text-[var(--accent)]" aria-label="Runs on an isolated branch" />
                 </span>
               ) : null}
-              {runtimeBadge === 'running' ? (
+              {session.permissionRequests.length > 0 ? (
+                <span
+                  className="h-2 w-2 flex-shrink-0 rounded-full bg-[var(--warning)]"
+                  title="Waiting for your approval"
+                  aria-label="Waiting for your approval"
+                />
+              ) : runtimeBadge === 'running' ? (
                 <Loader2
                   className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-[var(--text-muted)]"
                   title="Session is running"

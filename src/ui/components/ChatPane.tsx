@@ -1,3 +1,6 @@
+import { StreamRetryStatus } from './StreamRetryStatus';
+import { EnvironmentChatSurface } from './environment/EnvironmentPanelLayout';
+import { WorkstreamDisclosureRegistry } from './WorkstreamDisclosureState';
 import { ImageStudioComposerHome } from './ImageStudioComposerDock';
 import { ImageStudioSessionContext } from '../lib/image-studio';
 import { getAssistantPhase } from '../../shared/assistant-phase';
@@ -1073,6 +1076,10 @@ export function ChatPane({
             content: normalizedResult.content,
             displayContent: normalizedResult.displayContent,
             is_error: normalizedResult.is_error,
+            execution: {
+              ...(msg.createdAt != null ? { completedAt: msg.createdAt } : {}),
+              ...normalizedResult.execution,
+            },
             ...(normalizedResult.images ? { images: normalizedResult.images } : {}),
             ...(normalizedResult.mediaRefs ? { mediaRefs: normalizedResult.mediaRefs } : {}),
           });
@@ -1146,48 +1153,10 @@ export function ChatPane({
     return false;
   }, [session?.messages, session?.status]);
 
-  // The runtime retries failed API calls silently (rate limits, overload,
-  // connection drops) — surface the latest api_retry as a transient status.
-  // Any later substantive message means the retry resolved.
-  const apiRetry = useMemo(() => {
-    if (!session || session.status !== 'running') return null;
-    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
-      const message = session.messages[i];
-      if (!message) continue;
-      if (message.type === 'system' && message.subtype === 'api_retry') {
-        return message;
-      }
-      if (
-        message.type === 'assistant' ||
-        message.type === 'stream_event' ||
-        message.type === 'result' ||
-        message.type === 'user' ||
-        message.type === 'user_prompt'
-      ) {
-        return null;
-      }
-    }
-    return null;
-  }, [session?.messages, session?.status]);
-
-  const workingLabel = useMemo(() => {
-    if (apiRetry) {
-      const status = apiRetry.errorStatus;
-      const kind =
-        status === 429
-          ? 'Rate limited'
-          : status === 503 || status === 529
-            ? 'Server overloaded'
-            : status === null
-              ? 'Connection issue'
-              : `API error (${status})`;
-      const attempts = apiRetry.maxRetries > 0 ? ` ${apiRetry.attempt}/${apiRetry.maxRetries}` : '';
-      const delaySeconds = Math.max(1, Math.round(apiRetry.delayMs / 1000));
-      return `${kind} · retrying${attempts} in ${delaySeconds}s`;
-    }
-    if (isCompacting) return 'Compacting context';
-    return 'Working';
-  }, [apiRetry, isCompacting]);
+  // Retry status is independent of the trace/footer and clears on actual output,
+  // not on a transport start/stop event or interleaved subagent activity.
+  const apiRetry = session?.status === 'running' ? session.streaming.retry : undefined;
+  const workingLabel = isCompacting ? 'Compacting context' : 'Working';
 
   // ── Rewind (claude + bubble) ────────────────────────────────────────────
   const [rewindTarget, setRewindTarget] = useState<RewindTarget | null>(null);
@@ -1482,6 +1451,7 @@ export function ChatPane({
       return createStreamingWorkstreamModel({
         partialText: partialMessage,
         partialThinking,
+        retrying: Boolean(apiRetry),
         phase: turnPhase,
         startedAt: activeTurnStartedAt,
         permissionRequests: session?.permissionRequests || [],
@@ -1493,6 +1463,7 @@ export function ChatPane({
       hasStartedFinalAnswer,
       partialMessage,
       partialThinking,
+      apiRetry,
       session?.permissionRequests,
       turnPhase,
     ]
@@ -1501,9 +1472,10 @@ export function ChatPane({
     () => ({
       partialText: partialMessage,
       partialThinking,
+      retrying: Boolean(apiRetry),
       permissionRequests: session?.permissionRequests || [],
     }),
-    [partialMessage, partialThinking, session?.permissionRequests]
+    [partialMessage, partialThinking, apiRetry, session?.permissionRequests]
   );
   const shouldRenderStandalonePartial =
     !hasStartedFinalAnswer &&
@@ -1888,7 +1860,7 @@ export function ChatPane({
               </div>
             </NewThreadLanding>
           ) : (
-          <>
+          <EnvironmentChatSurface active={isActive}>
           <div className="@container relative flex min-h-0 flex-1 flex-col">
           {sessionId ? (
             <ComputerUseLiveHud
@@ -1988,6 +1960,7 @@ export function ChatPane({
                 </div>
               )}
 
+              <WorkstreamDisclosureRegistry key={sessionId}>
               <ImageStudioSessionContext.Provider value={sessionId}>
               <TurnDiffContext.Provider value={turnDiffContextValue}>
                 {timelineItems.map((item, idx) => {
@@ -2055,7 +2028,8 @@ export function ChatPane({
                             toolLiveOutputMap={item.active ? toolLiveOutputMap : undefined}
                             defaultExpanded={item.defaultExpanded}
                             canCollapse={item.canCollapse}
-                            resetKey={item.disclosureResetKey}
+                            isStopped={session.status !== 'running' && session.status !== 'stopping' && session.status !== 'error' && !item.canCollapse}
+                            resetKey={`${sessionId}:${session.messages[turnStartIndex]?.createdAt ?? turnStartIndex}`}
                             generatedMedia={workMedia}
                             mediaCwd={session.cwd ?? null}
                           />
@@ -2197,7 +2171,7 @@ export function ChatPane({
                       model={streamingWorkstreamModel}
                       isRunning={turnPhase !== 'complete'}
                       defaultExpanded={turnPhase !== 'complete'}
-                      resetKey={`${sessionId}:${lastUserPromptIndex}`}
+                      resetKey={`${sessionId}:${session.messages[lastUserPromptIndex]?.createdAt ?? lastUserPromptIndex}`}
                     />
                   ) : null}
                   {shouldRenderStandalonePartial ? (
@@ -2217,14 +2191,17 @@ export function ChatPane({
                 </div>
               )}
 
+              </WorkstreamDisclosureRegistry>
               {session.status === 'error' && <div role="status" data-turn-failure className="my-3 text-[13px] text-[var(--text-secondary)]">
                 <div className="text-[var(--error)]">This turn did not finish.</div>
                 <div>{session.lastTurnError || 'The connection ended before completion. Send a message to continue.'}</div>
               </div>}
 
+              {apiRetry ? <StreamRetryStatus retry={apiRetry} /> : null}
+
               {/* Only show the idle activity label when no trace or final answer owns it. */}
               {(() => {
-                if (session.status !== 'running') return null;
+                if (session.status !== 'running' || apiRetry) return null;
                 if (streamingWorkstreamModel) return null;
                 if (hasActiveTimelineWork) return null;
                 if (turnPhase === 'complete') return null;
@@ -2255,7 +2232,7 @@ export function ChatPane({
             </div>
             </ImageStudioComposerHome>
           )}
-          </>
+          </EnvironmentChatSurface>
           )}
 
           <RewindDialog

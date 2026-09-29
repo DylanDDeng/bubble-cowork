@@ -32,6 +32,7 @@ import type {
 } from '../shared/browser-types';
 import { BROWSER_SESSION_PARTITION } from '../shared/browser-types';
 import { normalizeExternalUrl } from './util';
+import { isLocalFileUrl } from './libs/html-preview';
 
 const ABOUT_BLANK_URL = 'about:blank';
 export { BROWSER_SESSION_PARTITION };
@@ -165,6 +166,10 @@ function normalizeUrlInput(input: string | undefined): string {
   const trimmed = input?.trim() ?? '';
   if (trimmed.length === 0) {
     return ABOUT_BLANK_URL;
+  }
+  if (/^file:/i.test(trimmed)) {
+    if (!isLocalFileUrl(trimmed)) throw new Error('Browser preview requires a local file URL');
+    return new URL(trimmed).href;
   }
   try {
     const withScheme = new URL(trimmed);
@@ -1022,7 +1027,7 @@ export class BrowserManager {
       if (this.isRuntimeClosing(sessionId, tabId)) {
         return { action: 'deny' };
       }
-      if (url.startsWith('http://') || url.startsWith('https://') || url === ABOUT_BLANK_URL) {
+      if (url.startsWith('http://') || url.startsWith('https://') || isLocalFileUrl(url) || url === ABOUT_BLANK_URL) {
         this.navigate({ sessionId, tabId, url });
         return { action: 'deny' };
       }

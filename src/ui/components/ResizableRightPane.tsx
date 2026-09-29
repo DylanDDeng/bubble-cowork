@@ -38,6 +38,15 @@ export function ResizableRightPane({
   const clamp = (value: number) =>
     Math.min(maximumWidth, Math.max(minimumWidth, Math.round(value)));
   const paneWidth = useMotionValue(width);
+  // Keep one MotionValue subscription when moving between docked and full
+  // width. A stale pixel-width subscription can otherwise overwrite 100%
+  // when the saved dock width is restored in the same layout pass.
+  const contentWidth = useMotionValue<number | string>(fullscreen ? '100%' : width);
+  useLayoutEffect(() => {
+    if (fullscreen) { contentWidth.set('100%'); return; }
+    contentWidth.set(paneWidth.get());
+    return paneWidth.on('change', value => contentWidth.set(value));
+  }, [fullscreen, paneWidth, contentWidth]);
   const progress = useMotionValue(hidden ? 0 : instantReveal ? 1 : 0);
   const displayedWidth = useTransform(
     [paneWidth, progress],
@@ -207,7 +216,7 @@ export function ResizableRightPane({
       <div className="absolute inset-0 overflow-hidden">
         <motion.div
           className="absolute inset-y-0 left-0 flex min-h-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--utility-pane-surface)] backdrop-[var(--utility-pane-backdrop)] [contain:layout_paint]"
-          style={{ width: fullscreen ? '100%' : paneWidth }}
+          style={{ width: contentWidth }}
         >
           {children}
         </motion.div>

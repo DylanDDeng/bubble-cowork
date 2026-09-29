@@ -20,11 +20,13 @@ const notificationPath = path.join(root, 'electron/libs/notifications.js');
 try {
   let prefs = require(preferencePath);
   assert.equal(prefs.getAppPreferences().enterBehavior, 'enter');
-  prefs.setAppPreferences({ enterBehavior: 'modifier', defaultEditor: 'code', showContextUsage: false });
+  assert.equal(prefs.getAppPreferences().environmentPanelPinned, true);
+  prefs.setAppPreferences({ enterBehavior: 'modifier', defaultEditor: 'code', showContextUsage: false, environmentPanelPinned: false });
   assert.equal(broadcasts.length, 1);
   delete require.cache[preferencePath]; prefs = require(preferencePath);
   assert.equal(prefs.getAppPreferences().enterBehavior, 'modifier');
   assert.equal(prefs.getAppPreferences().showContextUsage, false);
+  assert.equal(prefs.getAppPreferences().environmentPanelPinned, false);
   prefs.setAppPreferences({keyboardShortcuts:{newTab:['Mod+Shift+KeyJ'],search:[]}});
   const snapshot=prefs.getAppPreferences();snapshot.keyboardShortcuts.newTab.push('Mod+KeyQ');
   assert.deepEqual(prefs.getAppPreferences().keyboardShortcuts.newTab,['Mod+Shift+KeyJ']);
@@ -73,6 +75,9 @@ try {
   assert(n.isQuestionRequest('custom', { questions: [] })); assert(!n.isQuestionRequest('Bash', { command: 'ls' }));
   delete require.cache[notificationPath]; n = require(notificationPath); assert.equal(n.getNotificationSettings().inputRequired, true);
 
+  const { normalizeAppPreferences } = require(path.join(root, 'shared/app-preferences.js'));
+  assert.equal(normalizeAppPreferences({uiFontSize: 14}).environmentPanelPinned, true, 'existing profiles default to pinned');
+  assert.equal(normalizeAppPreferences({environmentPanelPinned: 'false'}).environmentPanelPinned, true);
   const { composerEnterAction: action } = require(path.join(root, 'shared/app-preferences.js'));
   const enter = { key: 'Enter', shiftKey: false, altKey: false, metaKey: false, ctrlKey: false };
   assert.deepEqual(action(enter, 'x', 'enter'), { send: true, invert: false });

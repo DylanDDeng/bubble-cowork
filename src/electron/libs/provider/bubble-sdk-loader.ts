@@ -43,6 +43,16 @@ export type BubbleToolResult = {
 };
 
 export type BubbleAgentEvent =
+  | { type: 'context_usage'; usedTokens: number; contextWindow?: number; estimated: boolean }
+  | {
+      type: 'context_compaction';
+      status: 'started' | 'completed' | 'failed';
+      compactionId?: string;
+      persisted?: boolean;
+      preTokens: number;
+      postTokens?: number;
+      contextWindow?: number;
+    }
   | { type: 'turn_start' }
   | { type: 'text_delta'; content: string }
   | { type: 'reasoning_delta'; content: string }
@@ -123,6 +133,11 @@ export type BubbleTurnStartInfo = {
   skills: string[];
 };
 
+export type BubbleProjectTrustRequest = {
+  cwd: string;
+  pending: { allow: string[]; mcpServers: string[]; lspServers: string[] };
+};
+
 export type BubbleRunTurnOptions = {
   prompt: string | BubbleContentPart[];
   model?: string;
@@ -132,6 +147,8 @@ export type BubbleRunTurnOptions = {
   onStart?: (info: BubbleTurnStartInfo) => void;
   onApproval?: (req: BubbleApprovalRequest) => Promise<BubbleApprovalDecision>;
   onQuestion?: (req: BubbleQuestionRequest) => Promise<BubbleQuestionAnswer[] | null>;
+  planExitMode?: 'default' | 'bypassPermissions';
+  onProjectTrust?: (request: BubbleProjectTrustRequest) => Promise<boolean>;
   onPlanApproval?: (planMarkdown: string) => Promise<boolean>;
 };
 
@@ -297,6 +314,7 @@ const importEsm = new Function('specifier', 'return import(specifier)') as (
 
 let sdkPromise: Promise<BubbleSdkModule> | null = null;
 let sdkInstance: BubbleSdkInstance | null = null;
+let sdkInstancePromise: Promise<BubbleSdkInstance> | null = null;
 
 export function loadBubbleSdk(): Promise<BubbleSdkModule> {
   if (!sdkPromise) {
@@ -328,13 +346,19 @@ export function loadBubbleProviderCatalog(): Promise<BubbleProviderCatalogModule
  * must share it (per-thread instances would fork that state).
  */
 export async function getBubbleSdk(defaultCwd?: string): Promise<BubbleSdkInstance> {
-  if (!sdkInstance) {
-    const { BubbleSdk } = await loadBubbleSdk();
-    const instance = new BubbleSdk(defaultCwd ? { defaultCwd } : undefined);
-    installBubbleSessionReader(instance);
-    sdkInstance = instance;
+  if (sdkInstance) return sdkInstance;
+  if (!sdkInstancePromise) {
+    sdkInstancePromise = loadBubbleSdk().then(({ BubbleSdk }) => {
+      const instance = new BubbleSdk(defaultCwd ? { defaultCwd } : undefined);
+      installBubbleSessionReader(instance);
+      sdkInstance = instance;
+      return instance;
+    }).catch(error => {
+      sdkInstancePromise = null;
+      throw error;
+    });
   }
-  return sdkInstance;
+  return sdkInstancePromise;
 }
 
 /**
@@ -407,4 +431,12 @@ export function reloadBubbleSdkConfig(sdk: BubbleSdkInstance): void {
   } catch {
     // keep previous state
   }
+}
+
+/** The same message estimator used by Bubble's native context budget. */
+export async function loadBubbleContextEstimator(): Promise<(messages: unknown[], providerId?: string) => number> {
+  const module = await (importEsm as unknown as (specifier: string) => Promise<{
+    estimateContextTokens: (messages: unknown[], providerId?: string) => number;
+  }>)('@bubblebrain-ai/bubble/dist/context/budget.js');
+  return module.estimateContextTokens;
 }

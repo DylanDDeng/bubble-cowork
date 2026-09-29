@@ -90,7 +90,7 @@ export function OpenCodeContextIndicator({
           {snapshot ? (
             <>
               <MetricRow label="Cost" value={formatCurrency(snapshot.costUSD)} />
-              <MetricRow label="Used" value={formatCompact(snapshot.used)} />
+              <MetricRow label={snapshot.estimated ? "Used (estimated)" : "Used"} value={formatCompact(snapshot.used)} />
               <MetricRow label="Limit" value={formatCompact(snapshot.total)} />
               {nearLimit ? (
                 <div

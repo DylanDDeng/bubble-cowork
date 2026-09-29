@@ -189,18 +189,21 @@ export interface SessionStreamingState {
   isStreaming: boolean;
   text: string;
   thinking: string;
+  /** Freeze this attempt until the provider resumes or the turn ends. */
+  retry?: Extract<import('../shared/types').StreamMessage, { subtype: 'api_retry' }>;
 }
 
-export type ActiveWorkspace = 'chat' | 'skills' | 'automations' | 'prs' | 'board';
+export type ActiveWorkspace = 'chat' | 'skills' | 'automations' | 'prs';
 export type ChatSidebarView = 'threads' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
-export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent' | 'goal' | 'images';
+export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent' | 'goal' | 'images' | 'sources';
 export type ProjectUtilityPanelTarget =
   | ProjectUtilityPanelKind
   | `files:${string}`
   | `browser:${string}`
   | `goal:${string}`
   | `images:${string}`
+  | `sources:${string}`
   // One top-level tab PER subagent (the tool_use id after the colon) — there
   // is no wrapper "subagent" tab; each subagent is its own strip tab.
   | `subagent:${string}`
@@ -393,6 +396,7 @@ export interface SessionView {
   activeCodexTurnId?: string | null;
   streaming: SessionStreamingState;
   runtimeNotice?: 'completed' | 'error';
+  createdAt?: number;
   updatedAt: number;
 }
 
@@ -420,7 +424,6 @@ export interface AppState {
   sidebarCollapsed: boolean;
   /** Transient hover-peek: sidebar stays collapsed in layout but floats open as an overlay. */
   sidebarPeek: boolean;
-  sidebarActivityView: boolean;
   sidebarWidth: number;
   sidebarWidthVersion: number;
   globalError: string | null;
@@ -578,7 +581,6 @@ export interface AppActions {
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarPeek: (open: boolean) => void;
-  toggleSidebarActivityView: () => void;
   setSidebarWidth: (width: number) => void;
   setProjectCwd: (cwd: string | null) => void;
   setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;
@@ -586,7 +588,7 @@ export interface AppActions {
   setProjectPanelView: (view: ProjectPanelView) => void;
   setActiveRightUtilityTab: (target: ProjectUtilityPanelTarget | null) => void;
   openRightUtilityTab: (
-    target: ProjectUtilityPanelKind,
+    target: ProjectUtilityPanelTarget,
     options?: {
       newTab?: boolean;
       /**

@@ -15,7 +15,6 @@ import {
   type TabView,
 } from '../../src/ui/store/useTabsStore';
 import { useAppStore } from '../../src/ui/store/useAppStore';
-import { useBoardStore } from '../../src/ui/store/useBoardStore';
 
 function visitable(alive: Set<string | null>) {
   return (entry: string | null) => alive.has(entry);
@@ -73,15 +72,14 @@ function visitable(alive: Set<string | null>) {
 
 {
   // Structural entries dedupe through the caller's equality, not identity.
-  const board: TabView = { kind: 'board', taskId: null };
-  const pushed = pushSessionHistory([board], 0, { kind: 'board', taskId: null }, sameTabView);
+  const list: TabView = { kind: 'chat', sessionId: null };
+  const pushed = pushSessionHistory([list], 0, { kind: 'chat', sessionId: null }, sameTabView);
   assert.equal(pushed.stack.length, 1, 'an equal view must not be pushed twice');
 }
 
 // --- per-tab history in the tabs store ------------------------------------
 
-const boardList: TabView = { kind: 'board', taskId: null };
-const boardTask = (taskId: string): TabView => ({ kind: 'board', taskId });
+const prs: TabView = { kind: 'prs' };
 const chat = (sessionId: string | null): TabView => ({ kind: 'chat', sessionId });
 
 function activeTab(): AppTab {
@@ -91,20 +89,19 @@ function activeTab(): AppTab {
   return tab;
 }
 
-useBoardStore.setState({ tasks: {}, selectedTaskId: null, excludedSessionIds: {} });
-const taskX = useBoardStore.getState().addTask({ title: 'task X' });
-const taskY = useBoardStore.getState().addTask({ title: 'task Y' });
+const sessionX = useAppStore.getState().createDraftSession('/projects/x');
+const sessionY = useAppStore.getState().createDraftSession('/projects/y');
 useTabsStore.setState({ tabs: [], activeTabId: null });
 
 const { setActiveTabView, goBack, goForward, openTab, activateTab, closeTab } =
   useTabsStore.getState();
 
 // The mirror effect records each navigation on the active tab.
-setActiveTabView(boardList);
-assert.deepEqual(activeTab().history, [boardList], 'the first view seeds the tab history');
-setActiveTabView(boardTask(taskX));
-setActiveTabView(boardList);
-setActiveTabView(boardTask(taskY));
+setActiveTabView(prs);
+assert.deepEqual(activeTab().history, [prs], 'the first view seeds the tab history');
+setActiveTabView(chat(sessionX));
+setActiveTabView(prs);
+setActiveTabView(chat(sessionY));
 assert.equal(activeTab().history.length, 4);
 assert.equal(activeTab().historyIndex, 3);
 assert.equal(canNavigateActiveTab(useTabsStore.getState(), -1, () => true), true);
@@ -112,40 +109,40 @@ assert.equal(canNavigateActiveTab(useTabsStore.getState(), 1, () => true), false
 
 // Back lands on the previous view and replays it into the global stores.
 goBack();
-assert.deepEqual(activeTab().view, boardList, 'back from a task detail returns to the board list');
-assert.equal(useAppStore.getState().activeWorkspace, 'board');
-assert.equal(useBoardStore.getState().selectedTaskId, null);
+assert.deepEqual(activeTab().view, prs, 'back from a session returns to the previous workspace');
+assert.equal(useAppStore.getState().activeWorkspace, 'prs');
 goBack();
-assert.deepEqual(activeTab().view, boardTask(taskX));
-assert.equal(useBoardStore.getState().selectedTaskId, taskX, 'replay reselects the task');
+assert.deepEqual(activeTab().view, chat(sessionX));
+assert.equal(useAppStore.getState().activeSessionId, sessionX, 'replay reselects the session');
 
 // The mirror effect re-reporting the landing view must not push it again.
-setActiveTabView(boardTask(taskX));
+setActiveTabView(chat(sessionX));
 assert.equal(activeTab().history.length, 4, 'replay must not grow the stack');
 assert.equal(activeTab().historyIndex, 1, 'replay must not move the cursor');
 assert.equal(canNavigateActiveTab(useTabsStore.getState(), 1, () => true), true);
 
 goForward();
-assert.deepEqual(activeTab().view, boardList);
+assert.deepEqual(activeTab().view, prs);
 goForward();
-assert.deepEqual(activeTab().view, boardTask(taskY));
+assert.deepEqual(activeTab().view, chat(sessionY));
 assert.equal(canNavigateActiveTab(useTabsStore.getState(), 1, () => true), false);
 
 // A fresh navigation after going back drops the forward branch.
 goBack();
 goBack();
 setActiveTabView(chat(null));
-assert.deepEqual(activeTab().history, [boardList, boardTask(taskX), chat(null)]);
+assert.deepEqual(activeTab().history, [prs, chat(sessionX), chat(null)]);
 
-// A removed board task is skipped, a null task id (the list) never is.
-useBoardStore.getState().removeTask(taskX);
-const tasks = useBoardStore.getState().tasks;
-assert.equal(isTabViewVisitable(boardTask(taskX), {}, tasks), false);
-assert.equal(isTabViewVisitable(boardList, {}, tasks), true);
-assert.equal(isTabViewVisitable(chat('missing'), {}, tasks), false);
-assert.equal(isTabViewVisitable(chat(null), {}, tasks), true);
+// A deleted session is skipped, the new-session landing (null) never is.
+const { [sessionX]: _removed, ...remaining } = useAppStore.getState().sessions;
+useAppStore.setState({ sessions: remaining });
+const sessions = useAppStore.getState().sessions;
+assert.equal(isTabViewVisitable(chat(sessionX), sessions), false);
+assert.equal(isTabViewVisitable(chat(sessionY), sessions), true);
+assert.equal(isTabViewVisitable(chat(null), sessions), true);
+assert.equal(isTabViewVisitable(prs, sessions), true);
 goBack();
-assert.deepEqual(activeTab().view, boardList, 'back must skip the deleted task');
+assert.deepEqual(activeTab().view, prs, 'back must skip the deleted session');
 goForward();
 assert.deepEqual(activeTab().view, chat(null));
 
@@ -169,11 +166,33 @@ assert.equal(useTabsStore.getState().tabs.some((tab) => tab.id === secondTabId),
 
 // Persisted v1 tabs (no history) are seeded with their current view.
 const migrate = useTabsStore.persist.getOptions().migrate!;
-const migrated = migrate({ tabs: [{ id: 't1', view: boardList }], activeTabId: 't1' }, 1) as {
+const migrated = migrate({ tabs: [{ id: 't1', view: prs }], activeTabId: 't1' }, 1) as {
   tabs: AppTab[];
 };
-assert.deepEqual(migrated.tabs[0].history, [boardList]);
+assert.deepEqual(migrated.tabs[0].history, [prs]);
 assert.equal(migrated.tabs[0].historyIndex, 0);
+
+// Views of the removed Kanban board are dropped on upgrade; a tab that held
+// nothing else goes with them and the active tab falls back to a survivor.
+{
+  const legacyBoard = { kind: 'board', taskId: 'task-1' } as unknown as TabView;
+  const legacyList = { kind: 'board', taskId: null } as unknown as TabView;
+  const upgraded = migrate(
+    {
+      tabs: [
+        { id: 'mixed', view: legacyBoard, history: [chat(sessionY), legacyList, legacyBoard, prs], historyIndex: 2 },
+        { id: 'board-only', view: legacyList, history: [legacyList], historyIndex: 0 },
+      ],
+      activeTabId: 'board-only',
+    },
+    2
+  ) as { tabs: AppTab[]; activeTabId: string | null };
+  assert.deepEqual(upgraded.tabs.map((tab) => tab.id), ['mixed']);
+  assert.deepEqual(upgraded.tabs[0].history, [chat(sessionY), prs]);
+  assert.equal(upgraded.tabs[0].historyIndex, 0, 'the cursor lands on the last live view at or before it');
+  assert.deepEqual(upgraded.tabs[0].view, chat(sessionY));
+  assert.equal(upgraded.activeTabId, 'mixed');
+}
 
 // --- chrome placement -------------------------------------------------------
 

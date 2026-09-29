@@ -2,22 +2,20 @@ import { useAppPreferences } from '../store/useAppPreferences';
 import { shortcutLabel } from '../../shared/keyboard-shortcuts';
 import { ArrowLeft, ArrowRight } from './icons';
 import { useAppStore } from '../store/useAppStore';
-import { useBoardStore } from '../store/useBoardStore';
 import { canNavigateActiveTab, isTabViewVisitable, useTabsStore, type TabView } from '../store/useTabsStore';
 
 /**
- * Back/Forward through the active tab's view history: sessions, the board,
- * a board task's detail page, and the other workspaces alike.
+ * Back/Forward through the active tab's view history: sessions and the
+ * other workspaces alike.
  */
 export function SessionHistoryButtons({ className = '' }: { className?: string }) {
   const sessions = useAppStore((state) => state.sessions);
-  const boardTasks = useBoardStore((state) => state.tasks);
   const tabs = useTabsStore((state) => state.tabs);
   const activeTabId = useTabsStore((state) => state.activeTabId);
   const goBack = useTabsStore((state) => state.goBack);
   const goForward = useTabsStore((state) => state.goForward);
 
-  const visitable = (view: TabView) => isTabViewVisitable(view, sessions, boardTasks);
+  const visitable = (view: TabView) => isTabViewVisitable(view, sessions);
   const canBack = canNavigateActiveTab({ tabs, activeTabId }, -1, visitable);
   const canForward = canNavigateActiveTab({ tabs, activeTabId }, 1, visitable);
   const shortcuts = useAppPreferences(state => state.keyboardShortcuts);

@@ -26,7 +26,7 @@ assert.ok(
 
 // 2. The card is absolutely positioned against that wrapper, directly
 //    below the trigger and aligned to its right edge.
-const panelClass = hub.match(/className="no-drag ([^"]*)w-\[300px\][^"]*"/);
+const panelClass = hub.match(/: '(absolute right-0 top-full[^']*w-\[300px\][^']*)'/);
 assert.ok(panelClass, 'EnvironmentHub: could not locate the card container className');
 assert.ok(
   panelClass[1].includes('absolute'),
@@ -36,6 +36,8 @@ assert.ok(
   panelClass[1].includes('right-0') && panelClass[1].includes('top-full'),
   'EnvironmentHub: the card must open below the trigger (top-full) aligned to its right edge (right-0)'
 );
+
+assert.ok(hub.includes('createPortal(card, layout.surface)'), 'Pinned card must belong to the active chat surface');
 
 // 3. No viewport-fixed placement anywhere in the card: `fixed` drifts away
 //    from the icon whenever the right utility panel resizes the chat pane.

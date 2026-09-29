@@ -67,6 +67,7 @@ app.whenReady().then(async()=>{
   await delay(400);
   await shot('single-edit-expanded');
   await click(edit+' > button');
+  await until('document.querySelectorAll("[data-inline-edit-diff]").length===0');
   assert.equal(await js('document.querySelectorAll("[data-inline-edit-diff]").length'),0,'second click collapses patch');
   await click(multi+' > button');
   await until('document.querySelectorAll("[data-inline-edit-diff]").length===3');

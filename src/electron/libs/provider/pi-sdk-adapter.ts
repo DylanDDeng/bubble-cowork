@@ -1,3 +1,5 @@
+import { CompactionTracker } from './compaction-tracker';
+import { addAgentCost, costFields, emptyCostDetails } from '../agent-cost';
 import { createPiSessionReader } from '../session-native-tool';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
@@ -59,7 +61,7 @@ type ActivePiSession = {
   emittedToolResultIds: Set<string>;
   ingestedUsageKeys: Set<string>;
   usage: Usage;
-  totalCostUsd: number;
+  costDetails: ReturnType<typeof emptyCostDetails>;
   durationStartMs: number;
   durationEndMs?: number;
 };
@@ -322,6 +324,10 @@ export class PiSdkAdapter implements ProviderAdapter {
   readonly capabilities = CAPABILITIES;
   readonly events = new EventEmitter();
 
+  private readonly compactions = new CompactionTracker(event => this.emit(event));
+
+  private pendingEnds = new WeakMap<ActivePiSession, PiAgentMessage[]>();
+
   private sessions = new Map<string, ActivePiSession>();
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
@@ -354,7 +360,7 @@ export class PiSdkAdapter implements ProviderAdapter {
       emittedToolResultIds: new Set(),
       ingestedUsageKeys: new Set(),
       usage: createEmptyUsage(piSession.model?.contextWindow),
-      totalCostUsd: 0,
+      costDetails: emptyCostDetails(),
       durationStartMs: Date.now(),
     };
     activeSession.unsubscribe = piSession.subscribe((event) => this.handlePiEvent(activeSession, event));
@@ -398,7 +404,7 @@ export class PiSdkAdapter implements ProviderAdapter {
     session.durationStartMs = Date.now();
     session.durationEndMs = undefined;
     session.usage = createEmptyUsage(session.session.model?.contextWindow);
-    session.totalCostUsd = 0;
+    session.costDetails = emptyCostDetails();
     session.ingestedUsageKeys.clear();
     this.emit({ type: 'status_change', threadId: input.threadId, status: 'running' });
 
@@ -412,6 +418,11 @@ export class PiSdkAdapter implements ProviderAdapter {
       return;
     }
     try {
+      if (text.trim() === '/compact' && !images.length) {
+        await session.session.compact();
+        this.handleAgentEnd(session, [], false);
+        return;
+      }
       await session.session.prompt(text, images.length > 0 ? { images } : undefined);
     } catch (error) {
       this.handleSessionError(session, error instanceof Error ? error : new Error(String(error)));
@@ -426,6 +437,8 @@ export class PiSdkAdapter implements ProviderAdapter {
     }
     session.status = 'stopped';
     try {
+      session.session.abortCompaction?.();
+      this.compactions.interrupt(session);
       await session.session.abort();
     } catch {
       // Pi may already be idle.
@@ -548,6 +561,23 @@ export class PiSdkAdapter implements ProviderAdapter {
 
   private handlePiEvent(session: ActivePiSession, event: PiAgentSessionEvent): void {
     switch (event.type) {
+      case 'compaction_start':
+        this.compactions.start(session, { trigger: event.reason === 'manual' ? 'manual' : 'auto' });
+        break;
+      case 'compaction_end': {
+        const result = event.result as { tokensBefore?: number } | undefined;
+        if (event.aborted || event.errorMessage || !result) this.compactions.interrupt(session);
+        else this.compactions.complete(session, {
+          trigger: event.reason === 'manual' ? 'manual' : 'auto', preTokens: result.tokensBefore,
+        });
+        break;
+      }
+      case 'agent_settled': {
+        const messages = this.pendingEnds.get(session);
+        this.pendingEnds.delete(session);
+        if (messages) this.handleAgentEnd(session, messages, false);
+        break;
+      }
       case 'message_update':
         this.handleMessageUpdate(
           session,
@@ -587,7 +617,8 @@ export class PiSdkAdapter implements ProviderAdapter {
       case 'agent_end':
         {
           const agentEvent = event as Extract<PiAgentSessionEvent, { type: 'agent_end' }>;
-          this.handleAgentEnd(session, agentEvent.messages, agentEvent.willRetry === true);
+          // Pi runs automatic compaction after agent_end; agent_settled is the terminal.
+          if (!agentEvent.willRetry) this.pendingEnds.set(session, agentEvent.messages);
         }
         break;
       default:
@@ -777,8 +808,8 @@ export class PiSdkAdapter implements ProviderAdapter {
     const contextWindow = session.session.model?.contextWindow;
     const usage = usageFromPi(message.usage, contextWindow);
     addUsage(session.usage, usage);
-    session.totalCostUsd += getNumber(message.usage?.cost?.total) || 0;
     const formattedModel = formatPiModel(session.session.model, message.model);
+    addAgentCost(session.costDetails, 'pi', formattedModel || session.model || '', usage, message.usage?.cost?.total);
     if (formattedModel) {
       session.model = formattedModel;
     }
@@ -792,7 +823,7 @@ export class PiSdkAdapter implements ProviderAdapter {
         type: 'result',
         subtype,
         duration_ms: Math.max(0, (session.durationEndMs || Date.now()) - session.durationStartMs),
-        total_cost_usd: session.totalCostUsd,
+        ...costFields(session.costDetails),
         usage: session.usage,
         model: session.model,
       },
@@ -849,6 +880,12 @@ export class PiSdkAdapter implements ProviderAdapter {
   }
 
   private emit(event: ProviderRuntimeEvent): void {
+    if (event.type === 'error' ||
+        (event.type === 'status_change' && ['completed', 'stopped', 'error'].includes(event.status)) ||
+        (event.type === 'message' && event.message.type === 'result')) {
+      const session = this.sessions.get(event.threadId);
+      if (session) this.compactions.interrupt(session);
+    }
     this.events.emit('event', event);
   }
 }

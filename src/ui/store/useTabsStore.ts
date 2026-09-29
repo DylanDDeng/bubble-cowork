@@ -7,12 +7,11 @@ import {
   stepSessionHistory,
 } from '../utils/session-history';
 import { useAppStore } from './useAppStore';
-import { useBoardStore } from './useBoardStore';
 
 /**
  * Browser-style tabs over the app's existing navigation. A tab does NOT own
  * its content — it is a bookmark of a navigation state (which workspace,
- * which session, which board task). Switching tabs replays that state into
+ * which session). Switching tabs replays that state into
  * the global stores; navigating inside the app writes the new state back
  * into the active tab (the mirror effect in App). This keeps every existing
  * navigation path working without rewiring its call sites.
@@ -23,7 +22,6 @@ import { useBoardStore } from './useBoardStore';
  * the tab, switching or closing tabs never leaks history across them.
  */
 export type TabView =
-  | { kind: 'board'; taskId: string | null }
   | { kind: 'chat'; sessionId: string | null }
   | { kind: 'automations' }
   | { kind: 'prs' }
@@ -39,33 +37,22 @@ export interface AppTab {
 
 export function sameTabView(a: TabView, b: TabView): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === 'board' && b.kind === 'board') return a.taskId === b.taskId;
   if (a.kind === 'chat' && b.kind === 'chat') return a.sessionId === b.sessionId;
   return true;
 }
 
 /**
  * Whether a history entry can still be shown: a chat whose session was
- * deleted or a board task that was removed is skipped when stepping.
+ * deleted is skipped when stepping.
  */
-export function isTabViewVisitable(
-  view: TabView,
-  sessions: Record<string, unknown>,
-  boardTasks: Record<string, unknown>
-): boolean {
+export function isTabViewVisitable(view: TabView, sessions: Record<string, unknown>): boolean {
   if (view.kind === 'chat') return view.sessionId === null || Boolean(sessions[view.sessionId]);
-  if (view.kind === 'board') return view.taskId === null || Boolean(boardTasks[view.taskId]);
   return true;
 }
 
 /** Replay a tab's bookmarked navigation state into the global stores. */
 function applyTabView(view: TabView): void {
   const app = useAppStore.getState();
-  if (view.kind === 'board') {
-    useBoardStore.getState().setSelectedTask(view.taskId);
-    app.setActiveWorkspace('board');
-    return;
-  }
   if (view.kind === 'chat') {
     app.setActiveWorkspace('chat');
     if (view.sessionId) {
@@ -89,8 +76,7 @@ function makeTab(view: TabView): AppTab {
 
 function currentVisitable(): (view: TabView) => boolean {
   const sessions = useAppStore.getState().sessions;
-  const tasks = useBoardStore.getState().tasks;
-  return (view) => isTabViewVisitable(view, sessions, tasks);
+  return (view) => isTabViewVisitable(view, sessions);
 }
 
 interface TabsStore {
@@ -212,17 +198,28 @@ export const useTabsStore = create<TabsStore>()(
     {
       name: 'cowork-tabs-storage',
       storage: createJSONStorage(() => rendererStateStorage),
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         const state = persistedState as Partial<TabsStore> | undefined;
-        // v1 tabs had no history; seed each with its current view.
-        const tabs = (state?.tabs ?? []).map((tab) => {
+        // v1 tabs had no history (seed it with the current view); v2 could
+        // hold views of the removed Kanban board (drop them, and a tab that
+        // held nothing else).
+        const isLive = (view: { kind: string }) => view.kind !== 'board';
+        const tabs: AppTab[] = [];
+        for (const tab of state?.tabs ?? []) {
           const legacy = tab as Partial<AppTab> & { view: TabView };
-          return Array.isArray(legacy.history) && legacy.history.length > 0
-            ? (legacy as AppTab)
-            : { ...legacy, history: [legacy.view], historyIndex: 0 };
-        });
-        return { ...state, tabs };
+          const history =
+            Array.isArray(legacy.history) && legacy.history.length > 0 ? legacy.history : [legacy.view];
+          const index = Math.min(Math.max(legacy.historyIndex ?? history.length - 1, 0), history.length - 1);
+          const kept = history.filter(isLive);
+          if (kept.length === 0) continue;
+          const keptIndex = Math.max(history.slice(0, index + 1).filter(isLive).length - 1, 0);
+          tabs.push({ ...legacy, id: legacy.id!, history: kept, historyIndex: keptIndex, view: kept[keptIndex] });
+        }
+        const activeTabId = tabs.some((tab) => tab.id === state?.activeTabId)
+          ? state!.activeTabId!
+          : tabs[0]?.id ?? null;
+        return { ...state, tabs, activeTabId };
       },
     }
   )

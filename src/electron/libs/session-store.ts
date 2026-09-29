@@ -1,3 +1,5 @@
+import { addAgentCost, emptyCostDetails, validUsd } from './agent-cost';
+import { estimateCodexUsageCost, CODEX_API_PRICING_VERIFIED_AT } from './codex-pricing';
 import { canonicalProjectPath } from './project-paths';
 import type { SessionOrganizationChange, SessionOrganizationSnapshot } from '../../shared/session-organization';
 import type { SessionPullRequest } from '../../shared/types';
@@ -1310,6 +1312,23 @@ export function listSessionPullRequests(sessionId: string): SessionPullRequest[]
 export function attachSessionPullRequest(sessionId: string, pr: SessionPullRequest): boolean {
   return getDb().prepare('INSERT OR IGNORE INTO session_pull_requests (session_id, url, data_json) VALUES (?, ?, ?)')
     .run(sessionId, pr.url, JSON.stringify(pr)).changes > 0;
+}
+
+/** Every association, oldest first, for sessions still shown in the sidebar. */
+export function listAllSessionPullRequests(): { sessionId: string; pr: SessionPullRequest }[] {
+  const rows = getDb().prepare(`
+    SELECT spr.session_id, spr.data_json FROM session_pull_requests spr
+    JOIN sessions s ON s.id = spr.session_id
+    WHERE COALESCE(s.hidden_from_threads, 0) = 0
+    ORDER BY spr.rowid
+  `).all() as { session_id: string; data_json: string }[];
+  return rows.map(row => ({ sessionId: row.session_id, pr: JSON.parse(row.data_json) as SessionPullRequest }));
+}
+
+/** Store a refreshed PR state without touching the association itself. */
+export function updateSessionPullRequestState(sessionId: string, pr: SessionPullRequest): void {
+  getDb().prepare("UPDATE session_pull_requests SET data_json = ? WHERE session_id = ? AND url = ? AND json_extract(data_json, '$.attachedAt') = ?")
+    .run(JSON.stringify(pr), sessionId, pr.url, pr.attachedAt);
 }
 
 export function detachSessionPullRequest(sessionId: string, url: string, attachedAt: number): void {
@@ -2680,12 +2699,13 @@ type OpencodeAssistantUsageRow = {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
-  total_cost_usd: number;
+  total_cost_usd: number | null;
 };
 
 type CodexTokenUsage = {
   inputTokens: number;
   cachedInputTokens: number;
+  cacheWriteInputTokens: number;
   outputTokens: number;
   totalTokens: number;
 };
@@ -2693,6 +2713,7 @@ type CodexTokenUsage = {
 type CodexUsageSnapshot = {
   inputTokens: number;
   cachedInputTokens: number;
+  cacheWriteInputTokens: number;
   outputTokens: number;
   totalTokens: number;
 };
@@ -2815,67 +2836,6 @@ function createEmptyUsageReport(
   };
 }
 
-type CodexPriceEntry = {
-  inputUsdPerMillion: number;
-  outputUsdPerMillion: number;
-  cachedInputUsdPerMillion: number;
-};
-
-const CODEX_PRICE_TABLE: Array<{ pattern: RegExp; price: CodexPriceEntry }> = [
-  {
-    // Base rate; long-context requests (>272K input) bill at 2x/1.5x, which
-    // this estimator cannot see per request, so estimates skew low there.
-    pattern: /^gpt-5\.5(?:$|-)/i,
-    price: { inputUsdPerMillion: 5, outputUsdPerMillion: 30, cachedInputUsdPerMillion: 0.5 },
-  },
-  {
-    pattern: /^gpt-5\.4-mini(?:$|-)/i,
-    price: { inputUsdPerMillion: 0.75, outputUsdPerMillion: 4.5, cachedInputUsdPerMillion: 0.075 },
-  },
-  {
-    pattern: /^gpt-5\.4(?:$|-)/i,
-    price: { inputUsdPerMillion: 2.5, outputUsdPerMillion: 15, cachedInputUsdPerMillion: 0.25 },
-  },
-  {
-    pattern: /^gpt-5\.3(?:-codex)?(?:$|-)/i,
-    price: { inputUsdPerMillion: 1.75, outputUsdPerMillion: 14, cachedInputUsdPerMillion: 0.175 },
-  },
-  {
-    pattern: /^gpt-5\.2(?:-codex)?(?:$|-)/i,
-    price: { inputUsdPerMillion: 1.75, outputUsdPerMillion: 14, cachedInputUsdPerMillion: 0.175 },
-  },
-  {
-    pattern: /^gpt-5\.1(?:-codex)?(?:$|-)/i,
-    price: { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10, cachedInputUsdPerMillion: 0.125 },
-  },
-];
-
-function getCodexPriceEntry(model: string): CodexPriceEntry | null {
-  const normalized = model.trim();
-  if (!normalized) {
-    return null;
-  }
-
-  const matched = CODEX_PRICE_TABLE.find((entry) => entry.pattern.test(normalized));
-  return matched?.price || null;
-}
-
-function estimateCodexUsageCost(model: string, usage: CodexTokenUsage): number {
-  const price = getCodexPriceEntry(model);
-  if (!price) {
-    return 0;
-  }
-
-  const cachedInputTokens = Math.min(usage.cachedInputTokens, usage.inputTokens);
-  const uncachedInputTokens = Math.max(0, usage.inputTokens - cachedInputTokens);
-
-  return (
-    (uncachedInputTokens * price.inputUsdPerMillion) / 1_000_000 +
-    (cachedInputTokens * price.cachedInputUsdPerMillion) / 1_000_000 +
-    (usage.outputTokens * price.outputUsdPerMillion) / 1_000_000
-  );
-}
-
 // Codex can run against more than one CODEX_HOME on this machine: launchers
 // like orca export their own runtime home, while standalone runs use
 // ~/.codex. Sessions (rollouts + state db) land in whichever home the
@@ -2925,7 +2885,7 @@ function readOpencodeAssistantUsageRows(
         COALESCE(json_extract(data, '$.tokens.output'), 0) AS output_tokens,
         COALESCE(json_extract(data, '$.tokens.cache.read'), 0) AS cache_read_tokens,
         COALESCE(json_extract(data, '$.tokens.cache.write'), 0) AS cache_write_tokens,
-        COALESCE(json_extract(data, '$.cost'), 0) AS total_cost_usd
+        json_extract(data, '$.cost') AS total_cost_usd
       FROM message
       WHERE session_id IN (${placeholders})
         AND time_created >= ?
@@ -3046,6 +3006,7 @@ function parseCodexSnapshot(value: unknown): CodexUsageSnapshot | null {
   return {
     inputTokens: toNumber(record.input_tokens),
     cachedInputTokens: toNumber(record.cached_input_tokens),
+    cacheWriteInputTokens: toNumber(record.cache_write_input_tokens),
     outputTokens: toNumber(record.output_tokens),
     totalTokens: toNumber(record.total_tokens),
   };
@@ -3055,9 +3016,43 @@ function getCodexSnapshotKey(snapshot: CodexUsageSnapshot): string {
   return [
     snapshot.inputTokens,
     snapshot.cachedInputTokens,
+    snapshot.cacheWriteInputTokens,
     snapshot.outputTokens,
     snapshot.totalTokens,
   ].join(':');
+}
+
+interface CodexReportedCostWindow { start: number; end: number; usd: number }
+
+/** Result amounts cover the preceding turn. Legacy Codex adapter zeros mean
+ * unavailable; only an explicitly reported zero can replace an API estimate. */
+function readCodexReportedCosts(sessionId: string): CodexReportedCostWindow[] {
+  const windows: CodexReportedCostWindow[] = [];
+  let start = Number.NEGATIVE_INFINITY;
+  const rows = getDb().prepare(`SELECT data, created_at FROM messages
+    WHERE session_id = ? AND message_type = 'result' ORDER BY created_at ASC, rowid ASC`)
+    .all(sessionId) as Array<{ data: string; created_at: number }>;
+  for (const row of rows) {
+    try {
+      const result = readStoredMessagePayload(row.data, row.created_at);
+      if (result.type !== 'result') continue;
+      if (result.parentToolUseId || result.sourceProvider || result.agentId) continue;
+      // Earlier Claude turns survive a provider handoff; their price is not a Codex turn price.
+      if (result.modelUsage && Object.keys(result.modelUsage).some(looksLikeClaudeModelAlias)) {
+        start = row.created_at;
+        continue;
+      }
+      const usd = result.total_cost_usd;
+      if (result.costSource !== 'unavailable' && result.costSource !== 'estimated'
+        && !result.costEstimate && !result.costAccounting
+        && typeof usd === 'number' && Number.isFinite(usd) && usd >= 0
+        && (usd > 0 || result.costSource === 'reported')) {
+        windows.push({ start, end: row.created_at, usd });
+      }
+    } catch { /* A corrupt result cannot establish a reported amount. */ }
+    start = row.created_at;
+  }
+  return windows;
 }
 
 function parseCodexRolloutUsage(params: {
@@ -3072,7 +3067,11 @@ function parseCodexRolloutUsage(params: {
   modelSummaries: Map<string, ClaudeUsageModelSummary>;
   modelSessions: Map<string, Set<string>>;
   sessionId: string;
+  reportedCosts: CodexReportedCostWindow[];
 }): {
+  reportedTokens: number;
+  estimatedTokens: number;
+  unpricedByModel: Map<string, number>;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -3080,6 +3079,9 @@ function parseCodexRolloutUsage(params: {
   totalTokens: number;
 } {
   const result = {
+    reportedTokens: 0,
+    estimatedTokens: 0,
+    unpricedByModel: new Map<string, number>(),
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -3094,6 +3096,7 @@ function parseCodexRolloutUsage(params: {
   const content = readFileSync(params.rolloutPath, 'utf8');
   let currentModel = params.fallbackModel;
   let previousSnapshotKey: string | null = null;
+  const reportedBuckets = new Map<CodexReportedCostWindow, { tokens: number; entries: Array<{ model: string; date: string; tokens: number; inRange: boolean }> }>();
 
   for (const line of content.split('\n')) {
     const trimmed = line.trim();
@@ -3139,32 +3142,42 @@ function parseCodexRolloutUsage(params: {
     previousSnapshotKey = snapshotKey;
 
     const timestamp = typeof parsed.timestamp === 'string' ? Date.parse(parsed.timestamp) : Number.NaN;
-    if (!Number.isFinite(timestamp) || timestamp < params.rangeStart) {
-      continue;
-    }
+    if (!Number.isFinite(timestamp)) continue;
 
     const model = currentModel || params.fallbackModel || 'Unknown';
     const usage: CodexTokenUsage = {
       inputTokens: lastUsage.inputTokens,
       cachedInputTokens: lastUsage.cachedInputTokens,
+      cacheWriteInputTokens: lastUsage.cacheWriteInputTokens,
       outputTokens: lastUsage.outputTokens,
       totalTokens: lastUsage.totalTokens || lastUsage.inputTokens + lastUsage.outputTokens,
     };
-    const estimatedCostUsd = estimateCodexUsageCost(model, usage);
+    const reported = params.reportedCosts.find(window => timestamp > window.start && timestamp <= window.end);
     const dateKey = formatDateKey(timestamp);
+    if (reported) {
+      const bucket = reportedBuckets.get(reported) || { tokens: 0, entries: [] };
+      bucket.tokens += usage.totalTokens;
+      bucket.entries.push({ model, date: dateKey, tokens: usage.totalTokens, inRange: timestamp >= params.rangeStart });
+      reportedBuckets.set(reported, bucket);
+    }
+    if (timestamp < params.rangeStart) continue;
+    const estimatedCostUsd = reported ? null : estimateCodexUsageCost(model, usage);
+    if (reported) result.reportedTokens += usage.totalTokens;
+    else if (estimatedCostUsd !== null) result.estimatedTokens += usage.totalTokens;
+    else result.unpricedByModel.set(model, (result.unpricedByModel.get(model) || 0) + usage.totalTokens);
     const dayBucket = params.dailyMap.get(dateKey);
     const summary = params.modelSummaries.get(model) || emptyModelSummary(model);
 
     result.inputTokens += usage.inputTokens;
     result.outputTokens += usage.outputTokens;
     result.cacheReadTokens += Math.min(usage.cachedInputTokens, usage.inputTokens);
-    result.totalCostUsd += estimatedCostUsd;
+    result.totalCostUsd += estimatedCostUsd ?? 0;
     result.totalTokens += usage.totalTokens;
 
     summary.inputTokens += usage.inputTokens;
     summary.outputTokens += usage.outputTokens;
     summary.totalTokens += usage.totalTokens;
-    summary.totalCostUsd += estimatedCostUsd;
+    summary.totalCostUsd += estimatedCostUsd ?? 0;
     summary.cacheReadTokens += Math.min(usage.cachedInputTokens, usage.inputTokens);
     params.modelSummaries.set(model, summary);
 
@@ -3176,10 +3189,26 @@ function parseCodexRolloutUsage(params: {
     if (dayBucket) {
       dayBucket.totalTokens += usage.totalTokens;
       dayBucket.byModel[model] = (dayBucket.byModel[model] || 0) + usage.totalTokens;
-      dayBucket.byModelCostUsd[model] = (dayBucket.byModelCostUsd[model] || 0) + estimatedCostUsd;
+      if (estimatedCostUsd !== null) {
+        dayBucket.byModelCostUsd[model] = (dayBucket.byModelCostUsd[model] || 0) + estimatedCostUsd;
+      }
     }
   }
 
+  // Add each reported turn amount once, replacing its estimates. Distribute
+  // multi-model/day amounts by token share solely for the report breakdown.
+  for (const [window, bucket] of reportedBuckets) {
+    if (bucket.tokens <= 0) continue;
+    for (const entry of bucket.entries) {
+      if (!entry.inRange) continue;
+      const usd = window.usd * entry.tokens / bucket.tokens;
+      result.totalCostUsd += usd;
+      const summary = params.modelSummaries.get(entry.model);
+      if (summary) summary.totalCostUsd += usd;
+      const day = params.dailyMap.get(entry.date);
+      if (day) day.byModelCostUsd[entry.model] = (day.byModelCostUsd[entry.model] || 0) + usd;
+    }
+  }
   return result;
 }
 
@@ -3277,6 +3306,7 @@ function getStoredDeepseekResultCost(
   model: string,
   createdAt: number
 ): number | null {
+  if (result.costSource === 'reported' && validUsd(result.total_cost_usd)) return result.total_cost_usd;
   if (result.costAccounting === DEEPSEEK_COST_ACCOUNTING && result.costEstimate) {
     return result.costEstimate.usd;
   }
@@ -3308,6 +3338,39 @@ export function getDeepseekSessionCost(sessionId: string): { usd: number | null 
     usd += cost;
   }
   return { usd };
+}
+
+/** Interpret legacy zeros conservatively; new adapters persist explicit provenance. */
+function storedAgentCost(provider: AgentProvider, result: StoredClaudeResultMessage, model: string, atMs: number) {
+  if (result.costDetails) return result.costDetails;
+  const details = emptyCostDetails();
+  if (provider === 'deepseek') {
+    const usd = getStoredDeepseekResultCost(result, model, atMs);
+    if (usd === null) details.unpricedCount++;
+    else if (result.costSource === 'reported') { details.reportedUsd = usd; details.reportedCount++; }
+    else { details.estimatedUsd = usd; details.estimatedCount++; }
+    return details;
+  }
+  const explicit = result.costSource === 'reported';
+  const legacyReturned = !result.costSource && (provider === 'claude' || result.total_cost_usd > 0);
+  if (result.costSource === 'estimated' && validUsd(result.total_cost_usd)) {
+    details.estimatedUsd = result.total_cost_usd; details.estimatedCount++;
+  } else {
+    addAgentCost(details, provider, model, result.usage,
+      explicit || legacyReturned ? result.total_cost_usd : undefined, atMs, false);
+  }
+  return details;
+}
+
+function applyCostMode(report: ClaudeUsageReport, costs: ReturnType<typeof emptyCostDetails>, models: Set<string>) {
+  const priced = costs.reportedCount + costs.estimatedCount;
+  report.costMode = costs.unpricedCount ? priced ? 'partial' : 'unavailable'
+    : costs.estimatedCount ? 'estimated' : 'actual';
+  // Per-provider links cannot use Codex's OpenAI-only costBasis UI.
+  report.note = !priced ? 'No reliable USD cost is available for this usage.' : costs.estimatedCount
+    ? 'Agent-returned USD costs take priority. Missing amounts use verified official API token prices, including cache discounts. API equivalents are estimates, not subscription bills.'
+    : 'Uses Agent-returned USD costs, including explicitly reported zero. Returned SDK amounts may themselves be estimates.';
+  if (costs.unpricedCount) report.note += ` ${costs.unpricedCount} usage record(s) lack a verified USD price, model identity, or request-level token details and are excluded: ${[...models].join(', ')}.`;
 }
 
 // Builds a usage report for any provider whose runner stores Claude-shaped
@@ -3355,8 +3418,13 @@ function getClaudeProtocolUsageReport(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCostUsd = 0;
-  let pricedResults = 0;
-  let unpricedResults = 0;
+  const costs = emptyCostDetails();
+  const unpricedModels = new Set<string>();
+  const recordCost = (cost: ReturnType<typeof emptyCostDetails>, model: string) => {
+    for (const key of Object.keys(costs) as Array<keyof typeof costs>) costs[key] += cost[key];
+    if (cost.unpricedCount) unpricedModels.add(model);
+    return cost.reportedUsd + cost.estimatedUsd;
+  };
   let totalCacheReadTokens = 0;
   let totalCacheCreationTokens = 0;
 
@@ -3368,7 +3436,7 @@ function getClaudeProtocolUsageReport(
       continue;
     }
 
-    if (parsed.type !== 'result') {
+    if (parsed.type !== 'result' || parsed.sourceProvider || parsed.parentToolUseId || parsed.agentId) {
       continue;
     }
 
@@ -3403,7 +3471,30 @@ function getClaudeProtocolUsageReport(
     // result row to the best non-alias model name available.
     const rawModelUsage = provider === 'claude' ? result.modelUsage : undefined;
     if (rawModelUsage && Object.keys(rawModelUsage).length > 0) {
-      totalCostUsd += toNumber(result.total_cost_usd);
+      const modelNames = Object.keys(rawModelUsage);
+      const nativeTotal = validUsd(result.total_cost_usd) && result.costSource !== 'unavailable'
+        && result.costSource !== 'estimated';
+      const modelCosts = Object.entries(rawModelUsage).map(([model, usage]) => {
+        const usd = validUsd(usage.costUSD) ? usage.costUSD : undefined;
+        const details = emptyCostDetails();
+        addAgentCost(details, provider, model, {
+          input_tokens: usage.inputTokens, output_tokens: usage.outputTokens,
+          cache_read_input_tokens: usage.cacheReadInputTokens,
+          cache_creation_input_tokens: usage.cacheCreationInputTokens,
+        }, usd, row.created_at, false);
+        return details;
+      });
+      const weights = modelCosts.map(c => c.reportedUsd + c.estimatedUsd);
+      const weightSum = weights.reduce((a, b) => a + b, 0);
+      const allocations = modelCosts.map((cost, i) => nativeTotal
+        ? result.total_cost_usd * (weightSum > 0 ? weights[i] / weightSum : 1 / modelCosts.length)
+        : cost.reportedUsd + cost.estimatedUsd);
+      if (nativeTotal) {
+        costs.reportedCount++; costs.reportedUsd += result.total_cost_usd;
+        totalCostUsd += result.total_cost_usd;
+      } else {
+        modelCosts.forEach((cost, i) => { totalCostUsd += recordCost(cost, modelNames[i]); });
+      }
       for (const [model, usage] of Object.entries(rawModelUsage)) {
         const summary = modelSummaries.get(model) || emptyModelSummary(model);
         const modelInputTokens = toNumber(usage.inputTokens);
@@ -3413,7 +3504,8 @@ function getClaudeProtocolUsageReport(
         summary.inputTokens += modelInputTokens;
         summary.outputTokens += modelOutputTokens;
         summary.totalTokens += modelTotalTokens;
-        summary.totalCostUsd += toNumber(usage.costUSD);
+        const modelCost = allocations[modelNames.indexOf(model)];
+        summary.totalCostUsd += modelCost;
         summary.cacheReadTokens += toNumber(usage.cacheReadInputTokens);
         modelSummaries.set(model, summary);
 
@@ -3427,7 +3519,7 @@ function getClaudeProtocolUsageReport(
         if (dayBucket) {
           dayBucket.totalTokens += modelTotalTokens;
           dayBucket.byModel[model] = (dayBucket.byModel[model] || 0) + modelTotalTokens;
-          dayBucket.byModelCostUsd[model] = (dayBucket.byModelCostUsd[model] || 0) + toNumber(usage.costUSD);
+          dayBucket.byModelCostUsd[model] = (dayBucket.byModelCostUsd[model] || 0) + modelCost;
         }
       }
       continue;
@@ -3438,13 +3530,8 @@ function getClaudeProtocolUsageReport(
       row.session_model,
       (result as { model?: unknown }).model
     );
-    const resultCostUsd =
-      provider === 'deepseek'
-        ? getStoredDeepseekResultCost(result, fallbackModel, row.created_at)
-        : toNumber(result.total_cost_usd);
-    if (resultCostUsd === null) unpricedResults += 1;
-    else pricedResults += 1;
-    totalCostUsd += resultCostUsd ?? 0;
+    const resultCostUsd = recordCost(storedAgentCost(provider, result, fallbackModel, row.created_at), fallbackModel);
+    totalCostUsd += resultCostUsd;
     const summary = modelSummaries.get(fallbackModel) || emptyModelSummary(fallbackModel);
     summary.inputTokens += inputTokens;
     summary.outputTokens += outputTokens;
@@ -3481,17 +3568,6 @@ function getClaudeProtocolUsageReport(
 
   const report: ClaudeUsageReport = {
     rangeDays: safeDays,
-    // Non-claude runners compute costs against provider-specific pricing the
-    // SDK may not know exactly; surface those as estimates.
-    ...(provider === 'claude' ? {} : {
-      costMode: unpricedResults > 0 ? pricedResults > 0 ? 'partial' as const : 'unavailable' as const : 'estimated' as const,
-    }),
-    ...(provider === 'deepseek'
-      ? {
-          note:
-            `Estimated USD cost of reported main-agent usage at official DeepSeek API prices (verified September 10, 2026), including cache discounts and weekday UTC peak hours. Background requests without reported usage are excluded. Actual bills may differ.${unpricedResults ? ` ${unpricedResults} result(s) have no verified price and are excluded from cost totals.` : ''}`,
-        }
-      : {}),
     totals: {
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
@@ -3509,6 +3585,11 @@ function getClaudeProtocolUsageReport(
       byModelCostUsd: bucket.byModelCostUsd,
     })),
   };
+
+  applyCostMode(report, costs, unpricedModels);
+  if (provider === 'deepseek') {
+    report.note += ' API estimates use official DeepSeek API prices (verified September 10, 2026), including request-time cache discounts and weekday UTC peak hours. Background requests without reported usage are excluded.';
+  }
 
   claudeUsageReportCache.set(cacheKey, {
     version: claudeUsageReportDataVersion,
@@ -3544,8 +3625,9 @@ export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsag
   const report = createEmptyUsageReport(
     safeDays,
     'estimated',
-    'Cost is estimated from the OpenAI API price table. ChatGPT-plan billing may differ from this estimate.'
+    `API-equivalent token cost at current Standard OpenAI API prices (verified ${CODEX_API_PRICING_VERIFIED_AT}), including reported cache reads, cache writes and per-request long-context rates. Excludes tool fees and regional surcharges. This is not a ChatGPT subscription bill.`
   );
+  report.costBasis = 'api-standard';
   const dailyMap = new Map<string, {
     totalTokens: number;
     byModel: Record<string, number>;
@@ -3596,6 +3678,10 @@ export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsag
   const modelSessions = new Map<string, Set<string>>();
   const sessionsWithUsage = new Set<string>();
 
+  let reportedTokens = 0;
+  let estimatedTokens = 0;
+  const unpricedByModel = new Map<string, number>();
+
   for (const [threadId, sessionMeta] of rowsByThread.entries()) {
     const thread = threadsById.get(threadId);
     const rolloutPath = thread?.rollout_path || findCodexRolloutPathById(threadId);
@@ -3612,12 +3698,16 @@ export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsag
       modelSummaries,
       modelSessions,
       sessionId: sessionMeta.sessionId,
+      reportedCosts: readCodexReportedCosts(sessionMeta.sessionId),
     });
 
     if (usage.totalTokens <= 0 && usage.totalCostUsd <= 0) {
       continue;
     }
 
+    reportedTokens += usage.reportedTokens;
+    estimatedTokens += usage.estimatedTokens;
+    for (const [model, tokens] of usage.unpricedByModel) unpricedByModel.set(model, (unpricedByModel.get(model) || 0) + tokens);
     report.totals.inputTokens += usage.inputTokens;
     report.totals.outputTokens += usage.outputTokens;
     report.totals.totalTokens += usage.totalTokens;
@@ -3644,6 +3734,19 @@ export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsag
     byModelCostUsd: bucket.byModelCostUsd,
   }));
   report.totals.sessionCount = sessionsWithUsage.size;
+  const unpricedModels = report.models.filter(model => (unpricedByModel.get(model.model) || 0) > 0).map(model => model.model);
+  const unpricedTokens = [...unpricedByModel.values()].reduce((sum, tokens) => sum + tokens, 0);
+  const pricedTokens = reportedTokens + estimatedTokens;
+  report.costCoverage = { pricedTokens, unpricedTokens, unpricedModels };
+  report.costMode = unpricedTokens > 0 ? pricedTokens > 0 ? 'partial' : 'unavailable'
+    : reportedTokens > 0 && estimatedTokens === 0 ? 'actual' : 'estimated';
+  if (reportedTokens > 0) {
+    report.costBasis = estimatedTokens > 0 || unpricedTokens > 0 ? 'reported-and-api' : undefined;
+    report.note = `Agent-reported amounts are used where available. ${report.note}`;
+  }
+  if (unpricedTokens > 0) {
+    report.note += ` Models without configured API prices are excluded: ${unpricedModels.join(', ')}.`;
+  }
   report.totals.cacheHitRate =
     report.totals.inputTokens > 0 ? report.totals.cacheReadTokens / report.totals.inputTokens : 0;
 
@@ -3719,6 +3822,8 @@ export function getOpencodeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeU
   const modelSessions = new Map<string, Set<string>>();
   const sessionsWithUsage = new Set<string>();
   let totalCacheWriteTokens = 0;
+  const costs = emptyCostDetails();
+  const unpricedModels = new Set<string>();
 
   for (const row of usageRows) {
     const sessionMeta = rowsByOpencodeSession.get(row.session_id);
@@ -3731,13 +3836,18 @@ export function getOpencodeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeU
     const outputTokens = toNumber(row.output_tokens);
     const cacheReadTokens = toNumber(row.cache_read_tokens);
     const cacheWriteTokens = toNumber(row.cache_write_tokens);
-    const totalCostUsd = toNumber(row.total_cost_usd);
+    const step = emptyCostDetails();
+    addAgentCost(step, 'opencode', model, { input_tokens: inputTokens, output_tokens: outputTokens,
+      cache_read_input_tokens: cacheReadTokens, cache_creation_input_tokens: cacheWriteTokens }, row.total_cost_usd, row.created_at);
+    const totalCostUsd = step.reportedUsd + step.estimatedUsd;
     const totalTokens = inputTokens + outputTokens;
 
     if (totalTokens <= 0 && totalCostUsd <= 0 && cacheReadTokens <= 0 && cacheWriteTokens <= 0) {
       continue;
     }
 
+    for (const key of Object.keys(costs) as Array<keyof typeof costs>) costs[key] += step[key];
+    if (step.unpricedCount) unpricedModels.add(model);
     const summary = modelSummaries.get(model) || emptyModelSummary(model);
     summary.inputTokens += inputTokens;
     summary.outputTokens += outputTokens;
@@ -3788,6 +3898,8 @@ export function getOpencodeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeU
   report.totals.sessionCount = sessionsWithUsage.size;
   const cacheDenominator = report.totals.inputTokens + report.totals.cacheReadTokens + totalCacheWriteTokens;
   report.totals.cacheHitRate = cacheDenominator > 0 ? report.totals.cacheReadTokens / cacheDenominator : 0;
+
+  applyCostMode(report, costs, unpricedModels);
 
   opencodeUsageReportCache.set(safeDays, {
     version: opencodeUsageReportDataVersion,

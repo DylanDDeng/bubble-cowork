@@ -1,3 +1,4 @@
+import type { ToolExecutionMetadata } from '../../shared/types';
 import type { Attachment, ContentBlock, StreamMessage } from '../types';
 
 function isContentBlock(value: unknown): value is ContentBlock {
@@ -58,6 +59,7 @@ export interface NormalizedToolUseBlock {
   input: Record<string, unknown>;
   /** Original block type, kept so callers can label MCP/server origins. */
   originType: string;
+  execution?: ToolExecutionMetadata;
   /** MCP server name when originType === 'mcp_tool_use'. */
   serverName?: string;
 }
@@ -68,6 +70,7 @@ export interface NormalizedToolResultBlock {
   content: string;
   is_error?: boolean;
   originType: string;
+  execution?: ToolExecutionMetadata;
   displayContent?: string;
   images?: Attachment[];
   mediaRefs?: import('../../shared/computer-use').ComputerUseMediaRef[];
@@ -101,6 +104,7 @@ export function normalizeToolUseBlock(block: unknown): NormalizedToolUseBlock | 
     name,
     input,
     originType: type,
+    ...(isObject(block.execution) ? { execution: block.execution as ToolExecutionMetadata } : {}),
     serverName: typeof block.server_name === 'string' ? block.server_name : undefined,
   };
 }
@@ -118,6 +122,7 @@ export function normalizeToolResultBlock(block: unknown): NormalizedToolResultBl
     ...(typeof block.displayContent === 'string' ? { displayContent: block.displayContent } : {}),
     is_error: block.is_error === true,
     originType: type,
+    ...(isObject(block.execution) ? { execution: block.execution as ToolExecutionMetadata } : {}),
     ...(Array.isArray(block.images) ? { images: block.images.filter((image): image is Attachment =>
       isObject(image) && image.kind === 'image' && typeof image.id === 'string' && typeof image.path === 'string' && typeof image.mimeType === 'string') } : {}),
     ...(Array.isArray(block.mediaRefs) ? { mediaRefs: block.mediaRefs as NormalizedToolResultBlock['mediaRefs'] } : {}),

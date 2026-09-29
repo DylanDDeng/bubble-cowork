@@ -1,3 +1,4 @@
+import { CompactionTracker } from './compaction-tracker';
 import { EventEmitter } from 'events';
 import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
@@ -246,6 +247,8 @@ export class KimiServerAdapter implements ProviderAdapter {
 
   readonly manager: KimiServerManager;
 
+  private readonly compactions = new CompactionTracker(event => this.emit(event));
+
   private sessions = new Map<string, ActiveServerSession>();
   private sessionsByServerId = new Map<string, string>();
   private defaultModel: string | null = null;
@@ -423,6 +426,7 @@ export class KimiServerAdapter implements ProviderAdapter {
         return;
       }
       session.pendingManualCompact = true;
+      this.compactions.start(session, { trigger: 'manual', preTokens: session.lastContext.contextTokens || 0 });
       try {
         await this.manager.compactSession(session.providerSessionId);
       } catch (error) {
@@ -521,7 +525,7 @@ export class KimiServerAdapter implements ProviderAdapter {
     }
 
     const turnPending =
-      session.activeTurn || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
+      session.activeTurn || session.pendingManualCompact || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
     if (!turnPending || session.generation !== this.manager.getGeneration()) {
       this.settleStop(session, true, true);
       return;
@@ -1248,6 +1252,7 @@ export class KimiServerAdapter implements ProviderAdapter {
           subtype: 'error',
           duration_ms: getNumber(payload.durationMs),
           total_cost_usd: 0,
+        costSource: 'unavailable',
           usage: this.buildTurnUsage(session),
           model: session.model,
         },
@@ -1268,6 +1273,7 @@ export class KimiServerAdapter implements ProviderAdapter {
         subtype: 'success',
         duration_ms: getNumber(payload.durationMs),
         total_cost_usd: 0,
+        costSource: 'unavailable',
         usage: this.buildTurnUsage(session),
         model: session.model,
       },
@@ -1477,20 +1483,7 @@ export class KimiServerAdapter implements ProviderAdapter {
   private handleHistoryCompacted(session: ActiveServerSession, payload: Record<string, unknown>): void {
     const manual = session.pendingManualCompact;
     session.pendingManualCompact = false;
-    this.emit({
-      type: 'message',
-      threadId: session.threadId,
-      message: {
-        type: 'system',
-        subtype: 'compact_boundary',
-        uuid: uuidv4(),
-        session_id: session.threadId,
-        compactMetadata: {
-          trigger: manual ? 'manual' : 'auto',
-          preTokens: session.lastContext.contextTokens || 0,
-        },
-      },
-    });
+    this.compactions.complete(session, { trigger: manual ? 'manual' : 'auto' });
     if (manual) {
       // A manual /compact runs outside a model turn: settle the UI turn here.
       session.status = 'completed';
@@ -1503,6 +1496,7 @@ export class KimiServerAdapter implements ProviderAdapter {
           subtype: 'success',
           duration_ms: 0,
           total_cost_usd: 0,
+        costSource: 'unavailable',
           usage: { input_tokens: 0, output_tokens: 0 },
         },
       });
@@ -1515,7 +1509,7 @@ export class KimiServerAdapter implements ProviderAdapter {
     for (const session of Array.from(this.sessions.values())) {
       if (session.generation !== generation) continue;
       const midTurn =
-        session.activeTurn || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
+        session.activeTurn || session.pendingManualCompact || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
       this.finalizeStreaming(session);
       this.dismissPendingInteractions(session);
       this.settleStopIfPending(session, false);
@@ -1539,6 +1533,7 @@ export class KimiServerAdapter implements ProviderAdapter {
             subtype: 'error',
             duration_ms: 0,
             total_cost_usd: 0,
+        costSource: 'unavailable',
             usage: this.buildTurnUsage(session),
             model: session.model,
           },
@@ -1559,7 +1554,7 @@ export class KimiServerAdapter implements ProviderAdapter {
     const session = this.sessions.get(threadId);
     if (!session) return;
     const midTurn =
-      session.activeTurn || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
+      session.activeTurn || session.pendingManualCompact || session.submitInFlight > 0 || session.pendingPromptIds.size > 0;
     this.finalizeStreaming(session);
     this.dismissPendingInteractions(session);
     this.settleStopIfPending(session, false);
@@ -1587,6 +1582,7 @@ export class KimiServerAdapter implements ProviderAdapter {
           subtype: 'error',
           duration_ms: 0,
           total_cost_usd: 0,
+        costSource: 'unavailable',
           usage: this.buildTurnUsage(session),
           model: session.model,
         },
@@ -1659,6 +1655,7 @@ export class KimiServerAdapter implements ProviderAdapter {
         subtype: 'success',
         duration_ms: 0,
         total_cost_usd: 0,
+        costSource: 'unavailable',
         usage: this.buildTurnUsage(session),
         model: session.model,
       },
@@ -1784,6 +1781,7 @@ export class KimiServerAdapter implements ProviderAdapter {
         subtype: 'error',
         duration_ms: 0,
         total_cost_usd: 0,
+        costSource: 'unavailable',
         usage: { input_tokens: 0, output_tokens: 0 },
       },
     });
@@ -1803,6 +1801,12 @@ export class KimiServerAdapter implements ProviderAdapter {
   }
 
   private emit(event: ProviderRuntimeEvent): void {
+    if (event.type === 'error' ||
+        (event.type === 'status_change' && ['completed', 'stopped', 'error'].includes(event.status)) ||
+        (event.type === 'message' && event.message.type === 'result')) {
+      const session = this.sessions.get(event.threadId);
+      if (session) this.compactions.interrupt(session);
+    }
     this.events.emit('event', event);
   }
 }

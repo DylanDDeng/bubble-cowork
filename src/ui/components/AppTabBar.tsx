@@ -1,12 +1,10 @@
 import { useAppPreferences } from '../store/useAppPreferences';
 import { shortcutLabel } from '../../shared/keyboard-shortcuts';
-import { Clock, Columns2, GitPullRequest, MessageSquare, Plus, Script, X } from './icons';
+import { Clock, GitPullRequest, MessageSquare, Plus, Script, X } from './icons';
 import { AgentIcon } from './ComposerAgentControls';
 import { SidebarHeaderTrigger } from './Sidebar';
 import { SessionHistoryButtons } from './SessionHistoryButtons';
-import { StageIcon } from './board-support';
 import { useAppStore } from '../store/useAppStore';
-import { useBoardStore } from '../store/useBoardStore';
 import { useTabsStore, type AppTab } from '../store/useTabsStore';
 import type { ReactNode } from 'react';
 
@@ -136,19 +134,6 @@ function useTabDescriptor(tab: AppTab): { icon: ReactNode; title: string } {
   const session = useAppStore((state) =>
     view.kind === 'chat' && view.sessionId ? state.sessions[view.sessionId] : undefined
   );
-  const task = useBoardStore((state) =>
-    view.kind === 'board' && view.taskId ? state.tasks[view.taskId] : undefined
-  );
-
-  if (view.kind === 'board') {
-    if (view.taskId) {
-      return {
-        icon: task ? <StageIcon stage={task.stage} className="h-3.5 w-3.5" /> : <Columns2 className="h-3.5 w-3.5" />,
-        title: task?.title || 'Task',
-      };
-    }
-    return { icon: <Columns2 className="h-3.5 w-3.5" />, title: 'Board' };
-  }
   if (view.kind === 'chat') {
     if (view.sessionId) {
       return {

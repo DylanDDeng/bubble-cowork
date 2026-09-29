@@ -2,7 +2,7 @@
 export const SHORTCUT_COMMANDS = [
   { id: 'search', title: 'Search tasks and projects', group: 'Navigation', defaults: ['Mod+KeyK'] },
   { id: 'sidebar', title: 'Toggle sidebar', group: 'Navigation', defaults: ['Mod+KeyB'] },
-  { id: 'activity', title: 'Toggle sidebar activity', group: 'Navigation', defaults: ['Mod+Alt+KeyU'] },
+  { id: 'activity', title: 'Toggle sidebar state view', group: 'Navigation', defaults: ['Mod+Alt+KeyU'] },
   { id: 'back', title: 'Go back', group: 'Navigation', defaults: ['Mod+BracketLeft'] },
   { id: 'forward', title: 'Go forward', group: 'Navigation', defaults: ['Mod+BracketRight'] },
   { id: 'settings', title: 'Open settings', group: 'Navigation', defaults: ['Mod+Comma'] },

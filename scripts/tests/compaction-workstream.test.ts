@@ -53,6 +53,8 @@ const legacy = boundary(); delete legacy.compactionId;
 assert.deepEqual(model([prompt, note('Before', 200), legacy, note('After', 500), answer, result]).model.entries.map(e => e.type), ['note', 'compaction', 'note']);
 const legacyStart = start(); delete legacyStart.compactionId;
 assert.equal(model([prompt, legacyStart, legacy, result]).model.entries.length, 1, 'legacy hook/boundary pair merges');
+const corrected = boundary(); corrected.compactMetadata.trigger = 'manual';
+assert.equal(model([prompt, start(), corrected, result]).model.entries[0].summary, 'Context compacted', 'native completion resolves unknown start trigger');
 const manual = boundary(); manual.compactMetadata.trigger = 'manual';
 assert.equal(model([prompt, manual, result]).model.entries[0].summary, 'Context compacted');
 assert.equal(compactionState(model([prompt, start()]).model.entries[0]), 'interrupted', 'uncompleted historical start must not spin forever');

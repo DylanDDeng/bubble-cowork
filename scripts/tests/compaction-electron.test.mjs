@@ -12,6 +12,7 @@ import {createRoot} from 'react-dom/client';
 import {ChatPane} from '/src/ui/components/ChatPane';
 import {Tooltip} from '@base-ui-components/react/tooltip';
 import {useAppStore} from '/src/ui/store/useAppStore';
+import {getLatestBubbleContextSnapshot} from '/src/ui/utils/context-usage';
 import '/src/ui/index.css';
 window.electron = {
  sendClientEvent:()=>{},getProjectTree:async()=>null,getRecentCwds:async()=>[],getProjectGitSummary:async()=>({isGitRepository:false}),
@@ -24,10 +25,23 @@ for(const p of ['Claude','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepsee
 const config={defaultModel:'gpt-test',options:['gpt-test'],availableModels:[{name:'gpt-test',label:'GPT Test'}]};
 window.electron.getCodexModelConfig=async()=>config;
 const store=useAppStore,chatId=store.getState().createDraftSession('/tmp/compaction-qa');
-let turn=0, messages=[];
+let turn=0, messages=[],provider='codex';
 const note=(id,text,at,phase='commentary')=>({type:'assistant',uuid:id,createdAt:at,agentId:'qa-agent',agentRunId:'run-'+turn,phase,message:{content:[{type:'text',text}]}});
-const set=(status='running')=>store.setState(s=>({sessions:{...s.sessions,[chatId]:{...s.sessions[chatId],isDraft:false,hydrated:true,provider:'codex',status,model:'gpt-test',messages:[...messages],streaming:{isStreaming:false,text:'',thinking:''}}}}));
+const set=(status='running')=>store.setState(s=>({sessions:{...s.sessions,[chatId]:{...s.sessions[chatId],isDraft:false,hydrated:true,provider,status,model:'gpt-test',messages:[...messages],streaming:{isStreaming:false,text:'',thinking:''}}}}));
 window.qa={
+ nativeBubbleUsage:()=>{
+  provider='bubble';messages=[];set();
+  store.setState(s=>({sessions:{...s.sessions,[chatId]:{...s.sessions[chatId],streaming:{isStreaming:true,text:'Keep streaming',thinking:'Keep thinking'}}}}));
+  const message={type:'system',subtype:'token_usage',provider:'bubble',uuid:'native-usage',session_id:chatId,model:'gpt-test',usage:{inputTokens:20,outputTokens:0,cachedInputTokens:0,reasoningOutputTokens:0,totalTokens:20,contextWindow:100}};
+  store.getState().handleServerEvent({type:'stream.message',payload:{sessionId:chatId,message}});
+  const session=store.getState().sessions[chatId];
+  return {text:session.streaming.text,thinking:session.streaming.thinking,snapshot:getLatestBubbleContextSnapshot(session.messages,'gpt-test')};
+ },
+ trust:()=>{
+  provider='bubble';messages=[];set();
+  store.getState().handleServerEvent({type:'permission.request',payload:{sessionId:chatId,toolUseId:'trust',toolName:'ProjectTrust',input:{kind:'acp-permission',provider:'bubble',toolName:'ProjectTrust',question:'Trust the configuration in /projects/example?\\nPermission rule: Bash(npm test)\\nMCP server: docs\\nLSP server: typescript\\nApproval remembers this exact configuration; changes require trust again.',options:[{optionId:'approve',name:'Trust configuration',kind:'allow_once'},{optionId:'reject',name:'Keep disabled',kind:'reject_once'}]}}});
+ },
+ provider:(value)=>{provider=value},
  begin:(only=false,delay=0,manual=false)=>{
   turn++;const at=Date.now()-delay;
   messages=[{type:'user_prompt',prompt:manual?'/compact':'Align the environment panel behavior',createdAt:at-200},
@@ -84,6 +98,24 @@ app.whenReady().then(async()=>{
   assert.equal(await js('document.querySelector("[data-compaction-activity]").textContent'),'Context compacted');
   assert.equal(await js('document.querySelectorAll(".workstream-toggle-row").length'),0);await shot('manual');
   await js('qa.dark()');w.setSize(620,760);await delay(250);await shot('manual-dark-narrow');
+  for(const provider of ['claude','kimi','grok','opencode','pi','bubble','qoder','deepseek']) {
+   await js('qa.provider('+JSON.stringify(provider)+');qa.begin(true)');await delay(100);
+   assert.equal(await js('document.querySelector("[data-compaction-activity]")?.getAttribute("data-compaction-activity")'),'inProgress',provider+' starts');
+   await js('qa.finish(true);qa.complete()');await delay(100);
+   assert.equal(await js('document.querySelector("[data-compaction-activity]")?.textContent'),'Context automatically compacted',provider+' finishes');
+   await js('qa.begin(true);qa.stop()');await delay(100);
+   assert.equal(await js('document.querySelector("[data-compaction-activity]")?.getAttribute("data-compaction-activity")'),'interrupted',provider+' stops');
+   await js('qa.begin(true,0,true);qa.finish(true,true);qa.complete();qa.reload()');await delay(100);
+   assert.equal(await js('document.querySelector("[data-compaction-activity]")?.textContent'),'Context compacted',provider+' manual history');
+  }
+  await shot('all-providers');
+  const native=await js('qa.nativeBubbleUsage()');
+  assert.equal(native.text,'Keep streaming');assert.equal(native.thinking,'Keep thinking');
+  assert.equal(native.snapshot.percent,20);
+  await js('qa.trust()');await until('!!document.querySelector("[data-bubble-project-trust]")','project trust details');
+  const trust=await js('document.querySelector("[data-bubble-project-trust]").innerText');
+  assert(trust.includes('Bash(npm test)')&&trust.includes('MCP server: docs')&&trust.includes('LSP server: typescript'));
+  await shot('bubble-project-trust');
   assert.deepEqual(errors,[]);
   console.log('compaction Electron: stable row, sequence, final-answer collapse, history, delay, manual, stop and dark/narrow passed');app.exit(0);
  }catch(e){console.error(e);await shot('failure');app.exit(1)}

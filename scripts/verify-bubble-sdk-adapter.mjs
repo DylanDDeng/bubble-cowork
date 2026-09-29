@@ -82,9 +82,9 @@ assert.ok(
   'Bubble adapter must resolve the model context window from the registry so the composer context indicator has a ceiling'
 );
 assert.ok(
-  adapter.includes('totalCostUsd') &&
-    adapter.includes("cost.currency === 'USD'") &&
-    adapter.includes('total_cost_usd: session.totalCostUsd'),
+  adapter.includes('addAgentCost(session.costDetails') &&
+    adapter.includes("cost?.currency === 'USD'") &&
+    adapter.includes('...costFields(session.costDetails)'),
   'Bubble adapter must sum per-step USD turn costs into the unified result cost (non-USD dropped, not mislabelled)'
 );
 assert.ok(
@@ -271,7 +271,7 @@ assert.ok(
 const promptInput = read('src/ui/components/PromptInput.tsx');
 assert.ok(
   promptInput.includes("runtimeProvider === 'bubble'") &&
-    promptInput.includes("getLatestOpenCodeContextSnapshot(activeSession.messages, bubbleContextModel, 'Bubble')") &&
+    promptInput.includes("getLatestBubbleContextSnapshot(activeSession.messages, bubbleContextModel)") &&
     promptInput.includes('providerLabel="Bubble"'),
   'Composer must show Bubble token/context usage with Bubble-specific copy'
 );

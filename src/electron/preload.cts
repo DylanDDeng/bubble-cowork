@@ -502,6 +502,8 @@ contextBridge.exposeInMainWorld('electron', {
   getSessionUserPrompts: (sessionId: string) => {
     return ipcRenderer.invoke('get-session-user-prompts', sessionId);
   },
+  getSessionSources: (sessionId: string) => ipcRenderer.invoke('get-session-sources', sessionId),
+  previewSessionSource: (sessionId: string, path: string) => ipcRenderer.invoke('preview-session-source', sessionId, path),
 
   getDeepseekSessionCost: (sessionId: string) => {
     return ipcRenderer.invoke('get-deepseek-session-cost', sessionId);
@@ -1057,6 +1059,7 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   listSessionPullRequests: (sessionId: string, refresh?: boolean) => ipcRenderer.invoke('list-session-pull-requests', sessionId, refresh),
+  listSidebarPullRequests: (refresh?: boolean) => ipcRenderer.invoke('list-sidebar-pull-requests', refresh),
   attachSessionPullRequest: (input: import('../shared/types').AttachSessionPullRequestInput) => ipcRenderer.invoke('attach-session-pull-request', input),
   detachSessionPullRequest: (sessionId: string, url: string, attachedAt: number) => ipcRenderer.invoke('detach-session-pull-request', sessionId, url, attachedAt),
   onSessionPullRequestsChanged: (callback: (sessionId: string) => void) => {

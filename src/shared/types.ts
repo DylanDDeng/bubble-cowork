@@ -1075,6 +1075,7 @@ export interface SessionStartPayload {
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
+  bubblePlanExitMode?: 'default' | 'bypassPermissions';
   /** Bubble thinking level (per-model open set, e.g. low/medium/high/max). */
   bubbleThinkingLevel?: string;
   teamMode?: SessionTeamMode;
@@ -1156,6 +1157,7 @@ export interface SessionContinuePayload {
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
+  bubblePlanExitMode?: 'default' | 'bypassPermissions';
   /** Bubble thinking level (per-model open set). Absent = SDK/model default. */
   bubbleThinkingLevel?: string;
   teamMode?: SessionTeamMode;
@@ -1600,6 +1602,15 @@ export type PermissionRequestInput =
   | BrowserNavigationPermissionInput
   | ComputerUsePermissionInput;
 
+export interface RetryOutputSnapshot {
+  uuid: string;
+  createdAt: number;
+  thinking: string;
+  text: string;
+  agentId?: string | null;
+  agentRunId?: string | null;
+}
+
 // StreamMessage 类型（SDK 消息或内部消息）
 export type StreamMessageBase = {
   createdAt?: number;
@@ -1698,9 +1709,9 @@ export type StreamMessage =
       trigger: 'manual' | 'auto';
     })
   // Emitted when an API request failed with a retryable error and the runtime
-  // will retry after a delay. Rendered as a transient status on the working
-  // indicator, never as a transcript card; any later substantive message
-  // (assistant/stream/result) means the retry resolved.
+  // will retry after a delay. Displayed independently of the work trace.
+  // A persisted api_retry_resolved marker records recovery even when only
+  // ephemeral streaming deltas have arrived.
   | (StreamMessageBase & {
       type: 'system';
       subtype: 'api_retry';
@@ -1711,6 +1722,17 @@ export type StreamMessage =
       delayMs: number;
       /** HTTP status of the failed request; null for connection errors. */
       errorStatus: number | null;
+      /** Display-only interrupted output. Never replayed as Claude conversation input. */
+      snapshot?: RetryOutputSnapshot;
+    })
+  | (StreamMessageBase & {
+      type: 'system';
+      subtype: 'api_retry_resolved';
+      uuid: string;
+      session_id: string;
+      retryId: string;
+      /** Final snapshot after removing content covered by a late assistant commit. */
+      snapshot?: RetryOutputSnapshot;
     })
   // Emitted right after a turn's `result`: unified diff of the whole working
   // tree across that turn (git tree snapshot before vs after). Captures file
@@ -1728,16 +1750,21 @@ export type StreamMessage =
       subtype: 'token_usage';
       uuid: string;
       session_id: string;
-      provider: 'codex' | 'kimi' | 'grok' | 'deepseek';
+      provider: 'codex' | 'kimi' | 'grok' | 'deepseek' | 'bubble';
+      model?: string;
       usage: CodexContextUsage;
     })
-  | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean; phase?: 'commentary' | 'final_answer' })
+  | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean; phase?: 'commentary' | 'final_answer'; interrupted?: boolean })
   | (StreamMessageBase & { type: 'user'; uuid: string; message: UserMessage })
   | (StreamMessageBase & {
       type: 'result';
       subtype: 'success' | string;
       duration_ms: number;
       total_cost_usd: number;
+      /** Distinguishes a provider-reported zero from an adapter placeholder. */
+      costSource?: 'reported' | 'estimated' | 'unavailable';
+      /** Per-request coverage; partial returned amounts must not be counted twice. */
+      costDetails?: ProviderCostDetails;
       usage: Usage;
       model?: string;
       modelUsage?: Record<string, ClaudeModelUsage>;
@@ -1782,11 +1809,22 @@ export interface UserMessage {
   content: ContentBlock[];
 }
 
+/** Native execution metadata retained with the transcript, independent of display text. */
+export interface ToolExecutionMetadata {
+  startedAt?: number;
+  completedAt?: number;
+  durationMs?: number;
+  exitCode?: number;
+  status?: 'running' | 'completed' | 'interrupted' | 'failed' | 'declined';
+  background?: boolean;
+  approvalReviews?: Array<{ id: string; status: 'denied' | 'timedOut'; reason?: string }>;
+}
+
 export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'thinking'; thinking: string; signature?: string; durationMs?: number }
-  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; displayContent?: string; is_error?: boolean; mediaRefs?: ComputerUseMediaRef[]; images?: Attachment[] }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown>; execution?: ToolExecutionMetadata }
+  | { type: 'tool_result'; tool_use_id: string; content: string; displayContent?: string; is_error?: boolean; mediaRefs?: ComputerUseMediaRef[]; images?: Attachment[]; execution?: ToolExecutionMetadata }
   | { type: 'memory_citations'; citations: MemoryCitation[] };
 
 export interface MemoryCitation {
@@ -1833,12 +1871,21 @@ export interface Usage {
   total_tokens?: number | null;
 }
 
+export interface ProviderCostDetails {
+  reportedUsd: number;
+  estimatedUsd: number;
+  reportedCount: number;
+  estimatedCount: number;
+  unpricedCount: number;
+}
+
 export interface ProviderCostEstimate {
   /** null means no verified price is available; never interpret it as free. */
   usd: number | null;
 }
 
 export interface CodexContextUsage {
+  estimated?: boolean;
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
@@ -1919,6 +1966,12 @@ export interface ClaudeUsageDailyPoint {
 export interface ClaudeUsageReport {
   rangeDays: ClaudeUsageRangeDays;
   costMode?: 'actual' | 'estimated' | 'partial' | 'unavailable';
+  costBasis?: 'api-standard' | 'reported-and-api';
+  costCoverage?: {
+    pricedTokens: number;
+    unpricedTokens: number;
+    unpricedModels: string[];
+  };
   note?: string;
   totals: {
     inputTokens: number;

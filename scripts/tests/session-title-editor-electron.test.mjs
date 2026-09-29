@@ -18,7 +18,6 @@ import { AppTabBar } from '/src/ui/components/AppTabBar.tsx';
 import { FolderTreeView } from '/src/ui/components/FolderTreeView.tsx';
 import { useAppStore } from '/src/ui/store/useAppStore.ts';
 import { useTabsStore } from '/src/ui/store/useTabsStore.ts';
-import { useBoardStore, ensureBoardSessionSync } from '/src/ui/store/useBoardStore.ts';
 import '/src/ui/index.css';
 const id = new URLSearchParams(location.search).get('session');
 const a = useAppStore.getState();
@@ -27,10 +26,8 @@ const base = useAppStore.getState().sessions[draft];
 useAppStore.setState({ sessions: { [id]: {...base, id, isDraft:false, title:'复制 Codex Session 标题交互', status:'running', messages:[{type:'user_prompt',prompt:'请按照录屏实现标题的原位编辑',createdAt:Date.now()}]} } });
 a.setActiveSession(id);
 useTabsStore.getState().openTab({kind:'chat',sessionId:id});
-const boardId=useBoardStore.getState().addTask({title:'复制 Codex Session 标题交互',sessionId:id,titleFollowsSession:true});
-ensureBoardSessionSync();
 window.electron.onServerEvent(e=>a.handleServerEvent(e));
-window.qa={store:useAppStore,id,boardId,board:useBoardStore,input:()=>document.querySelector('[aria-label="Conversation title"]'),button:()=>document.querySelector('[aria-label^="Rename conversation:"]')};
+window.qa={store:useAppStore,id,input:()=>document.querySelector('[aria-label="Conversation title"]'),button:()=>document.querySelector('[aria-label^="Rename conversation:"]')};
 function Harness(){
  const s=useAppStore(); const active=s.sessions[s.activeSessionId];
  return <Tooltip.Provider><div style={{display:'flex',height:'100vh',background:'var(--bg-primary)'}}>
@@ -82,7 +79,6 @@ app.whenReady().then(async()=>{
   assert.equal(await title(),'新的会话标题');assert.equal(sessions.getSession(row.id).title,'新的会话标题');
   assert.equal(broadcasts,1,'Enter must save exactly once');
   assert.equal(await js('document.activeElement===qa.button()'),true,'keyboard focus returns to title');
-  assert.equal(await js('qa.board.getState().tasks[qa.boardId].title'),'新的会话标题');
   assert.equal(await js('!!Array.from(document.querySelectorAll("[role=tab]")).find(el=>el.textContent.includes("新的会话标题"))'),true);
   assert.equal(await js('document.querySelector("[data-session-id]").textContent.includes("新的会话标题")'),true);
   assert.equal(await js('qa.store.getState().sessions[qa.id].status'),'running','renaming preserves live run state');

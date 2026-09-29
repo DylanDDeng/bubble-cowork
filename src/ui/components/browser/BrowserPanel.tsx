@@ -316,21 +316,21 @@ export function BrowserPanel({
     };
   }, [browserSessionId, collapsed, recordHistoryEntry, upsertSessionState]);
 
-  // Pane is hidden but we keep the state alive; tell main to detach.
+  // Invalidate scheduled geometry updates before paint. Otherwise an old
+  // ResizeObserver/rAF can reattach a view after navigation has hidden it.
+  const nativeViewActiveRef = useRef(false);
   useLayoutEffect(() => {
-    if (!nativeViewHidden) return;
-    window.electron.browser.hide({ sessionId: browserSessionId }).catch(() => {
-      // non-fatal
-    });
-  }, [browserSessionId, nativeViewHidden]);
-
-  useEffect(() => {
-    return () => {
-      window.electron.browser.hide({ sessionId: browserSessionId }).catch(() => {
-        // non-fatal: session switch unmounts this panel; keep the page suspended.
-      });
+    nativeViewActiveRef.current = !nativeViewHidden;
+    const hide = () => {
+      window.electron.browser.hide({ sessionId: browserSessionId }).catch(() => {});
     };
-  }, [browserSessionId]);
+    if (nativeViewHidden) hide();
+    return () => {
+      nativeViewActiveRef.current = false;
+      // Detach in the same commit as the session change, keeping page state.
+      hide();
+    };
+  }, [browserSessionId, nativeViewHidden]);
 
   // ===== Context menu -> send selection to chat =====
   useEffect(() => {
@@ -393,7 +393,7 @@ export function BrowserPanel({
   const rafRef = useRef<number | null>(null);
 
   const pushBounds = useCallback(() => {
-    if (nativeViewHidden) return;
+    if (nativeViewHidden || !nativeViewActiveRef.current) return;
     const el = viewportRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();

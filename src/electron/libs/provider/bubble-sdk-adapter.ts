@@ -1,3 +1,5 @@
+import { CompactionTracker } from './compaction-tracker';
+import { addAgentCost, costFields, emptyCostDetails } from '../agent-cost';
 import { assertBubbleSessionReader } from '../bubble-session-reader';
 import { isProjectFileApproval } from './project-access';
 import { EventEmitter } from 'events';
@@ -28,12 +30,14 @@ import type {
 import {
   getBubbleSdk,
   getBubbleSessionManager,
+  loadBubbleContextEstimator,
   type BubbleAgentEvent,
   type BubbleApprovalDecision,
   type BubbleApprovalRequest,
   type BubbleContentPart,
   type BubbleQuestionPrompt,
   type BubbleQuestionRequest,
+  type BubbleProjectTrustRequest,
   type BubbleSdkInstance,
   type BubbleSubagentUpdate,
   type BubbleTokenUsage,
@@ -60,6 +64,7 @@ type PendingBubbleRequest =
       questions: BubbleQuestionPrompt[];
       resolve: (answers: string[][] | null) => void;
     }
+  | { kind: 'project_trust'; resolve: (trusted: boolean) => void }
   | { kind: 'plan'; resolve: (approved: boolean) => void };
 
 type BubbleAssistantAccumulator = {
@@ -76,9 +81,13 @@ type ActiveBubbleSession = {
   cwd: string;
   model?: string;
   permissionMode?: BubblePermissionMode;
+  planExitMode?: 'default' | 'bypassPermissions';
+  contextTokens?: number;
+  nativeContextWindow?: number;
+  contextProviderId?: string;
   /** Composer-selected thinking level (open set); undefined = SDK/model default. */
   thinkingLevel?: string;
-  /** Model context window from the provider registry (Bubble's turn usage carries none). */
+  /** Registry fallback until the native context event supplies a window. */
   contextWindow?: number | null;
   turnActive: boolean;
   abortController: AbortController | null;
@@ -87,7 +96,7 @@ type ActiveBubbleSession = {
   emittedToolCallIds: Set<string>;
   emittedToolResultIds: Set<string>;
   usage: Usage;
-  totalCostUsd: number;
+  costDetails: ReturnType<typeof emptyCostDetails>;
   durationStartMs: number;
   durationEndMs?: number;
   /** Subagent streams keyed by the SPAWNING tool_call id (the UI's nesting
@@ -339,6 +348,8 @@ export class BubbleSdkAdapter implements ProviderAdapter {
   readonly capabilities = CAPABILITIES;
   readonly events = new EventEmitter();
 
+  private readonly compactions = new CompactionTracker(event => this.emit(event));
+
   private sessions = new Map<string, ActiveBubbleSession>();
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
@@ -354,6 +365,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       cwd,
       model: input.model?.trim() || undefined,
       permissionMode: input.bubblePermissionMode,
+      planExitMode: input.bubblePlanExitMode ?? (input.bubblePermissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'default'),
       thinkingLevel: input.bubbleThinkingLevel?.trim() || undefined,
       turnActive: false,
       abortController: null,
@@ -362,7 +374,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       emittedToolCallIds: new Set(),
       emittedToolResultIds: new Set(),
       usage: createEmptyUsage(),
-      totalCostUsd: 0,
+      costDetails: emptyCostDetails(),
       durationStartMs: Date.now(),
       subagentStreams: new Map(),
       subagentStartedAt: new Map(),
@@ -388,6 +400,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         attachments: input.attachments,
         model: input.model,
         bubblePermissionMode: input.bubblePermissionMode,
+        bubblePlanExitMode: input.bubblePlanExitMode,
         bubbleThinkingLevel: input.bubbleThinkingLevel,
       });
     }
@@ -410,12 +423,32 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       throw new Error(`Bubble is already running a turn for thread "${input.threadId}"`);
     }
 
+    if (input.model?.trim()) {
+      if (session.model !== input.model.trim()) {
+        session.contextProviderId = undefined;
+        session.nativeContextWindow = undefined;
+        session.contextTokens = undefined;
+        session.contextWindow = undefined;
+      }
+      session.model = input.model.trim();
+    }
+    if (input.bubblePermissionMode) {
+      if (input.bubblePermissionMode !== 'plan') session.planExitMode = input.bubblePermissionMode;
+      session.permissionMode = input.bubblePermissionMode;
+    }
+    if (input.bubblePlanExitMode) session.planExitMode = input.bubblePlanExitMode;
+    // Per-turn thinking level: a string switches it; undefined keeps the
+    // session's current level (the warm envelope omits it for non-bubble
+    // turns and when the composer has no selection — both mean "default").
+    if (typeof input.bubbleThinkingLevel === 'string') {
+      session.thinkingLevel = input.bubbleThinkingLevel.trim() || undefined;
+    }
     // Manual `/compact` is handled locally (mirrors Claude Code): it compacts
     // the persisted session and emits a compact_boundary instead of a model
-    // turn. The pre-reset usage snapshot is the best preTokens approximation.
+    // turn. Keep the native context snapshot separate from billing totals.
     const trimmedPrompt = input.prompt.trim();
     if (!input.attachments?.length && trimmedPrompt.toLowerCase() === '/compact') {
-      await this.runCompact(session, session.usage.total_tokens || 0);
+      await this.runCompact(session, session.contextTokens ?? 0);
       return;
     }
 
@@ -425,24 +458,12 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       return;
     }
 
-    if (input.model?.trim()) {
-      session.model = input.model.trim();
-    }
-    if (input.bubblePermissionMode) {
-      session.permissionMode = input.bubblePermissionMode;
-    }
-    // Per-turn thinking level: a string switches it; undefined keeps the
-    // session's current level (the warm envelope omits it for non-bubble
-    // turns and when the composer has no selection — both mean "default").
-    if (typeof input.bubbleThinkingLevel === 'string') {
-      session.thinkingLevel = input.bubbleThinkingLevel.trim() || undefined;
-    }
     session.status = 'running';
     session.turnActive = true;
     session.durationStartMs = Date.now();
     session.durationEndMs = undefined;
     session.usage = createEmptyUsage();
-    session.totalCostUsd = 0;
+    session.costDetails = emptyCostDetails();
     session.currentAssistant = null;
     this.emit({ type: 'status_change', threadId: input.threadId, status: 'running' });
 
@@ -526,6 +547,10 @@ export class BubbleSdkAdapter implements ProviderAdapter {
     }
     session.pendingRequests.delete(requestId);
 
+    if (pending.kind === 'project_trust') {
+      pending.resolve(decision.behavior === 'allow');
+      return;
+    }
     if (pending.kind === 'approval') {
       pending.resolve(
         decision.behavior === 'allow'
@@ -724,24 +749,36 @@ export class BubbleSdkAdapter implements ProviderAdapter {
     session.durationStartMs = Date.now();
     session.durationEndMs = undefined;
     session.usage = createEmptyUsage();
-    session.totalCostUsd = 0;
+    session.costDetails = emptyCostDetails();
     session.currentAssistant = null;
     this.emit({ type: 'status_change', threadId: session.threadId, status: 'running' });
 
     try {
       const sdk = await getBubbleSdk(session.cwd);
       const manager = await getBubbleSessionManager(sdk, session.providerSessionId);
+      const estimate = await loadBubbleContextEstimator();
+      const config = sdk.getModelConfig();
+      const model = session.model || config.defaultModel;
+      const providerId = session.contextProviderId
+        || (model?.includes(':') ? model.split(':')[0] : config.defaultProviderId);
+      if (!session.model && model) session.model = model;
+      if (!session.nativeContextWindow && !session.contextWindow && providerId && model) {
+        await this.resolveContextWindow(session, providerId, model);
+      }
+      // Stop can begin before the async SDK/catalog loading has finished.
+      const current = this.sessions.get(session.threadId);
+      if (current !== session || current.status === 'stopped') return;
+      const beforeEstimate = estimate(manager.getMessages(), providerId);
       const plan = manager.getCompactionPlan();
       const compacted = plan ? manager.compact().compacted : false;
 
       if (compacted) {
-        this.emitMessage(session, {
-          type: 'system',
-          subtype: 'compact_boundary',
-          uuid: `bubble-compact:${session.threadId}:${uuidv4()}`,
-          session_id: session.threadId,
-          compactMetadata: { trigger: 'manual', preTokens },
-        });
+        this.compactions.complete(session, { trigger: 'manual', preTokens: preTokens || beforeEstimate });
+        const afterEstimate = estimate(manager.getMessages(), providerId);
+        // Preserve observed system/tool overhead when a native snapshot exists.
+        // This is an estimate until the next provider request reports usage.
+        const overhead = Math.max(0, (session.contextTokens ?? beforeEstimate) - beforeEstimate);
+        this.updateContextUsage(session, afterEstimate + overhead, undefined, true);
       } else {
         this.emitAssistantText(session, 'Session is already compact enough.');
       }
@@ -778,11 +815,14 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         prompt,
         ...(model ? { model } : {}),
         ...(session.permissionMode ? { mode: session.permissionMode } : {}),
+        planExitMode: session.planExitMode ?? 'default',
+        onProjectTrust: (request) => this.requestProjectTrust(session, request),
         ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
         signal: abortController.signal,
         onStart: (info) => {
           assertBubbleSessionReader(prompt, info.tools, session.threadId);
           session.model = info.model || session.model;
+          session.contextProviderId = info.providerId;
           // Bubble's TokenUsage has no context window; resolve it from the
           // registry catalog so the composer context indicator has a ceiling.
           void this.resolveContextWindow(session, info.providerId, info.model);
@@ -814,6 +854,23 @@ export class BubbleSdkAdapter implements ProviderAdapter {
 
   private handleBubbleEvent(session: ActiveBubbleSession, event: BubbleAgentEvent): void {
     switch (event.type) {
+      case 'context_usage':
+        this.updateContextUsage(session, getNumber(event.usedTokens), getNumber(event.contextWindow), event.estimated === true);
+        return;
+      case 'context_compaction': {
+        const details = { id: getString(event.compactionId) || undefined, preTokens: getNumber(event.preTokens) };
+        if (event.status === 'started') {
+          this.flushAssistant(session, 'commentary');
+          this.compactions.start(session, details);
+        } else if (event.status === 'completed') {
+          this.flushAssistant(session, 'commentary');
+          this.compactions.complete(session, details);
+          this.updateContextUsage(session, getNumber(event.postTokens), getNumber(event.contextWindow), true);
+        } else if (event.status === 'failed') {
+          this.compactions.interrupt(session, details.id);
+        }
+        return;
+      }
       case 'text_delta':
       case 'reasoning_delta': {
         const delta = getString((event as { content?: unknown }).content);
@@ -863,21 +920,22 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         const turnEvent = event as Extract<BubbleAgentEvent, { type: 'turn_end' }>;
         this.flushAssistant(session, turnEvent.willContinue === false ? 'final_answer'
           : turnEvent.willContinue === true ? 'commentary' : undefined);
-        addUsage(session.usage, usageFromBubble(turnEvent.usage, session.contextWindow));
+        const usage = usageFromBubble(turnEvent.usage, session.nativeContextWindow ?? session.contextWindow);
+        addUsage(session.usage, usage);
         // Per-step priced usage; hosts sum them. The unified result field is
         // USD-labelled, so non-USD costs are dropped rather than mislabelled.
         const cost = turnEvent.cost;
-        if (cost && cost.currency === 'USD' && getNumber(cost.cost) !== undefined) {
-          session.totalCostUsd += cost.cost;
-        }
+        addAgentCost(session.costDetails, 'bubble', session.model || '', usage,
+          cost?.currency === 'USD' ? cost.cost : undefined);
         return;
       }
       case 'mode_changed': {
-        // Plan approval makes the SDK setMode('default') mid-turn; report it
+        // Plan approval restores the execution mode mid-turn; report it
         // so the composer's plan pill exits like Claude's does.
         const mode = getString((event as { mode?: unknown }).mode);
         if (mode === 'default' || mode === 'plan' || mode === 'bypassPermissions') {
           session.permissionMode = mode;
+          if (mode !== 'plan') session.planExitMode = mode;
           this.emit({
             type: 'permission_mode_changed',
             threadId: session.threadId,
@@ -1170,7 +1228,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       type: 'result',
       subtype,
       duration_ms: Math.max(0, (session.durationEndMs || Date.now()) - session.durationStartMs),
-      total_cost_usd: session.totalCostUsd,
+      ...costFields(session.costDetails),
       usage: session.usage,
       model: session.model,
     });
@@ -1240,6 +1298,44 @@ export class BubbleSdkAdapter implements ProviderAdapter {
         toolName: 'AskUserQuestion',
         input,
       });
+    });
+  }
+
+  private requestProjectTrust(session: ActiveBubbleSession, request: BubbleProjectTrustRequest): Promise<boolean> {
+    if (session.status === 'stopped' || this.sessions.get(session.threadId) !== session) return Promise.resolve(false);
+    const requestId = uuidv4();
+    const capabilities = [
+      ...request.pending.allow.map(rule => `Permission rule: ${rule}`),
+      ...request.pending.mcpServers.map(name => `MCP server: ${name}`),
+      ...request.pending.lspServers.map(name => `LSP server: ${name}`),
+    ];
+    return new Promise(resolve => {
+      session.pendingRequests.set(requestId, { kind: 'project_trust', resolve });
+      this.emit({ type: 'permission_request', threadId: session.threadId, requestId,
+        toolName: 'ProjectTrust', input: {
+          kind: 'acp-permission', provider: 'bubble', toolName: 'ProjectTrust',
+          title: 'Trust Bubble project configuration',
+          question: `Trust the configuration in ${request.cwd}?\n${capabilities.join('\n')}\nApproval remembers this exact configuration; changes require trust again.`,
+          options: [
+            { optionId: 'approve', name: 'Trust configuration', kind: 'allow_once' },
+            { optionId: 'reject', name: 'Keep disabled', kind: 'reject_once' },
+          ],
+          toolCall: request,
+        },
+      });
+    });
+  }
+
+  private updateContextUsage(session: ActiveBubbleSession, usedTokens?: number, contextWindow?: number, estimated = false): void {
+    if (contextWindow !== undefined && contextWindow > 0) session.nativeContextWindow = contextWindow;
+    if (usedTokens === undefined || usedTokens < 0) return;
+    session.contextTokens = Math.round(usedTokens);
+    this.emitMessage(session, {
+      type: 'system', subtype: 'token_usage', uuid: uuidv4(),
+      session_id: session.providerSessionId, provider: 'bubble', model: session.model,
+      usage: { estimated, inputTokens: session.contextTokens, outputTokens: 0, cachedInputTokens: 0,
+        reasoningOutputTokens: 0, totalTokens: session.contextTokens,
+        contextWindow: session.nativeContextWindow ?? session.contextWindow ?? 0 },
     });
   }
 
@@ -1382,6 +1478,12 @@ export class BubbleSdkAdapter implements ProviderAdapter {
   }
 
   private emit(event: ProviderRuntimeEvent): void {
+    if (event.type === 'error' ||
+        (event.type === 'status_change' && ['completed', 'stopped', 'error'].includes(event.status)) ||
+        (event.type === 'message' && event.message.type === 'result')) {
+      const session = this.sessions.get(event.threadId);
+      if (session) this.compactions.interrupt(session);
+    }
     this.events.emit('event', event);
   }
 }

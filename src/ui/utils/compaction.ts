@@ -38,6 +38,7 @@ export function deriveCompactionEntries(messages: WorkstreamMessage[]): Map<numb
       startedAt: completed ? undefined : message.createdAt,
     };
     entry.state = state;
+    if (completed) entry.trigger = trigger;
     entry.summary = state === 'inProgress' ? 'Compacting context'
       : state === 'interrupted' ? 'Compaction interrupted'
       : entry.trigger === 'manual' ? 'Context compacted' : 'Context automatically compacted';

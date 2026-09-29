@@ -1,10 +1,15 @@
 import { CompactionActivity } from './CompactionActivity';
 import { useWorkstreamDisclosure } from './WorkstreamDisclosureState';
 import { ToolResultContent, ToolOutputPanel } from './ToolResultContent';
-import { WorkstreamActivityLabel, WorkstreamCollapse, WorkstreamScrollArea } from './WorkstreamPrimitives';
+import { WorkstreamActivityLabel, WorkstreamCollapse, WorkstreamScrollArea, WorkstreamElapsed } from './WorkstreamPrimitives';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  BrandGithub,
+  BrandSlack,
+  BrandNotion,
+  BrandFigma,
+  BrandGoogleDrive,
   ChevronRight,
   CircleDashed,
   CircleX,
@@ -49,6 +54,9 @@ import { StructuredResponse } from './StructuredResponse';
 import type { ChangeRecord } from '../utils/change-records';
 import {
   getStageChangeRecords,
+  getWorkstreamDeniedActionIds,
+  getWorkstreamFailureCount,
+  getWorkstreamStageActivityKind,
   formatWorkstreamStageSummary,
   summarizeWorkstreamEntries,
   type WorkstreamStage,
@@ -122,6 +130,7 @@ export function AssistantWorkstream({
           <CompactGroup
             key={groupKey}
             entries={group.entries}
+            isLatestRunning={idx === groups.length - 1 && model.state === 'running' && !model.retrying}
           />
         );
         if (idx !== lastMediaGroupIndex || !generatedMedia?.length) {
@@ -134,7 +143,7 @@ export function AssistantWorkstream({
           </div>
         );
       })}
-      {model.state === 'running' && !model.entries.some((entry) =>
+      {model.state === 'running' && !model.retrying && groups.at(-1)?.kind !== 'compact' && !model.entries.some((entry) =>
         entry.type === 'compaction' ? entry.state === 'inProgress'
           : entry.type === 'thinking' ? entry.state === 'active'
           : entry.type === 'approval' ? entry.state === 'waiting'
@@ -207,25 +216,31 @@ function TextSegment({
 
 function CompactGroup({
   entries,
+  isLatestRunning,
 }: {
   entries: WorkstreamEntry[];
+  isLatestRunning: boolean;
 }) {
   const { changeRecordsByToolUseId, onOpenDiff } = useTurnDiffContext();
   const stages = useMemo(
     () => summarizeWorkstreamEntries(entries, { changeRecordsByToolUseId }),
     [changeRecordsByToolUseId, entries]
   );
-  const activeStage = [...stages].reverse().find((stage) => stage.status === 'pending' || stage.status === 'waiting');
+  const activeStage = [...stages].reverse().find((stage) => stage.status === 'pending' || stage.status === 'waiting' || stage.entries.some(entry => 'status' in entry && entry.status === 'pending'));
   const [expanded, setExpanded] = useWorkstreamDisclosure(`group:${entries[0]?.id}`, stages.some((stage) => stage.defaultExpanded));
   const showGroup = stages.length > 1;
+  const thinking = isLatestRunning && !activeStage;
+  const headerStage = activeStage || stages[0];
   return (
     <div className="my-2 space-y-px">
       {showGroup && <button type="button" data-workstream-group aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
         className="workstream-text flex max-w-full items-center gap-1.5 text-left text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-        <WorkstreamActivityLabel active={activeStage?.status === 'pending'}>
-          {activeStage?.title || formatWorkstreamStageSummary(stages)}
+        {!thinking && headerStage && <StageKindIcon stage={headerStage} />}
+        <WorkstreamActivityLabel active={thinking || Boolean(activeStage?.entries.some(entry => 'status' in entry && entry.status === 'pending'))} activityKey={thinking ? 'thinking' : activeStage?.id}>
+          {thinking ? 'Thinking' : activeStage?.title || formatWorkstreamStageSummary(stages)}
         </WorkstreamActivityLabel>
+        <FailureCount entries={entries} />
         <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </button>}
       <WorkstreamCollapse open={!showGroup || expanded}>
@@ -239,11 +254,17 @@ function CompactGroup({
           )}
         </WorkstreamScrollArea>
       </WorkstreamCollapse>
+      {!showGroup && thinking && <WorkingFooter label="Thinking" />}
     </div>
   );
 }
 
 // ── Stage summary rows ─────────────────────────────────────────────────────
+
+function FailureCount({ entries }: { entries: WorkstreamEntry[] }) {
+  const count = getWorkstreamFailureCount(entries);
+  return count > 0 ? <span className="shrink-0 text-[var(--text-muted)]">({count} failed)</span> : null;
+}
 
 function StageRow({
   stage,
@@ -255,10 +276,9 @@ function StageRow({
     scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
   ) => void;
 }) {
-  const running = stage.status === 'pending';
   const [expanded, setExpanded] = useWorkstreamDisclosure(
-    `${stage.id}:${running ? 'running' : 'completed'}`,
-    stage.defaultExpanded || (running && stage.kind === 'command')
+    `stage:${stage.entries[0]?.id}`,
+    stage.defaultExpanded
   );
 
   const hasDetails = stage.entries.some(hasRawEntryDetail);
@@ -268,15 +288,14 @@ function StageRow({
     hasDetails ||
     (stage.kind === 'computer_use' && stage.entries.some(hasComputerUseStageDetail));
   const isPending = stage.status === 'pending';
-  const isError = stage.status === 'error';
-  const titleClass = isError
-    ? 'text-[var(--error)]'
-    : isPending || stage.status === 'waiting'
+  const execution = stage.commands[0]?.execution;
+  const denied = stage.entries.some(entry => getWorkstreamDeniedActionIds(entry).length > 0);
+  const titleClass = isPending || stage.status === 'waiting'
       ? 'text-[var(--text-secondary)]'
       : 'text-[var(--text-muted)] group-hover/stage:text-[var(--text-primary)]';
 
   return (
-    <div className="group/stage" data-workstream-stage={stage.id}>
+    <div className="group/stage" data-workstream-stage={stage.id} data-denied-action={denied || undefined} tabIndex={denied ? -1 : undefined}>
       <button
         type="button"
         onClick={() => canExpand && setExpanded(!expanded)}
@@ -288,6 +307,8 @@ function StageRow({
       >
         <StageKindIcon stage={stage} />
         <span title={stage.files.length === 1 ? stage.files[0].filePath : undefined} className={`min-w-0 truncate ${titleClass}`}><WorkstreamActivityLabel active={isPending}>{stage.title}</WorkstreamActivityLabel></span>
+        <WorkstreamElapsed {...execution} running={isPending} />
+        <FailureCount entries={stage.entries} />
         {stage.kind === 'edit' ? (
           <DiffStatLabel additions={stage.addedLines} deletions={stage.removedLines} muted />
         ) : null}
@@ -301,24 +322,26 @@ function StageRow({
 }
 
 function StageKindIcon({ stage }: { stage: WorkstreamStage }) {
+  const kind = getWorkstreamStageActivityKind(stage);
   const className = `h-3.5 w-3.5 flex-shrink-0 ${
-    stage.status === 'error'
-      ? 'text-[var(--error)]'
-      : stage.status === 'waiting'
+    stage.status === 'waiting'
         ? 'text-amber-600'
         : 'text-[var(--text-muted)]/55'
   }`;
 
-  if (stage.kind === 'edit') return <FileDiff className={className} />;
-  if (stage.kind === 'command') return <SquareTerminal className={className} />;
-  if (stage.kind === 'approval') return <ShieldAlert className={className} />;
-  if (stage.kind === 'computer_use') {
+  if (kind === 'edit') return <FileDiff className={className} />;
+  if (kind === 'command') return <SquareTerminal className={className} />;
+  if (kind === 'approval') return <ShieldAlert className={className} />;
+  if (kind === 'computer_use') {
     return <ComputerUseAppIcon app={stage.computerUseApp} className={className} />;
   }
-  if (stage.kind === 'error') return <CircleX className={className} />;
-  if (stage.kind === 'web') return <Globe className={className} />;
-  if (stage.kind === 'memory') return <Brain className={className} />;
-  if (stage.kind === 'other') return <Plug className={className} />;
+  if (kind === 'error') return <CircleX className={className} />;
+  if (kind === 'web') return <Globe className={className} />;
+  if (kind === 'memory') return <Brain className={className} />;
+  if (kind === 'other') {
+    const Icon = ({ GitHub: BrandGithub, Slack: BrandSlack, Notion: BrandNotion, Figma: BrandFigma, 'Google Drive': BrandGoogleDrive, Browser: Globe })[stage.source ?? ''] || Plug;
+    return <Icon className={className} />;
+  }
   return <FolderSearch className={className} />;
 }
 
@@ -331,9 +354,6 @@ function StageStatusGlyph({
   expanded: boolean;
   canExpand: boolean;
 }) {
-  if (stage.status === 'error') {
-    return <CircleX className="h-3 w-3 flex-shrink-0 text-[var(--error)]" />;
-  }
   if (stage.status === 'waiting') {
     return <ShieldAlert className="h-3 w-3 flex-shrink-0 text-amber-600" />;
   }
@@ -367,6 +387,11 @@ function StageDetails({
 
   return (
     <div className="workstream-details mb-1 space-y-1">
+      {stage.entries.flatMap(entry => 'execution' in entry ? entry.execution?.approvalReviews ?? [] : []).map(review =>
+        <div key={review.id} className="workstream-text text-[var(--text-secondary)]">
+          {review.status === 'timedOut' ? 'Approval review timed out' : 'Action denied'}{review.reason ? `: ${review.reason}` : ''}
+        </div>
+      )}
       {stage.files.length > 0 ? (
         <StageFilesDetail stage={stage} onOpenDiff={onOpenDiff} />
       ) : null}
@@ -406,7 +431,7 @@ function StageGenericDetail({ entries }: { entries: WorkstreamEntry[] }) {
   return (
     <div className="space-y-2">
       {tools.map((entry) => (
-        <ToolEntryDetail key={entry.id} entry={entry} />
+        tools.length > 1 ? <ToolRow key={entry.id} entry={entry} /> : <ToolEntryDetail key={entry.id} entry={entry} />
       ))}
     </div>
   );
@@ -585,7 +610,7 @@ function StageFileRow({
           })
         }
         title={file.filePath}
-        className="group/file flex w-full items-center gap-1.5 rounded-sm px-1 py-0.5 text-left text-[11px] leading-5 transition-colors hover:bg-[var(--bg-tertiary)]/30"
+        className="group/file flex w-full items-center gap-1.5 rounded-sm px-1 py-0.5 text-left workstream-text transition-colors hover:bg-[var(--bg-tertiary)]/30"
       >
         {body}
       </button>
@@ -595,7 +620,7 @@ function StageFileRow({
   return (
     <div
       title={file.filePath}
-      className="flex w-full items-center gap-1.5 rounded-sm px-1 py-0.5 text-[11px] leading-5"
+      className="flex w-full items-center gap-1.5 rounded-sm px-1 py-0.5 workstream-text"
     >
       {body}
     </div>
@@ -606,8 +631,11 @@ function StageCommandsDetail({ commands }: { commands: WorkstreamStageCommand[] 
   return (
     <div className="space-y-1">
       {commands.map((command) => (
-        <ToolOutputPanel key={command.id} language="shell" isError={command.status === 'error'}
-          text={`$ ${command.command}${command.output ? `\n${command.output}` : ''}`} />
+        <div key={command.id}>
+          <ToolOutputPanel follow language="shell" isError={command.status === 'error'}
+            text={`$ ${command.command}${command.output ? `\n${command.output}` : ''}`} />
+          {command.execution?.exitCode != null && <div className="workstream-text mt-1 text-[var(--text-muted)]">Exit code {command.execution.exitCode}</div>}
+        </div>
       ))}
     </div>
   );
@@ -873,13 +901,15 @@ function ThinkingRow({
     <div className="my-2">
       <button type="button" className="workstream-text flex max-w-full items-center gap-1.5 py-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
         aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        <WorkstreamActivityLabel active={isActive}>{isActive ? 'Thinking' : 'Reasoning'}</WorkstreamActivityLabel>
+        <WorkstreamActivityLabel active={isActive}>{entry.state === 'interrupted' ? 'Reasoning · interrupted' : isActive ? 'Thinking' : 'Reasoning'}</WorkstreamActivityLabel>
         <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </button>
       <WorkstreamCollapse open={expanded}>
         <WorkstreamScrollArea followKey={isActive ? entry.id : undefined}>
+          {/* Reasoning is plain text in a height-bounded scroll area, so the full
+              trace renders cheaply — no MAX_TRACE_TEXT_CHARS cap here. */}
           <div className="workstream-text py-2 text-[var(--text-secondary)] whitespace-pre-wrap break-words">
-            {truncateWithNotice(text, MAX_TRACE_TEXT_CHARS)}
+            {text}
           </div>
         </WorkstreamScrollArea>
       </WorkstreamCollapse>
@@ -904,7 +934,7 @@ function ApprovalRow({
   return (
     <div className="flex items-center gap-2 py-0.5 text-[12px] leading-5 text-[var(--text-primary)]">
       <ShieldAlert className={`h-3.5 w-3.5 flex-shrink-0 ${tone}`} />
-      <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
+      <div className="min-w-0 flex-1"><div>{entry.summary}</div>{entry.detail && <div className="workstream-text text-[var(--text-secondary)]">{entry.detail}</div>}</div>
       <span className={`flex-shrink-0 text-[11px] uppercase tracking-[0.06em] ${tone}`}>
         {entry.state}
       </span>
@@ -936,7 +966,7 @@ function ToolRow({
   entry: Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }>;
   showChangeHint?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useWorkstreamDisclosure(`tool:${entry.id}`);
   const { changeRecordByToolUseId, onOpenDiff } = useTurnDiffContext();
   const changeRecord = changeRecordByToolUseId.get(entry.block.id) || null;
 
@@ -954,10 +984,11 @@ function ToolRow({
     <div className="group">
       <button
         type="button"
-        onClick={() => canExpand && setExpanded((v) => !v)}
+        onClick={() => canExpand && setExpanded(!expanded)}
+        aria-expanded={canExpand ? expanded : undefined}
         disabled={!canExpand}
         title={safeTitle(entry.detail || entry.summary)}
-        className={`flex w-full items-baseline gap-1.5 py-0.5 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
+        className={`flex w-full items-baseline gap-1.5 py-0.5 text-left workstream-text transition-colors disabled:opacity-100 ${
           canExpand ? '' : 'cursor-default'
         }`}
       >
@@ -969,7 +1000,7 @@ function ToolRow({
         <EditedFileHint record={changeRecord} onOpen={onOpenDiff} />
       ) : null}
 
-      {isPending && entry.type === 'tool' && entry.liveOutput ? (
+      {expanded && isPending && entry.type === 'tool' && entry.liveOutput ? (
         <LiveToolOutputTail text={entry.liveOutput} />
       ) : null}
 

@@ -142,7 +142,7 @@ export function ClaudeUsageSettingsContent() {
         ? null
         : renderUsageState(activeProviderCard) || (
             <>
-              <UsageStatStrip stats={stats!} costMode={activeReport?.costMode} note={activeReport?.note} />
+              <UsageStatStrip stats={stats!} costMode={activeReport?.costMode} costBasis={activeReport?.costBasis} note={activeReport?.note} />
 
               <TokenActivitySection daily={activeReport!.daily} />
 
@@ -260,9 +260,10 @@ function computeUsageStats(report: ClaudeUsageReport): UsageStats {
   };
 }
 
-function UsageStatStrip({ stats, costMode, note }: {
+function UsageStatStrip({ stats, costMode, costBasis, note }: {
   stats: UsageStats;
   costMode: ClaudeUsageReport['costMode'];
+  costBasis?: ClaudeUsageReport['costBasis'];
   note?: string;
 }) {
   const estimatedCost = costMode === 'estimated' || costMode === 'partial';
@@ -271,7 +272,7 @@ function UsageStatStrip({ stats, costMode, note }: {
     { value: formatCompactNumber(stats.peakDayTokens), label: 'Peak day tokens' },
     {
       value: costMode === 'unavailable' ? 'Unavailable' : formatCurrency(stats.totalCostUsd, estimatedCost),
-      label: costMode === 'partial' ? 'Priced usage only' : estimatedCost ? 'Estimated cost' : 'Total cost',
+      label: costMode === 'partial' ? 'Priced usage only' : costBasis === 'api-standard' ? 'API equivalent cost' : costMode === 'unavailable' || estimatedCost ? 'Estimated cost' : 'Total cost',
       note,
     },
     { value: `${stats.currentStreak}d`, label: 'Current streak' },

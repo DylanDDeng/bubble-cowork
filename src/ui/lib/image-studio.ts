@@ -7,8 +7,30 @@ import { useComposerQueueStore } from '../store/useComposerQueueStore';
 import { collectStudioImages, imageEditEffectivePrompt, supportsImageStudio } from '../utils/image-studio';
 import type { Attachment } from '../types';
 import type { CodexReferencePayload } from '../utils/codex-composer';
+import { sessionSourceTab } from '../utils/right-utility-tabs';
 
 export const ImageStudioSessionContext = createContext<string | null>(null);
+
+/** Image attachments share the main image workspace, for every provider. */
+export function openSessionSource(sessionId: string, source: Attachment | null): void {
+  const store = useAppStore.getState();
+  if (!store.sessions[sessionId]) return;
+  if (source?.kind === 'image') {
+    // Replace a file tab restored from the earlier sidebar-only preview.
+    const legacyTab = sessionSourceTab(source.path);
+    if (store.rightUtilityTabs.includes(legacyTab)) store.closeRightUtilityTab(legacyTab);
+    const studio = useImageStudioStore.getState();
+    studio.patch(sessionId, {
+      activePath: source.path, activePendingId: undefined, view: 'single',
+      sourceAttachments: { ...studio.sessions[sessionId]?.sourceAttachments, [source.path]: source },
+    });
+    store.openRightUtilityTab(`images:${sessionId}`, { instantReveal: true });
+    store.setRightPanelFullscreen('images');
+    return;
+  }
+  store.openRightUtilityTab('sources');
+  if (source) store.openRightUtilityTab(sessionSourceTab(source.path), { instantReveal: true });
+}
 
 export function openImageStudio(sessionId: string, path: string, view: 'single' | 'canvas' = 'single'): boolean {
   const store = useAppStore.getState();

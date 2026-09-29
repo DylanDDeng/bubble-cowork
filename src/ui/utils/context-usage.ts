@@ -25,6 +25,7 @@ export type CodexContextSnapshot = {
 };
 
 export type OpenCodeContextSnapshot = {
+  estimated?: boolean;
   model: string;
   used: number;
   total: number;
@@ -347,4 +348,46 @@ export function getLatestOpenCodeContextSnapshot(
   }
 
   return null;
+}
+
+/** Native Bubble context is a current snapshot, independent of accumulated billing usage. */
+export function getLatestBubbleContextSnapshot(
+  messages: StreamMessage[],
+  model?: string | null
+): OpenCodeContextSnapshot | null {
+  const billing = getLatestOpenCodeContextSnapshot(messages, model, 'Bubble');
+  let latest: Extract<StreamMessage, { type: 'system'; subtype: 'token_usage' }> | undefined;
+  let contextWindow = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.type !== 'system' || message.subtype !== 'token_usage' || message.provider !== 'bubble') continue;
+    if (model && message.model && message.model !== model) continue;
+    if (latest?.model && message.model && latest.model !== message.model) continue;
+    latest ??= message;
+    if (message.usage.contextWindow > 0) {
+      contextWindow = message.usage.contextWindow;
+      break;
+    }
+  }
+  // A cold manual compact may know the new usage before the model catalog
+  // resolves. Reuse the saved window, never the pre-compaction token count.
+  contextWindow ||= billing?.total ?? 0;
+  if (latest && contextWindow > 0) {
+    const usage = latest.usage;
+    return {
+      model: model || 'Bubble',
+      estimated: usage.estimated,
+      used: usage.totalTokens,
+      total: contextWindow,
+      percent: Math.min(100, Math.max(0, Math.round(usage.totalTokens / contextWindow * 100))),
+      costUSD: billing?.costUSD ?? 0,
+      inputTokens: billing?.inputTokens ?? 0,
+      outputTokens: billing?.outputTokens ?? 0,
+      cacheReadTokens: billing?.cacheReadTokens ?? 0,
+      cacheCreationTokens: billing?.cacheCreationTokens ?? 0,
+      reasoningOutputTokens: billing?.reasoningOutputTokens ?? 0,
+    };
+  }
+  // Sessions saved before native context events retain their previous display.
+  return billing;
 }

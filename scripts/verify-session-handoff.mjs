@@ -132,10 +132,10 @@ const appSource = read('src/ui/App.tsx');
 const chatPaneSource = read('src/ui/components/ChatPane.tsx');
 const appHeaderHandoffStart = appSource.indexOf('{activeSession?.handoffSourceProvider ?');
 const appHeaderRouteIndex = appSource.indexOf('<SessionHandoffProviderRoute', appHeaderHandoffStart);
-const appHeaderTitleIndex = appSource.indexOf("{activeSession?.title || 'Chat'}", appHeaderHandoffStart);
+const appHeaderTitleIndex = appSource.indexOf('<SessionTitleActions session={activeSession}', appHeaderHandoffStart);
 const chatPaneHandoffStart = chatPaneSource.indexOf('{session.handoffSourceProvider ?');
 const chatPaneRouteIndex = chatPaneSource.indexOf('<SessionHandoffProviderRoute', chatPaneHandoffStart);
-const chatPaneTitleIndex = chatPaneSource.indexOf("{session.title || 'Chat'}", chatPaneHandoffStart);
+const chatPaneTitleIndex = chatPaneSource.indexOf('<SessionTitleActions session={session}', chatPaneHandoffStart);
 assert.ok(
   appHeaderHandoffStart >= 0 &&
     appHeaderRouteIndex >= 0 &&

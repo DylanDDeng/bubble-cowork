@@ -89,6 +89,7 @@ import {
   getLatestClaudeContextSnapshot,
   getLatestClaudeTurnUsage,
   getLatestCodexContextSnapshot,
+  getLatestBubbleContextSnapshot,
   getLatestOpenCodeContextSnapshot,
   isClaudeUsageModelMatch,
 } from '../utils/context-usage';
@@ -527,7 +528,7 @@ export function PromptInput({
   const bubbleContextSnapshot = useMemo(
     () =>
       isBubbleContextVisible
-        ? getLatestOpenCodeContextSnapshot(activeSession.messages, bubbleContextModel, 'Bubble')
+        ? getLatestBubbleContextSnapshot(activeSession.messages, bubbleContextModel)
         : null,
     [activeSession?.messages, isBubbleContextVisible, bubbleContextModel]
   );
@@ -955,6 +956,9 @@ export function PromptInput({
                 ? 'plan'
                 : agentSelection.bubblePermissionMode
               : undefined,
+          bubblePlanExitMode: runtimeProvider === 'bubble'
+            ? agentSelection.bubblePermissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'default'
+            : undefined,
           bubbleThinkingLevel:
             runtimeProvider === 'bubble'
               ? agentSelection.bubbleThinkingLevel || undefined
@@ -1075,6 +1079,9 @@ export function PromptInput({
               ? 'plan'
               : agentSelection.bubblePermissionMode
             : undefined,
+        bubblePlanExitMode: runtimeProvider === 'bubble'
+          ? agentSelection.bubblePermissionMode === 'bypassPermissions' ? 'bypassPermissions' : 'default'
+          : undefined,
         bubbleThinkingLevel:
           runtimeProvider === 'bubble'
             ? agentSelection.bubbleThinkingLevel || undefined

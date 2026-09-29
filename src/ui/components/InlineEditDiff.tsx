@@ -12,14 +12,14 @@ export function InlineEditDiff({ record, onOpen }: { record: ChangeRecord; onOpe
   })), [record.diffContent, record.fileName]);
   return (
     <div data-inline-edit-diff={record.filePath} className="my-1 min-w-0 overflow-hidden rounded-lg border border-[var(--border)]/60">
-      <div className="flex items-center gap-2 border-b border-[var(--border)]/50 bg-[var(--bg-secondary)]/50 px-3 py-1.5 text-[11px]">
+      <div className="flex items-center gap-2 border-b border-[var(--border)]/50 bg-[var(--bg-secondary)]/50 px-3 py-1.5 workstream-text">
         {onOpen ? <button type="button" onClick={onOpen} title={record.filePath} className="min-w-0 truncate text-[var(--text-secondary)] hover:underline">{record.fileName}</button>
           : <span title={record.filePath} className="min-w-0 truncate text-[var(--text-secondary)]">{record.fileName}</span>}
         <DiffStatLabel additions={record.addedLines} deletions={record.removedLines} />
       </div>
       {hunks.length ? (
         <div className="max-h-72 overflow-auto" tabIndex={0} aria-label={`Changes to ${record.fileName}`}>
-          <div className="w-max min-w-full font-mono text-[11px] leading-5 aegis-code-text">
+          <div className="w-max min-w-full font-mono leading-[1.8] aegis-code-text">
             {hunks.map((hunk, hunkIndex) => <div key={hunkIndex} className="border-t border-[var(--border)]/50 first:border-t-0">
               {hunk.lines.map((line, index) => <div key={index} data-diff-line={line.type}
                 className={`flex border-l-2 ${line.type === 'addition' ? 'border-emerald-500 bg-emerald-500/10' : line.type === 'deletion' ? 'border-rose-500 bg-rose-500/10' : 'border-transparent'}`}>

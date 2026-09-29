@@ -30,6 +30,7 @@ import { setupAttachmentIPC } from './ipc/attachments';
 import { setupScreenshotIPC } from './ipc/screenshot';
 import { ATTACHMENT_MIME_TYPES, MAX_ATTACHMENT_BYTES, attachmentSizeLimit } from '../shared/attachment-policy';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
+import { StreamRetryTracker } from './libs/stream-retry-tracker';
 import {
   forkClaudeAgentSession,
   generateSessionTitle,
@@ -38,6 +39,7 @@ import {
 } from './libs/util';
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { browserManager } from './browserManager';
+import { getHtmlPreviewUrl } from './libs/html-preview';
 import { readProjectTree } from './libs/project-tree';
 import {
   installClaudePlugin,
@@ -287,6 +289,7 @@ import type {
   ClaudeRewindResult,
 } from '../shared/types';
 import { buildSessionUserPromptSummaries } from '../shared/outline-summary';
+import { collectSessionSources, type SessionSourcePreview } from '../shared/session-sources';
 import { isGrokModelId } from '../shared/provider-model';
 import { getProviderService } from './libs/provider/service';
 import { isKimiServerRuntimeConfirmed, warmKimiCapabilityProbe } from './libs/provider/kimi-adapter-facade';
@@ -378,6 +381,9 @@ const LOCAL_PREVIEW_MIME_TYPES: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
   '.txt': 'text/plain; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
   '.woff': 'font/woff',
@@ -1494,7 +1500,8 @@ async function handleLocalPreviewRequest(
   rootReal: string,
   token: string,
   req: IncomingMessage,
-  res: ServerResponse
+  res: ServerResponse,
+  exactFile = false
 ): Promise<void> {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     sendPreviewResponse(res, 405, 'Method not allowed');
@@ -1520,7 +1527,11 @@ async function handleLocalPreviewRequest(
     return;
   }
 
-  const filePath = await resolvePreviewRequestFile(rootReal, `/${segments.slice(1).join('/')}`);
+  // Explicit task attachments may live outside the project (e.g. CleanShot).
+  // Their token serves only that file, never its parent directory.
+  const filePath = exactFile
+    ? (segments.length === 1 ? rootReal : null)
+    : await resolvePreviewRequestFile(rootReal, `/${segments.slice(1).join('/')}`);
   if (!filePath) {
     sendPreviewResponse(res, 404, 'Not found');
     return;
@@ -1538,15 +1549,16 @@ async function handleLocalPreviewRequest(
   }
 }
 
-async function ensureLocalPreviewServer(rootReal: string): Promise<{ port: number; token: string }> {
-  const existing = localPreviewServers.get(rootReal);
+async function ensureLocalPreviewServer(rootReal: string, exactFile = false): Promise<{ port: number; token: string }> {
+  const serverKey = exactFile ? `attachment:${rootReal}` : rootReal;
+  const existing = localPreviewServers.get(serverKey);
   if (existing) {
     return { port: existing.port, token: existing.token };
   }
 
   const token = uuidv4();
   const server = createServer((req, res) => {
-    void handleLocalPreviewRequest(rootReal, token, req, res);
+    void handleLocalPreviewRequest(rootReal, token, req, res, exactFile);
   });
 
   const port = await new Promise<number>((resolvePort, reject) => {
@@ -1571,9 +1583,9 @@ async function ensureLocalPreviewServer(rootReal: string): Promise<{ port: numbe
 
   server.unref();
   server.once('close', () => {
-    localPreviewServers.delete(rootReal);
+    localPreviewServers.delete(serverKey);
   });
-  localPreviewServers.set(rootReal, { server, port, token });
+  localPreviewServers.set(serverKey, { server, port, token });
   return { port, token };
 }
 
@@ -1587,33 +1599,6 @@ async function getLocalPreviewUrl(
     ok: true,
     url: `http://127.0.0.1:${port}/${token}${toPreviewUrlPath(relativePath)}`,
   };
-}
-
-async function getHtmlPreviewUrl(
-  cwd: string,
-  filePath: string
-): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
-  const resolvedPath = resolve(cwd || '.', filePath || '');
-  const validation = await validateProjectFilePath(cwd, resolvedPath);
-  if (!validation.ok) {
-    return validation;
-  }
-
-  const ext = extname(validation.targetReal).toLowerCase();
-  if (ext !== '.html' && ext !== '.htm') {
-    return { ok: false, message: 'Only HTML files can be previewed in the browser' };
-  }
-
-  try {
-    const stat = await fsPromises.stat(validation.targetReal);
-    if (!stat.isFile()) {
-      return { ok: false, message: 'Preview target is not a file' };
-    }
-  } catch {
-    return { ok: false, message: 'Preview file was not found' };
-  }
-
-  return getLocalPreviewUrl(validation.rootReal, validation.targetReal);
 }
 
 function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeType: string } | null {
@@ -5834,6 +5819,36 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return buildSessionUserPromptSummaries(messages);
   });
 
+  const loadSessionSources = async (sessionId: string) => {
+    const session = sessions.getSession(sessionId);
+    if (!session) throw new Error('Unknown session');
+    const unified = toUnifiedSessionRecord(session);
+    return collectSessionSources(await getHistorySourceForSession(unified).loadAll(unified));
+  };
+  ipcMainHandle('get-session-sources', (_event, sessionId: string) => loadSessionSources(sessionId));
+  ipcMainHandle('preview-session-source', async (_event, sessionId: string, filePath: string): Promise<SessionSourcePreview> => {
+    try {
+      const source = (await loadSessionSources(sessionId)).find(item => item.path === filePath);
+      if (!source) return { kind: 'error', message: 'This attachment does not belong to this task.' };
+      const target = await fsPromises.realpath(source.path);
+      const stat = await fsPromises.stat(target);
+      if (!stat.isFile()) return { kind: 'error', message: 'Attachment is not a file.' };
+      const mime = ATTACHMENT_MIME_TYPES[extname(source.path).toLowerCase()] || '';
+      const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video'
+        : mime.startsWith('audio/') ? 'audio' : mime === 'application/pdf' ? 'pdf' : null;
+      if (kind) {
+        const { port, token } = await ensureLocalPreviewServer(target, true);
+        return { kind, url: `http://127.0.0.1:${port}/${token}` };
+      }
+      if ((mime.startsWith('text/') || mime === 'application/json') && stat.size <= 1024 * 1024) {
+        return { kind: 'text', text: await fsPromises.readFile(target, 'utf8') };
+      }
+      return { kind: 'file' };
+    } catch {
+      return { kind: 'error', message: 'Attachment is missing or could not be read.' };
+    }
+  });
+
   ipcMainHandle(
     'load-session-history-around',
     async (_event, sessionId: string, messageCreatedAt: number, before?: number, after?: number) => {
@@ -7297,12 +7312,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       _options?: { openInBrowser?: boolean }
     ): Promise<{ ok: boolean; url?: string; message?: string }> => {
       // HTML artifact previews are routed to the in-app browser panel from the
-      // renderer. This handler only resolves the local preview server URL — it
+      // renderer. This handler only resolves the local document URL — it
       // must NOT open the system default browser, even if a legacy caller still
       // passes `{ openInBrowser: true }`. Callers that genuinely need to open a
       // URL externally should invoke `open-external-url` explicitly.
       try {
-        const preview = await getHtmlPreviewUrl(cwd, filePath);
+        const preview = await getHtmlPreviewUrl(cwd, filePath, getLocalPreviewUrl);
         if (!preview.ok) {
           return preview;
         }
@@ -8930,6 +8945,7 @@ async function handleSessionStart(
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
+    bubblePlanExitMode,
     bubbleThinkingLevel,
     teamMode,
     teamId,
@@ -9016,6 +9032,10 @@ async function handleSessionStart(
     chosenProvider === 'qoder' ? normalizeQoderPermissionMode(qoderPermissionMode) : undefined;
   const selectedBubblePermissionMode =
     chosenProvider === 'bubble' ? normalizeBubblePermissionMode(bubblePermissionMode) : undefined;
+  const selectedBubblePlanExitMode = chosenProvider === 'bubble'
+    ? bubblePlanExitMode === 'bypassPermissions' ? 'bypassPermissions'
+      : bubblePlanExitMode === 'default' ? 'default' : undefined
+    : undefined;
   const selectedBubbleThinkingLevel =
     chosenProvider === 'bubble' ? normalizeBubbleThinkingLevel(bubbleThinkingLevel) : undefined;
   const selectedDeepseekPermissionMode =
@@ -9310,7 +9330,8 @@ async function handleSessionStart(
     selectedDeepseekPermissionMode,
     selectedDeepseekReasoningEffort,
     selectedBubbleThinkingLevel,
-    payload.codexGoal
+    payload.codexGoal,
+    selectedBubblePlanExitMode
   );
   return session.id;
 }
@@ -9348,6 +9369,7 @@ async function handleSessionContinue(
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
+    bubblePlanExitMode,
     bubbleThinkingLevel,
     teamMode,
     teamId,
@@ -9513,6 +9535,10 @@ async function handleSessionContinue(
     : undefined;
   const nextBubblePermissionMode = nextProvider === 'bubble'
     ? normalizeBubblePermissionMode(bubblePermissionMode)
+    : undefined;
+  const nextBubblePlanExitMode = nextProvider === 'bubble'
+    ? bubblePlanExitMode === 'bypassPermissions' ? 'bypassPermissions'
+      : bubblePlanExitMode === 'default' ? 'default' : undefined
     : undefined;
   const nextBubbleThinkingLevel = nextProvider === 'bubble'
     ? normalizeBubbleThinkingLevel(bubbleThinkingLevel)
@@ -9893,6 +9919,7 @@ async function handleSessionContinue(
         qoderPermissionMode: nextQoderPermissionMode,
         bubblePermissionMode: nextBubblePermissionMode,
         bubbleThinkingLevel: nextBubbleThinkingLevel,
+        bubblePlanExitMode: nextBubblePlanExitMode,
       });
       existingEntry.handle.send(
         runnerPrompt,
@@ -10037,7 +10064,9 @@ async function handleSessionContinue(
     nextBubblePermissionMode,
     nextDeepseekPermissionMode,
     nextDeepseekReasoningEffort,
-    nextBubbleThinkingLevel
+    nextBubbleThinkingLevel,
+    undefined,
+    nextBubblePlanExitMode
   );
   return true;
 }
@@ -10086,7 +10115,8 @@ function startRunner(
   deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode,
   deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort,
   bubbleThinkingLevel?: string,
-  codexGoal?: GoalAction
+  codexGoal?: GoalAction,
+  bubblePlanExitMode?: 'default' | 'bypassPermissions'
 ): void {
   if (!session) return;
 
@@ -10146,6 +10176,7 @@ function startRunner(
   let initMessage: Extract<StreamMessage, { type: 'system'; subtype: 'init' }> | null = null;
   let sawTurnOutput = false;
   let localFailureMessage: string | null = null;
+  const retryTracker = new StreamRetryTracker();
 
   // Never orphan a previous runner: overwriting the map entry would leave its
   // CLI process alive with no owner able to abort it. Abort BEFORE creating
@@ -10195,6 +10226,7 @@ function startRunner(
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
+    bubblePlanExitMode,
     bubbleThinkingLevel,
     onMessage: (message) => {
       // A runner the user stopped that has since been retired or replaced is
@@ -10407,6 +10439,7 @@ function startRunner(
         stopStateForMessage !== null &&
         stopStateForMessage.stoppedTurns > 0 &&
         isStoppedTurnDrainMessage(message);
+      if (isStoppedTurnDrain || stopClassification.stoppedByUser) retryTracker.reset();
 
       // Delegate execution sessions don't persist under their own id: their
       // messages mirror into the parent session's stream tagged with the
@@ -10436,8 +10469,19 @@ function startRunner(
           activeEntry?.activeAgentRunId ||
           activeAgentRunId ||
           null;
+        const tracked = provider === 'claude'
+          ? retryTracker.observe(sanitizedStreamMessage.message, { agentId: turnAgentId, agentRunId: turnAgentRunId })
+          : { message: sanitizedStreamMessage.message, resolved: undefined };
+        // Persist the recovery boundary too: deltas themselves are intentionally
+        // ephemeral, so history otherwise cannot distinguish waiting from resumed.
+        if (tracked.resolved) {
+          sessions.addMessage(session.id, tracked.resolved);
+          broadcast(mainWindow, {
+            type: 'stream.message', payload: { sessionId: session.id, message: tracked.resolved },
+          });
+        }
         const attributedMessage = withAgentAttribution(
-          sanitizedStreamMessage.message,
+          tracked.message,
           turnAgentId,
           turnAgentRunId
         );

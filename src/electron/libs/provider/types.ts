@@ -100,6 +100,7 @@ export interface ProviderSessionStartInput {
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
+  bubblePlanExitMode?: 'default' | 'bypassPermissions';
   /** Bubble thinking level (per-model open set). Absent = SDK/model default. */
   bubbleThinkingLevel?: string;
   claudeAccessMode?: ClaudeAccessMode;
@@ -127,6 +128,7 @@ export interface ProviderSendTurnInput {
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
+  bubblePlanExitMode?: 'default' | 'bypassPermissions';
   /** Bubble thinking level (per-model open set). Absent = SDK/model default. */
   bubbleThinkingLevel?: string;
   codexSkills?: ProviderInputReference[];

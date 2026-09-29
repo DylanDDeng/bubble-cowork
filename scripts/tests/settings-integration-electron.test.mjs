@@ -60,6 +60,10 @@ app.whenReady().then(async()=>{
  const search=async(query,label)=>{await text('[aria-label="Search settings"]',query);await delay(350);await button(label,'[aria-label="Settings search results"]');await delay(350);};
  try{
   await win.loadURL(process.env.QA_URL);await until('!!document.querySelector("[aria-label=\\"Toggle browser use\\"]")');
+  const shell=await js("(()=>{\n    const main=document.querySelector('.aegis-settings-panel'),aside=document.querySelector('.aegis-settings aside');\n    const panel=main.getBoundingClientRect(),nav=aside.getBoundingClientRect(),style=getComputedStyle(main);\n    return {gap:panel.left-nav.right,top:panel.top,bottom:innerHeight-panel.bottom,right:innerWidth-panel.right,\n      radius:style.borderTopLeftRadius,shadow:style.boxShadow,navBorder:getComputedStyle(aside).borderRightWidth,\n      navWidth:nav.width,expectedWidth:qa.store.getState().sidebarWidth,\n      panelColor:style.backgroundColor,chromeColor:getComputedStyle(document.querySelector('.aegis-settings')).backgroundColor};\n  })()");
+  assert.equal(shell.gap,6);assert.equal(shell.top,40);assert.equal(shell.bottom,6);assert.equal(shell.right,6);
+  assert.equal(shell.radius,'10px');assert.notEqual(shell.shadow,'none');assert.equal(shell.navBorder,'0px');
+  assert.equal(shell.navWidth,shell.expectedWidth);assert.notEqual(shell.panelColor,shell.chromeColor);
   await shot('browser-light');await click('[aria-label="Toggle browser use"]');assert.equal(await js('qa.permissions.enabled'),false);
   await button('Import…');await click('[aria-label="Chrome profile"]');await shot('browser-profile-menu');
   await js('Array.from(document.querySelectorAll("[role=menuitem]")).find(e=>e.textContent.includes("Work")).click()');await delay(100);

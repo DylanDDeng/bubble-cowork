@@ -1,3 +1,5 @@
+import { CompactionTracker } from './compaction-tracker';
+import { validUsd } from '../agent-cost';
 import { isProjectDirectoryApproval } from './project-access';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
@@ -425,6 +427,11 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
   readonly events = new EventEmitter();
 
   private manager: OpenCodeServeManager;
+  private readonly compactions = new CompactionTracker(event => this.emit(event));
+
+  private compactionPartIds = new WeakMap<ActiveOpenCodeSession, string>();
+  private nextCompactionSessions = new WeakSet<ActiveOpenCodeSession>();
+
   private sessions = new Map<string, ActiveOpenCodeSession>();
   private modelLimits = new Map<string, { contextWindow: number; outputLimit: number }>();
 
@@ -811,6 +818,23 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     }
 
     switch (type) {
+      case 'session.next.compaction.started':
+      case 'session.next.compaction.ended':
+        if (getString(properties.sessionID) === session.providerSessionId) {
+          this.nextCompactionSessions.add(session);
+          const details = {
+            id: getString(properties.messageID),
+            trigger: properties.reason === 'manual' ? 'manual' as const : 'auto' as const,
+          };
+          if (type.endsWith('.started')) this.compactions.start(session, details);
+          else this.compactions.complete(session, details);
+        }
+        break;
+      case 'session.compacted':
+        if (getString(properties.sessionID) === session.providerSessionId && !this.nextCompactionSessions.has(session)) {
+          this.compactions.complete(session, { id: this.compactionPartIds.get(session) || getString(record.id) });
+        }
+        break;
       case 'message.updated':
         this.handleMessageUpdated(session, getRecord(properties.info));
         break;
@@ -915,6 +939,20 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       return;
     }
 
+    // Compaction parts belong to a user message and must be handled before role filtering.
+    // Hydrating old parts is not a new compaction.
+    if (getString(part.type) === 'compaction') {
+      if (emitDeltas && !this.nextCompactionSessions.has(session)) {
+        const id = getString(part.id);
+        // The legacy completion event has no part ID. Only an accepted start
+        // may change its correlation; a replay of an older part must not.
+        if (this.compactions.start(session, { id, trigger: part.auto === false ? 'manual' : 'auto' })) {
+          if (id) this.compactionPartIds.set(session, id);
+          else this.compactionPartIds.delete(session);
+        }
+      }
+      return;
+    }
     const messageId = getString(part.messageID);
     if (!messageId) {
       return;
@@ -1377,7 +1415,8 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       type: 'result',
       subtype: info?.error ? 'error' : 'success',
       duration_ms: info ? extractDurationMs(info) : 0,
-      total_cost_usd: getNumber(info?.cost) || 0,
+      total_cost_usd: validUsd(info?.cost) ? info.cost : 0,
+      costSource: validUsd(info?.cost) ? 'reported' : 'unavailable',
       usage: usage || { input_tokens: 0, output_tokens: 0 },
       ...(model ? { model } : {}),
     };
@@ -1693,6 +1732,12 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
   }
 
   private emit(event: ProviderRuntimeEvent): void {
+    if (event.type === 'error' ||
+        (event.type === 'status_change' && ['completed', 'stopped', 'error'].includes(event.status)) ||
+        (event.type === 'message' && event.message.type === 'result')) {
+      const session = this.sessions.get(event.threadId);
+      if (session) this.compactions.interrupt(session);
+    }
     this.events.emit('event', event);
   }
 }

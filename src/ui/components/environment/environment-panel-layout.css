@@ -1,0 +1,62 @@
+.environment-chat-surface,
+.environment-chat-content {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.environment-chat-content {
+  --environment-content-inset: 0px;
+}
+.environment-chat-surface[data-environment-mode='shift'] > .environment-chat-content {
+  --environment-content-inset: 316px;
+}
+/* Reserve space inside the scroller, so its scrollbar stays on the pane edge. */
+.environment-chat-content [data-chat-scroll-container] {
+  padding-right: calc(1rem + var(--environment-content-inset));
+  transition: padding-right 250ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.environment-chat-content > [data-composer-home] {
+  padding-right: var(--environment-content-inset);
+  transition: padding-right 250ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.environment-chat-content [data-chat-jump-to-latest] {
+  left: calc((100% - var(--environment-content-inset)) / 2);
+  transition: left 250ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.environment-chat-surface:not([data-environment-mode='overlay']) > .environment-chat-content .message-container {
+  max-width: 736px;
+}
+.environment-chat-surface:not([data-environment-mode='overlay']) > .environment-chat-content .aegis-chat-composer {
+  width: 100%;
+  max-width: 800px;
+  margin-inline: auto;
+}
+.environment-panel-pinned {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 30;
+  width: 300px;
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  animation: environment-panel-appear 200ms ease-out;
+}
+.environment-panel-pinned > div {
+  min-height: 0;
+}
+@keyframes environment-panel-appear {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.environment-chat-surface[data-environment-reduced-motion] [data-chat-scroll-container],
+.environment-chat-surface[data-environment-reduced-motion] [data-composer-home],
+.environment-chat-surface[data-environment-reduced-motion] [data-chat-jump-to-latest] {
+  transition: none;
+}
+.environment-chat-surface[data-environment-reduced-motion] > .environment-panel-pinned {
+  animation: none;
+}

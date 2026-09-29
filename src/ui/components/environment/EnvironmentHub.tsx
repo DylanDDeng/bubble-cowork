@@ -1,4 +1,7 @@
-import { useAppPreferences } from '../../store/useAppPreferences';
+import { createPortal } from 'react-dom';
+import { useEnvironmentPanelLayout } from './EnvironmentPanelLayout';
+import { saveAppPreferences, useAppPreferences } from '../../store/useAppPreferences';
+import { useEnvironmentPanelStore } from '../../store/useEnvironmentPanelStore';
 import { useSessionPullRequests } from './useSessionPullRequests';
 import { EnvironmentPullRequestsSection } from './EnvironmentPullRequestsSection';
 import './environment-summary.css';
@@ -22,7 +25,9 @@ import { EnvironmentComputerUseSection, environmentHasComputerUseSection } from 
 import { useAppStore } from '../../store/useAppStore';
 import { deriveSubagentSummaries } from '../../utils/subagent-registry';
 import { SubagentAvatar } from '../SubagentAvatar';
-import { Users } from '../icons';
+import { Users, Paperclip } from '../icons';
+import type { Attachment } from '../../types';
+import { SourceRow } from '../SessionSourcesPanel';
 import * as DropdownMenu from '../ui/dropdown-menu';
 
 function EnvironmentListIcon() {
@@ -278,13 +283,35 @@ export function EnvironmentHub({
   context,
   git,
   onOpenProjectPanel,
+  sources = [],
+  sourcesError = null,
+  onOpenSources,
 }: {
   context: ActiveEnvironmentContext;
   git: GitEnvironmentState;
   onOpenProjectPanel: (view: 'files' | 'changes') => void;
+  sources?: Attachment[];
+  sourcesError?: string | null;
+  onOpenSources?: (path: string | null) => void;
 }) {
   const prs = useSessionPullRequests(context, git);
-  const [open, setOpen] = useState(false);
+  const overlayOpen = useEnvironmentPanelStore(s => context.sessionId ? s.overlayBySession[context.sessionId] ?? false : false);
+  const setOverlayOpen = useEnvironmentPanelStore(s => s.setOverlayOpen);
+  const setOpen = (value: boolean) => {
+    if (context.sessionId) setOverlayOpen(context.sessionId, value);
+  };
+  const layout = useEnvironmentPanelLayout();
+  const pinnedMode = !!layout?.surface && layout.mode !== 'overlay';
+  const open = pinnedMode ? !!layout?.visible : overlayOpen;
+  const [savingPin, setSavingPin] = useState(false);
+  const toggle = () => {
+    if (!pinnedMode) { setOpen(!overlayOpen); return; }
+    if (savingPin) return;
+    setSavingPin(true);
+    void saveAppPreferences({ environmentPanelPinned: !open })
+      .catch(() => toast.error('Failed to save environment preference.'))
+      .finally(() => setSavingPin(false));
+  };
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const overview = git.overview;
@@ -296,7 +323,7 @@ export function EnvironmentHub({
 
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || pinnedMode) return;
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
@@ -304,12 +331,15 @@ export function EnvironmentHub({
       // Dialogs opened from panel sections (e.g. the commit dialog) render in a
       // portal outside panelRef; clicking them must not dismiss the panel.
       if (target instanceof Element && target.closest('[data-environment-hub-layer]')) return;
-      setOpen(false);
+      // Navigating via tabs/sidebar must not dismiss the session being left.
+      // Clicks inside the active chat still dismiss its narrow overlay.
+      if (layout?.surface && !layout.surface.contains(target)) return;
+      if (context.sessionId) setOverlayOpen(context.sessionId, false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (document.querySelector('[data-environment-hub-layer]')) return;
-      setOpen(false);
+      if (context.sessionId) setOverlayOpen(context.sessionId, false);
     };
     document.addEventListener('mousedown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
@@ -317,7 +347,7 @@ export function EnvironmentHub({
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open]);
+  }, [open, pinnedMode, context.sessionId, setOverlayOpen, layout?.surface]);
 
 
   useEffect(() => {
@@ -325,6 +355,12 @@ export function EnvironmentHub({
     void git.refresh({ force: false });
   }, [context.contextKey, open, git.refresh]);
 
+  const available = !(knownNonGit && !hasComputerUse && subagents.length === 0 && prs.items.length === 0 && !prs.error && !sources.length && !sourcesError);
+  const setAvailable = layout?.setAvailable;
+  useEffect(() => {
+    setAvailable?.(available);
+    return () => setAvailable?.(false);
+  }, [available, setAvailable]);
 
   const copyPath = async (path: string | null) => {
     if (!path) return;
@@ -346,33 +382,13 @@ export function EnvironmentHub({
 
   // A plain directory has no Git environment to summarize. Other task
   // sections remain available independently when they contain information.
-  if (knownNonGit && !hasComputerUse && subagents.length === 0 && prs.items.length === 0 && !prs.error) return null;
+  if (!available) return null;
 
-  return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className={`no-drag relative inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-medium transition-colors ${
-          open
-            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-        }`}
-        title="Environment"
-        aria-label="Open environment panel"
-        aria-expanded={open}
-      >
-        <EnvironmentListIcon />
-      </button>
-      {open ? (
-        // Anchored to the trigger (the wrapper div is position:relative) so the
-        // card opens under the Environment icon wherever the header ends up —
-        // a viewport-fixed position drifts away from the icon once the right
-        // utility panel shrinks the chat pane.
+  const card = open ? (
         <div
           ref={panelRef}
-          className="no-drag absolute right-0 top-full z-[70] mt-1.5 max-h-[min(680px,calc(100vh-64px))] w-[300px] max-w-[calc(100vw-24px)] overflow-hidden rounded-[20px] bg-[var(--popover-bg)] shadow-[var(--popover-shadow-lg)]"
+          data-environment-panel={pinnedMode ? 'pinned' : 'overlay'}
+          className={`no-drag overflow-hidden rounded-[20px] bg-[var(--popover-bg)] shadow-[var(--popover-shadow-lg)] ${pinnedMode ? 'environment-panel-pinned' : 'absolute right-0 top-full z-[70] mt-1.5 max-h-[min(680px,calc(100vh-64px))] w-[300px] max-w-[calc(100vw-24px)]'}`}
         >
           <div className="scrollbar-slim max-h-[min(680px,calc(100vh-64px))] overflow-y-auto py-2.5">
             {!knownNonGit ? <>
@@ -462,6 +478,16 @@ export function EnvironmentHub({
               )}
             </div>
             </> : null}
+            {(sources.length > 0 || sourcesError) && onOpenSources ? (
+              <section className="environment-summary-section" aria-label="Sources">
+                <div className="px-2 text-[11px] font-medium text-[var(--text-muted)]">Sources</div>
+                {sources.slice(-3).map(source => <SourceRow key={source.path} source={source} onClick={() => { onOpenSources(source.path); setOpen(false); }} />)}
+                <button type="button" className="environment-summary-row w-full" onClick={() => { onOpenSources(null); setOpen(false); }}>
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <span>View all{sources.length ? ` (${sources.length})` : ''}</span>
+                </button>
+              </section>
+            ) : null}
             {!context.unavailableReason ? (
               <>
                 <EnvironmentPullRequestsSection prs={prs} />
@@ -475,7 +501,27 @@ export function EnvironmentHub({
             ) : null}
           </div>
         </div>
-      ) : null}
+  ) : null;
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        disabled={savingPin}
+        className={`no-drag relative inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-medium transition-colors ${
+          open
+            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+        }`}
+        title="Environment"
+        aria-label="Open environment panel"
+        aria-expanded={open}
+      >
+        <EnvironmentListIcon />
+      </button>
+      {pinnedMode && layout?.surface ? createPortal(card, layout.surface) : card}
     </div>
   );
 }

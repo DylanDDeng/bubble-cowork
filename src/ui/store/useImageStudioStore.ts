@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ImageComment } from '../utils/image-studio';
+import type { Attachment } from '../types';
 
 export interface ImageStudioState {
   activePath: string;
@@ -7,6 +8,8 @@ export interface ImageStudioState {
   view: 'single' | 'canvas';
   selected: string[];
   comments: Record<string, ImageComment[]>;
+  /** Sources can include attachments from history not loaded in the chat. */
+  sourceAttachments?: Record<string, Attachment>;
   pending?: { id: string; baseline: string[]; queued: boolean; sawRunning: boolean; startedAt: number; resultPath?: string };
   feedback?: string;
 }

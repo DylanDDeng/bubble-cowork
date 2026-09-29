@@ -56,7 +56,7 @@ export function captureLiveRightPanel(
 
 function isPersistableRightUtilityTab(tab: ProjectUtilityPanelTarget): boolean {
   const kind = getRightUtilityTabKind(tab);
-  return kind === 'files' || kind === 'browser' || kind === 'review' || kind === 'terminal';
+  return kind === 'files' || kind === 'browser' || kind === 'review' || kind === 'terminal' || kind === 'sources';
 }
 
 export function filterRestorableRightUtilityTabs(

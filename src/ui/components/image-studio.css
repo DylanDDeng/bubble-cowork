@@ -132,11 +132,20 @@
 .image-studio-composer-slot [data-composer-drop-zone] > .relative:has(> [role=textbox]) > .pointer-events-none { font-size: 12px; }
 .image-studio-composer-slot [role=textbox] { font-size: 12px; }
 @container (min-width: 700px) {
- .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) { position: relative; }
- .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) > .relative:has(> [role=textbox]) { position: absolute; z-index: 1; left: 130px; right: 240px; top: 0; }
- .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) [role=textbox] { min-height: 36px; padding: 8px 0; }
- .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) .pointer-events-none { left: 0; top: 8px; white-space: nowrap; }
- .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) .aegis-composer-toolbar { padding-top: 3px; padding-bottom: 3px; }
+ /* Size the idle editor between the actual controls, including longer permission labels. */
+ .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  padding: 3px 10px;
+ }
+ .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) > .relative:has(> [role=textbox]) { grid-area: 1 / 2; min-width: 0; }
+ .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) [role=textbox] { min-height: 32px; padding: 6px 0; }
+ .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) > .relative:has(> [role=textbox]) > .pointer-events-none { inset: 6px 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+ .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) .aegis-composer-toolbar { display: contents; }
+ .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) .aegis-composer-leading-controls { grid-area: 1 / 1; }
+ .image-studio-composer-slot [data-composer-empty=true] [data-composer-drop-zone]:not(:focus-within) .aegis-composer-trailing-controls { grid-area: 1 / 3; }
 }
 
 .image-studio-latest-tray { width: calc(100% - 24px); margin-inline: 12px; border: 1px solid var(--border); border-bottom: 0; border-radius: 14px 14px 0 0; background: var(--bg-primary); overflow: hidden; }

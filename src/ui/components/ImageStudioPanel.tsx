@@ -5,55 +5,69 @@ import { flushSync } from 'react-dom';
 import { useAppStore } from '../store/useAppStore';
 import { EMPTY_IMAGE_STUDIO, useImageStudioStore } from '../store/useImageStudioStore';
 import { cancelQueuedImageEdit, submitImageEdit } from '../lib/image-studio';
-import { clampImageZoom, collectStudioImages, drawBrushStrokes, IMAGE_RATIOS, imagePoint, resolveStudioActivePath, supportsImageStudio, type BrushStroke, type ImageComment } from '../utils/image-studio';
+import { clampImageZoom, collectStudioImages, drawBrushStrokes, IMAGE_RATIOS, imagePoint, resolveStudioActivePath, supportsImageStudio, type StudioImage, type BrushStroke, type ImageComment } from '../utils/image-studio';
 import { useAppReducedMotion } from '../hooks/useAppReducedMotion';
 import { CheckSquare, ChevronDown, Download, Image as ImageIcon, LayoutGrid, Maximize2, MessageCircle, Minus, Pencil, Plus, Redo2, Sparkles, Undo2, X } from './icons';
 import { ImageStudioComposerSlot } from './ImageStudioComposerDock';
 import './image-studio.css';
+import { previewSessionSource } from '../utils/session-source-client';
 
 type Preview = { src: string; width: number; height: number };
 const previewCache = new Map<string, Promise<Preview>>();
 const resolvedPreviews = new Map<string, Preview>();
-function loadPreview(path: string): Promise<Preview> {
-  const cached = previewCache.get(path);
+function previewKey(path: string, sessionId?: string) { return JSON.stringify([sessionId, path]); }
+function loadPreview(path: string, sessionId?: string): Promise<Preview> {
+  const key = previewKey(path, sessionId);
+  const cached = previewCache.get(key);
   if (cached) return cached;
   const pending = (async () => {
-    const preview = await window.electron.readProjectFilePreview(path.replace(/\/[^/]*$/, '') || '/', path) as { kind?: string; dataUrl?: string };
-    if (preview.kind !== 'image' || !preview.dataUrl) throw new Error('Could not open this image.');
+    const source = sessionId ? useImageStudioStore.getState().sessions[sessionId]?.sourceAttachments?.[path] : undefined;
+    let src: string;
+    if (source && sessionId) {
+      const preview = await previewSessionSource(sessionId, source, window.electron);
+      if (preview.kind !== 'image') throw new Error(preview.kind === 'error' ? preview.message : 'Could not open this image.');
+      src = preview.url;
+    } else {
+      const preview = await window.electron.readProjectFilePreview(path.replace(/\/[^/]*$/, '') || '/', path) as { kind?: string; dataUrl?: string };
+      if (preview.kind !== 'image' || !preview.dataUrl) throw new Error('Could not open this image.');
+      src = preview.dataUrl;
+    }
     const img = new window.Image();
-    img.src = preview.dataUrl;
+    img.src = src;
     await img.decode();
-    const value = { src: preview.dataUrl, width: img.naturalWidth, height: img.naturalHeight };
-    if (previewCache.has(path)) resolvedPreviews.set(path, value);
+    const value = { src, width: img.naturalWidth, height: img.naturalHeight };
+    if (previewCache.has(key)) resolvedPreviews.set(key, value);
     return value;
   })();
-  previewCache.set(path, pending);
+  previewCache.set(key, pending);
   // Bound decoded source retention; panel-local references live only while mounted.
   if (previewCache.size > 24) {
     const oldest = previewCache.keys().next().value!;
     previewCache.delete(oldest); resolvedPreviews.delete(oldest);
   }
-  pending.catch(() => previewCache.delete(path));
+  pending.catch(() => previewCache.delete(key));
   return pending;
 }
-function usePreview(path: string) {
-  const [value, setValue] = useState<{ path: string; image?: Preview; error?: string }>(() => ({ path, image: resolvedPreviews.get(path) }));
+function usePreview(path: string, sessionId?: string) {
+  const key = previewKey(path, sessionId);
+  const [value, setValue] = useState<{ path: string; key: string; image?: Preview; error?: string }>(() => ({ path, key, image: resolvedPreviews.get(key) }));
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (!path) return;
     let cancelled = false;
-    loadPreview(path).then(image => { if (!cancelled) setValue({ path, image }); }, error => { if (!cancelled) setValue({ path, error: String(error.message || error) }); });
+    loadPreview(path, sessionId).then(image => { if (!cancelled) setValue({ path, key, image }); }, error => { if (!cancelled) setValue({ path, key, error: String(error.message || error) }); });
     return () => { cancelled = true; };
-  }, [path, retry]);
-  return { ...(value?.path === path ? value : {}), retry: () => { previewCache.delete(path); resolvedPreviews.delete(path); setValue({ path }); setRetry(v => v + 1); } };
+  }, [path, sessionId, retry]);
+  return { ...(value?.key === key ? value : {}), retry: () => { previewCache.delete(key); resolvedPreviews.delete(key); setValue({ path, key }); setRetry(v => v + 1); } };
 }
-function Thumbnail({ path }: { path: string }) {
-  const preview = usePreview(path);
+function Thumbnail({ path, sessionId }: { path: string; sessionId: string }) {
+  const preview = usePreview(path, sessionId);
   return preview.image ? <img src={preview.image.src} alt="" draggable={false} /> : <ImageIcon size={20} />;
 }
 
 interface PictureProps {
   path: string;
+  sessionId: string;
   zoom: number;
   fitWidth: number;
   fitHeight: number;
@@ -69,8 +83,8 @@ interface PictureProps {
   onSelect: () => void;
   onReady?: (image: Preview) => void;
 }
-function Picture({ path, zoom, fitWidth, fitHeight, selected, active, notes, tool, strokes, brush, onStroke, onPoint, onNote, onSelect, onReady }: PictureProps) {
-  const preview = usePreview(path);
+function Picture({ path, sessionId, zoom, fitWidth, fitHeight, selected, active, notes, tool, strokes, brush, onStroke, onPoint, onNote, onSelect, onReady }: PictureProps) {
+  const preview = usePreview(path, sessionId);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stroke = useRef<BrushStroke | null>(null);
   const [live, setLive] = useState<BrushStroke | null>(null);
@@ -115,13 +129,17 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
   const session = useAppStore(state => state.sessions[sessionId]);
   const studio = useImageStudioStore(state => state.sessions[sessionId] || EMPTY_IMAGE_STUDIO);
   const patch = (update: Parameters<ReturnType<typeof useImageStudioStore.getState>['patch']>[1]) => useImageStudioStore.getState().patch(sessionId, update);
-  const images = useMemo(() => collectStudioImages(session?.messages || [], session?.cwd), [session?.messages, session?.cwd]);
+  const images = useMemo<StudioImage[]>(() => {
+    const generated = collectStudioImages(session?.messages || [], session?.cwd);
+    const sources = Object.values(studio.sourceAttachments ?? {}).filter(source => !generated.some(image => image.path === source.path));
+    return [...generated, ...sources.map(source => ({ path: source.path, turnId: 'sources' }))];
+  }, [session?.messages, session?.cwd, studio.sourceAttachments]);
   const paths = useMemo(() => images.map(image => image.path), [images]);
   const selectedPath = resolveStudioActivePath(studio.activePath, images, session?.cwd);
   // A resolved Markdown image may not have a literal absolute path in the transcript.
   const allImages = selectedPath && !paths.includes(selectedPath) ? [...images, { path: selectedPath, turnId: 'image' }] : images;
   const active = selectedPath || allImages.at(-1)?.path || '';
-  const activePreview = usePreview(active);
+  const activePreview = usePreview(active, sessionId);
   const [tool, setTool] = useState<PictureProps['tool']>('pan');
   const [zoom, setZoom] = useState(100);
   const [size, setSize] = useState({ width: 640, height: 600 });
@@ -285,7 +303,7 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
   const removeSelection = async () => {
     if (!strokes.length || locked) return;
     try {
-      const image = await loadPreview(active);
+      const image = await loadPreview(active, sessionId);
       const mask = document.createElement('canvas'); mask.width = image.width; mask.height = image.height;
       drawBrushStrokes(mask, strokes, true);
       const blob = await new Promise<Blob>((resolve, reject) => mask.toBlob(value => value ? resolve(value) : reject(new Error('Could not create selection mask.')), 'image/png'));
@@ -307,7 +325,7 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
     patch({ activePath: path, activePendingId: undefined,
       ...(editable && !locked ? { selected: [path], comments: current?.comments[path] ? { [path]: current.comments[path] } : {} } : {}) });
   };
-  const picture = (path: string, canvas: boolean) => <Picture key={path} path={path} zoom={canvas ? 100 : zoom}
+  const picture = (path: string, canvas: boolean) => <Picture key={path} path={path} sessionId={sessionId} zoom={canvas ? 100 : zoom}
     fitWidth={canvas ? Infinity : Math.max(160, size.width - 48)} fitHeight={canvas ? 292 : focusedFitHeight}
     selected={selectedPaths.includes(path)} active={!pendingActive && path === active} notes={studio.comments[path] || []} tool={editable && !locked ? tool : 'pan'}
     onSelect={() => selectImage(path, tool === 'select')} brush={brush} strokes={path === active ? strokes : []} onStroke={stroke => { setStrokes(s => [...s, stroke]); setRedo([]); }}
@@ -361,7 +379,7 @@ export function ImageStudioPanel({ sessionId, hidden = false, fullscreen = false
       </div>
     </header>
     <div className="image-studio-body">
-      {studio.view === 'single' && allImages.length + (pendingImage ? 1 : 0) > 1 && <nav className="image-studio-rail" aria-label="Image history">{allImages.map(image => <button key={image.path} aria-label={`Open ${image.path.split('/').pop()}`} aria-current={!pendingActive && image.path === active ? 'true' : undefined} title={image.path} onClick={() => patch({ activePath: image.path, activePendingId: undefined })}><Thumbnail path={image.path} /></button>)}{pendingImage && <button aria-label="Open generating image" aria-current={pendingActive ? 'true' : undefined} onClick={() => patch({ activePendingId: pendingImage.id })}><ImageGenerationPlaceholder thumbnail hidden={hidden} paused={pendingImage.queued || !!permission} label={pendingImage.queued ? 'Image edit queued' : 'Generating image…'} /></button>}</nav>}
+      {studio.view === 'single' && allImages.length + (pendingImage ? 1 : 0) > 1 && <nav className="image-studio-rail" aria-label="Image history">{allImages.map(image => <button key={image.path} aria-label={`Open ${image.path.split('/').pop()}`} aria-current={!pendingActive && image.path === active ? 'true' : undefined} title={image.path} onClick={() => patch({ activePath: image.path, activePendingId: undefined })}><Thumbnail sessionId={sessionId} path={image.path} /></button>)}{pendingImage && <button aria-label="Open generating image" aria-current={pendingActive ? 'true' : undefined} onClick={() => patch({ activePendingId: pendingImage.id })}><ImageGenerationPlaceholder thumbnail hidden={hidden} paused={pendingImage.queued || !!permission} label={pendingImage.queued ? 'Image edit queued' : 'Generating image…'} /></button>}</nav>}
       <div ref={viewport} className="image-studio-viewport" tabIndex={0} aria-label="Image canvas" data-pan={tool === 'pan'}
         onPointerDown={event => {
           dragged.current = false;
@@ -417,7 +435,7 @@ export function ImageStudioFileActions({ sessionId }: { sessionId: string }) {
       try { const result = await window.electron.listOpenWithApps(path.replace(/\/[^/]*$/, ''), path); setApps(result.apps || []); } catch (error) { setError(String(error)); }
     }}><ChevronDown size={12} /></button>
     <button aria-label="Download image" onClick={async () => {
-      try { const image = await loadPreview(path); const link = document.createElement('a'); link.href = image.src; link.download = path.split('/').pop() || 'Image'; link.click(); } catch (error) { setError(String(error)); }
+      try { const image = await loadPreview(path, sessionId); const link = document.createElement('a'); link.href = image.src; link.download = path.split('/').pop() || 'Image'; link.click(); } catch (error) { setError(String(error)); }
     }}><Download size={14} /></button>
     {apps && <><div className="image-studio-file-dismiss" onClick={() => setApps(null)} /><div className="image-studio-file-menu" role="menu">
       {apps.map(app => <button role="menuitem" key={app.appPath} onClick={() => void run(() => window.electron.openFileWithApp(path.replace(/\/[^/]*$/, ''), path, app.appPath))}>{app.iconDataUrl && <img src={app.iconDataUrl} alt="" />}{app.name}</button>)}

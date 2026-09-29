@@ -1,3 +1,4 @@
+const { emptyCostDetails } = require('../../dist-electron/electron/libs/agent-cost.js');
 const assert = require('node:assert/strict');
 const { PiSdkAdapter } = require('../../dist-electron/electron/libs/provider/pi-sdk-adapter.js');
 const { BubbleSdkAdapter } = require('../../dist-electron/electron/libs/provider/bubble-sdk-adapter.js');
@@ -8,7 +9,7 @@ for (const [stopReason, expected] of [['stop', 'final_answer'], ['toolUse', 'com
   const events = [];
   adapter.events.on('event', event => events.push(event));
   const session = {
-    threadId: 'phase-test', session: {}, usage: {}, totalCostUsd: 0,
+    threadId: 'phase-test', session: {}, usage: {}, costDetails: emptyCostDetails(),
     ingestedUsageKeys: new Set(), emittedAssistantKeys: new Set(),
     emittedToolCallIds: new Set(['tool-1']), currentAssistant: null,
   };
@@ -25,7 +26,7 @@ for (const [willContinue, expected] of [[false, 'final_answer'], [true, 'comment
   const events = [];
   adapter.events.on('event', event => events.push(event));
   const session = {
-    threadId: 'phase-test', usage: {}, totalCostUsd: 0,
+    threadId: 'phase-test', usage: {}, costDetails: emptyCostDetails(),
     currentAssistant: { uuid: 'answer', createdAt: 1000, text: 'Response', thinking: '' },
   };
   adapter.handleBubbleEvent(session, { type: 'turn_end', willContinue });

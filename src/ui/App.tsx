@@ -1,3 +1,4 @@
+import { EnvironmentPanelProvider } from './components/environment/EnvironmentPanelLayout';
 import { Image as ImageStudioIcon } from './components/icons';
 import { ImageStudioPanel, ImageStudioFileActions } from './components/ImageStudioPanel';
 import { subscribeAppPreferences } from './store/useAppPreferences';
@@ -10,7 +11,8 @@ import { ConfirmDialogHost } from '@/ui/components/ui/confirm-dialog';
 import { ScreenshotHost } from './components/screenshot/ScreenshotHost';
 import { ProjectFileMatchDialogHost } from '@/ui/components/ProjectFileMatchDialog';
 import { Toaster, toast } from 'sonner';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
+import { SessionRightPanelPresence } from './components/SessionRightPanelPresence';
 import {
   Check,
   CloudUpload,
@@ -44,8 +46,6 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar } from './components/Sidebar';
 import { AutomationsView } from './components/AutomationsView';
 import { PullRequestsView } from './components/PullRequestsView';
-import { BoardView } from './components/BoardView';
-import { ensureBoardSessionSync, useBoardStore } from './store/useBoardStore';
 import { useTabsStore, type TabView } from './store/useTabsStore';
 import { AppTabBar } from './components/AppTabBar';
 import { NewSessionView } from './components/NewSessionView';
@@ -76,6 +76,12 @@ import { WorkspaceHost } from './components/WorkspaceHost';
 import { ChatPane } from './components/ChatPane';
 import { useBrowserStateStore } from './store/useBrowserStateStore';
 import { EnvironmentEditorPicker, EnvironmentHub } from './components/environment/EnvironmentHub';
+import { SessionSourcesPanel } from './components/SessionSourcesPanel';
+import { useSessionSources } from './hooks/useSessionSources';
+import { sessionSourceTabPath } from './utils/right-utility-tabs';
+import { openSessionSource } from './lib/image-studio';
+import { useImageStudioStore } from './store/useImageStudioStore';
+import { Paperclip } from './components/icons';
 import { useActiveEnvironmentContext } from './components/environment/useActiveEnvironmentContext';
 import { useGitEnvironment } from './components/environment/useGitEnvironment';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -150,6 +156,7 @@ function getProjectUtilitySubagentId(target: ProjectUtilityPanelTarget): string 
 }
 
 function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUtilityPanelKind {
+  if (target.startsWith('sources:')) return 'sources';
   if (target.startsWith('images:')) return 'images';
   if (target.startsWith('goal:')) return 'goal';
   if (isProjectUtilityFileTab(target)) return 'files';
@@ -376,23 +383,14 @@ export function App() {
     startQueueAutoFlush();
   }, []);
 
-  // Board stage sync must run even while the board isn't mounted: a run
-  // finishing in the background should still move its card to Review.
-  useEffect(() => {
-    ensureBoardSessionSync();
-  }, []);
-
-  // Tabs mirror: every in-app navigation (sidebar, board, back/forward)
+  // Tabs mirror: every in-app navigation (sidebar, back/forward)
   // lands here and is recorded on the active tab — as its current view and
   // as an entry in its back/forward history — so tab switching and
   // Back/Forward can replay it later. Settings is a modal surface, not a tab.
-  const boardSelectedTaskId = useBoardStore((state) => state.selectedTaskId);
   useEffect(() => {
     if (showSettings) return;
     let view: TabView;
-    if (activeWorkspace === 'board') {
-      view = { kind: 'board', taskId: boardSelectedTaskId };
-    } else if (activeWorkspace === 'chat') {
+    if (activeWorkspace === 'chat') {
       view = { kind: 'chat', sessionId: showNewSession ? null : activeSessionId };
     } else if (
       activeWorkspace === 'automations' ||
@@ -404,7 +402,7 @@ export function App() {
       return;
     }
     useTabsStore.getState().setActiveTabView(view);
-  }, [activeWorkspace, activeSessionId, showNewSession, boardSelectedTaskId, showSettings]);
+  }, [activeWorkspace, activeSessionId, showNewSession, showSettings]);
 
   useEffect(() => {
     if (!electronAvailable) {
@@ -437,6 +435,13 @@ export function App() {
     );
   }
   const environmentContext = useActiveEnvironmentContext();
+  const sessionSources = useSessionSources(environmentContext.session);
+  const openSources = useCallback((path: string | null) => {
+    if (!environmentContext.sessionId) return;
+    const source = path ? sessionSources.sources.find(source => source.path === path) : null;
+    if (path && !source) return;
+    openSessionSource(environmentContext.sessionId, source ?? null);
+  }, [environmentContext.sessionId, sessionSources.sources]);
   const gitEnvironment = useGitEnvironment(environmentContext.effectiveCwd, environmentContext.contextKey);
   const refreshEnvironmentGit = useCallback(async () => {
     await gitEnvironment.refresh();
@@ -661,9 +666,20 @@ export function App() {
   }, [closeRightUtilityPanelsInStore]);
 
   const selectRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
+    if (target.startsWith('images:')) {
+      const sessionId = target.slice(7);
+      const studio = useImageStudioStore.getState().sessions[sessionId];
+      const source = studio?.sourceAttachments?.[studio.activePath];
+      if (source) { openSessionSource(sessionId, source); return; }
+    }
+    const source = sessionSources.sources.find(source => source.path === sessionSourceTabPath(target));
+    if (source?.kind === 'image' && environmentContext.sessionId) {
+      openSessionSource(environmentContext.sessionId, source);
+      return;
+    }
     setActiveRightUtilityTab(target);
     activateRightUtilityContent(target);
-  }, [activateRightUtilityContent, setActiveRightUtilityTab]);
+  }, [activateRightUtilityContent, setActiveRightUtilityTab, sessionSources.sources, environmentContext.sessionId]);
 
   const closeRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
     const kind = getProjectUtilityTabKind(target);
@@ -705,12 +721,17 @@ export function App() {
     closeRightUtilityTabInStore(target);
   }, [activeSessionId, closeRightUtilityTabInStore, destroySideChat, removeBrowserSessionState, sideChats]);
 
+  const sourceImageLabel = useImageStudioStore(state => {
+    const studio = state.sessions[environmentContext.sessionId ?? ''];
+    return studio?.view === 'single' ? studio.sourceAttachments?.[studio.activePath]?.name : undefined;
+  });
   const rightUtilityTabDescriptors = useMemo<ProjectUtilityTabDescriptor[]>(() => {
     const workspaceLeaf = getPathLeaf(activeSession?.cwd || projectCwd || '');
     return rightUtilityTabs.map((tab) => {
       const kind = getProjectUtilityTabKind(tab);
-      if (kind === 'images') return { id: tab, kind, label: 'Images' };
+      if (kind === 'images') return { id: tab, kind, label: tab === `images:${environmentContext.sessionId}` && sourceImageLabel || 'Images' };
       if (kind === 'goal') return { id: tab, kind, label: 'Edit goal' };
+      if (kind === 'sources') return { id: tab, kind, label: sessionSourceTabPath(tab)?.split(/[\\/]/).pop() || 'Sources' };
       if (kind === 'files') {
         return { id: tab, kind, label: activeProjectFileTabs[tab]?.name || 'Files' };
       }
@@ -761,6 +782,8 @@ export function App() {
     browserSessionStates,
     projectCwd,
     rightUtilityTabs,
+    environmentContext.sessionId,
+    sourceImageLabel,
   ]);
 
   const updateProjectFileTabLabel = useCallback((
@@ -893,23 +916,31 @@ export function App() {
           continue;
         }
         autoPreviewedArtifactsRef.current.add(previewKey);
+        // Consume before starting async work. Session navigation must never
+        // enqueue this completion again, including after an open failure.
+        pendingAutoPreviewSessionsRef.current.delete(session.id);
 
         const sessionId = session.id;
         void openHtmlFileInBrowserTab({
-          cwd: session.cwd,
+          cwd: session.worktreePath || session.cwd,
           filePath: artifact.filePath,
           sessionId,
         })
           .then(() => {
-            if (sessionId === activeSessionId) {
+            const current = useAppStore.getState();
+            const currentSession = current.sessions[sessionId];
+            if (current.activeSessionId === sessionId && current.activeWorkspace === 'chat'
+              && !current.showSettings && currentSession?.status === 'completed'
+              && extractLatestSuccessfulHtmlArtifactFromLatestTurn(currentSession.messages)?.toolUseId === artifact.toolUseId) {
               setRightPanelLauncherOpen(false);
               openRightUtilityTab('browser');
             }
-            pendingAutoPreviewSessionsRef.current.delete(sessionId);
           })
           .catch((error) => {
-            autoPreviewedArtifactsRef.current.delete(previewKey);
-            toast.error(`Failed to open in browser panel: ${error}`);
+            console.warn('[auto-preview] Could not open HTML artifact:', error);
+            if (useAppStore.getState().activeSessionId === sessionId) {
+              toast.error(`Failed to preview ${artifact.fileName}: ${error}`);
+            }
           });
         continue;
       }
@@ -986,11 +1017,7 @@ export function App() {
     !showSettings &&
     activeWorkspace === 'chat' &&
     (chatLayoutMode === 'split' || Boolean(activeSession && !showNewSession));
-  // The board paints through the same skin vars as chat, so the wallpaper
-  // spans both workspaces.
-  const skinSurfaceVisible =
-    chatSurfaceVisible || (!showSettings && activeWorkspace === 'board');
-  const skinVisible = skinSurfaceVisible && Boolean(skinImageData && skinLayout);
+  const skinVisible = chatSurfaceVisible && Boolean(skinImageData && skinLayout);
 
   // First-run (or zero-agents) takeover: the main UI is unusable without at
   // least one working agent, so detection/install guidance becomes the page.
@@ -1027,7 +1054,7 @@ export function App() {
           conversation and the utility workspace (including fullscreen). */}
       <div
         ref={skinHostRef}
-        className={`aegis-skin-host relative mx-1.5 mb-1.5 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[10px] bg-[var(--bg-primary)] shadow-[0_1px_4px_rgba(15,18,25,0.06)] ${
+        className={`aegis-skin-host relative flex min-h-0 min-w-0 flex-1 overflow-hidden ${showSettings ? 'aegis-settings-host' : 'aegis-content-card'} ${
           skinVisible ? 'aegis-skin-host--active' : ''
         }`}
       >
@@ -1053,7 +1080,7 @@ export function App() {
       {!showSettings && activeWorkspace === 'chat' && !sessionsLoaded ? (
         <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
       ) : showSettings ? (
-        <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
+        <div className="flex-1 min-w-0 flex flex-col">
           <div className="flex-1 min-h-0">
             <Settings />
           </div>
@@ -1070,9 +1097,8 @@ export function App() {
         <AutomationsView />
       ) : activeWorkspace === 'prs' ? (
         <PullRequestsView />
-      ) : activeWorkspace === 'board' ? (
-        <BoardView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
+        <EnvironmentPanelProvider>
         <div
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--chat-pane-surface)]"
         >
@@ -1098,6 +1124,9 @@ export function App() {
                   context={environmentContext}
                   git={gitEnvironment}
                   onOpenProjectPanel={openEnvironmentProjectPanel}
+                  sources={sessionSources.sources}
+                  sourcesError={sessionSources.error}
+                  onOpenSources={openSources}
                 />
                 <button
                   type="button"
@@ -1140,19 +1169,20 @@ export function App() {
             />
           </div>
         </div>
+        </EnvironmentPanelProvider>
       ) : (
         <NewSessionView key={newSessionKey} />
       )}
       </div>
 
-      <AnimatePresence initial={false}>
-      {!showSettings &&
+      <SessionRightPanelPresence sessionId={activeSessionId}>
+      {(sessionChanged) => !showSettings &&
       activeWorkspace === 'chat' &&
       (activeUtilityPanel !== null || (rightUtilityPanelHidden && rightUtilityTabs.length > 0)) ? (
         <RightUtilityWorkspace
           key="right-utility-workspace"
           hidden={activeUtilityPanel === null}
-          instantReveal={rightUtilityInstantRevealPending}
+          instantReveal={rightUtilityInstantRevealPending || sessionChanged}
           activePanel={activeUtilityPanel}
           tabs={rightUtilityTabDescriptors}
           activeTab={
@@ -1213,6 +1243,18 @@ export function App() {
               onToggleFullscreen={toggleFilesPanelFullscreen}
             />
           ))}
+          {activeUtilityPanel === 'sources' && environmentContext.sessionId ? (
+            <SessionSourcesPanel
+              key={environmentContext.sessionId}
+              sessionId={environmentContext.sessionId}
+              sources={sessionSources.sources}
+              loading={sessionSources.loading}
+              error={sessionSources.error}
+              onRetry={sessionSources.refresh}
+              selectedPath={sessionSourceTabPath(activeRightUtilityTab)}
+              onSelect={openSources}
+            />
+          ) : null}
           {rightUtilityTabs.filter(tab => tab.startsWith('images:')).map(tab => (
             <ImageStudioPanel key={tab} sessionId={tab.slice(7)} hidden={activeUtilityPanel === null || activeRightUtilityTab !== tab} fullscreen={rightPanelFullscreen === 'images'} />
           ))}
@@ -1306,7 +1348,7 @@ export function App() {
           })}
         </RightUtilityWorkspace>
       ) : null}
-      </AnimatePresence>
+      </SessionRightPanelPresence>
 
       {!showSettings && activeWorkspace === 'chat' && activeUtilityPanel === null ? (
         <div className="absolute right-3 top-2 z-[90] no-drag">
@@ -1361,6 +1403,7 @@ export function App() {
 }
 
 function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
+  if (target === 'sources') return Paperclip;
   if (target === 'images') return ImageStudioIcon;
   if (target === 'goal') return Target;
   if (target === 'terminal') return SquareTerminal;
@@ -1586,7 +1629,7 @@ function RightUtilityTabStrip({
           const showDivider = index > 0 && !active && prevTab?.id !== activeTab;
           // File tabs are labeled with the open file's name; show its type icon
           // (like a real editor tab) instead of the generic folder.
-          const useFileIcon = tab.kind === 'files' && tab.label.includes('.');
+          const useFileIcon = (tab.kind === 'files' || tab.id.startsWith('sources:')) && tab.label.includes('.');
           return (
             <div key={tab.id} className="flex flex-shrink-0 items-center">
               <span

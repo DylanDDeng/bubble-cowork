@@ -1,3 +1,4 @@
+import { CompactionTracker } from './compaction-tracker';
 import { buildDeepseekPromptBlocks, deepseekImageBlocks, deepseekToolImages, resolveDeepseekAttachmentHome } from './deepseek-images';
 import { deepseekImageInputError } from '../../../shared/deepseek-images';
 import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
@@ -231,6 +232,8 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   readonly displayName = 'DeepSeek Harness';
   readonly capabilities = CAPABILITIES;
   readonly events = new EventEmitter();
+
+  private readonly compactions = new CompactionTracker(event => this.emit(event));
 
   private sessions = new Map<string, ActiveDeepseekSession>();
 
@@ -788,6 +791,21 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
     }
 
     switch (event.type) {
+      case 'compaction/start':
+        if (isRoot) this.compactions.start(active, {
+          id: getString(data.compactionId), createdAt,
+          trigger: data.sourceCommandId != null || data.turn === null ? 'manual' : 'auto',
+        });
+        break;
+      case 'compaction/end':
+        if (isRoot) {
+          if (data.error) this.compactions.interrupt(active, getString(data.compactionId));
+          else this.compactions.complete(active, {
+            id: getString(data.compactionId), createdAt,
+            trigger: data.sourceCommandId != null || data.turn === null ? 'manual' : 'auto',
+          });
+        }
+        break;
       case 'assistant/chunk':
         if (isRoot) this.handleAssistantChunk(active, data);
         break;
@@ -1156,6 +1174,12 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   }
 
   private emit(event: ProviderRuntimeEvent): void {
+    if (event.type === 'error' ||
+        (event.type === 'status_change' && ['completed', 'stopped', 'error'].includes(event.status)) ||
+        (event.type === 'message' && event.message.type === 'result')) {
+      const session = this.sessions.get(event.threadId);
+      if (session) this.compactions.interrupt(session);
+    }
     this.events.emit('event', event);
   }
 }

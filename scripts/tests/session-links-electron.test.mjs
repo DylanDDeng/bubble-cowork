@@ -149,7 +149,9 @@ app.whenReady().then(async()=>{
   }};
   sdk.resolveProvider=()=>({provider:fakeProvider,providerId:'test',model:'test:fixture'});
   const id=sdk.createSession({cwd}).id;let catalog;const events=[];
-  for await(const e of sdk.runTurn(id,{prompt:refs.appendSessionReferences('',url,target.id,'bubble'),onStart:info=>{
+  for await(const e of sdk.runTurn(id,{prompt:refs.appendSessionReferences('',url,target.id,'bubble'),mode:'plan',onApproval:async request=>{
+    assert.fail('Native read_session must not require MCP approval in Plan mode');
+  },onStart:info=>{
     catalog=info.tools;bubbleReader.assertBubbleSessionReader(url,info.tools,target.id);
   }}))events.push(e);
   assert.equal(catalog.filter(t=>t==='read_session').length,1);assert.equal(steps,3);assert.equal(olderRead,true);
@@ -249,6 +251,7 @@ app.whenReady().then(async()=>{
   await js('(()=>{[...document.querySelectorAll("button")].find(e=>e.textContent==="Archived").click()})()');await delay(100);
   await click('[data-session-id="'+source.id+'"]','right');await select('Unarchive');
   assert.equal(sessions.getSessionOrganization().sessions[source.id].archived,false);
+  await js('(()=>{[...document.querySelectorAll("button")].find(e=>e.textContent==="Back to active threads").click()})()');await delay(100);
   await click('[data-session-id="'+source.id+'"]','right');await select('Conversation as Markdown');
   assert.ok(clipboard.readText().includes('message-0'));assert.ok(clipboard.readText().includes('new arrival'));
   await click('[data-session-id="'+source.id+'"]','right');await select('New section…');await screenshot('new-section-dialog');

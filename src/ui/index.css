@@ -471,6 +471,14 @@ body {
   background-color: var(--app-chrome-bg);
 }
 
+/* Shared raised workspace surface for chat and Settings. */
+.aegis-content-card {
+  margin: 0 6px 6px;
+  border-radius: 10px;
+  background-color: var(--bg-primary);
+  box-shadow: 0 1px 4px rgba(15, 18, 25, 0.06);
+}
+
 .aegis-window-shell--rounded .aegis-sidebar,
 .aegis-window-shell--rounded .aegis-window-left-surface {
   background-color: var(--app-sidebar-surface);
@@ -482,11 +490,6 @@ body {
 :root {
   --chat-pane-surface: var(--bg-primary);
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary));
-  /* Board lanes want a visibly gray track even on the plain (no-skin) canvas.
-     Mix toward ink, not --bg-secondary: in light themes the panel color is
-     anchored to white, so it's indistinguishable from the canvas. Kept
-     subtle (Linear-like): the lane should read as a track, not a slab. */
-  --board-column-surface: color-mix(in srgb, var(--text-primary) 3%, var(--bg-primary));
   --utility-pane-surface: var(--bg-primary);
   --utility-pane-surface-strong: var(--bg-primary);
   --utility-pane-backdrop: none;
@@ -503,7 +506,6 @@ body {
 .aegis-skin-host--active {
   --chat-pane-surface: transparent;
   --chat-pane-surface-muted: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
-  --board-column-surface: color-mix(in srgb, var(--bg-secondary) 24%, transparent);
   --utility-pane-surface: color-mix(in srgb, var(--bg-primary) 58%, transparent);
   --utility-pane-surface-strong: color-mix(in srgb, var(--bg-primary) 72%, transparent);
   --utility-pane-backdrop: blur(14px) saturate(120%);
@@ -859,46 +861,6 @@ body {
 }
 
 .markdown-content.environment-recap-markdown strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.markdown-content.board-activity-markdown {
-  color: var(--text-secondary);
-  font-size: calc(12.5px * var(--ui-font-scale, 1));
-  line-height: 1.55;
-}
-
-.markdown-content.board-activity-markdown h1,
-.markdown-content.board-activity-markdown h2,
-.markdown-content.board-activity-markdown h3 {
-  font-size: calc(12.5px * var(--ui-font-scale, 1));
-  font-weight: 600;
-  margin: 0.7rem 0 0.2rem;
-}
-
-.markdown-content.board-activity-markdown h1:first-child,
-.markdown-content.board-activity-markdown h2:first-child,
-.markdown-content.board-activity-markdown h3:first-child,
-.markdown-content.board-activity-markdown p:first-child {
-  margin-top: 0;
-}
-
-.markdown-content.board-activity-markdown p {
-  margin: 0.3rem 0;
-}
-
-.markdown-content.board-activity-markdown p:last-child {
-  margin-bottom: 0;
-}
-
-.markdown-content.board-activity-markdown ul,
-.markdown-content.board-activity-markdown ol {
-  margin: 0.25rem 0;
-  padding-left: 1.1rem;
-}
-
-.markdown-content.board-activity-markdown strong {
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -4058,19 +4020,26 @@ button.aegis-mdx-metadata-key:hover {
 }
 
 /* Settings use compact groups and adapt without squeezing controls off-screen. */
+.aegis-settings-sidebar-surface {
+  width: var(--settings-sidebar-width, 280px);
+  background-color: var(--app-sidebar-surface);
+  backdrop-filter: var(--app-sidebar-backdrop-filter);
+  -webkit-backdrop-filter: var(--app-sidebar-backdrop-filter);
+}
 .aegis-settings [data-settings-label] { scroll-margin-block: 24px; }
 .aegis-settings [data-search-match="true"] { outline: 1px solid var(--text-muted); outline-offset: 3px; border-radius: 8px; }
 .aegis-settings .settings-row > :last-child { min-width: 0; max-width: 100%; }
 .aegis-settings .settings-row input { max-width: 100%; }
 @media (max-width: 800px) {
-  .aegis-settings aside, .aegis-settings > div:first-child > div:first-child { width: 180px; }
+  .aegis-settings-sidebar-surface { width: 180px; }
   .aegis-settings-content { padding-inline: 20px; }
   .aegis-settings .settings-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .aegis-settings .settings-row > :last-child { justify-content: flex-start; }
 }
 @media (max-width: 560px) {
-  .aegis-settings > div:nth-child(2) { flex-direction: column; }
-  .aegis-settings aside { width: 100%; max-height: 220px; overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  .aegis-settings-titlebar .aegis-settings-sidebar-surface { width: 100%; }
+  .aegis-settings-layout { flex-direction: column; gap: 6px; }
+  .aegis-settings aside { width: 100%; max-height: 220px; overflow-y: auto; }
   .aegis-settings aside > div { height: auto; padding-block: 8px; }
   .aegis-settings-content { padding: 20px 16px; }
 }

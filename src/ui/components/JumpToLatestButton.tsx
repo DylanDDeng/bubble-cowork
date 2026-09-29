@@ -39,6 +39,7 @@ export function JumpToLatestButton({ scrollContainerRef, threshold, onJump }: {
   return (
     <button
       type="button"
+      data-chat-jump-to-latest
       aria-label="Scroll to latest turn"
       title="Scroll to latest turn"
       onClick={onJump}

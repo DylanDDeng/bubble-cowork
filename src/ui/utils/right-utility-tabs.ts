@@ -6,6 +6,16 @@ import type {
 let fileTabCounter = 0;
 let browserTabCounter = 0;
 
+export function sessionSourceTab(path: string): ProjectUtilityPanelTarget {
+  return `sources:${encodeURIComponent(path)}`;
+}
+
+export function sessionSourceTabPath(tab: ProjectUtilityPanelTarget | null): string | null {
+  if (!tab?.startsWith('sources:')) return null;
+  try { return decodeURIComponent(tab.slice('sources:'.length)); }
+  catch { return null; }
+}
+
 export function isRightUtilityFileTab(
   target: ProjectUtilityPanelTarget | null | undefined
 ): target is ProjectUtilityPanelTarget {
@@ -51,6 +61,7 @@ export function getSideChatSessionId(target: ProjectUtilityPanelTarget): string 
 export function getRightUtilityTabKind(
   target: ProjectUtilityPanelTarget
 ): ProjectUtilityPanelKind {
+  if (target.startsWith('sources:')) return 'sources';
   if (target.startsWith('images:')) return 'images';
   if (target.startsWith('goal:')) return 'goal';
   if (isRightUtilityFileTab(target)) return 'files';
@@ -79,7 +90,7 @@ export function addRightUtilityTab(
 
 export function resolveRightUtilityTabOpen(
   tabs: ProjectUtilityPanelTarget[],
-  target: ProjectUtilityPanelKind,
+  target: ProjectUtilityPanelTarget,
   options?: { newTab?: boolean }
 ): { tabs: ProjectUtilityPanelTarget[]; activeTab: ProjectUtilityPanelTarget } {
   if (target === 'files') {

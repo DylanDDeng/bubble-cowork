@@ -10,6 +10,7 @@ export interface AppPreferences {
   followUpBehavior: 'queue' | 'steer';
   showContextUsage: boolean;
   plainTextComposer: boolean;
+  environmentPanelPinned: boolean;
   uiFontSize: number;
   codeFontSize: number;
   reduceMotion: 'system' | 'on' | 'off';
@@ -22,7 +23,7 @@ export const DEFAULT_APP_PREFERENCES: AppPreferences = {
   keyboardShortcuts: {},
   defaultEditor: 'auto', terminalShell: 'system', preventSleep: false,
   enterBehavior: 'enter', followUpBehavior: 'queue', showContextUsage: true,
-  plainTextComposer: false,
+  plainTextComposer: false, environmentPanelPinned: true,
   uiFontSize: 13, codeFontSize: 12, reduceMotion: 'system',
   fontSmoothing: true, pointerCursors: true, diffMarkers: 'color',
 };
@@ -32,7 +33,7 @@ export function normalizeAppPreferences(value: unknown): AppPreferences {
   if (!value || typeof value !== 'object') return result;
   const input = value as Record<string, unknown>;
   result.keyboardShortcuts = normalizeShortcutOverrides(input.keyboardShortcuts);
-  for (const key of ['preventSleep', 'showContextUsage', 'plainTextComposer', 'fontSmoothing', 'pointerCursors'] as const) {
+  for (const key of ['environmentPanelPinned', 'preventSleep', 'showContextUsage', 'plainTextComposer', 'fontSmoothing', 'pointerCursors'] as const) {
     if (typeof input[key] === 'boolean') result[key] = input[key];
   }
   for (const key of ['defaultEditor', 'terminalShell'] as const) {

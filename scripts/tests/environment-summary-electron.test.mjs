@@ -32,7 +32,11 @@ window.electron={
  gitCreatePr:async()=>{qa.calls.push('pr');return {ok:true,url:'https://github.com/aegis/desktop/pull/42'}},
  openExternalUrl:async url=>{qa.calls.push(['external',url]);return {ok:true}},
 };
-const {Toaster}=await import('sonner');
+const {Toaster,toast}=await import('sonner');qa.dismissToasts=()=>toast.dismiss();
+const {EnvironmentPanelProvider,EnvironmentChatSurface}=await import('/src/ui/components/environment/EnvironmentPanelLayout.tsx');
+const {useAppPreferences}=await import('/src/ui/store/useAppPreferences.ts');
+qa.preferences=useAppPreferences;qa.pinWrites=[];
+window.electron.setAppPreferences=async patch=>{qa.pinWrites.push(patch);return {...useAppPreferences.getState(),...patch}};
 const {EnvironmentHub}=await import('/src/ui/components/environment/EnvironmentHub.tsx');
 const {useGitEnvironment}=await import('/src/ui/components/environment/useGitEnvironment.ts');
 const {useAppStore}=await import('/src/ui/store/useAppStore.ts');
@@ -48,6 +52,10 @@ function GitProbe(){
  return <output id="probe-branch">{git.overview.branch||'unknown'}</output>;
 }
 function Harness(){
+ const [sources,setSources]=useState([]);qa.setSources=setSources;
+ const [layoutWidth,setLayoutWidth]=useState(0);qa.setLayoutWidth=setLayoutWidth;
+ const [activePane,setActivePane]=useState(0);qa.setActivePane=setActivePane;
+ const [mounted,setMounted]=useState(true);qa.setMounted=setMounted;
  const [probe,setProbe]=useState(false);qa.setProbe=setProbe;
  const [sessionId,setSessionId]=useState('fixture');qa.setSessionId=setSessionId;
  const [mode,setMode]=useState('local');const [patch,setPatch]=useState({});const [narrow,setNarrow]=useState(false);qa.setMode=value=>{setPatch({});setMode(value)};qa.patch=setPatch;qa.setNarrow=setNarrow;
@@ -72,7 +80,7 @@ function Harness(){
  Object.assign(overview,patch);
  qa.overview=overview;
  const git={overview,loading:mode==='loading'||mode==='pr-loading',lastUpdatedAt:Date.now(),refresh:async()=>{qa.refreshes++},getSnapshot:()=>({contextKey:mode,cwd:context.effectiveCwd,repoRoot:overview.repoRoot,branch:overview.branch,signature:[overview.repoRoot||'',overview.branch||'',overview.upstream||'',overview.aheadCount,overview.behindCount,overview.totalChanges,overview.insertions,overview.deletions,overview.prStatus,overview.pr?.number||''].join(':')})};
- return <><Toaster/><div hidden>{probe?<GitProbe/>:null}</div><main style={{display:'flex',height:'100vh',background:'var(--bg-primary)'}}><div style={{width:narrow?420:720,padding:20}}><header style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>Environment preview</span><EnvironmentHub context={context} git={git} onOpenProjectPanel={view=>qa.view=view}/></header><button id="outside" style={{marginTop:480}}>Outside</button></div><aside style={{flex:1,borderLeft:'1px solid var(--border)',padding:20}}>Files</aside></main></>;
+ return <EnvironmentPanelProvider><Toaster/><div hidden>{probe?<GitProbe/>:null}</div><main style={{display:'flex',height:'100vh',background:'var(--bg-primary)'}}><div style={{width:layoutWidth|| (narrow?420:720),padding:layoutWidth?0:20,flexShrink:0,display:'flex',flexDirection:'column'}}><header style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>Environment preview</span><>{mounted?<EnvironmentHub context={context} git={git} onOpenProjectPanel={view=>qa.view=view} sources={sources} onOpenSources={path=>qa.sourcePath=path}/>:null}</></header>{layoutWidth?<div style={{display:'flex',flex:1,minHeight:0}}>{[0,1].map(index=><div key={index} style={{display:'flex',flexDirection:'column',width:index===0?'100%':600,flexShrink:0}}><EnvironmentChatSurface active={activePane===index}><div data-chat-scroll-container style={{flex:1,paddingBlock:16,paddingLeft:16,overflow:'auto'}}><div className="message-container" style={{background:'var(--bg-secondary)',height:1600}}>Chat messages</div></div><div data-composer-home="fixture"><div><div className="aegis-chat-composer px-8 pb-4"><div style={{background:'var(--bg-secondary)',height:100}}>Composer</div></div></div></div></EnvironmentChatSurface></div>)}</div>:<button id="outside" style={{marginTop:480}}>Outside</button>}</div><aside style={{flex:1,borderLeft:'1px solid var(--border)',padding:20}}>Files</aside></main></EnvironmentPanelProvider>;
 }
 createRoot(document.getElementById('root')).render(<Harness/>);
 `;
@@ -234,8 +242,55 @@ app.whenReady().then(async()=>{
  assert.doesNotMatch(await visible(),/PR #999/,'ignore delayed results from previous task');
  await js('qa.pendingPr[1].resolve([])');await delay(100);
  await js('qa.pendingPr[2].resolve([])');await delay(100);
+ // Real layout component: actual pane width, persistent pin, and session overlays.
+ win.setContentSize(1800,800);await js('qa.dismissToasts()');await delay(250);
+ await js('window.electron.listSessionPullRequests=async()=>[];qa.setMode("git");qa.setLayoutWidth(1536)');await delay(400);
+ const panel=()=>js('document.querySelector("[data-environment-panel]")?.dataset.environmentPanel||null');
+ const layoutMode=()=>js('document.querySelector(".environment-chat-surface").dataset.environmentMode');
+ assert.equal(await panel(),'pinned');assert.equal(await layoutMode(),'gutter');
+ const geometry=()=>js('(()=>{const s=document.querySelector(".environment-chat-surface"),p=s.querySelector("[data-environment-panel]"),m=s.querySelector(".message-container"),c=s.querySelector(".aegis-chat-composer > div");const rect=e=>{if(!e)return null;const r=e.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,clientWidth:e.clientWidth,top:r.top,bottom:r.bottom}};return {s:rect(s),p:rect(p),m:rect(m),c:rect(c),scroll:rect(s.querySelector("[data-chat-scroll-container]"))}})()');
+ let g=await geometry();assert(Math.abs(g.scroll.right-g.s.right)<1,'gutter scrollbar sits at pane edge');assert.equal(g.m.width,736);assert(Math.abs((g.m.left+g.m.right)/2-(g.scroll.left+g.scroll.clientWidth/2))<1);assert(g.m.right<g.p.left);assert(g.c.right<g.p.left);
+ await snap('pinned-gutter');
+ await js('document.querySelector(".message-container").dispatchEvent(new MouseEvent("mousedown",{bubbles:true}));document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');assert.equal(await panel(),'pinned');
+ await js('qa.setLayoutWidth(1535)');await delay(350);assert.equal(await layoutMode(),'shift');
+ await js('qa.setLayoutWidth(1096)');await delay(400);assert.equal(await layoutMode(),'shift');g=await geometry();assert(Math.abs(g.scroll.right-g.s.right)<1,'shift scrollbar sits beyond the Environment card at the pane edge');assert(g.m.right<=g.p.left);assert(g.c.right<=g.p.left);assert(g.p.bottom<=g.s.bottom);await snap('pinned-shift');
+ const pinnedTop=g.p.top;
+ await js('document.querySelector("[data-chat-scroll-container]").scrollTop=400');await delay(80);
+ assert.equal(await js('document.querySelector("[data-chat-scroll-container]").scrollTop'),400,'transcript actually scrolls');
+ assert.equal((await geometry()).p.top,pinnedTop,'scrolling messages leaves Environment fixed');
+ await click('Open environment panel');assert.equal(await panel(),null);assert.equal(await js('qa.preferences.getState().environmentPanelPinned'),false);
+ await js('qa.setSessionId("third-task");qa.patch({totalChanges:10});qa.setLayoutWidth(1600)');await delay(350);assert.equal(await panel(),null,'new sessions and Git updates respect explicit close');
+ await js('qa.setMounted(false)');await delay(100);await js('qa.setMounted(true)');await delay(200);assert.equal(await panel(),null,'remount respects pin preference');
+ await click('Open environment panel');assert.equal(await panel(),'pinned');
+ await js('qa.setLayoutWidth(1095)');await delay(350);assert.equal(await panel(),null);assert.equal(await layoutMode(),'overlay');g=await geometry();assert(Math.abs(g.scroll.right-g.s.right)<1,'overlay scrollbar also stays at pane edge');
+ const writes=await js('qa.pinWrites.length');await click('Open environment panel');assert.equal(await panel(),'overlay');await snap('narrow-overlay');
+ // Real navigation starts with a pointer event outside the chat surface.
+ await js('document.querySelector("aside").dispatchEvent(new MouseEvent("mousedown",{bubbles:true}));qa.setSessionId("overlay-other")');await delay(150);
+ assert.equal(await panel(),null,'another session starts collapsed in a narrow pane');
+ await js('qa.setSessionId("third-task")');await delay(150);assert.equal(await panel(),'overlay','returning restores the expanded session');
+ await js('qa.setMounted(false)');await delay(100);await js('qa.setMounted(true)');await delay(150);assert.equal(await panel(),'overlay','navigation remount retains expansion');
+ await js('qa.setLayoutWidth(1600)');await delay(350);assert.equal(await panel(),'pinned');
+ await js('qa.setLayoutWidth(1095)');await delay(350);assert.equal(await panel(),'overlay','resizing does not erase explicit expansion');
+ await js('document.querySelector(".message-container").dispatchEvent(new MouseEvent("mousedown",{bubbles:true}))');assert.equal(await panel(),null);
+ await js('qa.setSessionId("overlay-other")');await delay(100);await js('qa.setSessionId("third-task")');await delay(100);assert.equal(await panel(),null,'explicit dismissal also survives navigation');
+ await click('Open environment panel');await js('document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');assert.equal(await panel(),null);assert.equal(await js('qa.pinWrites.length'),writes);
+ await js('qa.setLayoutWidth(1600)');await delay(350);assert.equal(await panel(),'pinned');
+ await js('qa.setActivePane(1)');await delay(350);assert.equal(await panel(),null,'600px split pane uses overlay despite wide window');
+ await js('qa.setActivePane(0)');await delay(350);assert.equal(await panel(),'pinned');
+ await mode('local');assert.equal(await panel(),null);assert.equal(await layoutMode(),'overlay','no content reserves no space');
+ await js('qa.setSources([{id:"reference",name:"reference.png",path:"/tmp/reference.png",kind:"image",mimeType:"image/png",size:12}])');await delay(350);
+ assert.equal(await panel(),'pinned','attachments alone reserve the pinned Sources card');assert.equal(await layoutMode(),'gutter');
+ assert.match(await visible(),/Sources/);await click('reference.png');assert.equal(await js('qa.sourcePath'),'/tmp/reference.png');assert.equal(await panel(),'pinned','opening a source retains the pinned card');
+ await click('View all (1)');assert.equal(await js('qa.sourcePath'),null);
+ await js('qa.setSources([])');await delay(350);assert.equal(await panel(),null);assert.equal(await layoutMode(),'overlay');
+ await mode('git');assert.equal(await panel(),'pinned');
+ await js('document.querySelector("main").style.height="160px"');await delay(100);g=await geometry();assert(g.p.bottom<=g.s.bottom,'short pane constrains card height');assert(await js('(()=>{const e=document.querySelector("[data-environment-panel] > div");return e.scrollHeight>e.clientHeight})()'),'short card scrolls internally');
+ await js('document.querySelector("main").style.height="100vh"');
+ await js('qa.preferences.setState({reduceMotion:"on"})');await delay(100);
+ assert.equal(await js('getComputedStyle(document.querySelector("[data-chat-scroll-container]")).transitionDuration'),'0s');
+ assert.equal(await js('getComputedStyle(document.querySelector("[data-environment-panel]")).animationName'),'none');
  assert.deepEqual(errors,[]);
- console.log('environment-summary: initial and cached branch, detached HEAD, non-Git sections, stale replies, combined commit/push, publish, PR states and creation, sync, worktree menu, clipboard menu, portals, running guards, anchor, dismissal passed');app.exit(0);
+ console.log('environment-summary: initial and cached branch, detached HEAD, non-Git sections, stale replies, combined commit/push, publish, PR states and creation, sync, worktree menu, clipboard menu, portals, running guards, anchor, dismissal, responsive pin layout and persisted preference passed');app.exit(0);
  }catch(e){console.error(e);console.error(errors);console.error(await visible());await snap('failure');app.exit(1)}
 });
 `;
@@ -247,7 +302,7 @@ try {
  server=await createServer({root,configFile:path.join(root,'vite.config.ts'),server:{host:'127.0.0.1',port:0,strictPort:false}});await server.listen();
  const url=new URL(path.relative(root,tmp)+'/index.html',server.resolvedUrls.local[0]).href;
  await new Promise((resolve,reject)=>{
-  const env={...process.env,QA_URL:url};delete env.ELECTRON_RUN_AS_NODE;
+  const env={...process.env,QA_URL:url,BUBBLE_HOME:path.join(tmp,"agent-home")};delete env.ELECTRON_RUN_AS_NODE;
   const child=spawn(path.join(root,'node_modules/.bin/electron'),[path.join(tmp,'main.cjs')],{cwd:root,env,stdio:'inherit'});
   const timeout=setTimeout(()=>{child.kill();reject(new Error('Environment test timed out'));},60000);
   child.on('error',reject);child.on('exit',code=>{clearTimeout(timeout);code===0?resolve():reject(new Error('Electron exited '+code))});

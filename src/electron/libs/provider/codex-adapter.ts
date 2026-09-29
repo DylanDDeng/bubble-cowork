@@ -187,6 +187,27 @@ const GENERIC_CODEX_TOOL_NAMES = new Set([
   'functioncall',
 ]);
 
+function codexExecutionMetadata(item: Record<string, unknown>, completed: boolean): import('../../../shared/types.js').ToolExecutionMetadata | undefined {
+  const type = String(item.type || '').replaceAll('_', '').toLowerCase();
+  const approvalReviews: NonNullable<import('../../../shared/types.js').ToolExecutionMetadata['approvalReviews']> = [];
+  for (const review of Array.isArray(item.automaticApprovalReviews) ? item.automaticApprovalReviews : []) {
+    if (!isObject(review) || (review.status !== 'denied' && review.status !== 'timedOut')) continue;
+    approvalReviews.push({ id: String(review.id ?? `${item.id}:${approvalReviews.length}`), status: review.status,
+      ...(typeof review.reason === 'string' ? { reason: review.reason } : {}) });
+  }
+  if (type !== 'commandexecution') return approvalReviews.length ? { approvalReviews } : undefined;
+  const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  const status = String(item.status ?? '');
+  return {
+    ...(completed ? { completedAt: number(item.completedAtMs) ?? Date.now() } : { startedAt: number(item.startedAtMs) ?? Date.now() }),
+    ...(number(item.durationMs) != null ? { durationMs: Math.max(0, number(item.durationMs)!) } : {}),
+    ...(number(item.exitCode) != null ? { exitCode: number(item.exitCode) } : {}),
+    status: status === 'interrupted' ? 'interrupted' : status === 'declined' ? 'declined' : status === 'failed' || (typeof item.exitCode === 'number' && item.exitCode !== 0) ? 'failed' : completed ? 'completed' : 'running',
+    ...(typeof item.background === 'boolean' ? { background: item.background } : {}),
+    ...(approvalReviews.length ? { approvalReviews } : {}),
+  };
+}
+
 function normalizeCodexToolName(name: string): string {
   const trimmed = name.trim();
   const normalized = trimmed.replace(/[_\-\s]/g, '').toLowerCase();
@@ -530,6 +551,7 @@ export class CodexAdapter implements ProviderAdapter {
               id: toolId,
               name: toolName,
               input: toolInput,
+              execution: codexExecutionMetadata(item, false),
             },
           ],
         },
@@ -556,7 +578,7 @@ export class CodexAdapter implements ProviderAdapter {
     on('tool_result', ({ threadId, params }) => {
       const p = params as Record<string, unknown>;
       const { item, toolUseId, rawContent } = this.extractToolResultInfo(threadId, p);
-      const isError = Boolean(item.isError ?? item.error ?? p.isError) || item.status === 'failed' || item.status === 'declined';
+      const isError = Boolean(item.isError ?? item.error ?? p.isError) || item.status === 'failed' || item.status === 'declined' || (typeof item.exitCode === 'number' && item.exitCode !== 0);
 
       if (toolUseId && !this.markEmitted(this.emittedToolResults, threadId, toolUseId)) {
         return;
@@ -612,6 +634,7 @@ export class CodexAdapter implements ProviderAdapter {
               content,
               ...(displayContent ? { displayContent } : {}),
               is_error: isError,
+              execution: codexExecutionMetadata(item, true),
               ...(persisted.mediaRefs.length > 0 ? { mediaRefs: persisted.mediaRefs } : {}),
             },
           ],
@@ -675,6 +698,7 @@ export class CodexAdapter implements ProviderAdapter {
           subtype: 'error',
           duration_ms: 0,
           total_cost_usd: 0,
+          costSource: 'unavailable',
           usage: { input_tokens: 0, output_tokens: 0 },
         };
         this.emit({ type: 'message', threadId, message });
@@ -689,6 +713,7 @@ export class CodexAdapter implements ProviderAdapter {
         subtype: 'success',
         duration_ms: 0,
         total_cost_usd: 0,
+        costSource: 'unavailable',
         usage: { input_tokens: 0, output_tokens: 0 },
       };
       this.emit({ type: 'message', threadId, message });
@@ -2524,6 +2549,7 @@ export class CodexAdapter implements ProviderAdapter {
     const knownId = candidates.find((candidate) => knownCalls?.has(candidate));
     const toolUseId = knownId || this.latestPendingToolCallId(threadId) || candidates[0] || '';
     let rawContent =
+      item.aggregatedOutput ??
       item.output ??
       item.rawOutput ??
       item.result ??

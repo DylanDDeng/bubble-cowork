@@ -824,6 +824,8 @@ async function l1ModelSwitchPerPrompt() {
 
 async function l1CompactFlow() {
   const t = await startL1Session();
+  t.push('agent.status.updated', { contextTokens: 20000, maxContextTokens: 30000 }, true);
+  await waitFor(() => t.adapter.sessions.get('thread-1').lastContext.contextTokens === 20000, 2000, 'pre-compact usage');
   await t.adapter.sendTurn({ threadId: 'thread-1', prompt: '/compact' });
   assert.ok(
     t.fetchImpl.calls.some((call) => /:compact$/.test(call.path)),
@@ -834,7 +836,10 @@ async function l1CompactFlow() {
   await waitFor(() => t.events.messages('result').length === 1, 2000, 'compact result');
   const boundary = t.events.messages('system').find((m) => m.subtype === 'compact_boundary');
   assert.equal(boundary.compactMetadata.trigger, 'manual');
-  assert.equal(boundary.compactMetadata.preTokens, 5000);
+  assert.equal(boundary.compactMetadata.preTokens, 20000, 'snapshot before compact, not post-compact occupancy');
+  const start = t.events.messages('system').find((m) => m.subtype === 'compact_status');
+  assert.equal(start.status, 'started');
+  assert.equal(start.compactionId, boundary.compactionId);
   ok('/compact → :compact → history_compacted emits a manual compact_boundary + result');
 }
 

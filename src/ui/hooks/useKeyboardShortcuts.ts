@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useTabsStore } from '../store/useTabsStore';
+import { useSidebarViewStore } from '../store/useSidebarViewStore';
 import { useAppPreferences } from '../store/useAppPreferences';
 import { startScreenshotCapture } from '../components/screenshot/ScreenshotHost';
 import { matchesShortcut, SHORTCUT_COMMANDS, shortcutBindings, shortcutConflict } from '../../shared/keyboard-shortcuts';
@@ -35,7 +36,7 @@ export function useKeyboardShortcuts() {
       switch (id) {
         case 'search': state.toggleSearchPalette(); break;
         case 'sidebar': state.setSidebarCollapsed(!state.sidebarCollapsed); break;
-        case 'activity': state.toggleSidebarActivityView(); break;
+        case 'activity': useSidebarViewStore.getState().toggleStateView(); break;
         case 'back': tabs.goBack(); break;
         case 'forward': tabs.goForward(); break;
         case 'settings': state.setShowSettings(true); break;

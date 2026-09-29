@@ -14,7 +14,7 @@ export function projectContainsPaths(threadId: string, cwd: string, paths: unkno
 export function isProjectFileApproval(
   threadId: string, cwd: string, mode: string | undefined, request: { type: string } & Record<string, unknown>
 ): boolean {
-  if (mode === 'plan') return false;
+  if (mode === 'plan' || request.protectedPath === true) return false;
   if (request.type === 'write' || request.type === 'edit') {
     return projectContainsPaths(threadId, cwd, [request.path]);
   }

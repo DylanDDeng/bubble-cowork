@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron';
 import { ipcMainHandle } from '../util';
-import { attachTaskPullRequest, detachTaskPullRequest, listTaskPullRequests } from '../libs/session-pull-requests';
+import { attachTaskPullRequest, detachTaskPullRequest, listSidebarPullRequests, listTaskPullRequests } from '../libs/session-pull-requests';
 import type { AttachSessionPullRequestInput } from '../../shared/types';
 
 export function setupSessionPullRequestsIPC() {
@@ -10,6 +10,7 @@ export function setupSessionPullRequestsIPC() {
     }
   };
   ipcMainHandle('list-session-pull-requests', (_, sessionId: string, refresh?: boolean) => listTaskPullRequests(sessionId, refresh === true));
+  ipcMainHandle('list-sidebar-pull-requests', (_, refresh?: boolean) => listSidebarPullRequests(refresh === true));
   ipcMainHandle('attach-session-pull-request', async (_, input: AttachSessionPullRequestInput) => {
     const result = await attachTaskPullRequest(input);
     if (result.created) changed(input.sessionId);

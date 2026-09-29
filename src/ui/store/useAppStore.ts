@@ -76,6 +76,8 @@ import {
   sanitizeSidebarWidth,
 } from '../utils/sidebar-width';
 import { StreamDeltaCoalescer } from '../utils/stream-delta-coalescer';
+import { archiveRetryStream, restoreRetryHistory } from '../utils/stream-retry';
+import { resolvesStreamRetry } from '../../shared/stream-retry';
 import { applySessionAgentSelection } from '../utils/session-model';
 import {
   SIDE_CHAT_PENDING_TAB,
@@ -339,9 +341,9 @@ function shouldPreserveStreamingStateForMessage(
     (provider === 'codex' &&
       ((message.type === 'assistant' && message.streaming === true) ||
         (message.type === 'system' && message.subtype === 'token_usage'))) ||
-    // Kimi (server runtime) emits token_usage mid-turn between steps; it must
+    // Kimi and Bubble emit token_usage mid-turn between steps; it must
     // not reset the in-flight streaming buffer either.
-    (provider === 'kimi' && message.type === 'system' && message.subtype === 'token_usage')
+    ((provider === 'kimi' || provider === 'bubble') && message.type === 'system' && message.subtype === 'token_usage')
   );
 }
 
@@ -559,6 +561,7 @@ function freshSessionViewFromInfo(info: import('../../shared/types').SessionInfo
     computerUseFrames: [],
     computerUseGrants: [],
     streaming: createEmptyStreamingState(),
+    createdAt: info.createdAt,
     updatedAt: info.updatedAt,
   };
 }
@@ -646,6 +649,7 @@ function createDraftSessionView(
     permissionRequests: [],
     streaming: createEmptyStreamingState(),
     runtimeNotice: undefined,
+    createdAt: now,
     updatedAt: now,
   };
 }
@@ -805,7 +809,6 @@ export const useAppStore = create<Store>()(
       newSessionKey: 0,
       sidebarCollapsed: false,
       sidebarPeek: false,
-      sidebarActivityView: false,
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sidebarWidthVersion: SIDEBAR_WIDTH_VERSION,
       globalError: null,
@@ -879,7 +882,9 @@ export const useAppStore = create<Store>()(
               const current = state.sessions[sessionId];
               if (!current) return state;
               const sanitizedMessages = sanitizeHistoryMessages(payload.messages);
-              const nextMessages = [...sanitizedMessages, ...current.messages];
+              const nextMessages = restoreRetryHistory(
+                [...sanitizedMessages, ...current.messages], current.status
+              ).messages;
               return {
                 sessions: {
                   ...state.sessions,
@@ -1770,9 +1775,6 @@ export const useAppStore = create<Store>()(
 
   setSidebarPeek: (open) => set({ sidebarPeek: open }),
 
-  toggleSidebarActivityView: () =>
-    set((state) => ({ sidebarActivityView: !state.sidebarActivityView })),
-
   setSidebarWidth: (width) => set((state) => ({
     sidebarWidth: sanitizeSidebarWidth(width, state.sidebarWidth),
   })),
@@ -2648,7 +2650,6 @@ export const useAppStore = create<Store>()(
         chatPanes: state.chatPanes,
         chatSplitRatio: state.chatSplitRatio,
         sidebarCollapsed: state.sidebarCollapsed,
-        sidebarActivityView: state.sidebarActivityView,
         sidebarWidth: state.sidebarWidth,
         sidebarWidthVersion: state.sidebarWidthVersion,
         projectTreeCollapsed: state.projectTreeCollapsed,
@@ -2689,7 +2690,6 @@ export const useAppStore = create<Store>()(
           chatPanes?: Record<ChatPaneId, ChatPaneState>;
           chatSplitRatio?: number;
           sidebarCollapsed?: boolean;
-          sidebarActivityView?: boolean;
           sidebarWidth?: number;
           sidebarWidthVersion?: number;
           projectTreeCollapsed?: boolean;
@@ -2743,8 +2743,7 @@ export const useAppStore = create<Store>()(
         });
         const activeWorkspace =
           persisted?.activeWorkspace === 'skills' ||
-          persisted?.activeWorkspace === 'automations' ||
-          persisted?.activeWorkspace === 'board'
+          persisted?.activeWorkspace === 'automations'
             ? persisted.activeWorkspace
             : 'chat';
         const sidebarView = persisted?.chatSidebarView === 'skills' ? 'skills' : 'threads';
@@ -2775,7 +2774,6 @@ export const useAppStore = create<Store>()(
           chatPanes,
           chatSplitRatio: derivedPaneFields.chatSplitRatio,
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
-          sidebarActivityView: persisted?.sidebarActivityView ?? currentState.sidebarActivityView,
           sidebarWidth: restorePersistedSidebarWidth(
             persisted?.sidebarWidth,
             persisted?.sidebarWidthVersion,
@@ -3268,6 +3266,7 @@ function handleSessionStatus(
               ? teamId || null
               : session.teamId || null,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
+          messages: status !== 'running' ? archiveRetryStream(session).messages : session.messages,
           streaming:
             status === 'running'
               ? session.streaming
@@ -3396,7 +3395,8 @@ function handleSessionHistory(
   set: SetState
 ) {
   const { sessionId, status, messages, cursor, hasMore } = payload;
-  const sanitizedMessages = sanitizeHistoryMessages(messages);
+  const restored = restoreRetryHistory(sanitizeHistoryMessages(messages), status);
+  const sanitizedMessages = restored.messages;
 
   set((state) => {
     const session = state.sessions[sessionId];
@@ -3418,7 +3418,7 @@ function handleSessionHistory(
           hydrationPending: false,
           hydrationError: false,
           hydrationAttempts: 0,
-          streaming: createEmptyStreamingState(),
+          streaming: restored.streaming,
           computerUseFrames: framesFromComputerUseHistory(
             sessionId,
             session.computerUseFrames,
@@ -3485,7 +3485,7 @@ function handleUserPrompt(
         ...state.sessions,
         [sessionId]: {
           ...session,
-          messages: [...session.messages, userMessage],
+          messages: [...archiveRetryStream(session).messages, userMessage],
           streaming: createEmptyStreamingState(),
         },
       },
@@ -3578,7 +3578,7 @@ function handleStreamMessage(
   }
 
   set((state) => {
-    const currentSession = state.sessions[sessionId];
+    let currentSession = state.sessions[sessionId];
     if (!currentSession) return state;
 
     // Subagent (Task) stream events must never touch the top-level streaming
@@ -3587,6 +3587,40 @@ function handleStreamMessage(
     // top-level partial.
     if (message.type === 'stream_event' && message.parentToolUseId) {
       return state;
+    }
+
+    if (message.type === 'system' && message.subtype === 'api_retry' && !message.parentToolUseId) {
+      const retry = { ...message, createdAt: message.createdAt ?? Date.now() };
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...currentSession,
+            messages: [...currentSession.messages, retry],
+            // Keep the same visible trace (and its disclosure/scroll state) while waiting.
+            streaming: {
+              ...currentSession.streaming,
+              ...(retry.snapshot ? {
+                thinking: retry.snapshot.thinking, text: retry.snapshot.text,
+                isStreaming: Boolean(retry.snapshot.thinking || retry.snapshot.text),
+              } : {}),
+              retry,
+            },
+          },
+        },
+      };
+    }
+
+    if (currentSession.streaming.retry && !message.parentToolUseId) {
+      const resolved = message.type === 'system' && message.subtype === 'api_retry_resolved'
+        && message.retryId === currentSession.streaming.retry.uuid;
+      if (resolved || resolvesStreamRetry(message)) {
+        currentSession = archiveRetryStream(currentSession, message);
+      } else if (message.type === 'stream_event') {
+        // A start/stop/usage event is not proof the connection has recovered.
+        return state;
+      }
     }
 
     if (message.type === 'stream_event') {
@@ -3692,7 +3726,7 @@ function handleStreamMessage(
                   ? extractLatestClaudeModelUsage([mergedMessage], currentSession.model) || currentSession.latestClaudeModelUsage
                   : currentSession.latestClaudeModelUsage,
               messages: nextMessages,
-              streaming: shouldPreserveStreamingStateForMessage(currentSession.provider, mergedMessage)
+              streaming: currentSession.streaming.retry || shouldPreserveStreamingStateForMessage(currentSession.provider, mergedMessage)
                 ? currentSession.streaming
                 : createEmptyStreamingState(),
             },
@@ -3712,7 +3746,7 @@ function handleStreamMessage(
               ? extractLatestClaudeModelUsage([stampedMessage], currentSession.model) || currentSession.latestClaudeModelUsage
               : currentSession.latestClaudeModelUsage,
           messages: [...currentSession.messages, stampedMessage],
-          streaming: shouldPreserveStreamingStateForMessage(currentSession.provider, stampedMessage)
+          streaming: currentSession.streaming.retry || shouldPreserveStreamingStateForMessage(currentSession.provider, stampedMessage)
             ? currentSession.streaming
             : createEmptyStreamingState(),
         },

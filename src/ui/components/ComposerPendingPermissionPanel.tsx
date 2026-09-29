@@ -84,6 +84,13 @@ export const ComposerPendingPermissionPanel = memo(function ComposerPendingPermi
             onSubmit={(result) => onSubmit(request.toolUseId, result)}
           />
         </div>
+      ) : isAcpPermissionInput(request.input) && request.input.provider === 'bubble' && request.input.toolName === 'ProjectTrust' ? (
+        <div className="flex flex-col gap-3 px-4 py-3 sm:px-5">
+          <p data-bubble-project-trust className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-sm text-[var(--text-secondary)]">
+            {request.input.question}
+          </p>
+          <ComposerPendingPermissionActions request={request} onSubmit={onSubmit} />
+        </div>
       ) : parsed.mode === 'computer-use' && isComputerUsePermissionInput(request.input) ? (
         <div className="flex flex-col gap-3 px-4 py-3 sm:px-5">
           <ComputerUseApprovalBody input={request.input} />

@@ -1,3 +1,5 @@
+import { CompactionTracker } from './compaction-tracker';
+import { validUsd } from '../agent-cost';
 import { getSessionProjectSources } from '../session-store';
 import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
 import { EventEmitter } from 'events';
@@ -473,6 +475,8 @@ export class QoderSdkAdapter implements ProviderAdapter {
   readonly displayName = 'Qoder';
   readonly capabilities = CAPABILITIES;
   readonly events = new EventEmitter();
+
+  private readonly compactions = new CompactionTracker(event => this.emit(event));
 
   private sessions = new Map<string, ActiveQoderSession>();
   /** qoder session id → owning threadId (one-owner guard, kimi pattern). */
@@ -1318,24 +1322,15 @@ export class QoderSdkAdapter implements ProviderAdapter {
         return;
       case 'status':
         if (message.status === 'compacting') {
-          this.emitLocalNotice(session.threadId, 'Qoder is compacting the conversation context…');
+          this.compactions.start(session);
         }
         return;
       case 'compact_boundary': {
         const metadata = message.compact_metadata || {};
-        this.emit({
-          type: 'message',
-          threadId: session.threadId,
-          message: {
-            type: 'system',
-            subtype: 'compact_boundary',
-            uuid: message.uuid || uuidv4(),
-            session_id: session.providerSessionId || '',
-            compactMetadata: {
-              trigger: metadata.trigger === 'auto' ? 'auto' : 'manual',
-              preTokens: getNumber(metadata.pre_tokens) || 0,
-            },
-          },
+        this.compactions.complete(session, {
+          id: message.uuid,
+          trigger: metadata.trigger === 'manual' ? 'manual' : 'auto',
+          preTokens: getNumber(metadata.pre_tokens) || 0,
         });
         return;
       }
@@ -1474,7 +1469,8 @@ export class QoderSdkAdapter implements ProviderAdapter {
         type: 'result',
         subtype,
         duration_ms: Math.max(0, Math.round(fields.durationMs ?? Date.now() - turn.startedAtMs)),
-        total_cost_usd: fields.totalCostUsd ?? 0,
+        total_cost_usd: validUsd(fields.totalCostUsd) ? fields.totalCostUsd : 0,
+        costSource: validUsd(fields.totalCostUsd) ? 'reported' : 'unavailable',
         usage: fields.usage ?? { input_tokens: 0, output_tokens: 0 },
         ...(session.model ? { model: session.model } : {}),
         ...(fields.modelUsage
@@ -1625,6 +1621,12 @@ export class QoderSdkAdapter implements ProviderAdapter {
   }
 
   private emit(event: ProviderRuntimeEvent): void {
+    if (event.type === 'error' ||
+        (event.type === 'status_change' && ['completed', 'stopped', 'error'].includes(event.status)) ||
+        (event.type === 'message' && event.message.type === 'result')) {
+      const session = this.sessions.get(event.threadId);
+      if (session) this.compactions.interrupt(session);
+    }
     this.events.emit('event', event);
   }
 }

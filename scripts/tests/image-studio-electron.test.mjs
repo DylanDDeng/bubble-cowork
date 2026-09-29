@@ -98,6 +98,36 @@ try{
  for(const name of ['b.png','c.png','a.png']){await click('[aria-label="Open '+name+'"]');await until('document.querySelector(".image-studio-picture")?.dataset.imagePath==="/tmp/images/'+name+'"','thumbnail opens original')}
  assert.equal(await js('qa.reads.some(path=>path.includes("/images/images/"))'),false,'never requests synthesized project aliases');
  assert.equal(await js('qa.store.getState().rightPanelFullscreen'),'images','opening a thumbnail fills the workspace');
+ // Empty Canvas composer must reserve actual control widths, including Full Access.
+ const originalContentSize=w.getContentSize();
+ const composerGeometry=()=>js('(()=>{const editor=document.querySelector(".image-studio-composer-slot [role=textbox]"),box=editor.getBoundingClientRect(),placeholder=editor.previousElementSibling?.getBoundingClientRect(),leading=document.querySelector(".aegis-composer-leading-controls").getBoundingClientRect(),trailing=document.querySelector(".aegis-composer-trailing-controls").getBoundingClientRect();return {left:box.left,right:box.right,top:box.top,bottom:box.bottom,placeholderLeft:placeholder?.left,placeholderRight:placeholder?.right,leadingRight:leading.right,leadingTop:leading.top,trailingLeft:trailing.left,trailingTop:trailing.top}})()');
+ for(const [mode,label] of [['defaultPermissions','Default'],['auto','Auto'],['fullAccess','Full Access']]){
+  await js('qa.update("codex",{codexPermissionMode:'+JSON.stringify(mode)+'});document.activeElement?.blur()');
+  await until('document.querySelector("[data-composer-control=permission]")?.textContent.includes('+JSON.stringify(label)+')','permission label '+label);
+  for(const width of [1000,720,680]){
+   w.setContentSize(width,900);await delay(100);
+   const g=await composerGeometry();
+   if(width>=720){
+    assert(g.left>=g.leadingRight+7,'idle editor clears '+label+' controls at '+width);
+    assert(g.right<=g.trailingLeft-7,'idle editor clears model controls');
+    assert(g.placeholderLeft>=g.leadingRight+7&&g.placeholderRight<=g.trailingLeft-7,'placeholder stays inside available space');
+    assert(Math.abs(g.top-g.leadingTop)<2,'wide empty composer stays in one row');
+   }else assert(g.bottom<=Math.min(g.leadingTop,g.trailingTop),'narrow composer puts text above controls');
+  }
+ }
+ w.setContentSize(1000,900);await delay(100);await shot('canvas-full-access-idle');
+ await js('document.querySelector("[role=textbox]").focus()');await delay(100);
+ const focusedComposer=await composerGeometry();
+ assert(focusedComposer.bottom<=Math.min(focusedComposer.leadingTop,focusedComposer.trailingTop),'focused editor expands above controls');
+ await w.webContents.insertText('Canvas draft');await delay(100);
+ await js('document.querySelector("[role=textbox]").blur()');
+ assert.equal(await js('document.querySelector("[role=textbox]").textContent'),'Canvas draft','blur preserves text');
+ const draftComposer=await composerGeometry();
+ assert(draftComposer.bottom<=Math.min(draftComposer.leadingTop,draftComposer.trailingTop),'draft keeps expanded layout after blur');
+ await js('(()=>{const e=document.querySelector("[role=textbox]");e.textContent="";e.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"deleteContentBackward"}))})()');await delay(100);
+ await js('document.querySelector("[role=textbox]").blur()');await delay(100);
+ assert((await composerGeometry()).left>=(await composerGeometry()).leadingRight+7,'clearing draft restores compact nonoverlapping layout');
+ w.setContentSize(...originalContentSize);await delay(100);
  await js('window.originalEditor=document.querySelector("[role=textbox]");window.footerBefore=document.querySelector(".image-studio-footer").getBoundingClientRect().bottom');await shot('focused-light');
  await click('[aria-label="Canvas view"]');assert(await js('document.querySelector(".image-studio-picture").getAnimations().length>0'),'view switch animates the same image');await until('document.querySelectorAll(".image-studio-turn").length===2','turn groups');
  assert.equal(await js('document.querySelectorAll(".image-studio-picture").length'),3);
@@ -204,7 +234,7 @@ try{
  assert((await js('document.querySelector(".image-studio-feedback").textContent')).includes('without a new image'));
  await js('qa.switch("grok")');await click('button[title="a.png"]');await until('!!document.querySelector(".image-studio-picture")','grok preview');
  await click('.image-studio-editbar > button:first-child');await until('qa.sent.length===3','grok background removal');
- assert((await js('document.querySelector(".image-studio-latest").textContent')).includes('Working'),'Grok image edits also update activity');
+ await until('document.querySelector(".image-studio-latest").textContent.includes("Working")','Grok activity label settles after its minimum display interval');
  await until('!!document.querySelector(".image-studio-focused-pending canvas")','focused generating placeholder');
  await until('document.querySelector(".image-studio-focused-pending canvas").width>0','dot field dimensions');
  const frameA=await js('document.querySelector(".image-studio-focused-pending canvas").toDataURL()');
@@ -386,7 +416,7 @@ try{
 try{
  await writeFile(path.join(dir,'index.html'),'<html><body style="margin:0"><div id="root"></div><script type="module" src="./probe.tsx"></script></body></html>');
  await writeFile(path.join(dir,'probe.tsx'),harness);await writeFile(path.join(dir,'main.cjs'),main);
- server=await createServer({root,configFile:path.join(root,'vite.config.ts'),plugins:[{name:'image-studio-qa',enforce:'pre',transform(source,id){if(id.endsWith('/src/ui/App.tsx'))return source+'\nexport { RightUtilityWorkspace };'}}],server:{host:'127.0.0.1',port:0,strictPort:false}});await server.listen();
+ server=await createServer({root,configFile:path.join(root,'vite.config.ts'),plugins:[{name:'image-studio-qa',enforce:'pre',transform(source,id){if(id.endsWith('/src/ui/App.tsx'))return source+'\nexport { RightUtilityWorkspace };'}}],cacheDir:path.join(dir,'vite-cache'),server:{host:'127.0.0.1',port:0,strictPort:false}});await server.listen();
  const env={...process.env,QA_URL:new URL(path.relative(root,dir)+'/index.html',server.resolvedUrls.local[0]).href,QA_CAPTURE:path.join(root,'output/playwright/image-studio')};delete env.ELECTRON_RUN_AS_NODE;
  await new Promise((resolve,reject)=>{const child=spawn(path.join(root,'node_modules/.bin/electron'),[path.join(dir,'main.cjs')],{env,stdio:'inherit'});const timeout=setTimeout(()=>{child.kill();reject(Error('Electron test timed out'))},60000);child.on('error',reject);child.on('exit',code=>{clearTimeout(timeout);code===0?resolve():reject(Error('Electron test failed: '+code))})});
 }finally{await server?.close();await rm(dir,{recursive:true,force:true})}

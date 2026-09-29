@@ -1,3 +1,5 @@
+import { CompactionTracker } from './compaction-tracker';
+import { validUsd } from '../agent-cost';
 import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
@@ -116,6 +118,7 @@ interface GrokTurnUsage {
   cacheCreationTokens: number;
   reasoningTokens: number;
   costUSD: number;
+  costSource: 'reported' | 'unavailable';
 }
 
 /**
@@ -136,7 +139,7 @@ function extractGrokTurnUsage(result: unknown): GrokTurnUsage {
   const cacheReadTokens = num(usage.cachedReadTokens) || num(meta?.cachedReadTokens);
   const cacheCreationTokens = num(usage.cacheCreationTokens) || num(meta?.cacheCreationTokens);
   const reasoningTokens = num(usage.reasoningTokens) || num(meta?.reasoningTokens);
-  const costUsdTicks = num(usage.costUsdTicks);
+  const costUsdTicks = validUsd(usage.costUsdTicks) ? usage.costUsdTicks : 0;
 
   return {
     inputTokens,
@@ -145,6 +148,7 @@ function extractGrokTurnUsage(result: unknown): GrokTurnUsage {
     cacheCreationTokens,
     reasoningTokens,
     costUSD: costUsdTicks / GROK_COST_TICKS_PER_USD,
+    costSource: validUsd(usage.costUsdTicks) ? 'reported' : 'unavailable',
   };
 }
 
@@ -335,6 +339,10 @@ export class GrokAcpAdapter implements ProviderAdapter {
   readonly capabilities = CAPABILITIES;
   readonly events = new EventEmitter();
 
+  private readonly compactions = new CompactionTracker(event => this.emit(event));
+
+  private compactionCounts = new WeakMap<ActiveGrokSession, number>();
+
   private sessions = new Map<string, ActiveGrokSession>();
   private skillsCache = new Map<string, { skills: ProviderSkillDescriptor[]; fetchedAt: number }>();
   private skillsProbes = new Map<string, Promise<ProviderSkillDescriptor[]>>();
@@ -484,7 +492,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
     // Grok's signals.json persists on disk, so a restored session can show its
     // context watermark before the first turn of this run — unlike codex/kimi
     // whose watermark only exists at runtime and relies on transcript history.
-    this.hydrateContextFromDisk(active);
+    this.hydrateContextFromDisk(active, !input.resumeSessionId);
 
     if (input.prompt || input.attachments?.length) {
       await this.sendTurn({
@@ -534,6 +542,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
           subtype: 'success',
           duration_ms: 0,
           total_cost_usd: turnUsage.costUSD,
+          costSource: turnUsage.costSource,
           usage: {
             input_tokens: turnUsage.inputTokens,
             output_tokens: turnUsage.outputTokens,
@@ -568,6 +577,7 @@ export class GrokAcpAdapter implements ProviderAdapter {
           subtype: 'error',
           duration_ms: 0,
           total_cost_usd: 0,
+          costSource: 'unavailable',
           usage: { input_tokens: 0, output_tokens: 0 },
         },
       });
@@ -1276,8 +1286,11 @@ export class GrokAcpAdapter implements ProviderAdapter {
    * known watermark immediately, before any turn runs in this process. Fresh
    * sessions have no signals.json yet, so this is a no-op there.
    */
-  private hydrateContextFromDisk(session: ActiveGrokSession): void {
+  private hydrateContextFromDisk(session: ActiveGrokSession, isNewSession = false): void {
     const signals = readGrokSessionSignals(session.cwd, session.providerSessionId);
+    if (signals) this.compactionCounts.set(session, signals.compactionCount);
+    else if (isNewSession) this.compactionCounts.set(session, 0);
+    else this.compactionCounts.delete(session);
     if (!signals || signals.contextWindowTokens <= 0) {
       return;
     }
@@ -1312,6 +1325,13 @@ export class GrokAcpAdapter implements ProviderAdapter {
    */
   private emitGrokTokenUsage(session: ActiveGrokSession, turnUsage: GrokTurnUsage): void {
     const signals = readGrokSessionSignals(session.cwd, session.providerSessionId);
+    const previous = this.compactionCounts.get(session);
+    if (signals) {
+      this.compactionCounts.set(session, signals.compactionCount);
+      if (previous !== undefined && signals.compactionCount > previous) {
+        this.compactions.complete(session, { id: `grok-compaction:${signals.compactionCount}` });
+      }
+    }
     const contextWindow = signals?.contextWindowTokens ?? 0;
     if (contextWindow <= 0) {
       // No window size on disk yet (fresh session); the ring needs a
@@ -1599,6 +1619,12 @@ export class GrokAcpAdapter implements ProviderAdapter {
   }
 
   private emit(event: ProviderRuntimeEvent): void {
+    if (event.type === 'error' ||
+        (event.type === 'status_change' && ['completed', 'stopped', 'error'].includes(event.status)) ||
+        (event.type === 'message' && event.message.type === 'result')) {
+      const session = this.sessions.get(event.threadId);
+      if (session) this.compactions.interrupt(session);
+    }
     this.events.emit('event', event);
   }
 }

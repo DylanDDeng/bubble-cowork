@@ -1,4 +1,5 @@
-import { extractComputerUseAppName } from '../../shared/computer-use';
+import type { ToolExecutionMetadata } from '../../shared/types';
+import { extractComputerUseAppName, parseMcpToolName } from '../../shared/computer-use';
 import type { ChangeOperation, ChangeRecord, ChangeRecordState } from './change-records';
 import {
   getToolInputFilePath,
@@ -46,6 +47,7 @@ export interface WorkstreamStageCommand {
   status: WorkstreamStageStatus;
   output: string;
   outputSummary: string;
+  execution?: ToolExecutionMetadata;
 }
 
 export interface WorkstreamStage {
@@ -62,6 +64,7 @@ export interface WorkstreamStage {
   defaultExpanded: boolean;
   /** macOS app shown beside Computer Use rows (Notes, Safari, …). */
   computerUseApp?: string | null;
+  source?: string | null;
 }
 
 export interface SummarizeWorkstreamEntriesOptions {
@@ -114,17 +117,17 @@ function getPattern(input: Record<string, unknown>): string | null {
   return getString(input.pattern) || getString(input.query) || getString(input.glob);
 }
 
-function classifyStageKind(entry: WorkstreamEntry): WorkstreamStageKind | null {
+function classifyStageKind(entry: WorkstreamEntry, ignoreToolError = false): WorkstreamStageKind | null {
   if (entry.type === 'error') return 'error';
   if (entry.type === 'approval') {
-    return entry.state === 'denied' ? 'error' : 'approval';
+    return entry.state === 'denied' && !ignoreToolError ? 'error' : 'approval';
   }
   if (entry.type === 'thinking' || entry.type === 'note' || entry.type === 'compaction') return null;
 
   // Task entries stay in the task stage even on failure — the subagent lane
   // renders the error state in place, keeping parallel runs visually grouped.
   if (entry.type === 'task' || entry.kind === 'subagent') return 'task';
-  if (entry.status === 'error') return 'error';
+  if (!ignoreToolError && entry.status === 'error') return 'error';
   if (entry.type === 'memory' || entry.kind === 'memory') return 'memory';
 
   switch (entry.kind) {
@@ -170,9 +173,9 @@ function entryStatus(entry: WorkstreamEntry): WorkstreamStageStatus {
 
 function aggregateStatus(entries: WorkstreamEntry[]): WorkstreamStageStatus {
   const statuses = entries.map(entryStatus);
-  if (statuses.includes('error')) return 'error';
   if (statuses.includes('waiting')) return 'waiting';
   if (statuses.includes('pending')) return 'pending';
+  if (statuses.includes('error')) return 'error';
   if (statuses.includes('interrupted')) return 'interrupted';
   return statuses.every((status) => status === 'success') ? 'success' : 'mixed';
 }
@@ -308,6 +311,7 @@ function getCommandOutputSummary(output: string): string {
 }
 
 function getStageCommandOutput(entry: WorkstreamEntry): string {
+  if ('liveOutput' in entry && entry.status === 'pending' && entry.liveOutput) return entry.liveOutput;
   if (!('result' in entry)) return '';
   const rawContent = entry.result?.content;
   if (typeof rawContent === 'string') {
@@ -338,52 +342,59 @@ function buildStageCommands(entries: WorkstreamEntry[]): WorkstreamStageCommand[
       status: entryStatus(entry),
       output,
       outputSummary: getCommandOutputSummary(output),
+      execution: 'execution' in entry ? entry.execution : undefined,
     });
   }
   return commands;
 }
 
 function buildExploreTitle(entries: WorkstreamEntry[], files: WorkstreamStageFile[]): string {
-  if (files.length > 0) {
-    return `Explored ${plural(files.length, 'file')}`;
+  const active = entries.filter(entry => entryStatus(entry) === 'pending');
+  const current = active.at(-1);
+  if (current && 'toolName' in current) {
+    const input = getToolInputRecord(current);
+    if (current.kind === 'file_read') return `Reading ${basename(getToolPath(input) || 'files')}`;
+    if (/glob|list/i.test(current.toolName)) return `Listing ${getToolPath(input) || 'files'}`;
+    return `Searching ${getPattern(input) || 'files'}`;
   }
-
-  const patterns = new Set<string>();
-  for (const entry of entries) {
-    if (!('block' in entry)) continue;
-    const pattern = getPattern(getToolInputRecord(entry));
-    if (pattern) patterns.add(pattern);
-  }
-
-  if (patterns.size > 0) {
-    return `Searched ${plural(patterns.size, 'pattern')}`;
-  }
-
-  return `Explored ${plural(entries.length, 'item')}`;
+  const reads = new Set(files.filter(file => file.operation === 'read').map(file => file.filePath)).size;
+  const lists = entries.filter(entry => 'toolName' in entry && /glob|list/i.test(entry.toolName)).length;
+  const searches = entries.filter(entry => 'kind' in entry && entry.kind === 'pattern_search' && !('toolName' in entry && /glob|list/i.test(entry.toolName))).length;
+  const parts = [reads ? plural(reads, 'file') : '', searches ? plural(searches, 'search', 'searches') : '', lists ? plural(lists, 'list') : ''].filter(Boolean);
+  const stopped = entries.some(entry => entryStatus(entry) === 'interrupted');
+  return `${stopped ? 'Stopped exploring' : 'Explored'} ${parts.length ? parts.join(', ') : plural(entries.length, 'item')}`;
 }
 
 function buildEditTitle(files: WorkstreamStageFile[], entries: WorkstreamEntry[]): string {
-  const targetCount = files.length || entries.length;
-  const operations = new Set(files.map((file) => file.operation));
-  let verb = 'Edited';
-  if (operations.size === 1 && operations.has('write')) {
-    verb = 'Created';
-  } else if (operations.size === 1 && operations.has('delete')) {
-    verb = 'Deleted';
-  }
-  return files.length === 1
-    ? `${verb} ${files[0].fileName}`
-    : `${verb} ${plural(targetCount, files.length > 1 ? 'file' : 'item')}`;
+  const status = aggregateStatus(entries);
+  const operations = new Set(files.map(file => file.operation));
+  const operation = operations.size === 1 && operations.has('write') ? ['Creating', 'Created', 'creating']
+    : operations.size === 1 && operations.has('delete') ? ['Deleting', 'Deleted', 'deleting']
+    : ['Editing', 'Edited', 'editing'];
+  const verb = status === 'pending' ? operation[0] : status === 'interrupted' ? `Stopped ${operation[2]}` : status === 'error' ? `Failed ${operation[2]}` : operation[1];
+  return `${verb} ${files.length === 1 ? files[0].fileName : plural(files.length || entries.length, files.length ? 'file' : 'item')}`;
 }
 
 function buildCommandTitle(commands: WorkstreamStageCommand[], entries: WorkstreamEntry[]): string {
-  if (commands.length === 1) {
-    return commands[0].summary || `Ran ${commands[0].command}`;
-  }
+  const command = commands.find(command => command.status === 'pending') ?? commands[0];
+  if (!command) return `${aggregateStatus(entries) === 'pending' ? 'Running' : 'Ran'} ${plural(entries.length, 'command')}`;
+  const execution = command.execution;
+  const verb = command.status === 'pending' ? execution?.background ? 'Running in background' : 'Running'
+    : command.status === 'interrupted' ? 'Stopped'
+    : execution?.status === 'declined' ? 'Denied'
+    : command.status === 'error' ? 'Failed'
+    : execution?.background ? 'Finished background command' : 'Ran';
+  return `${verb} ${command.command}`;
+}
 
-  const failedCount = entries.filter((entry) => entryStatus(entry) === 'error').length;
-  const base = `Ran ${plural(commands.length || entries.length, 'command')}`;
-  return failedCount > 0 ? `${base} · ${failedCount} failed` : base;
+/** Use supplied source identity; never infer an integration from output text. */
+export function getWorkstreamToolSource(entry: WorkstreamEntry): string | null {
+  if (!('toolName' in entry)) return null;
+  const input = getToolInputRecord(entry);
+  const source = getString(input.__aegisMcpServer) || parseMcpToolName(entry.toolName)?.server;
+  if (!source) return null;
+  const names: Record<string, string> = { github: 'GitHub', slack: 'Slack', notion: 'Notion', figma: 'Figma', 'google-drive': 'Google Drive', 'aegis-browser': 'Browser', browser: 'Browser' };
+  return names[source] || source.replace(/[-_]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
 }
 
 function buildGenericTitle(
@@ -391,9 +402,13 @@ function buildGenericTitle(
   entries: WorkstreamEntry[],
   status: WorkstreamStageStatus
 ): string {
-  if (entries.length === 1) {
-    return entries[0].summary;
+  if (kind === 'other') {
+    const source = getWorkstreamToolSource(entries[0]);
+    const active = [...entries].reverse().find(entry => entryStatus(entry) === 'pending');
+    if (active) return source ? `Using ${source}: ${active.summary}` : active.summary;
+    if (source) return entries.length > 1 ? `Used ${source} · ${plural(entries.length, 'call')}` : `${source}: ${entries[0].summary}`;
   }
+  if (entries.length === 1) return entries[0].summary;
 
   switch (kind) {
     case 'approval':
@@ -401,11 +416,11 @@ function buildGenericTitle(
     case 'error':
       return `${plural(entries.length, 'issue')} needs attention`;
     case 'task':
-      return `Ran ${plural(entries.length, 'subagent task')}`;
+      return `${entries.some(entry => entryStatus(entry) === 'pending') ? 'Running' : 'Ran'} ${plural(entries.length, 'subagent task')}`;
     case 'memory':
       return `Used memory ${plural(entries.length, 'time')}`;
     case 'web':
-      return `Searched the web ${plural(entries.length, 'time')}`;
+      return status === 'pending' ? 'Searching the web' : `Searched the web ${plural(entries.length, 'time')}`;
     case 'todo':
       return `Updated todo list ${plural(entries.length, 'time')}`;
     case 'computer_use': {
@@ -440,7 +455,8 @@ function makeStage(
   entries: WorkstreamEntry[],
   options: SummarizeWorkstreamEntriesOptions
 ): WorkstreamStage {
-  const status = aggregateStatus(entries);
+  const status = kind === 'task' && entries.some(entry => entryStatus(entry) === 'error')
+    ? 'error' : aggregateStatus(entries);
   const files = buildStageFiles(kind, entries, options.changeRecordsByToolUseId);
   const commands = buildStageCommands(entries);
   const addedLines = files.reduce((sum, file) => sum + file.addedLines, 0);
@@ -450,7 +466,7 @@ function makeStage(
   return {
     id: `stage:${kind}:${firstEntry.id}`,
     kind,
-    title: buildStageTitle(kind, entries, files, commands, status),
+    title: buildStageTitle(kind === 'error' ? classifyStageKind(firstEntry, true) || kind : kind, entries, files, commands, status),
     status,
     entries,
     count: entries.length,
@@ -458,7 +474,8 @@ function makeStage(
     commands,
     addedLines,
     removedLines,
-    defaultExpanded: status === 'error' || status === 'waiting',
+    defaultExpanded: status === 'waiting',
+    source: getWorkstreamToolSource(firstEntry),
     computerUseApp: kind === 'computer_use' ? extractComputerUseAppName(getToolInputRecord(firstEntry)) : null,
   };
 }
@@ -475,7 +492,10 @@ function shouldMergeStageEntries(
   nextEntry: WorkstreamEntry
 ): boolean {
   if (!currentKind || currentKind !== nextKind) return false;
-  if (nextKind === 'approval' || nextKind === 'error' || nextKind === 'other') return false;
+  if (nextKind === 'approval' || nextKind === 'error' || nextKind === 'command') return false;
+  if (nextKind === 'other') return Boolean(lastEntry && 'toolName' in lastEntry && 'toolName' in nextEntry
+    && getWorkstreamToolSource(lastEntry) && lastEntry.toolName === nextEntry.toolName
+    && JSON.stringify(lastEntry.block.input) === JSON.stringify(nextEntry.block.input));
   if (nextKind === 'computer_use') return false;
   // Each edit owns its own diff, including consecutive edits of the same file.
   if (nextKind === 'edit') return false;
@@ -524,34 +544,57 @@ export function getStageChangeRecords(stage: WorkstreamStage): ChangeRecord[] {
   return stage.files.flatMap((file) => file.record ? [file.record] : []);
 }
 
+export function getWorkstreamFailureCount(entries: WorkstreamEntry[]): number {
+  return entries.filter(entry => entryStatus(entry) === 'error' && getWorkstreamDeniedActionIds(entry).length === 0).length;
+}
+
+export function getWorkstreamStageActivityKind(stage: WorkstreamStage): WorkstreamStageKind {
+  return stage.kind === 'error' ? classifyStageKind(stage.entries[0], true) || 'error' : stage.kind;
+}
+
 export function formatWorkstreamStageSummary(stages: WorkstreamStage[]): string {
   if (stages.length === 0) return 'No work details yet';
 
   const waiting = stages.find((stage) => stage.status === 'waiting');
   if (waiting) return waiting.title;
 
-  const failedCount = stages.filter((stage) => stage.status === 'error').length;
-  if (failedCount > 0) {
-    return `${plural(failedCount, 'step')} needs attention`;
-  }
-
+  // Failed tools retain their activity description in the collapsed group.
+  stages = stages.map(stage => ({ ...stage, kind: getWorkstreamStageActivityKind(stage) }));
   const parts: string[] = [];
   const kinds = new Set(stages.map(stage => stage.kind));
   for (const kind of kinds) {
     const matching = stages.filter(stage => stage.kind === kind);
     if (kind === 'edit') {
       const files = new Set(matching.flatMap(stage => stage.files.map(file => file.filePath)));
-      parts.push(files.size === 1 ? 'edited a file' : 'edited files');
+      parts.push(files.size ? `edited ${plural(files.size, 'file')}` : 'edited files');
     } else if (kind === 'command') {
       const count = matching.reduce((total, stage) => total + (stage.commands.length || stage.entries.length), 0);
-      parts.push(count === 1 ? 'ran a command' : 'ran commands');
-    } else if (kind === 'explore') parts.push('read files');
+      parts.push(`ran ${plural(count, 'command')}`);
+    } else if (kind === 'explore') parts.push(buildExploreTitle(matching.flatMap(stage => stage.entries), matching.flatMap(stage => stage.files)).toLowerCase());
     else if (kind === 'web') parts.push('searched the web');
     else if (kind === 'computer_use') parts.push('used the computer');
+    else if (kind === 'approval') {
+      const count = new Set(matching.flatMap(stage => stage.entries.flatMap(getWorkstreamDeniedActionIds))).size;
+      if (count) parts.push(`had ${plural(count, 'denied action')}`);
+    }
     else if (kind === 'memory') parts.push('used memory');
     else if (kind === 'task') parts.push('worked with agents');
-    else if (kind === 'other') parts.push(matching.length === 1 ? 'called a tool' : 'called tools');
+    else if (kind === 'other') {
+      const sources = [...new Set(matching.map(stage => stage.source).filter((source): source is string => Boolean(source)))];
+      if (sources.length) parts.push(`used ${new Intl.ListFormat('en').format(sources)}`);
+      const unnamed = matching.filter(stage => !stage.source).reduce((total, stage) => total + stage.entries.length, 0);
+      if (unnamed) parts.push(`called ${plural(unnamed, 'tool')}`);
+    }
+    else if (kind === 'error') parts.push(matching.length === 1 ? 'encountered an error' : 'encountered errors');
   }
   const summary = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(parts);
   return summary ? summary[0].toUpperCase() + summary.slice(1) : 'Completed work';
+}
+
+/** Failed executions and denied approvals are different events. Keep historical denials after retry. */
+export function getWorkstreamDeniedActionIds(entry: WorkstreamEntry): string[] {
+  if (entry.type === 'approval') return entry.state === 'denied' ? [entry.id] : [];
+  if (!('execution' in entry)) return [];
+  const reviews = entry.execution?.approvalReviews?.map(review => review.id) ?? [];
+  return reviews.length ? reviews : entry.execution?.status === 'declined' ? [entry.id] : [];
 }

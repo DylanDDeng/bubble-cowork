@@ -91,7 +91,7 @@ async function main() {
   );
   assert.match(
     panelSource,
-    /useLayoutEffect\(\(\) => \{\s*if \(!nativeViewHidden\) return/,
+    /useLayoutEffect\(\(\) => \{\s*nativeViewActiveRef\.current = !nativeViewHidden;[\s\S]*?if \(nativeViewHidden\) hide\(\);[\s\S]*?\}, \[browserSessionId, nativeViewHidden\]\)/,
     'collapsing a browser tab must detach the native view before the next paint'
   );
 

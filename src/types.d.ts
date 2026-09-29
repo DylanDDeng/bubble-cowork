@@ -208,6 +208,8 @@ declare global {
     getSessionUserPrompts: (
       sessionId: string
     ) => Promise<import('./shared/types').SessionUserPromptSummary[]>;
+    getSessionSources: (sessionId: string) => Promise<import('./shared/types').Attachment[]>;
+    previewSessionSource: (sessionId: string, path: string) => Promise<import('./shared/session-sources').SessionSourcePreview>;
     getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getDeepseekSessionCost: (sessionId: string) => Promise<import('./shared/types').ProviderCostEstimate>;
     getAgentUsageReport: (
@@ -412,6 +414,7 @@ declare global {
     getGitChanges: (cwd: string) => Promise<{ ok: boolean; error: string | null; entries: import('./shared/types').GitChangeEntry[] }>;
     getGitWorkingTreeSummary: (cwd: string) => Promise<{ ok: boolean; error: string | null; insertions: number; deletions: number }>;
     listSessionPullRequests: (sessionId: string, refresh?: boolean) => Promise<import('./shared/types').SessionPullRequestView[]>;
+    listSidebarPullRequests: (refresh?: boolean) => Promise<Record<string, import('./shared/types').GitPullRequestSummary>>;
     attachSessionPullRequest: (input: import('./shared/types').AttachSessionPullRequestInput) => Promise<{ created: boolean; pr: import('./shared/types').SessionPullRequest }>;
     detachSessionPullRequest: (sessionId: string, url: string, attachedAt: number) => Promise<void>;
     onSessionPullRequestsChanged: (callback: (sessionId: string) => void) => () => void;

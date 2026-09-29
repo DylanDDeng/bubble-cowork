@@ -588,7 +588,7 @@ assert.equal(
   'thinking entries must not render as workstream stages'
 );
 assert.equal(exploreAndCommandStages[0].kind, 'explore');
-assert.equal(exploreAndCommandStages[0].title, 'Explored 1 file');
+assert.equal(exploreAndCommandStages[0].title, 'Explored 1 file, 1 search');
 assert.equal(exploreAndCommandStages[1].kind, 'command');
 assert.equal(exploreAndCommandStages[1].title, 'Ran npm run build');
 assert.equal(exploreAndCommandStages[1].commands[0].outputSummary, 'No output');
@@ -616,7 +616,7 @@ const separatedStages = summarizeWorkstreamEntries([
 
 assert.equal(separatedStages.length, 3, 'error and approval stages must not be swallowed');
 assert.equal(separatedStages[1].kind, 'error');
-assert.equal(separatedStages[1].defaultExpanded, true);
+assert.equal(separatedStages[1].defaultExpanded, false);
 assert.equal(separatedStages[2].kind, 'approval');
 assert.equal(separatedStages[2].status, 'waiting');
 assert.equal(separatedStages[2].defaultExpanded, true);
@@ -658,8 +658,26 @@ const summary = formatWorkstreamStageSummary([
 ]);
 assert.equal(
   summary,
-  'Edited files, read files, and ran a command',
+  'Edited 2 files, explored 1 file, 1 search, and ran 1 command',
   'collapsed workstream summary should surface high-signal activity'
 );
 
+const runningRead = toolEntry('active-read', 'Read', 'file_read', 'Reading active.ts', { file_path: '/src/active.ts' }, 'pending');
+assert.equal(summarizeWorkstreamEntries([runningRead])[0].title, 'Reading active.ts');
+const runningEdit = toolEntry('active-edit', 'Edit', 'file_change', 'Editing active.ts', { file_path: '/src/active.ts' }, 'pending');
+assert.equal(summarizeWorkstreamEntries([runningEdit])[0].title, 'Editing active.ts');
+assert.equal(summarizeWorkstreamEntries([{ ...runningEdit, status: 'interrupted' }])[0].title, 'Stopped editing active.ts');
+const commands = summarizeWorkstreamEntries([
+  toolEntry('build', 'Bash', 'command_execution', 'Ran npm run build', { command: 'npm run build' }),
+  toolEntry('test', 'Bash', 'command_execution', 'Running npm test', { command: 'npm test' }, 'pending'),
+]);
+assert.equal(commands.length, 2, 'independent commands must remain individually inspectable');
+assert.equal(commands[1].title, 'Running npm test');
+const github = toolEntry('github-1', 'mcp__github__get_issue', 'mcp_tool_call', 'Read issue', { number: 42 });
+const repeatedMcp = summarizeWorkstreamEntries([github, { ...github, id: 'github-2' }]);
+assert.equal(repeatedMcp.length, 1, 'identical adjacent MCP activities group without losing their entries');
+assert.equal(repeatedMcp[0].entries.length, 2);
+assert.equal(formatWorkstreamStageSummary(repeatedMcp), 'Used GitHub');
+const differentMcp = summarizeWorkstreamEntries([github, { ...github, id: 'github-3', block: { ...github.block, input: { number: 43 } } }]);
+assert.equal(differentMcp.length, 2, 'different tool targets retain distinct rows');
 console.log('workstream stage verification passed');

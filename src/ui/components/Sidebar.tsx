@@ -10,9 +10,6 @@ import {
   type ReactNode,
 } from 'react';
 import {
-  Bell,
-  BellDot,
-  Columns2,
   FolderOpen,
   GitPullRequest,
   Script,
@@ -21,7 +18,6 @@ import {
   Clock,
 } from './icons';
 import { useAppStore } from '../store/useAppStore';
-import { useBoardStore } from '../store/useBoardStore';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
 import type {
   SidebarSearchAction,
@@ -35,6 +31,7 @@ import { getMessageContentBlocks } from '../utils/message-content';
 import { MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from '../utils/sidebar-width';
 import { SessionHistoryButtons } from './SessionHistoryButtons';
 import { SidebarProfileMenu } from './sidebar/SidebarProfileMenu';
+import { SidebarViewMenu } from './sidebar/SidebarViewMenu';
 
 const SIDEBAR_TRIGGER_CLASS =
   'no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] active:scale-95';
@@ -166,28 +163,16 @@ export function Sidebar() {
     createDraftSession,
     searchPaletteOpen,
     setSearchPaletteOpen,
-    sidebarActivityView,
-    toggleSidebarActivityView,
   } = useAppStore();
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const sidebarResizingRef = useRef(false);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const sidebarPanelRef = useRef<HTMLDivElement>(null);
-  const profileMenuOpenRef = useRef(false);
+  const menuOpenRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const newThreadCwd = activeSession?.cwd || projectCwd;
-  // Badge = cards waiting for YOUR review, not the board's total size.
-  const boardReviewCount = useBoardStore((state) =>
-    Object.values(state.tasks).reduce((count, task) => count + (task.stage === 'review' ? 1 : 0), 0)
-  );
-  // runtimeNotice = 任务在后台结束但用户还没点开看（查看后自动清除），
-  // 铃铛上的小圆点就是这个未读信号，和 Codex 的 activity badge 一致。
-  const hasUnviewedFinishedSession = Object.values(sessions).some((session) =>
-    Boolean(session.runtimeNotice)
-  );
-
   const getActiveChannelIdForProject = (cwd?: string | null) => {
     const key = cwd?.trim() || '__no_project__';
     return activeChannelByProject[key] || DEFAULT_WORKSPACE_CHANNEL_ID;
@@ -265,7 +250,7 @@ export function Sidebar() {
     cancelScheduledPeekClose();
     peekCloseTimerRef.current = window.setTimeout(() => {
       peekCloseTimerRef.current = null;
-      if (profileMenuOpenRef.current) return;
+      if (menuOpenRef.current) return;
       setSidebarPeek(false);
     }, SIDEBAR_PEEK_CLOSE_DELAY_MS);
   }, [cancelScheduledPeekClose, setSidebarPeek]);
@@ -464,6 +449,15 @@ export function Sidebar() {
     });
   }, [visibleSessions]);
 
+  // An open sidebar menu (profile, view options) keeps the hover-peek overlay up.
+  const holdPeekForMenu = (open: boolean) => {
+    menuOpenRef.current = open;
+    cancelScheduledPeekClose();
+    if (!open && sidebarCollapsed && !sidebarPanelRef.current?.matches(':hover')) {
+      schedulePeekClose();
+    }
+  };
+
   const runPaletteAction = (actionId: string) => {
     switch (actionId) {
       case 'new-thread':
@@ -581,24 +575,7 @@ export function Sidebar() {
                   >
                     <Search className="h-4 w-4" strokeWidth={1.4} />
                   </button>
-                  <button
-                    type="button"
-                    onClick={toggleSidebarActivityView}
-                    className={`no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-95 ${
-                      sidebarActivityView
-                        ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_20%,transparent)]'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-                    }`}
-                    aria-pressed={sidebarActivityView}
-                    aria-label={sidebarActivityView ? 'Turn off activity view' : 'Turn on activity view'}
-                    title={sidebarActivityView ? 'Turn off activity view' : 'Turn on activity view'}
-                  >
-                    {hasUnviewedFinishedSession ? (
-                      <BellDot className="h-4 w-4" strokeWidth={1.4} />
-                    ) : (
-                      <Bell className="h-4 w-4" strokeWidth={1.4} />
-                    )}
-                  </button>
+                  <SidebarViewMenu onOpenChange={holdPeekForMenu} />
                 </div>
               </div>
 
@@ -623,16 +600,6 @@ export function Sidebar() {
                 >
                   <div className="pb-2 pt-0.5">
                     <div className="space-y-0.5">
-                      <SidebarNavRow
-                        icon={<Columns2 className="h-[15px] w-[15px]" />}
-                        label="KanBan"
-                        active={activeWorkspace === 'board'}
-                        onClick={() => {
-                          setActiveWorkspace('board');
-                          setChatSidebarView('threads');
-                          setShowSettings(false);
-                        }}
-                      />
                       <SidebarNavRow
                         icon={<Clock className="h-[15px] w-[15px]" />}
                         label="Automations"
@@ -694,13 +661,7 @@ export function Sidebar() {
               <div className="shrink-0 px-2 py-2">
                 <SidebarProfileMenu
                   onOpenSettings={() => setShowSettings(true)}
-                  onOpenChange={(open) => {
-                    profileMenuOpenRef.current = open;
-                    cancelScheduledPeekClose();
-                    if (!open && sidebarCollapsed && !sidebarPanelRef.current?.matches(':hover')) {
-                      schedulePeekClose();
-                    }
-                  }}
+                  onOpenChange={holdPeekForMenu}
                 />
               </div>
             </div>

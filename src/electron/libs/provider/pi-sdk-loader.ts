@@ -59,6 +59,8 @@ export type PiAgentSession = {
   messages?: PiAgentMessage[];
   subscribe(listener: (event: PiAgentSessionEvent) => void): () => void;
   prompt(text: string, options?: { images?: PiImageContent[]; streamingBehavior?: 'steer' | 'followUp' }): Promise<void>;
+  compact(customInstructions?: string): Promise<{ tokensBefore?: number }>;
+  abortCompaction?(): void;
   abort(): Promise<void>;
   dispose(): void;
   setModel?(model: PiModel): Promise<void>;

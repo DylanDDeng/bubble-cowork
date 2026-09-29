@@ -886,6 +886,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                         type: 'system',
                         subtype: 'compact_status',
                         uuid: uuidv4(),
+                        createdAt: Date.now(),
                         session_id: currentSessionId,
                         status: 'started',
                         trigger: input.trigger === 'manual' ? 'manual' : 'auto',

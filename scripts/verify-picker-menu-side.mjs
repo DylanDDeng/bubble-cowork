@@ -77,7 +77,7 @@ assert.ok(
   'ChatPane: the bottom-anchored NewThreadLanding composer should open upward (landing surface)'
 );
 assert.ok(
-  chatPane.includes('<PromptInput sessionId={sessionId} />'),
+  /<PromptInput sessionId=\{sessionId\}(?:(?!menuSide)[\s\S])*?\/>/.test(chatPane),
   'ChatPane: the bottom chat composer should keep the default upward direction'
 );
 

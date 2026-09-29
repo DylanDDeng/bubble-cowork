@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import * as Dialog from './ui/dialog';
 import { Code2, Copy, X } from './icons';
 import { parseToolOutput } from '../utils/tool-result-content';
@@ -23,7 +23,7 @@ export function ToolResultContent({ content, raw, pending = false, isError = fal
             {part.text && <ToolOutputPanel text={part.text} language="plaintext" />}
           </div>
         );
-        return <ToolOutputPanel key={index} text={'text' in part ? part.text : ''} language={part.type === 'json' ? 'json' : 'plaintext'} isError={isError} />;
+        return <ToolOutputPanel key={index} text={'text' in part ? part.text : ''} follow={pending} language={part.type === 'json' ? 'json' : 'plaintext'} isError={isError} />;
       })}
       {!parts.length && !pending && <p className="workstream-text">Tool returned no content</p>}
       <Dialog.Root open={rawOpen} onOpenChange={setRawOpen}>
@@ -48,11 +48,17 @@ export function ToolResultContent({ content, raw, pending = false, isError = fal
   );
 }
 
-export function ToolOutputPanel({ text, language, isError = false }: { text: string; language: string; isError?: boolean }) {
+export function ToolOutputPanel({ text, language, isError = false, follow = false }: { text: string; language: string; isError?: boolean; follow?: boolean }) {
+  const outputRef = useRef<HTMLPreElement>(null);
+  const following = useRef(true);
+  useLayoutEffect(() => {
+    const element = outputRef.current;
+    if (follow && following.current && element) element.scrollTop = element.scrollHeight;
+  }, [text, follow]);
   return (
     <div className={`workstream-output-panel ${isError ? 'text-[var(--error)]' : 'text-[var(--text-secondary)]'}`}>
       <div className="workstream-output-heading">{language}</div>
-      <pre className={language === 'plaintext' ? 'workstream-output-text' : 'workstream-code'}>{text.length > 120_000 ? `${text.slice(0, 120_000)}\n… Preview truncated; full content is available in raw output.` : text}</pre>
+      <pre ref={outputRef} onScroll={event => { const element = event.currentTarget; following.current = element.scrollHeight - element.clientHeight - element.scrollTop < 24; }} className={language === 'plaintext' ? 'workstream-output-text' : 'workstream-code'}>{text.length > 120_000 ? `${text.slice(0, 120_000)}\n… Preview truncated; full content is available in raw output.` : text}</pre>
     </div>
   );
 }

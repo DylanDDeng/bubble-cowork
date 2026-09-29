@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { AttachSessionPullRequestInput, SessionPullRequestView } from '../../shared/types';
+import type { AttachSessionPullRequestInput, GitPullRequestSummary, SessionPullRequestView } from '../../shared/types';
 import * as sessions from './session-store';
 import { getGitPullRequestInfo, parseGitHubRepoFromRemote } from './git-pull-requests';
 
@@ -81,4 +81,62 @@ export function detachTaskPullRequest(sessionId: string, url: string, attachedAt
   pullRequestUrl(url);
   if (!Number.isFinite(attachedAt)) throw new Error('Invalid association timestamp.');
   sessions.detachSessionPullRequest(sessionId, url, attachedAt);
+}
+
+const SIDEBAR_REFRESH_TTL_MS = 60_000;
+const SIDEBAR_LOOKUP_CONCURRENCY = 4;
+/** PRs found for live worktree branches that have no explicit association. */
+let branchPullRequests: Record<string, GitPullRequestSummary> = {};
+let sidebarRefreshedAt = 0;
+let sidebarRefresh: Promise<void> | null = null;
+
+function summary(pr: GitPullRequestSummary): GitPullRequestSummary {
+  return { number: pr.number, title: pr.title, state: pr.state, url: pr.url };
+}
+
+async function eachLimited<T>(items: T[], run: (item: T) => Promise<void>) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: Math.min(SIDEBAR_LOOKUP_CONCURRENCY, queue.length) }, async () => {
+    for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+      try { await run(item); } catch { /* one failed lookup must not blank the rest */ }
+    }
+  }));
+}
+
+async function refreshSidebarPullRequests() {
+  const latest = new Map<string, ReturnType<typeof sessions.listAllSessionPullRequests>[number]['pr']>();
+  for (const { sessionId, pr } of sessions.listAllSessionPullRequests()) latest.set(sessionId, pr);
+  // Only an open PR can still change state; merged and closed are final.
+  await eachLimited([...latest].filter(([, pr]) => pr.state === 'open'), async ([sessionId, pr]) => {
+    const result = await getGitPullRequestInfo({ cwd: undefined, branch: pr.url, originRepo: pullRequestUrl(pr.url) });
+    if (result.pr && result.pr.url.toLowerCase() === pr.url.toLowerCase() && result.pr.state !== pr.state) {
+      sessions.updateSessionPullRequestState(sessionId, { ...pr, ...result.pr });
+    }
+  });
+  // A worktree owns its branch, so a PR on that branch belongs to the session.
+  const worktrees = sessions.listSessions().filter(row =>
+    row.env_mode === 'worktree' && row.worktree_path && row.conversation_scope !== 'dm' && !latest.has(row.id));
+  const found: Record<string, GitPullRequestSummary> = {};
+  await eachLimited(worktrees, async row => {
+    const env = await readEnvironment(row.worktree_path!);
+    const result = await getGitPullRequestInfo({ cwd: row.worktree_path!, branch: env.headBranch, originRepo: env.originRepo });
+    if (result.pr) found[row.id] = summary(result.pr);
+  });
+  branchPullRequests = found;
+  sidebarRefreshedAt = Date.now();
+}
+
+/**
+ * The PR each sidebar session is tied to: its latest explicit association,
+ * else the PR open on its worktree branch. `refresh` re-checks GitHub at most
+ * once a minute; without it only stored and cached answers are returned.
+ */
+export async function listSidebarPullRequests(refresh = false): Promise<Record<string, GitPullRequestSummary>> {
+  if (refresh && Date.now() - sidebarRefreshedAt > SIDEBAR_REFRESH_TTL_MS) {
+    sidebarRefresh ??= refreshSidebarPullRequests().finally(() => { sidebarRefresh = null; });
+    await sidebarRefresh;
+  }
+  const result: Record<string, GitPullRequestSummary> = { ...branchPullRequests };
+  for (const { sessionId, pr } of sessions.listAllSessionPullRequests()) result[sessionId] = summary(pr);
+  return result;
 }
