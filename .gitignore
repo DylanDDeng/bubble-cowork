@@ -42,3 +42,8 @@ Cowork-需求文档.md
 AGENTS.md
 dev-fixtures/deepseek-harness/node_modules/
 dev-fixtures/deepseek-harness/.sessions/
+
+# Local QA / design artifacts
+.playwright-cli/
+output/
+promo/
