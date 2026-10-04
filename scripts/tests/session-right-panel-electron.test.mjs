@@ -34,7 +34,7 @@ function Harness(){
  Object.assign(qa,{select:next=>flushSync(()=>{setId(next);setHidden(next==='H');setRemoved(false);}),hide:value=>flushSync(()=>setHidden(value)),remove:()=>flushSync(()=>setRemoved(true))});
  const hasPanel=id==='A'||id==='C'||id==='H';
  return <Tooltip.Provider><div style={{display:'flex',height:600,width:1100}}><main style={{flex:1,minWidth:0}}>Session {id??'new'}</main>
- <SessionRightPanelPresence sessionId={id}>{changed=>hasPanel&&!removed?<RightUtilityWorkspace key="pane" hidden={hidden} instantReveal={changed} activePanel={hidden?null:'browser'} tabs={[{id:'browser',kind:'browser',label:'Browser'}]} activeTab="browser" browserAvailable width={560} maximumWidth={748} resizable fullscreen={false} windowControlsInset={false} onWidthChange={()=>{}} onSelectTab={()=>{}} onCloseTab={()=>{}} onOpenTab={()=>{}} onTogglePanel={()=>{}} onToggleFullscreen={null}>
+ <SessionRightPanelPresence sessionId={id}>{changed=>hasPanel&&!removed?<RightUtilityWorkspace key="pane" hidden={hidden} instantReveal={changed} activePanel={hidden?null:'browser'} tabs={[{id:'browser',kind:'browser',label:'Browser'}]} activeTab="browser" browserAvailable width={560} maximumWidth={748} resizable fullscreen={false} onWidthChange={()=>{}} onSelectTab={()=>{}} onCloseTab={()=>{}} onOpenTab={()=>{}} onTogglePanel={()=>{}} onToggleFullscreen={null}>
  <div data-session={id}/><BrowserPanel key={id} embedded sessionId={id} collapsed={hidden} width={560} onWidthChange={()=>{}} isFullscreen={false} onToggleFullscreen={()=>{}}/>
  </RightUtilityWorkspace>:null}</SessionRightPanelPresence></div></Tooltip.Provider>;
 }

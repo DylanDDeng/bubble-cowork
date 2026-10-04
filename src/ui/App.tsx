@@ -256,7 +256,6 @@ export function App() {
     chatSplitRatio,
     showNewSession,
     newSessionKey,
-    sidebarCollapsed,
     projectCwd,
     showSettings,
     projectTreeCollapsed,
@@ -305,7 +304,6 @@ export function App() {
       chatSplitRatio: s.chatSplitRatio,
       showNewSession: s.showNewSession,
       newSessionKey: s.newSessionKey,
-      sidebarCollapsed: s.sidebarCollapsed,
       projectCwd: s.projectCwd,
       showSettings: s.showSettings,
       projectTreeCollapsed: s.projectTreeCollapsed,
@@ -1178,7 +1176,6 @@ export function App() {
           resizable
           maximumWidth={getDockedRightPanelMaxWidth(skinHostWidth)}
           fullscreen={rightPanelFullscreen !== null}
-          windowControlsInset={rightPanelFullscreen !== null && sidebarCollapsed}
           onSelectTab={selectRightUtilityTab}
           onCloseTab={closeRightUtilityTab}
           onOpenTab={openRightUtilityTab}
@@ -1412,7 +1409,6 @@ function RightUtilityWorkspace({
   resizable,
   maximumWidth = 1200,
   fullscreen,
-  windowControlsInset,
   onWidthChange,
   onSelectTab,
   onCloseTab,
@@ -1436,7 +1432,6 @@ function RightUtilityWorkspace({
   resizable: boolean;
   maximumWidth?: number;
   fullscreen: boolean;
-  windowControlsInset: boolean;
   onWidthChange: (width: number) => void;
   onSelectTab: (target: ProjectUtilityPanelTarget) => void;
   onCloseTab: (target: ProjectUtilityPanelTarget) => void;
@@ -1476,7 +1471,6 @@ function RightUtilityWorkspace({
         activeTab={activeTab}
         activePanel={activePanel}
         browserAvailable={browserAvailable}
-        windowControlsInset={windowControlsInset}
         fullscreen={fullscreen}
         onSelectTab={onSelectTab}
         onCloseTab={onCloseTab}
@@ -1555,7 +1549,6 @@ function RightUtilityTabStrip({
   activeTab,
   activePanel,
   browserAvailable,
-  windowControlsInset,
   fullscreen,
   onSelectTab,
   onCloseTab,
@@ -1568,7 +1561,6 @@ function RightUtilityTabStrip({
   activeTab: ProjectUtilityPanelTarget | null;
   activePanel: PanelLauncherKind | null;
   browserAvailable: boolean;
-  windowControlsInset: boolean;
   fullscreen: boolean;
   onSelectTab: (target: ProjectUtilityPanelTarget) => void;
   onCloseTab: (target: ProjectUtilityPanelTarget) => void;
@@ -1601,9 +1593,6 @@ function RightUtilityTabStrip({
       // z-[120] predates the native launcher popup and let the strip float
       // above every dialog overlay.
       className="drag-region relative z-[80] flex h-10 shrink-0 items-center gap-1 overflow-visible bg-[var(--utility-pane-surface-strong)] backdrop-[var(--utility-pane-backdrop)] px-2"
-      // In fullscreen with the sidebar collapsed the strip becomes the topmost
-      // bar at the window's left edge, so it must clear the traffic lights.
-      style={windowControlsInset ? { paddingLeft: 'var(--app-window-controls-inset-left)' } : undefined}
     >
       <div
         ref={tabListRef}

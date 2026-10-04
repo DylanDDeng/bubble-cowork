@@ -2570,8 +2570,7 @@ button.aegis-mdx-metadata-key:hover {
   overflow: hidden;
 }
 
-.aegis-md-editor.window-controls-inset .aegis-md-toolbar,
-.aegis-project-file-tabs.window-controls-inset {
+.aegis-md-editor.window-controls-inset .aegis-md-toolbar {
   padding-left: var(--app-window-controls-inset-left);
 }
 

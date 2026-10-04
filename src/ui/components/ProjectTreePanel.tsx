@@ -3230,7 +3230,9 @@ export function ProjectTreePanel({
             <div className={`h-full min-w-0 flex flex-col ${showProjectFileTabs || isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
               {!useEmbeddedFilesGrid && showProjectFileTabs && (
                 <div
-                  className={`aegis-project-file-tabs${isFullscreen && !embedded ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 bg-[var(--bg-primary)] pl-2 pr-2`}
+                  // Even fullscreen, the panel sits under the utility tab strip, which
+                  // already clears the window controls.
+                  className={`aegis-project-file-tabs drag-region flex h-11 flex-shrink-0 items-center gap-2 bg-[var(--bg-primary)] pl-2 pr-2`}
                 >
 	                  <div className="no-drag flex min-w-0 max-w-full items-center overflow-x-auto py-1.5">
 	                    {openFileTabs.map((tab, index) => {
