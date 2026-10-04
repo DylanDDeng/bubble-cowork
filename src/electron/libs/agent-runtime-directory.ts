@@ -1,3 +1,4 @@
+import { execFile } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -5,6 +6,7 @@ import type {
   AgentProvider,
   AgentRuntimeDirectoryReport,
   AgentRuntimeEntry,
+  AgentRuntimeInstallResult,
   AgentRuntimeState,
 } from '../../shared/types';
 import { getClaudeRuntimeStatus, invalidateClaudeRuntimeCache } from './claude-runtime-status';
@@ -22,58 +24,64 @@ import {
 } from './deepseek-cli';
 
 // Static per-provider metadata for the onboarding/install guidance. Install
-// commands and docs are only listed where we are confident they stay correct;
-// rows without one fall back to a generic "install the <cli> CLI" hint.
+// packages and docs are only listed where we are confident they stay correct;
+// rows without one fall back to a generic "install the <cli> CLI" hint. The
+// npm package doubles as the one-click install target, so the renderer only
+// ever names a provider — never a command.
 const PROVIDER_META: Record<
   AgentProvider,
-  { title: string; installCommand: string | null; docsUrl: string | null }
+  { title: string; npmPackage: string | null; docsUrl: string | null }
 > = {
   claude: {
     title: 'Claude Code',
-    installCommand: 'npm install -g @anthropic-ai/claude-code',
+    npmPackage: '@anthropic-ai/claude-code',
     docsUrl: 'https://docs.anthropic.com/en/docs/claude-code/overview',
   },
   codex: {
     title: 'Codex CLI',
-    installCommand: 'npm install -g @openai/codex',
+    npmPackage: '@openai/codex',
     docsUrl: 'https://developers.openai.com/codex/cli/',
   },
   opencode: {
     title: 'OpenCode',
-    installCommand: 'npm install -g opencode-ai',
+    npmPackage: 'opencode-ai',
     docsUrl: 'https://opencode.ai/docs/',
   },
   kimi: {
     title: 'Kimi',
-    installCommand: null,
+    npmPackage: null,
     docsUrl: null,
   },
   grok: {
     title: 'Grok',
-    installCommand: null,
+    npmPackage: null,
     docsUrl: null,
   },
   pi: {
     title: 'Pi',
-    installCommand: null,
+    npmPackage: null,
     docsUrl: null,
   },
   qoder: {
     title: 'Qoder',
-    installCommand: null,
+    npmPackage: null,
     docsUrl: null,
   },
   bubble: {
     title: 'Bubble',
-    installCommand: null,
+    npmPackage: null,
     docsUrl: null,
   },
   deepseek: {
     title: 'DeepSeek Harness',
-    installCommand: null,
+    npmPackage: null,
     docsUrl: 'https://github.com/deepseek-ai/deepseek-harness',
   },
 };
+
+function installCommandFor(npmPackage: string | null): string | null {
+  return npmPackage ? `npm install -g ${npmPackage}` : null;
+}
 
 function entry(
   provider: AgentProvider,
@@ -88,7 +96,8 @@ function entry(
     version: fields.version ?? null,
     summary: fields.summary || defaultSummary(meta.title, state),
     detail: fields.detail ?? null,
-    installCommand: meta.installCommand,
+    installCommand: installCommandFor(meta.npmPackage),
+    canAutoInstall: meta.npmPackage !== null,
     loginCommand: fields.loginCommand ?? null,
     docsUrl: meta.docsUrl,
     checkedAt: Date.now(),
@@ -351,4 +360,77 @@ export async function getAgentRuntimeDirectory(force = false): Promise<AgentRunt
     readyCount: entries.filter((item) => item.state === 'ready').length,
     checkedAt: Date.now(),
   };
+}
+
+const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
+const inFlightInstalls = new Map<AgentProvider, Promise<AgentRuntimeInstallResult>>();
+
+function runNpmGlobalInstall(npmPackage: string): Promise<AgentRuntimeInstallResult> {
+  // Windows ships npm as npm.cmd, which only runs through a shell. The
+  // arguments are fixed strings from PROVIDER_META, so the shell sees no
+  // user input.
+  const isWindows = process.platform === 'win32';
+  return new Promise((resolve) => {
+    // process.env already carries the user's login-shell PATH (see
+    // ensureShellEnvironment), so this finds the same npm a terminal would.
+    execFile(
+      isWindows ? 'npm.cmd' : 'npm',
+      ['install', '-g', npmPackage],
+      { env: process.env, timeout: INSTALL_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, shell: isWindows },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve({ ok: true });
+          return;
+        }
+        const code = (error as NodeJS.ErrnoException).code;
+        // Through cmd.exe a missing npm is an exit code, not ENOENT.
+        if (code === 'ENOENT' || (isWindows && /is not recognized/i.test(stderr || ''))) {
+          resolve({
+            ok: false,
+            reason: 'npm_missing',
+            message: "Node.js isn't installed, so npm can't run.",
+          });
+          return;
+        }
+        const permissionDenied = /EACCES|permission denied/i.test(`${stderr || ''}\n${stdout || ''}`);
+        resolve({
+          ok: false,
+          reason: permissionDenied ? 'permission_denied' : 'failed',
+          message: permissionDenied
+            ? 'npm could not write to its global folder. Run the install command in your terminal instead.'
+            : error.killed
+              ? 'The install timed out. Run the install command in your terminal instead.'
+              : 'The install failed. Run the install command in your terminal to see the full output.',
+        });
+      }
+    );
+  });
+}
+
+/**
+ * One-click install for providers that ship as a global npm package. Callers
+ * pass only the provider; the package comes from PROVIDER_META. Concurrent
+ * requests for the same provider share one npm run.
+ */
+export function installAgentRuntime(provider: AgentProvider): Promise<AgentRuntimeInstallResult> {
+  const npmPackage = PROVIDER_META[provider]?.npmPackage ?? null;
+  if (!npmPackage) {
+    return Promise.resolve({
+      ok: false,
+      reason: 'unsupported',
+      message: 'This agent cannot be installed automatically.',
+    });
+  }
+
+  const existing = inFlightInstalls.get(provider);
+  if (existing) return existing;
+
+  const run = runNpmGlobalInstall(npmPackage).finally(() => {
+    inFlightInstalls.delete(provider);
+    if (provider === 'claude') {
+      invalidateClaudeRuntimeCache();
+    }
+  });
+  inFlightInstalls.set(provider, run);
+  return run;
 }

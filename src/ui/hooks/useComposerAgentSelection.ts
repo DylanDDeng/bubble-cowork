@@ -17,7 +17,7 @@ import { useBubbleModelConfig } from './useBubbleModelConfig';
 import { useQoderModelConfig } from './useQoderModelConfig';
 import { useDeepseekModelConfig } from './useDeepseekModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
-import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
+import { loadPreferredProvider, PREFERRED_PROVIDER_EVENT, savePreferredProvider } from '../utils/provider';
 import {
   canonicalizeClaudeModel,
   buildClaudeModelOptions,
@@ -1048,6 +1048,20 @@ export function useComposerAgentSelection(input?: {
     },
     [decorateAgentSelection, input?.onSelectionChange, resolveModelForProvider]
   );
+
+  // A new-session composer follows preferred-agent changes made elsewhere
+  // (first-run setup picks one while this composer is already mounted).
+  // Session composers pass an explicit provider and keep it.
+  const followsPreferredProvider = !input?.provider;
+  useEffect(() => {
+    if (!followsPreferredProvider) return;
+    const handle = (event: Event) => {
+      const next = (event as CustomEvent<AgentProvider>).detail;
+      if (next && next !== provider) selectAgent(next);
+    };
+    window.addEventListener(PREFERRED_PROVIDER_EVENT, handle);
+    return () => window.removeEventListener(PREFERRED_PROVIDER_EVENT, handle);
+  }, [followsPreferredProvider, provider, selectAgent]);
 
   const selectModel = useCallback(
     (option: ComposerModelOption, targetProvider: AgentProvider = provider) => {

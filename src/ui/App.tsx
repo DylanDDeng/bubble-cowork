@@ -1019,23 +1019,6 @@ export function App() {
     (chatLayoutMode === 'split' || Boolean(activeSession && !showNewSession));
   const skinVisible = chatSurfaceVisible && Boolean(skinImageData && skinLayout);
 
-  // First-run (or zero-agents) takeover: the main UI is unusable without at
-  // least one working agent, so detection/install guidance becomes the page.
-  if (agentOnboarding.visible) {
-    return (
-      <div
-        className={`aegis-window-shell flex h-full min-h-0 ${
-          windowShellRounded ? 'aegis-window-shell--rounded' : ''
-        }`}
-      >
-        <div className="drag-region fixed left-0 top-0 h-9 w-full" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <AgentOnboardingView onComplete={agentOnboarding.dismiss} />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <BrowserNativeOverlayContext.Provider value={browserNativeOverlayContextValue}>
     <div
@@ -1384,6 +1367,10 @@ export function App() {
       <ScreenshotHost />
       <TextInputDialogHost />
       <ProjectFileMatchDialogHost />
+
+      {/* First-run (or zero-agents) setup: a panel over the empty workspace,
+          so the product stays visible while no agent is ready yet. */}
+      {agentOnboarding.visible ? <AgentOnboardingView onComplete={agentOnboarding.dismiss} /> : null}
 
       {/* Toast notifications */}
       <Toaster

@@ -1921,10 +1921,20 @@ export interface AgentRuntimeEntry {
   summary: string;
   detail: string | null;
   installCommand: string | null;
+  /** True when Aegis can run the install itself (global npm package). */
+  canAutoInstall: boolean;
   loginCommand: string | null;
   docsUrl: string | null;
   checkedAt: number;
 }
+
+export type AgentRuntimeInstallResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: 'unsupported' | 'npm_missing' | 'permission_denied' | 'failed';
+      message: string;
+    };
 
 export interface AgentRuntimeDirectoryReport {
   entries: AgentRuntimeEntry[];

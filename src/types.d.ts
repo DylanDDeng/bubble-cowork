@@ -291,6 +291,9 @@ declare global {
     getAgentRuntimeDirectory: (
       force?: boolean
     ) => Promise<import('./shared/types').AgentRuntimeDirectoryReport>;
+    installAgentRuntime: (
+      provider: import('./shared/types').AgentProvider
+    ) => Promise<import('./shared/types').AgentRuntimeInstallResult>;
     listPullRequests: (
       forceReload?: boolean
     ) => Promise<import('./shared/types').PullRequestListResult>;

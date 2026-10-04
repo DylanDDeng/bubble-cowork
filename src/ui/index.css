@@ -3217,6 +3217,37 @@ button.aegis-mdx-metadata-key:hover {
   }
 }
 
+/* Onboarding install bar: npm reports no progress, so the bar only sweeps. */
+@keyframes aegis-onboarding-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+.aegis-onboarding-progress {
+  animation: aegis-onboarding-progress 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aegis-onboarding-progress {
+    animation: none;
+  }
+}
+
+/* Visible thin scrollbar: the provider list is long and macOS hides overlay bars. */
+.agent-onboarding-provider-list {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-primary) 18%, transparent) transparent;
+}
+
+/* Single-colour brand marks ship black; flip them on dark surfaces. */
+.dark .agent-onboarding .provider-monochrome-logo {
+  filter: invert(1);
+}
+
 /* Shimmer loading animation */
 @keyframes shimmer {
   0% {

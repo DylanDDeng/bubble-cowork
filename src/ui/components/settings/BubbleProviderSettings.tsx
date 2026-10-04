@@ -42,7 +42,7 @@ const PROVIDER_LOGOS: Record<string, string> = {
   'kimi-for-coding': moonshotLogo,
 };
 
-function ProviderLogo({ providerId, name }: { providerId: string; name: string }) {
+export function BubbleProviderLogo({ providerId, name }: { providerId: string; name: string }) {
   // OpenCode's mark is theme-dependent, so it comes from the shared component
   // rather than the static map.
   if (providerId === 'opencode-zen') return <OpenCodeLogo />;
@@ -53,7 +53,7 @@ function ProviderLogo({ providerId, name }: { providerId: string; name: string }
   return (
     <span
       aria-hidden="true"
-      className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded bg-[var(--bg-tertiary)] text-[9px] font-semibold uppercase text-[var(--text-muted)]"
+      className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--bg-primary)] text-[9px] font-semibold uppercase text-[var(--text-muted)]"
     >
       {name.charAt(0)}
     </span>
@@ -210,7 +210,7 @@ export function BubbleProviderSettings({ revealTarget }: { revealTarget?: string
       ...(provider.configured && provider.hasApiKey && provider.enabled && !provider.isDefault ? [{ label: 'Make default', onSelect: () => void makeDefault(provider.id) }] : []),
       ...(provider.configured ? [{ label: 'Remove provider', onSelect: () => void removeProvider(provider.id), destructive: true }] : []),
     ];
-    return <ProviderSettingsRow key={provider.id} label={provider.name} scope="Bubble" logo={<ProviderLogo providerId={provider.id} name={provider.name} />}
+    return <ProviderSettingsRow key={provider.id} label={provider.name} scope="Bubble" logo={<BubbleProviderLogo providerId={provider.id} name={provider.name} />}
       expanded={expandedId === provider.id} disabled={busyId !== null} isDefault={provider.isDefault}
       status={!provider.hasApiKey ? 'No API key' : !provider.enabled ? 'Disabled' : undefined}
       enabled={provider.enabled} onToggleEnabled={provider.configured ? value => void setEnabled(provider.id, value) : undefined}

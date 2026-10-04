@@ -27,3 +27,16 @@ export function savePreferredProvider(provider: AgentProvider): void {
   if (typeof window === 'undefined') return;
   rendererStateStorage.setItem(STORAGE_KEY, provider);
 }
+
+/** Fired when the preferred agent changes outside the composer (onboarding). */
+export const PREFERRED_PROVIDER_EVENT = 'aegis:preferred-provider-changed';
+
+/**
+ * Persist the preferred agent and tell mounted new-session composers, which
+ * read the preference only once on mount.
+ */
+export function announcePreferredProvider(provider: AgentProvider): void {
+  savePreferredProvider(provider);
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<AgentProvider>(PREFERRED_PROVIDER_EVENT, { detail: provider }));
+}

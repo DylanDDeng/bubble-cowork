@@ -926,7 +926,9 @@ export const useAppStore = create<Store>()(
       projectCwd: initialUiResumeState?.projectCwd ?? null,
       projectTreeCwd: null,
       projectTree: null,
-      projectTreeCollapsed: initialUiResumeState?.projectTreeCollapsed ?? false,
+      // No resume state (first launch): the right panel starts closed, and must
+      // be persisted as closed too, or the next launch reopens an empty Files tab.
+      projectTreeCollapsed: initialUiResumeState?.projectTreeCollapsed ?? true,
       projectPanelView: normalizeProjectPanelView(initialUiResumeState?.projectPanelView),
       rightUtilityTabs: initialRightUtilityTab ? [initialRightUtilityTab] : [],
       activeRightUtilityTab: initialRightUtilityTab,

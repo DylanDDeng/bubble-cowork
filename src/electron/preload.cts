@@ -783,6 +783,9 @@ contextBridge.exposeInMainWorld('electron', {
   getAgentRuntimeDirectory: (force?: boolean) => {
     return ipcRenderer.invoke('get-agent-runtime-directory', force);
   },
+  installAgentRuntime: (provider: string) => {
+    return ipcRenderer.invoke('install-agent-runtime', provider);
+  },
 
   // GitHub pull-request directory
   listPullRequests: (forceReload?: boolean) => {

@@ -136,7 +136,7 @@ import {
   saveFontSelections,
 } from './libs/font-settings';
 import { getUserProfile, saveUserProfile } from './libs/user-profile';
-import { getAgentRuntimeDirectory } from './libs/agent-runtime-directory';
+import { getAgentRuntimeDirectory, installAgentRuntime } from './libs/agent-runtime-directory';
 import {
   addPullRequestComment,
   getPullRequestCommits,
@@ -6503,6 +6503,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 本机 agent 运行时检测目录(onboarding / provider 状态)
   ipcMainHandle('get-agent-runtime-directory', async (_event, force?: boolean) => {
     return getAgentRuntimeDirectory(force === true);
+  });
+
+  ipcMainHandle('install-agent-runtime', async (_event, provider: AgentProvider) => {
+    return installAgentRuntime(provider);
   });
 
   // RPC: GitHub pull-request directory (gh CLI backed)

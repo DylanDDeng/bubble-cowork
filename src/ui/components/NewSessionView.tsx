@@ -37,7 +37,6 @@ import {
 } from './PermissionModePicker';
 import { ClaudePlanModePill } from './ClaudePlanModePill';
 import { DeepseekAgentPresetPicker } from './DeepseekAgentPresetPicker';
-import { FolderOpen } from './icons';
 import { NewThreadLanding } from './NewThreadLanding';
 import { NewThreadProjectHeading } from './NewThreadProjectHeading';
 import { ComposerContextPills } from './ComposerContextPills';
@@ -724,16 +723,16 @@ export function NewSessionView() {
                     />
                     <button
                       type="button"
-                      aria-label={hasSelectedCwd ? 'Send' : 'Choose project and send'}
-                      title={hasSelectedCwd ? 'Send' : 'Choose project and send'}
+                      // Always the send action; without a project it asks for
+                      // one first. "Choose project" above is the place to pick it.
+                      aria-label="Send"
+                      title="Send"
                       onClick={handleStart}
                       disabled={!canStartTask}
                       className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 no-drag disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
                     >
                       {pendingStart ? (
                         <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : !hasSelectedCwd ? (
-                        <FolderOpen className="h-[18px] w-[18px]" />
                       ) : (
                         <ArrowUpIcon />
                       )}
