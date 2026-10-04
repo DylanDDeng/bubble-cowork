@@ -7052,6 +7052,39 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         }
       }
 
+      // Videos stream from the local preview server (with range requests), so
+      // the in-memory preview size cap does not apply to them.
+      if (ext === '.mp4' || ext === '.webm' || ext === '.mov') {
+        try {
+          const preview = await getLocalPreviewUrl(validation.rootReal, validation.targetReal);
+          if (!preview.ok) {
+            return {
+              kind: 'error',
+              path: validation.targetReal,
+              name,
+              ext,
+              message: preview.message,
+            };
+          }
+          return {
+            kind: 'video',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            previewUrl: preview.url,
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to create video preview: ${String(error)}`,
+          };
+        }
+      }
+
       if (stat.size > MAX_FILE_PREVIEW_BYTES) {
         return {
           kind: 'too_large',
@@ -7083,37 +7116,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
             name,
             ext,
             message: `Failed to read image: ${String(error)}`,
-          };
-        }
-      }
-
-      if (ext === '.mp4' || ext === '.webm' || ext === '.mov') {
-        try {
-          const preview = await getLocalPreviewUrl(validation.rootReal, validation.targetReal);
-          if (!preview.ok) {
-            return {
-              kind: 'error',
-              path: validation.targetReal,
-              name,
-              ext,
-              message: preview.message,
-            };
-          }
-          return {
-            kind: 'video',
-            path: validation.targetReal,
-            name,
-            ext,
-            size: stat.size,
-            previewUrl: preview.url,
-          };
-        } catch (error) {
-          return {
-            kind: 'error',
-            path: validation.targetReal,
-            name,
-            ext,
-            message: `Failed to create video preview: ${String(error)}`,
           };
         }
       }
