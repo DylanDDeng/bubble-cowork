@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useAppPreferences } from '../../store/useAppPreferences';
 import { useAppReducedMotion } from '../../hooks/useAppReducedMotion';
 import './environment-panel-layout.css';
 
@@ -9,7 +8,7 @@ type PanelLayout = {
   mode: PanelMode;
   visible: boolean;
   register: (surface: HTMLDivElement) => () => void;
-  setAvailable: (available: boolean) => void;
+  setRequested: (requested: boolean) => void;
 };
 const Context = createContext<PanelLayout | null>(null);
 export const useEnvironmentPanelLayout = () => useContext(Context);
@@ -17,8 +16,8 @@ export const useEnvironmentPanelLayout = () => useContext(Context);
 export function EnvironmentPanelProvider({ children }: { children: ReactNode }) {
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
-  const [available, setAvailable] = useState(false);
-  const pinned = useAppPreferences(s => s.environmentPanelPinned);
+  // The active session's card has content and has not been closed.
+  const [requested, setRequested] = useState(false);
   const register = useCallback((element: HTMLDivElement) => {
     setSurface(element);
     return () => setSurface(current => current === element ? null : current);
@@ -32,8 +31,8 @@ export function EnvironmentPanelProvider({ children }: { children: ReactNode }) 
     return () => observer.disconnect();
   }, [surface]);
   const mode: PanelMode = width < 1096 ? 'overlay' : width < 1536 ? 'shift' : 'gutter';
-  const visible = !!surface && available && pinned && mode !== 'overlay';
-  const value = useMemo(() => ({ surface, mode, visible, register, setAvailable }), [surface, mode, visible, register]);
+  const visible = !!surface && requested && mode !== 'overlay';
+  const value = useMemo(() => ({ surface, mode, visible, register, setRequested }), [surface, mode, visible, register]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

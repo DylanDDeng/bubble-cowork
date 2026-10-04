@@ -38,6 +38,7 @@ const {useAppPreferences}=await import('/src/ui/store/useAppPreferences.ts');
 qa.preferences=useAppPreferences;qa.pinWrites=[];
 window.electron.setAppPreferences=async patch=>{qa.pinWrites.push(patch);return {...useAppPreferences.getState(),...patch}};
 const {EnvironmentHub}=await import('/src/ui/components/environment/EnvironmentHub.tsx');
+const {useEnvironmentPanelStore}=await import('/src/ui/store/useEnvironmentPanelStore.ts');qa.panelStore=useEnvironmentPanelStore;
 const {useGitEnvironment}=await import('/src/ui/components/environment/useGitEnvironment.ts');
 const {useAppStore}=await import('/src/ui/store/useAppStore.ts');
 const {useSessionOrganizationStore}=await import('/src/ui/store/useSessionOrganizationStore.ts');
@@ -258,10 +259,17 @@ app.whenReady().then(async()=>{
  await js('document.querySelector("[data-chat-scroll-container]").scrollTop=400');await delay(80);
  assert.equal(await js('document.querySelector("[data-chat-scroll-container]").scrollTop'),400,'transcript actually scrolls');
  assert.equal((await geometry()).p.top,pinnedTop,'scrolling messages leaves Environment fixed');
- await click('Open environment panel');assert.equal(await panel(),null);assert.equal(await js('qa.preferences.getState().environmentPanelPinned'),false);
- await js('qa.setSessionId("third-task");qa.patch({totalChanges:10});qa.setLayoutWidth(1600)');await delay(350);assert.equal(await panel(),null,'new sessions and Git updates respect explicit close');
- await js('qa.setMounted(false)');await delay(100);await js('qa.setMounted(true)');await delay(200);assert.equal(await panel(),null,'remount respects pin preference');
+ await click('Open environment panel');assert.equal(await panel(),null);assert.equal(await js('qa.pinWrites.length'),0,'closing writes no preference');
+ assert.equal(await js('"dockedClosedBySession" in qa.panelStore.persist.getOptions().partialize(qa.panelStore.getState())'),false,'docked close is not persisted');
+ await js('qa.patch({totalChanges:10})');await delay(200);assert.equal(await panel(),null,'Git updates respect explicit close');
+ await js('qa.setSessionId("third-task");qa.setLayoutWidth(1600)');await delay(350);assert.equal(await panel(),'pinned','other sessions still start expanded');
+ await js('qa.setSessionId("second-task")');await delay(200);assert.equal(await panel(),null,'closing only applies to that session');
+ await js('qa.setMounted(false)');await delay(100);await js('qa.setMounted(true)');await delay(200);assert.equal(await panel(),null,'remount keeps the session closed');
  await click('Open environment panel');assert.equal(await panel(),'pinned');
+ await js('qa.setSessionId("third-task")');await delay(200);assert.equal(await panel(),'pinned');
+ await js('qa.setSessionId(null)');await delay(200);assert.equal(await panel(),null,'no session docks nothing');
+ await click('Open environment panel');assert.equal(await panel(),null,'toggle without a session stays closed');
+ await js('qa.setSessionId("third-task")');await delay(200);assert.equal(await panel(),'pinned');
  await js('qa.setLayoutWidth(1095)');await delay(350);assert.equal(await panel(),null);assert.equal(await layoutMode(),'overlay');g=await geometry();assert(Math.abs(g.scroll.right-g.s.right)<1,'overlay scrollbar also stays at pane edge');
  const writes=await js('qa.pinWrites.length');await click('Open environment panel');assert.equal(await panel(),'overlay');await snap('narrow-overlay');
  // Real navigation starts with a pointer event outside the chat surface.
@@ -290,7 +298,7 @@ app.whenReady().then(async()=>{
  assert.equal(await js('getComputedStyle(document.querySelector("[data-chat-scroll-container]")).transitionDuration'),'0s');
  assert.equal(await js('getComputedStyle(document.querySelector("[data-environment-panel]")).animationName'),'none');
  assert.deepEqual(errors,[]);
- console.log('environment-summary: initial and cached branch, detached HEAD, non-Git sections, stale replies, combined commit/push, publish, PR states and creation, sync, worktree menu, clipboard menu, portals, running guards, anchor, dismissal, responsive pin layout and persisted preference passed');app.exit(0);
+ console.log('environment-summary: initial and cached branch, detached HEAD, non-Git sections, stale replies, combined commit/push, publish, PR states and creation, sync, worktree menu, clipboard menu, portals, running guards, anchor, dismissal, responsive layout and per-session open state passed');app.exit(0);
  }catch(e){console.error(e);console.error(errors);console.error(await visible());await snap('failure');app.exit(1)}
 });
 `;

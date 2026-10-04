@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { useEnvironmentPanelLayout } from './EnvironmentPanelLayout';
-import { saveAppPreferences, useAppPreferences } from '../../store/useAppPreferences';
+import { useAppPreferences } from '../../store/useAppPreferences';
 import { useEnvironmentPanelStore } from '../../store/useEnvironmentPanelStore';
 import { useSessionPullRequests } from './useSessionPullRequests';
 import { EnvironmentPullRequestsSection } from './EnvironmentPullRequestsSection';
@@ -297,20 +297,19 @@ export function EnvironmentHub({
   const prs = useSessionPullRequests(context, git);
   const overlayOpen = useEnvironmentPanelStore(s => context.sessionId ? s.overlayBySession[context.sessionId] ?? false : false);
   const setOverlayOpen = useEnvironmentPanelStore(s => s.setOverlayOpen);
+  // Docked by default per session; an empty pane has nothing to dock and no
+  // session to remember a close against.
+  const dockedOpen = useEnvironmentPanelStore(s => !!context.sessionId && !s.dockedClosedBySession[context.sessionId]);
+  const setDockedOpen = useEnvironmentPanelStore(s => s.setDockedOpen);
   const setOpen = (value: boolean) => {
     if (context.sessionId) setOverlayOpen(context.sessionId, value);
   };
   const layout = useEnvironmentPanelLayout();
   const pinnedMode = !!layout?.surface && layout.mode !== 'overlay';
   const open = pinnedMode ? !!layout?.visible : overlayOpen;
-  const [savingPin, setSavingPin] = useState(false);
   const toggle = () => {
     if (!pinnedMode) { setOpen(!overlayOpen); return; }
-    if (savingPin) return;
-    setSavingPin(true);
-    void saveAppPreferences({ environmentPanelPinned: !open })
-      .catch(() => toast.error('Failed to save environment preference.'))
-      .finally(() => setSavingPin(false));
+    if (context.sessionId) setDockedOpen(context.sessionId, !open);
   };
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -356,11 +355,11 @@ export function EnvironmentHub({
   }, [context.contextKey, open, git.refresh]);
 
   const available = !(knownNonGit && !hasComputerUse && subagents.length === 0 && prs.items.length === 0 && !prs.error && !sources.length && !sourcesError);
-  const setAvailable = layout?.setAvailable;
+  const setRequested = layout?.setRequested;
   useEffect(() => {
-    setAvailable?.(available);
-    return () => setAvailable?.(false);
-  }, [available, setAvailable]);
+    setRequested?.(available && dockedOpen);
+    return () => setRequested?.(false);
+  }, [available, dockedOpen, setRequested]);
 
   const copyPath = async (path: string | null) => {
     if (!path) return;
@@ -509,7 +508,6 @@ export function EnvironmentHub({
         ref={triggerRef}
         type="button"
         onClick={toggle}
-        disabled={savingPin}
         className={`no-drag relative inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-medium transition-colors ${
           open
             ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
