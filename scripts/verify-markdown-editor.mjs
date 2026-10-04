@@ -203,13 +203,23 @@ function Harness() {
       flush: () => bridgeRef.current?.flush(),
       getSaveCount: () => saveCountRef.current,
       getMainScrollTop: () => document.querySelector('.aegis-md-main')?.scrollTop || 0,
-      scrollLineIntoView: (needle) => {
+      focusBeforeLocalImage: () => {
+        const view = findView();
+        const pos = view.state.doc.toString().indexOf('![Local](./local-image.svg)');
+        const before = view.state.doc.line(view.state.doc.lineAt(pos).number - 1).from;
+        view.dispatch({ selection: EditorSelection.cursor(before), scrollIntoView: true });
+        view.focus();
+      },
+      scrollLineIntoView: async (needle) => {
         const view = findView();
         const main = document.querySelector('.aegis-md-main');
         if (!view || !main) return null;
         const text = view.state.doc.toString();
         const pos = text.indexOf(needle);
         if (pos < 0) return null;
+        // Let CodeMirror materialize the target before using its measured geometry.
+        view.dispatch({ effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const coords = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
         const lineBlock = view.lineBlockAt(pos);
         const mainRect = main.getBoundingClientRect();
@@ -250,7 +260,12 @@ function Harness() {
           afterReadCount: window.electron.__getMarkdownImageReads().length,
         };
       },
-      clickFrontmatterWidget: () => {
+      clickFrontmatterWidget: async () => {
+        // Earlier steps scroll down to the image; CodeMirror only renders
+        // the viewport, so bring the front matter back before querying it.
+        const scroller = document.querySelector('.aegis-md-main');
+        if (scroller) scroller.scrollTop = 0;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const widget = document.querySelector('.aegis-cm-frontmatter-widget');
         if (!widget) return null;
         const rect = widget.getBoundingClientRect();
@@ -264,13 +279,13 @@ function Harness() {
       },
       clickOutlineItem: (text) => {
         const main = document.querySelector('.aegis-md-main');
-        const button = Array.from(document.querySelectorAll('.aegis-md-outline-list button'))
-          .find((node) => (node.textContent || '').trim() === text);
+        const button = Array.from(document.querySelectorAll('[aria-label="Document outline"] [data-outline-tick]'))
+          .find((node) => node.getAttribute('aria-label') === text);
         if (!main || !button) return null;
         main.scrollTop = 0;
         const before = main.scrollTop;
         button.click();
-        return { before, text: button.textContent || '' };
+        return { before, text: button.getAttribute('aria-label') || '' };
       },
       getLineViewportPosition: measureLineViewportPosition,
       getSelectionLineText: () => {
@@ -483,6 +498,7 @@ function Harness() {
           cmScrollerScrollTop: cmScroller?.scrollTop || 0,
         };
         return {
+          tableHTML: document.querySelector('.aegis-cm-table-widget')?.outerHTML,
           hasEditor: Boolean(document.querySelector('.aegis-md-codemirror-root .cm-editor')),
           oldRoots: document.querySelectorAll('.aegis-md-milkdown-root, .ProseMirror').length,
           editorText: view?.state.doc.toString() || '',
@@ -492,14 +508,14 @@ function Harness() {
           inlineCodeTexts,
           headingTextDecorations,
           bodyText: document.body.innerText,
-          codeHeader: document.querySelector('.aegis-cm-code-header')?.textContent || '',
-          codeLineText: Array.from(document.querySelectorAll('.aegis-cm-code-body, .aegis-cm-code-line')).map((node) => node.textContent).join('\\n'),
+          codeHeader: document.querySelector('.bubble-md-code-line.is-first')?.getAttribute('data-language') || '',
+          codeLineText: Array.from(document.querySelectorAll('.bubble-md-code-line')).map((node) => node.textContent).join('\\n'),
           codeSourceLineTexts: Array.from(document.querySelectorAll('.aegis-cm-code-source-line')).map((node) => node.textContent || ''),
-          codeWidgetCount: document.querySelectorAll('.aegis-cm-code-widget').length,
-          horizontalRuleCount: document.querySelectorAll('.aegis-cm-horizontal-rule').length,
+          codeWidgetCount: document.querySelectorAll('.bubble-md-code-line').length,
+          horizontalRuleCount: document.querySelectorAll('.bubble-md-horizontal-rule').length,
           tableHeader: document.querySelector('.aegis-cm-table-widget th')?.textContent || '',
           taskCount: document.querySelectorAll('.aegis-cm-task-checkbox').length,
-          outlineTriggerTexts: Array.from(document.querySelectorAll('.aegis-md-outline-trigger span')).map((node) => node.textContent || ''),
+          outlineTriggerTexts: Array.from(document.querySelectorAll('[aria-label="Document outline"] .chat-outline-tick')).map((node) => node.textContent || ''),
           images,
           blockWidgetMetrics,
           scrollState,
@@ -565,6 +581,7 @@ contextBridge.exposeInMainWorld('electron', {
 
   const main = `
 const { app, BrowserWindow } = require('electron');
+app.setPath('userData', process.env.AEGIS_MD_QA_PROFILE);
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -646,8 +663,9 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1240,
     height: 920,
-    show: false,
+    show: true,
     webPreferences: {
+      backgroundThrottling: false,
       preload: process.env.AEGIS_MD_VERIFY_PRELOAD,
       contextIsolation: true,
       sandbox: false,
@@ -657,9 +675,20 @@ app.whenReady().then(async () => {
   win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     logs.push({ level, message, line, sourceId });
   });
+  if (process.env.QA_MARKDOWN_DEBUG) {
+    const execute = win.webContents.executeJavaScript.bind(win.webContents);
+    win.webContents.executeJavaScript = (code, ...args) => {
+      console.error('STEP', code.slice(0, 120));
+      return execute(code, ...args);
+    };
+  }
 
   try {
     await withTimeout(win.loadURL(process.env.AEGIS_MD_VERIFY_URL), 15_000, 'Timed out loading Markdown harness URL.');
+    // Keep browser focus deterministic while the user works in another app.
+    win.webContents.debugger.attach('1.3');
+    await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+    win.show();app.focus({steal:true});win.focus();win.webContents.focus();
     await waitForReady(win);
     await delay(300);
     await withTimeout(
@@ -676,6 +705,19 @@ app.whenReady().then(async () => {
     const imageCacheRebuild = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.rebuildLocalImageWidget()', true);
     if (!imageCacheRebuild) throw new Error('Unable to rebuild local image widget.');
     await delay(100);
+    await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.scrollLineIntoView("![Local](./local-image.svg)")', true);
+    await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.focusBeforeLocalImage()', true);
+    await delay(150);
+    await win.webContents.executeJavaScript('window.__mediaNavigationImage=document.querySelector("img[alt=Local]")', true);
+    for (const [key, sourceExpected] of [['Down',true],['Down',false],['Up',true],['Up',false]]) {
+      win.webContents.sendInputEvent({type:'keyDown',keyCode:key});
+      win.webContents.sendInputEvent({type:'keyUp',keyCode:key});
+      await delay(120);
+      const line=await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()',true);
+      if (line.includes('![Local]') !== sourceExpected) throw new Error('Arrow navigation skipped or trapped the image source: '+key+' '+line);
+      const stable=await win.webContents.executeJavaScript('!!window.__mediaNavigationImage && window.__mediaNavigationImage===document.querySelector("img[alt=Local]")',true);
+      if (!stable) throw new Error('Arrow navigation replaced the image preview.');
+    }
     const frontmatterClickResult = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.clickFrontmatterWidget()', true);
     if (!frontmatterClickResult) throw new Error('Unable to click front matter widget.');
     await delay(120);
@@ -837,9 +879,11 @@ async function main() {
   try {
     await writeHarnessFiles(tmpDir);
     server = await createServer({
+      cacheDir: path.join(os.tmpdir(), path.basename(tmpDir), 'vite-cache'),
       root: projectRoot,
       configFile: path.join(projectRoot, 'vite.config.ts'),
       server: {
+        hmr: false,
         host: '127.0.0.1',
         port: 0,
         strictPort: false,
@@ -851,6 +895,8 @@ async function main() {
     const harnessUrl = new URL(`${path.basename(tmpDir)}/index.html`, baseUrl).href;
     const { stdout } = await runElectron(path.join(tmpDir, 'electron-main.cjs'), {
       AEGIS_MD_VERIFY_URL: harnessUrl,
+      AEGIS_MD_QA_PROFILE: path.join(tmpDir, 'user-data'),
+      BUBBLE_HOME: path.join(tmpDir, 'agent-data'),
       AEGIS_MD_VERIFY_PRELOAD: path.join(tmpDir, 'preload.cjs'),
     });
     const resultLine = stdout.trim().split('\n').filter(Boolean).pop();
@@ -896,6 +942,7 @@ async function main() {
       imageUrlResolves,
       logs,
     } = result;
+    if(process.env.QA_MARKDOWN_DEBUG) console.log(initialSnapshot.tableHTML);
     assert(initialSnapshot.hasEditor, 'CodeMirror editor did not mount.');
     assert(
       initialSnapshot.editorBackground === initialSnapshot.primaryBackground
@@ -916,8 +963,8 @@ async function main() {
       `CodeMirror inner scroller should not be a competing scroll container: ${JSON.stringify(initialSnapshot.scrollState)}`
     );
     assert(
-      (initialSnapshot.blockWidgetMetrics || []).length >= 4,
-      `Expected measured block widgets for front matter, code, images, and table: ${JSON.stringify(initialSnapshot.blockWidgetMetrics)}`
+      (initialSnapshot.blockWidgetMetrics || []).length >= 3,
+      `Expected measured block widgets for front matter and images: ${JSON.stringify(initialSnapshot.blockWidgetMetrics)}`
     );
     const blockWidgetMarginViolations = initialSnapshot.blockWidgetMetrics.filter((metric) => (
       Number.parseFloat(metric.marginTop) !== 0 || Number.parseFloat(metric.marginBottom) !== 0
@@ -958,7 +1005,7 @@ async function main() {
     assert(!initialSnapshot.bodyText.includes('[Baidu](www.baidu.com)'), 'Markdown link source syntax is visible in live preview.');
     assert(initialSnapshot.codeHeader.includes('ts'), 'Code block header did not render.');
     assert(initialSnapshot.codeLineText.includes('const value = 1;'), 'Code block body did not render.');
-    assert(initialSnapshot.codeWidgetCount >= 1, 'Code block preview widget did not render as a single block.');
+    assert(initialSnapshot.codeWidgetCount >= 1, 'Code block did not retain directly editable lines.');
     assert(initialSnapshot.horizontalRuleCount === 1, 'Markdown horizontal rule did not render in live preview.');
     assert(
       initialSnapshot.headingTextDecorations.length > 0
@@ -1061,13 +1108,13 @@ async function main() {
         && imageCacheRebuild.afterReadCount === imageCacheRebuild.beforeReadCount,
       `Rebuilding the local image widget bypassed the image source cache: ${JSON.stringify(imageCacheRebuild)}`
     );
-    assert(afterInline.includes('Inline probe: `hello` anchor'), 'Backquote key input did not preserve inline code source markers.');
-    const inlineMarkersRawWhileAdjacent =
-      afterInlineClosingSnapshot.bodyText.includes('`hello`')
-      && afterInlineClosingSnapshot.inlineCodeTexts.includes('`hello`');
+    assert(afterInline.includes('Inline probe: `hello` anchor'), 'Backquote key input did not preserve inline code source markers: ' + JSON.stringify(afterInline.slice(-300)));
+    const inlineMarkersHiddenOutside =
+      !afterInlineClosingSnapshot.bodyText.includes('`hello`')
+      && afterInlineClosingSnapshot.inlineCodeTexts.includes('hello');
     assert(
-      inlineMarkersRawWhileAdjacent,
-      'Inline code should keep visible markers while the caret is still adjacent to the just-typed closing backtick. bodyHasRawMarkers='
+      inlineMarkersHiddenOutside,
+      'Inline code should hide markers once the caret is outside the closing backtick, matching Codex. bodyHasRawMarkers='
         + afterInlineClosingSnapshot.bodyText.includes('`hello`')
         + ' inlineCodeTexts=' + JSON.stringify(afterInlineClosingSnapshot.inlineCodeTexts)
     );
@@ -1103,9 +1150,8 @@ async function main() {
       `Triple backtick completion did not leave the cursor on the editable blank code line: ${JSON.stringify(afterFenceSelectionLine)}`
     );
     assert(
-      afterFenceSnapshot.codeSourceLineTexts.includes('```')
-        && afterFenceSnapshot.codeSourceLineTexts.filter((text) => text === '```').length >= 2
-        && !afterFenceSnapshot.codeSourceLineTexts.includes('`'),
+      afterFenceSnapshot.codeWidgetCount >= 2
+        && !afterFenceSnapshot.codeLineText.includes('```'),
       `Triple backtick completion did not render a clean editable fenced block: ${JSON.stringify(afterFenceSnapshot.codeSourceLineTexts)}`
     );
     assert(

@@ -393,6 +393,8 @@ declare global {
     readSkinImage: (fileName: string) => Promise<string | null>;
     clearSkinImage: () => Promise<boolean>;
     readMarkdownImageAsset: (cwd: string, markdownFilePath: string, imageSrc: string) => Promise<{ ok: boolean; dataUrl?: string; message?: string }>;
+    /** First file with this exact name anywhere in the project (Obsidian-style embed lookup). */
+    findProjectFileByName: (cwd: string, fileName: string) => Promise<string | null>;
     resolveMarkdownImageAssetUrl: (cwd: string, markdownFilePath: string, imageSrc: string) => Promise<{ ok: boolean; url?: string; size?: number; mtimeMs?: number; message?: string }>;
     createMarkdownImageAsset: (cwd: string, markdownFilePath: string, fileName: string, mimeType: string | undefined, data: Uint8Array) => Promise<{ ok: boolean; relativePath?: string; name?: string; message?: string }>;
     createInlineImageAttachment: (mimeType: string, data: Uint8Array) => Promise<Attachment | null>;

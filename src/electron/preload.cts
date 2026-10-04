@@ -979,6 +979,9 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-markdown-image-asset', cwd, markdownFilePath, imageSrc);
   },
 
+  findProjectFileByName: (cwd: string, fileName: string) => {
+    return ipcRenderer.invoke('find-project-file-by-name', cwd, fileName);
+  },
   resolveMarkdownImageAssetUrl: (cwd: string, markdownFilePath: string, imageSrc: string) => {
     return ipcRenderer.invoke('resolve-markdown-image-asset-url', cwd, markdownFilePath, imageSrc);
   },

@@ -1,0 +1,70 @@
+/* Markdown live preview keeps prose and editable source in one EditorView. */
+.bubble-md-live { --aegis-md-page-width: 100%; --aegis-md-page-padding-x: 16px; --aegis-md-prose-font-size: calc(14px * var(--ui-font-scale, 1)); }
+.bubble-md-live .aegis-md-codemirror-root .cm-activeLine { background: transparent; }
+.bubble-md-live .cm-cursor { border-left-width: 2px; }
+.bubble-md-live .bubble-md-list-line { padding-left: 12px; }
+.bubble-md-live .bubble-md-escaped, .bubble-md-live .bubble-md-escaped span { color: var(--text-primary); }
+.bubble-md-live .bubble-md-underline { text-decoration: underline; text-underline-offset: 3px; }
+/* CodeMirror measures widget border boxes. Keep spacing inside that box so
+   videos cannot shift the source-coordinate map for every following line. */
+.bubble-md-video-widget { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: 100%; max-width: 860px; margin: 0; padding: 8px 0; gap: 6px; }
+.bubble-md-video-widget video { display: block; width: 100%; max-height: 560px; min-height: 160px; border-radius: 8px; background: var(--bg-secondary); object-fit: contain; }
+.aegis-cm-image-widget { position: relative; width: fit-content; cursor: default; }
+.aegis-cm-image-widget[data-fluid="true"], .aegis-cm-image-widget[data-fluid="true"] img { width: 100%; box-sizing: border-box; }
+.bubble-md-media-edit { position: absolute; top: 12px; right: 8px; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); background: var(--bg-primary); font-family: var(--font-mono); font-size: 12px; cursor: pointer; opacity: 0; }
+:is(.aegis-cm-image-widget, .bubble-md-video-widget):is(:hover, :focus-within) .bubble-md-media-edit { opacity: 1; }
+.bubble-md-media-edit:focus-visible { opacity: 1; outline: 2px solid var(--text-muted); outline-offset: 2px; }
+.bubble-md-media-edit:hover { color: var(--text-primary); background: var(--bg-secondary); }
+.bubble-md-video-status { font-size: 12px; color: var(--text-muted); }
+.bubble-md-live .aegis-md-codemirror-root { padding-top: 12px; padding-bottom: 64px; }
+.bubble-md-live .bubble-md-code-line { padding: 0 12px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 13px; }
+.bubble-md-code-line.is-first { position: relative; border-radius: 8px 8px 0 0; padding-right: 90px; }
+.bubble-md-code-line.is-first::after { content: attr(data-language); position: absolute; top: 4px; right: 12px; font-family: var(--font-sans); font-size: 11px; color: var(--text-muted); }
+.bubble-md-code-line.is-last { border-radius: 0 0 8px 8px; }
+.bubble-md-live .bubble-md-table-row { display: flex; padding: 0; border-bottom: 1px solid var(--border); }
+.bubble-md-table-cell { flex: 1 1 0; min-width: 0; padding: 8px 12px; overflow-wrap: anywhere; }
+.bubble-md-table-row.is-header { font-weight: 600; background: var(--bg-secondary); }
+.bubble-md-table-row.is-header, .bubble-md-table-row.is-header span { text-decoration: none; }
+.bubble-md-live .bubble-md-table-separator { font-size: 0; line-height: 0; padding: 0; }
+.bubble-md-table-row .cm-widgetBuffer { display: none; }
+.bubble-md-live .bubble-md-horizontal-rule { background: linear-gradient(var(--border),var(--border)) center / 100% 1px no-repeat; }
+.bubble-md-rendered { cursor: text; }
+.bubble-md-math { overflow-x: auto; }
+.bubble-md-live.is-source-mode .aegis-md-codemirror-root { padding: 12px 8px 64px; }
+.bubble-md-live.is-source-mode :is(.cm-editor, .cm-scroller) { font-family: var(--font-mono); font-size: 13px; line-height: 1.65; }
+.bubble-md-live.is-source-mode .cm-gutters { display: flex; background: transparent; color: var(--text-muted); border: 0; }
+.bubble-md-live.is-source-mode .cm-line { padding: 0 12px; }
+
+/* Obsidian-style live preview additions. */
+.bubble-md-bullet { display: inline-block; width: 0.75em; text-align: center; }
+.bubble-md-bullet::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: currentColor; vertical-align: middle; transform: translateY(-1px); opacity: 0.75; }
+.bubble-md-live .bubble-md-highlight { background: color-mix(in srgb, var(--warning) 28%, transparent); border-radius: 3px; padding: 0 1px; color: inherit; }
+.bubble-md-live .bubble-md-wikilink { text-decoration-style: dotted; }
+.bubble-md-live .bubble-md-table-source { font-family: var(--font-mono); font-size: 13px; }
+.aegis-cm-table-widget td, .aegis-cm-table-widget th { cursor: text; }
+
+/* Nested quotes draw one bar per level inside the line's own padding. */
+.aegis-md-codemirror-root .cm-line.aegis-cm-blockquote-line.aegis-cm-blockquote-nested {
+  padding-left: calc(0.85rem + (var(--quote-depth) - 1) * (0.85rem + 3px));
+  background-image: repeating-linear-gradient(to right, transparent 0 0.85rem, color-mix(in srgb, var(--border) 82%, transparent) 0.85rem calc(0.85rem + 3px));
+  background-size: calc((var(--quote-depth) - 1) * (0.85rem + 3px)) 100%;
+  background-repeat: no-repeat;
+}
+
+/* Callouts: `> [!type] Title` blocks, tinted by type like Obsidian. */
+.bubble-md-callout { --callout-color: var(--text-secondary); }
+.bubble-md-callout:is([data-callout="note"], [data-callout="info"], [data-callout="todo"], [data-callout="abstract"], [data-callout="summary"], [data-callout="tldr"]) { --callout-color: oklch(60% 0.12 250); }
+.bubble-md-callout:is([data-callout="tip"], [data-callout="hint"], [data-callout="important"], [data-callout="success"], [data-callout="check"], [data-callout="done"]) { --callout-color: var(--success); }
+.bubble-md-callout:is([data-callout="question"], [data-callout="help"], [data-callout="faq"], [data-callout="warning"], [data-callout="caution"], [data-callout="attention"]) { --callout-color: var(--warning); }
+.bubble-md-callout:is([data-callout="failure"], [data-callout="fail"], [data-callout="missing"], [data-callout="danger"], [data-callout="error"], [data-callout="bug"]) { --callout-color: var(--error); }
+.bubble-md-callout[data-callout="example"] { --callout-color: oklch(58% 0.14 300); }
+.aegis-md-codemirror-root .cm-line.aegis-cm-blockquote-line.bubble-md-callout {
+  border-left: 0;
+  padding-left: 14px;
+  padding-right: 14px;
+  background-color: color-mix(in srgb, var(--callout-color) 9%, transparent);
+  color: var(--text-primary);
+}
+.aegis-md-codemirror-root .cm-line.bubble-md-callout.is-callout-title { padding-top: 8px; border-radius: 6px 6px 0 0; color: var(--callout-color); font-weight: 600; }
+.aegis-md-codemirror-root .cm-line.bubble-md-callout.is-callout-last { padding-bottom: 8px; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; }
+.bubble-md-callout-label { color: var(--callout-color); font-weight: 600; }

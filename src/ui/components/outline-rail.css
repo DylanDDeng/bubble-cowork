@@ -1,0 +1,96 @@
+.bubble-outline-pane { position: absolute; inset-block: 0; left: 0; z-index: 35; display: flex; align-items: center; pointer-events: none; }
+.bubble-outline-chat { display: none; }
+@container (min-width: 60rem) { .bubble-outline-chat { display: flex; } }
+.aegis-md-viewport { position: relative; display: flex; flex: 1; min-height: 0; min-width: 0; }
+.aegis-md-viewport > .aegis-md-main { min-width: 0; }
+.bubble-md-live:not(.is-source-mode) .aegis-md-codemirror-root { padding-left: max(42px, var(--aegis-md-page-padding-x)); }
+.chat-outline-rail {
+  position: relative;
+  width: 30px;
+  margin-left: 6px;
+  pointer-events: auto;
+}
+
+.chat-outline-target {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  width: 30px;
+  transform: translateY(-50%);
+  border-radius: 3px;
+}
+
+.chat-outline-target:focus-visible {
+  outline: 1px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.chat-outline-tick {
+  display: block;
+  width: 6px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--text-primary);
+  transform-origin: left center;
+}
+
+.chat-outline-preview {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  width: 328px;
+  padding-left: 8px;
+}
+
+.chat-outline-preview[data-state='closed'] {
+  pointer-events: none;
+}
+
+.chat-outline-card {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--popover-border) 65%, transparent);
+  border-radius: var(--popover-radius);
+  background: var(--popover-bg);
+  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.18), 0 2px 5px rgb(0 0 0 / 0.04);
+}
+
+.chat-outline-card-button {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-outline-card-button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -3px;
+  border-radius: inherit;
+}
+
+.chat-outline-content { padding: 12px 14px; }
+.chat-outline-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.chat-outline-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chat-outline-copy { animation: chat-outline-copy-in 90ms ease-out; }
+@keyframes chat-outline-copy-in { from { opacity: 0.45; } to { opacity: 1; } }
+.bubble-outline-pane[data-reduced-motion] .chat-outline-copy { animation: none; }
