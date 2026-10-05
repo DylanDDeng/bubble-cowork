@@ -8,6 +8,7 @@ import openaiLogo from '../../assets/openai.svg';
 import piLogo from '../../assets/pi-logo-auto.svg';
 import bubbleLogo from '../../assets/bubble-logo-auto.svg';
 import qoderLogo from '../../assets/qoder.svg';
+import devinLogo from '../../assets/devin-color.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import type {
@@ -57,6 +58,7 @@ const USAGE_PROVIDERS: Array<{ id: AgentProvider; title: string; logoSrc?: strin
   { id: 'qoder', title: 'Qoder', logoSrc: qoderLogo },
   { id: 'bubble', title: 'Bubble', logoSrc: bubbleLogo },
   { id: 'deepseek', title: 'DeepSeek Harness', logoSrc: deepseekLogo },
+  { id: 'devin', title: 'Devin', logoSrc: devinLogo },
 ];
 
 type ActivityViewMode = 'daily' | 'weekly' | 'cumulative';
@@ -1562,6 +1564,11 @@ function getProviderLogoForModel(model: string): string | null {
 
   if (normalized.startsWith('deepseek')) {
     return deepseekLogo;
+  }
+
+  // Cognition's own SWE model family, served through Devin.
+  if (normalized.startsWith('swe-') || normalized === 'devin') {
+    return devinLogo;
   }
 
   if (normalized.startsWith('minimax')) {

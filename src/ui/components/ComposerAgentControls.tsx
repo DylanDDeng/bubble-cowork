@@ -18,6 +18,7 @@ import type {
   GrokModelConfig,
   GrokReasoningEffort,
   KimiThinking,
+  DevinThoughtLevels,
 } from '../../shared/types';
 import {
   GROK_REASONING_EFFORT_LABELS,
@@ -32,6 +33,7 @@ import {
   DEEPSEEK_REASONING_EFFORT_OPTIONS,
 } from '../utils/deepseek-reasoning';
 import { formatCodexModelLabel } from '../utils/codex-model';
+import { formatDevinThoughtLevelLabel } from '../utils/devin-reasoning';
 import { formatCodexReasoningEffortLabel } from '../utils/codex-reasoning';
 import {
   useAgentReadiness,
@@ -47,6 +49,7 @@ import { PiLogo } from './PiLogo';
 import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
 import { DeepseekLogo } from './DeepseekLogo';
+import { DevinLogo } from './DevinLogo';
 
 export function AgentIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
@@ -75,6 +78,9 @@ export function AgentIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'deepseek') {
     return <DeepseekLogo />;
+  }
+  if (provider === 'devin') {
+    return <DevinLogo />;
   }
   return null;
 }
@@ -807,6 +813,29 @@ const DeepseekAgentSubContent: FC<{
     onEffortChange={onReasoningEffortChange} formatEffort={(effort) => DEEPSEEK_REASONING_EFFORT_LABELS[effort]} />
 );
 
+// Devin: levels are per model and come from Devin's ACP `thought_level`
+// select — a model without one shows the models-only view.
+const DevinAgentSubContent: FC<{
+  modelOptions: ComposerModelOption[];
+  selectedModel: string | null;
+  thoughtLevels: DevinThoughtLevels | null;
+  thoughtLevel: string | null;
+  onSelectModel: (option: ComposerModelOption) => void;
+  onThoughtLevelChange: (level: string) => void;
+}> = ({
+  modelOptions,
+  selectedModel,
+  thoughtLevels,
+  thoughtLevel,
+  onSelectModel,
+  onThoughtLevelChange,
+}) => (
+  <EffortModelPanel modelOptions={modelOptions} selectedModel={selectedModel ?? ''} onSelectModel={onSelectModel}
+    efforts={thoughtLevels?.levels.map((level) => level.id) ?? []} effort={thoughtLevel}
+    onEffortChange={onThoughtLevelChange} formatEffort={(level) => formatDevinThoughtLevelLabel(thoughtLevels, level)}
+    preserveEffortOrder />
+);
+
 // Bubble shares the animated Reasoning and Model panel.
 // Thinking levels come ONLY from the SDK catalog's per-model metadata —
 // deliberately no fallback list: a model without metadata (e.g. a
@@ -890,6 +919,9 @@ export function ComposerAgentModelPicker({
   onBubbleThinkingLevelChange,
   deepseekReasoningEffort,
   onDeepseekReasoningEffortChange,
+  devinThoughtLevels,
+  devinThoughtLevel,
+  onDevinThoughtLevelChange,
   codexFastMode,
   onCodexFastModeChange,
   kimiThinkingOptions,
@@ -919,6 +951,9 @@ export function ComposerAgentModelPicker({
   onBubbleThinkingLevelChange?: (level: string) => void;
   deepseekReasoningEffort?: DeepseekReasoningEffort;
   onDeepseekReasoningEffortChange?: (effort: DeepseekReasoningEffort) => void;
+  devinThoughtLevels?: DevinThoughtLevels | null;
+  devinThoughtLevel?: string | null;
+  onDevinThoughtLevelChange?: (level: string) => void;
   codexFastMode?: boolean;
   onCodexFastModeChange?: (enabled: boolean) => void;
   /** Thinking tiers valid for the selected kimi model (metadata-derived). */
@@ -968,6 +1003,9 @@ export function ComposerAgentModelPicker({
   const deepseekEffortSuffix = agentProvider === 'deepseek' && deepseekReasoningEffort
     ? ` ${DEEPSEEK_REASONING_EFFORT_LABELS[deepseekReasoningEffort]}`
     : '';
+  const devinEffortSuffix = agentProvider === 'devin' && devinThoughtLevel
+    ? ` ${formatDevinThoughtLevelLabel(devinThoughtLevels ?? null, devinThoughtLevel)}`
+    : '';
   const kimiThinkingSuffix =
     agentProvider === 'kimi' &&
     (kimiThinkingOptions?.length ?? 0) > 0 &&
@@ -983,6 +1021,7 @@ export function ComposerAgentModelPicker({
     grokEffortSuffix ||
     bubbleEffortSuffix ||
     deepseekEffortSuffix ||
+    devinEffortSuffix ||
     kimiThinkingSuffix;
 
   return (
@@ -1187,6 +1226,47 @@ export function ComposerAgentModelPicker({
                         onReasoningEffortChange={(effort) => {
                           onAgentChange(provider);
                           onDeepseekReasoningEffortChange?.(effort);
+                        }}
+                      />
+                    </DropdownMenu.SubContent>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Sub>
+              );
+            }
+
+            if (provider === 'devin') {
+              return (
+                <DropdownMenu.Sub key={provider}>
+                  <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">
+                    <AgentIcon provider={provider} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                        {agentLabel(provider)}
+                      </span>
+                      {hint ? (
+                        <span className="block truncate text-[11px] text-[var(--text-muted)]">{hint}</span>
+                      ) : null}
+                    </span>
+                    {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
+                      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(readiness.state)}`} aria-hidden="true" />
+                    ) : null}
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.SubContent
+                      sideOffset={6}
+                      alignOffset={-4}
+                      className="z-50 w-[256px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+                    >
+                      <DevinAgentSubContent
+                        modelOptions={modelOptions}
+                        selectedModel={modelValueByProvider[provider]}
+                        thoughtLevels={devinThoughtLevels ?? null}
+                        thoughtLevel={devinThoughtLevel ?? null}
+                        onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        onThoughtLevelChange={(level) => {
+                          onAgentChange(provider);
+                          onDevinThoughtLevelChange?.(level);
                         }}
                       />
                     </DropdownMenu.SubContent>

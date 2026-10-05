@@ -36,7 +36,8 @@ window.electron={...window.preferenceBridge,
  getSessionGoal:async id=>({sessionId:id,supported:false,goal:null,revision:0}),onSessionGoalChanged:()=>()=>{},
  getProjectGitSummary:async()=>({isGitRepository:false}),getProjectTree:async()=>null,
 };
-for(const p of ['Claude','Codex','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
+for(const p of ['Claude','Codex','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek','Devin'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
+window.electron.getDevinThoughtLevels=async()=>({model:null,levels:[],defaultLevel:null});
 useAppStore.setState({showSettings:true,activeSettingsTab:'general'});
 function Harness(){
  useEffect(subscribeAppPreferences,[]);

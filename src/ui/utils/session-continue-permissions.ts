@@ -2,12 +2,13 @@ import type { SessionContinuePayload } from '../../shared/types';
 import type { SessionView } from '../types';
 import { loadPreferredBubblePermissionMode } from './bubble-permission';
 import { loadPreferredDeepseekPermissionMode } from './deepseek-permission';
+import { loadPreferredDevinPermissionMode } from './devin-permission';
 import { loadPreferredKimiPermissionMode } from './kimi-permission';
 import { loadPreferredQoderPermissionMode } from './qoder-permission';
 
 type ContinuePermissions = Pick<SessionContinuePayload,
   'kimiPermissionMode' | 'grokPermissionMode' | 'qoderPermissionMode' |
-  'deepseekPermissionMode' | 'bubblePermissionMode'>;
+  'deepseekPermissionMode' | 'bubblePermissionMode' | 'devinPermissionMode'>;
 
 /**
  * Follow-ups without a mounted chat composer still need its permission
@@ -30,6 +31,8 @@ export function sessionContinuePermissions(
     }
     case 'deepseek':
       return { deepseekPermissionMode: loadPreferredDeepseekPermissionMode() };
+    case 'devin':
+      return { devinPermissionMode: loadPreferredDevinPermissionMode() };
     case 'bubble':
       return { bubblePermissionMode: session.bubblePermissionMode === 'plan'
         ? 'plan' : loadPreferredBubblePermissionMode() };

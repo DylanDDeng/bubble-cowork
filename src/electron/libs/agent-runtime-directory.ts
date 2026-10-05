@@ -14,6 +14,7 @@ import { getCodexRuntimeStatus } from './codex-runtime-status';
 import { getOpencodeRuntimeStatus } from './opencode-runtime-status';
 import { getKimiRuntimeStatus } from './kimi-runtime-status';
 import { getGrokRuntimeStatus } from './grok-runtime-status';
+import { DEVIN_DOCS_URL, DEVIN_INSTALL_COMMAND, getDevinRuntimeStatus } from './devin-cli';
 import { resolvePiAgentDir } from './provider/pi-sdk-loader';
 import { resolveBubbleHome } from './provider/bubble-sdk-loader';
 import { findMachineQoderCli } from './provider/qoder-sdk-loader';
@@ -76,6 +77,11 @@ const PROVIDER_META: Record<
     title: 'DeepSeek Harness',
     npmPackage: null,
     docsUrl: 'https://github.com/deepseek-ai/deepseek-harness',
+  },
+  devin: {
+    title: 'Devin',
+    npmPackage: null,
+    docsUrl: DEVIN_DOCS_URL,
   },
 };
 
@@ -329,6 +335,26 @@ async function probeDeepseek(): Promise<AgentRuntimeEntry> {
   }
 }
 
+async function probeDevin(): Promise<AgentRuntimeEntry> {
+  const status = await getDevinRuntimeStatus();
+  if (!status.cliAvailable) {
+    return entry('devin', 'not_installed', {
+      detail: `Install the Devin CLI with \`${DEVIN_INSTALL_COMMAND}\`, then re-detect.`,
+    });
+  }
+  const state: AgentRuntimeState = status.ready
+    ? 'ready'
+    : status.authState === 'login_required'
+      ? 'login_required'
+      : 'error';
+  return entry('devin', state, {
+    version: status.cliVersion,
+    summary: status.summary,
+    detail: status.detail,
+    loginCommand: status.loginCommand,
+  });
+}
+
 export async function getAgentRuntimeDirectory(force = false): Promise<AgentRuntimeDirectoryReport> {
   const probes: Array<[AgentProvider, Promise<AgentRuntimeEntry>]> = [
     ['claude', probeClaude(force)],
@@ -340,6 +366,7 @@ export async function getAgentRuntimeDirectory(force = false): Promise<AgentRunt
     ['qoder', probeQoder()],
     ['bubble', probeBubble()],
     ['deepseek', probeDeepseek()],
+    ['devin', probeDevin()],
   ];
 
   const entries = await Promise.all(

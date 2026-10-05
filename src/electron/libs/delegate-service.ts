@@ -27,6 +27,7 @@ export const DELEGATE_TARGET_PROVIDERS: AgentProvider[] = [
   'qoder',
   'bubble',
   'deepseek',
+  'devin',
 ];
 
 const DELEGATE_TIMEOUT_MS = Number(process.env.AEGIS_DELEGATE_TIMEOUT_MS || '') || 30 * 60 * 1000;
@@ -305,6 +306,11 @@ export function applyPermissionTier(
       break;
     case 'deepseek':
       payload.deepseekPermissionMode = tier === 'full' ? 'danger-full-access' : 'workspace-write';
+      break;
+    case 'devin':
+      // accept-edits is Devin's least permissive working mode: edits pass,
+      // commands outside its allowlist still ask.
+      payload.devinPermissionMode = tier === 'full' ? 'bypass' : 'accept-edits';
       break;
     default:
       break;

@@ -24,6 +24,7 @@ import { PiLogo } from './PiLogo';
 import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
 import { DeepseekLogo } from './DeepseekLogo';
+import { DevinLogo } from './DevinLogo';
 import { Input } from './ui/input';
 
 type PickerMode = 'provider' | 'model';
@@ -106,6 +107,9 @@ export function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'deepseek') {
     return <DeepseekLogo />;
+  }
+  if (provider === 'devin') {
+    return <DevinLogo />;
   }
 
   return null;

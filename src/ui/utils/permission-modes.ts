@@ -3,6 +3,7 @@ import type {
   ClaudePermissionMode,
   CodexPermissionMode,
   DeepseekPermissionMode,
+  DevinPermissionMode,
   KimiPermissionMode,
   OpenCodePermissionMode,
   QoderPermissionMode,
@@ -84,3 +85,11 @@ export const DEEPSEEK_PERMISSION_MODE_OPTIONS: ReadonlyArray<PermissionModeOptio
   { mode: 'danger-full-access', label: 'Full Access', tone: 'full-access' },
 ];
 
+// Devin ACP session modes; applied live via session/set_mode before each turn.
+export const DEVIN_PERMISSION_MODE_OPTIONS: ReadonlyArray<PermissionModeOption<DevinPermissionMode>> = [
+  { mode: 'accept-edits', label: 'Accept Edits' },
+  { mode: 'smart', label: 'Smart' },
+  { mode: 'ask', label: 'Ask' },
+  { mode: 'plan', label: 'Plan' },
+  { mode: 'bypass', label: 'Full Access', tone: 'full-access' },
+];

@@ -188,6 +188,13 @@ import {
   resolveDeepseekApiKey,
   setStoredDeepseekApiKey,
 } from './libs/deepseek-cli';
+import {
+  formatDevinRuntimeBlockingMessage,
+  getDevinModelConfig,
+  getDevinRuntimeStatus,
+  getDevinThoughtLevels,
+} from './libs/devin-cli';
+import { normalizeDevinPermissionMode, normalizeDevinThoughtLevel } from './libs/provider/devin-acp-adapter';
 import { AutomationScheduler } from './libs/automation-scheduler';
 import { recycleSessionWorktree } from './libs/worktree-hygiene';
 import {
@@ -1767,6 +1774,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'qoder') return 'Qoder';
   if (provider === 'bubble') return 'Bubble';
   if (provider === 'deepseek') return 'DeepSeek Harness';
+  if (provider === 'devin') return 'Devin';
   return 'Claude Code';
 }
 
@@ -3490,7 +3498,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
+    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -3506,6 +3514,8 @@ const runnerHandles = new Map<
     deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
     deepseekAgentPreset?: import('../shared/types').DeepseekAgentPreset;
     deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
+    devinPermissionMode?: import('../shared/types').DevinPermissionMode;
+    devinThoughtLevel?: string;
     opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
     qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
     bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
@@ -4877,6 +4887,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       const runner = runnerHandles.get(sessionId);
       if (row.provider === 'deepseek' && runner?.provider === 'deepseek') {
         return runner.deepseekPermissionMode === 'danger-full-access';
+      }
+      if (row.provider === 'devin' && runner?.provider === 'devin') {
+        return runner.devinPermissionMode === 'bypass';
       }
       return false;
     },
@@ -6368,6 +6381,18 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-deepseek-model-config', async () => {
     return getDeepseekModelConfig();
+  });
+
+  ipcMainHandle('get-devin-model-config', async () => {
+    return getDevinModelConfig();
+  });
+
+  ipcMainHandle('get-devin-runtime-status', async () => {
+    return getDevinRuntimeStatus();
+  });
+
+  ipcMainHandle('get-devin-thought-levels', async (_event, model?: string | null) => {
+    return getDevinThoughtLevels(typeof model === 'string' ? model : null);
   });
 
   ipcMainHandle('get-pi-model-config', async () => {
@@ -8870,7 +8895,9 @@ function buildSessionInfoFromRow(
                       ? 'bubble_local'
                       : row.provider === 'deepseek'
                         ? 'deepseek_local'
-                        : 'aegis',
+                        : row.provider === 'devin'
+                          ? 'devin_local'
+                          : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
@@ -8986,6 +9013,8 @@ async function handleSessionStart(
     deepseekPermissionMode,
     deepseekAgentPreset,
     deepseekReasoningEffort,
+    devinPermissionMode,
+    devinThoughtLevel,
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
@@ -9088,6 +9117,10 @@ async function handleSessionStart(
     chosenProvider === 'deepseek' ? normalizeDeepseekAgentPreset(deepseekAgentPreset) : undefined;
   const selectedDeepseekReasoningEffort =
     chosenProvider === 'deepseek' ? normalizeDeepseekReasoningEffort(deepseekReasoningEffort) : undefined;
+  const selectedDevinPermissionMode =
+    chosenProvider === 'devin' ? normalizeDevinPermissionMode(devinPermissionMode) : undefined;
+  const selectedDevinThoughtLevel =
+    chosenProvider === 'devin' ? normalizeDevinThoughtLevel(devinThoughtLevel) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -9191,6 +9224,7 @@ async function handleSessionStart(
       bubblePermissionMode: selectedBubblePermissionMode,
       deepseekPermissionMode: selectedDeepseekPermissionMode,
       deepseekAgentPreset: selectedDeepseekAgentPreset,
+      devinPermissionMode: selectedDevinPermissionMode,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
@@ -9294,6 +9328,22 @@ async function handleSessionStart(
       });
       return null;
     }
+  } else if (chosenProvider === 'devin') {
+    const runtimeStatus = await getDevinRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', formatDevinRuntimeBlockingMessage(runtimeStatus));
+        broadcastAutomationChanged(mainWindow);
+      }
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatDevinRuntimeBlockingMessage(runtimeStatus),
+        },
+      });
+      return null;
+    }
   }
 
   // 异步生成更好的标题（不阻塞）
@@ -9375,7 +9425,9 @@ async function handleSessionStart(
     selectedDeepseekReasoningEffort,
     selectedBubbleThinkingLevel,
     payload.codexGoal,
-    selectedBubblePlanExitMode
+    selectedBubblePlanExitMode,
+    selectedDevinPermissionMode,
+    selectedDevinThoughtLevel
   );
   return session.id;
 }
@@ -9410,6 +9462,8 @@ async function handleSessionContinue(
     grokReasoningEffort,
     deepseekPermissionMode,
     deepseekReasoningEffort,
+    devinPermissionMode,
+    devinThoughtLevel,
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
@@ -9601,6 +9655,12 @@ async function handleSessionContinue(
     : undefined;
   const nextDeepseekReasoningEffort = nextProvider === 'deepseek'
     ? normalizeDeepseekReasoningEffort(deepseekReasoningEffort)
+    : undefined;
+  const nextDevinPermissionMode = nextProvider === 'devin'
+    ? normalizeDevinPermissionMode(devinPermissionMode)
+    : undefined;
+  const nextDevinThoughtLevel = nextProvider === 'devin'
+    ? normalizeDevinThoughtLevel(devinThoughtLevel)
     : undefined;
   const nextTeamMode = teamMode !== undefined
     ? normalizeSessionTeamMode(teamMode)
@@ -9849,6 +9909,19 @@ async function handleSessionContinue(
       });
       return false;
     }
+  } else if (nextProvider === 'devin') {
+    const runtimeStatus = await getDevinRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatDevinRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
   }
 
   // While a codex turn is still streaming, a follow-up send becomes a
@@ -9959,6 +10032,8 @@ async function handleSessionContinue(
         grokReasoningEffort: nextGrokReasoningEffort,
         deepseekPermissionMode: nextDeepseekPermissionMode,
         deepseekReasoningEffort: nextDeepseekReasoningEffort,
+        devinPermissionMode: nextDevinPermissionMode,
+        devinThoughtLevel: nextDevinThoughtLevel,
         opencodePermissionMode: nextOpenCodePermissionMode,
         qoderPermissionMode: nextQoderPermissionMode,
         bubblePermissionMode: nextBubblePermissionMode,
@@ -9995,6 +10070,14 @@ async function handleSessionContinue(
           existingEntry.deepseekReasoningEffort = nextDeepseekReasoningEffort;
         }
       }
+      // Devin applies model and mode live (set_config_option / set_mode)
+      // before the next prompt, so neither forces a respawn.
+      if (nextProvider === 'devin' && nextDevinPermissionMode !== undefined) {
+        existingEntry.devinPermissionMode = nextDevinPermissionMode;
+      }
+      if (nextProvider === 'devin' && nextDevinThoughtLevel !== undefined) {
+        existingEntry.devinThoughtLevel = nextDevinThoughtLevel;
+      }
       return true;
     }
   }
@@ -10029,7 +10112,9 @@ async function handleSessionContinue(
                       ? session.bubble_session_id ?? undefined
                       : nextProvider === 'deepseek'
                         ? session.deepseek_session_id ?? undefined
-                        : undefined;
+                        : nextProvider === 'devin'
+                          ? session.devin_session_id ?? undefined
+                          : undefined;
   let nextResumeSessionId = resumeSessionId;
 
   if (
@@ -10110,7 +10195,9 @@ async function handleSessionContinue(
     nextDeepseekReasoningEffort,
     nextBubbleThinkingLevel,
     undefined,
-    nextBubblePlanExitMode
+    nextBubblePlanExitMode,
+    nextDevinPermissionMode,
+    nextDevinThoughtLevel
   );
   return true;
 }
@@ -10122,7 +10209,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek',
+  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -10160,7 +10247,9 @@ function startRunner(
   deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort,
   bubbleThinkingLevel?: string,
   codexGoal?: GoalAction,
-  bubblePlanExitMode?: 'default' | 'bypassPermissions'
+  bubblePlanExitMode?: 'default' | 'bypassPermissions',
+  devinPermissionMode?: import('../shared/types').DevinPermissionMode,
+  devinThoughtLevel?: string
 ): void {
   if (!session) return;
 
@@ -10265,6 +10354,8 @@ function startRunner(
     deepseekPermissionMode,
     deepseekAgentPreset: normalizedDeepseekAgentPreset,
     deepseekReasoningEffort,
+    devinPermissionMode,
+    devinThoughtLevel,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
@@ -10322,6 +10413,11 @@ function startRunner(
           }
         } else if (provider === 'deepseek') {
           sessions.updateDeepseekSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'devin') {
+          sessions.updateDevinSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }
@@ -11098,6 +11194,8 @@ function startRunner(
     deepseekAgentPreset: normalizedDeepseekAgentPreset,
     deepseekReasoningEffort:
       provider === 'deepseek' ? normalizeDeepseekReasoningEffort(deepseekReasoningEffort) : undefined,
+    devinPermissionMode: provider === 'devin' ? normalizeDevinPermissionMode(devinPermissionMode) : undefined,
+    devinThoughtLevel: provider === 'devin' ? normalizeDevinThoughtLevel(devinThoughtLevel) : undefined,
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,

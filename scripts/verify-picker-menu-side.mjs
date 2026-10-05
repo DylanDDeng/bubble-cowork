@@ -43,7 +43,7 @@ const prompt = read('src/ui/components/PromptInput.tsx');
 assert.ok(prompt.includes("menuSide = 'top'"), 'PromptInput: menuSide should default to top');
 assert.equal(
   (prompt.match(/menuSide=\{menuSide\}/g) || []).length,
-  9,
+  10,
   'PromptInput: model, preset and permission pickers should receive menuSide={menuSide}'
 );
 // PromptInput supports a 'landing' surface that wraps the input in a gray tray
@@ -65,7 +65,7 @@ assert.ok(
 const newSession = read('src/ui/components/NewSessionView.tsx');
 assert.equal(
   (newSession.match(/menuSide="top"/g) || []).length,
-  9,
+  10,
   'NewSessionView: model, preset and permission pickers should pass menuSide="top"'
 );
 

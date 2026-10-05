@@ -31,6 +31,7 @@ import {
   CLAUDE_PERMISSION_MODE_OPTIONS,
   CODEX_PERMISSION_MODE_OPTIONS,
   DEEPSEEK_PERMISSION_MODE_OPTIONS,
+  DEVIN_PERMISSION_MODE_OPTIONS,
   KIMI_PERMISSION_MODE_OPTIONS,
   OPENCODE_PERMISSION_MODE_OPTIONS,
   QODER_PERMISSION_MODE_OPTIONS,
@@ -319,6 +320,14 @@ export function NewSessionView() {
         deepseekReasoningEffort:
           agentSelection.provider === 'deepseek'
             ? agentSelection.deepseekReasoningEffort
+            : undefined,
+        devinPermissionMode:
+          agentSelection.provider === 'devin'
+            ? agentSelection.devinPermissionMode
+            : undefined,
+        devinThoughtLevel:
+          agentSelection.provider === 'devin'
+            ? agentSelection.devinThoughtLevel || undefined
             : undefined,
         bubblePermissionMode:
           agentSelection.provider === 'bubble'
@@ -661,6 +670,16 @@ export function NewSessionView() {
                         menuSide="top"
                       />
                     )}
+                    {agentSelection.provider === 'devin' && (
+                      <PermissionModePicker
+                        value={agentSelection.devinPermissionMode}
+                        options={DEVIN_PERMISSION_MODE_OPTIONS}
+                        menuMinWidthClass="min-w-[176px]"
+                        onChange={agentSelection.setDevinPermissionMode}
+                        disabled={pendingStart}
+                        menuSide="top"
+                      />
+                    )}
                     {agentSelection.provider === 'bubble' && (
                       <PermissionModePicker
                         value={agentSelection.bubblePermissionMode}
@@ -711,6 +730,9 @@ export function NewSessionView() {
                       }
                       deepseekReasoningEffort={agentSelection.deepseekReasoningEffort}
                       onDeepseekReasoningEffortChange={agentSelection.setDeepseekReasoningEffort}
+                      devinThoughtLevels={agentSelection.devinThoughtLevels}
+                      devinThoughtLevel={agentSelection.devinThoughtLevel}
+                      onDevinThoughtLevelChange={agentSelection.setDevinThoughtLevel}
                       codexFastMode={agentSelection.codexFastMode}
                       onCodexFastModeChange={(enabled) =>
                         agentSelection.selectAgentConfiguration({ provider: 'codex', codexFastMode: enabled })

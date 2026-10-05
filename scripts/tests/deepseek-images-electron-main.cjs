@@ -17,7 +17,8 @@ app.whenReady().then(async()=>{
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error'){errors.push(e.message);console.error('Renderer:',e.message);}});
  setupAttachmentIPC(win);
  for(const [channel,value] of [['get-ui-resume-state-sync',null],['renderer-state:get-all-sync',{}],['save-ui-resume-state-sync',true]])ipcMain.on(channel,e=>{e.returnValue=value;});
- for(const provider of ['claude','codex','kimi','grok','opencode','pi','bubble','qoder','deepseek'])ipcMain.handle('get-'+provider+'-model-config',()=>provider==='deepseek'?getDeepseekModelConfig():({defaultModel:null,options:[],availableModels:[]}));
+ for(const provider of ['claude','codex','kimi','grok','opencode','pi','bubble','qoder','deepseek','devin'])ipcMain.handle('get-'+provider+'-model-config',()=>provider==='deepseek'?getDeepseekModelConfig():({defaultModel:null,options:[],availableModels:[]}));
+ ipcMain.handle('get-devin-thought-levels',()=>({model:null,levels:[],defaultLevel:null}));
  for(const [channel,value] of [['get-git-branches',{branches:[],currentBranch:null}],['get-agent-runtime-directory',null],['codex-list-plugins',{plugins:[]}],['get-project-tree',[]],['set-theme',null],['get-claude-compatible-provider-config',{}],['get-recent-cwds',[]],['get-session-user-prompts',[]],['codex-list-skills',{skills:[]}],['deepseek-list-skills',{skills:[]}],['get-bubble-providers-config',{providers:[]}],['get-provider-composer-capabilities',{}]])ipcMain.handle(channel,()=>value);
  ipcMain.handle('read-attachment-preview',(_e,p)=>{const mime=ATTACHMENT_MIME_TYPES[path.extname(p)];return mime?.startsWith('image/')?'data:'+mime+';base64,'+fs.readFileSync(p).toString('base64'):null;});
  let picked=[path.join(temp,'sample.webp')],filters;

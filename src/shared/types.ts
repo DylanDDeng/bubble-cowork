@@ -61,7 +61,7 @@ export interface McpServerStatus {
   /** Codex: the server needs a fresh OAuth login (mcpServer/oauth/login). */
   failureReason?: 'reauthenticationRequired';
   /** Which agent reported this status. Used to avoid cross-agent name collisions. */
-  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
+  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
 }
 
 // Claude Skills 摘要
@@ -111,6 +111,11 @@ export type DeepseekPermissionMode = 'workspace-write' | 'danger-full-access';
 export type DeepseekAgentPreset = 'standard' | 'code' | 'minimal' | 'cordis';
 /** DeepSeek Harness reasoning policy; forwarded as DSH_REASONING_EFFORT. */
 export type DeepseekReasoningEffort = 'off' | 'low' | 'high' | 'max';
+/**
+ * Devin ACP session mode ids (`session/new` modes.availableModes). Applied
+ * live via session/set_mode before every turn, so a switch never respawns.
+ */
+export type DevinPermissionMode = 'accept-edits' | 'smart' | 'ask' | 'plan' | 'bypass';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
 // Mirrors Bubble SDK's PermissionMode union (runTurn({ mode })).
 export type BubblePermissionMode = 'default' | 'plan' | 'bypassPermissions';
@@ -230,6 +235,16 @@ export interface DeepseekModelConfig {
     maxOutputTokens: number;
     reasoningEfforts: DeepseekReasoningEffort[];
   }>;
+}
+
+/**
+ * Model catalog for Devin, read from an ACP session's `model` config option —
+ * the ids session/set_config_option accepts — never a hardcoded list.
+ */
+export interface DevinModelConfig {
+  defaultModel: string | null;
+  options: string[];
+  availableModels: Array<{ id: string; label: string }>;
 }
 
 /** Settings-page view of the effective DeepSeek Harness API key. */
@@ -449,6 +464,18 @@ export interface GrokRuntimeStatus {
   checkedAt: number;
 }
 
+export type DevinRuntimeStatus = GrokRuntimeStatus;
+
+/**
+ * Thinking levels Devin offers for one model, read from the ACP session's
+ * `thought_level` select. Empty `levels` = the model has no thinking control.
+ */
+export interface DevinThoughtLevels {
+  model: string | null;
+  levels: Array<{ id: string; label: string }>;
+  defaultLevel: string | null;
+}
+
 export type ClaudeRuntimeStatusKind = 'ready' | 'login_required' | 'install_required' | 'error';
 export type ClaudeRuntimeSource = 'global' | 'unknown';
 
@@ -632,7 +659,7 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
+export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
@@ -643,7 +670,8 @@ export type SessionSource =
   | 'pi_local'
   | 'qoder_local'
   | 'bubble_local'
-  | 'deepseek_local';
+  | 'deepseek_local'
+  | 'devin_local';
 
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;
@@ -1070,6 +1098,9 @@ export interface SessionStartPayload {
   deepseekPermissionMode?: DeepseekPermissionMode;
   deepseekAgentPreset?: DeepseekAgentPreset;
   deepseekReasoningEffort?: DeepseekReasoningEffort;
+  devinPermissionMode?: DevinPermissionMode;
+  /** Devin ACP `thought_level` value; open set, valid values vary per model. */
+  devinThoughtLevel?: string;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -1152,6 +1183,9 @@ export interface SessionContinuePayload {
   grokReasoningEffort?: GrokReasoningEffort;
   deepseekPermissionMode?: DeepseekPermissionMode;
   deepseekReasoningEffort?: DeepseekReasoningEffort;
+  devinPermissionMode?: DevinPermissionMode;
+  /** Devin ACP `thought_level` value; open set, valid values vary per model. */
+  devinThoughtLevel?: string;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -1418,6 +1452,9 @@ export interface SessionInfo {
   deepseekPermissionMode?: DeepseekPermissionMode;
   deepseekAgentPreset?: DeepseekAgentPreset;
   deepseekReasoningEffort?: DeepseekReasoningEffort;
+  devinPermissionMode?: DevinPermissionMode;
+  /** Devin ACP `thought_level` value; open set, valid values vary per model. */
+  devinThoughtLevel?: string;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
@@ -1476,6 +1513,9 @@ export interface SessionStatusPayload {
   deepseekPermissionMode?: DeepseekPermissionMode;
   deepseekAgentPreset?: DeepseekAgentPreset;
   deepseekReasoningEffort?: DeepseekReasoningEffort;
+  devinPermissionMode?: DevinPermissionMode;
+  /** Devin ACP `thought_level` value; open set, valid values vary per model. */
+  devinThoughtLevel?: string;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;
@@ -1564,7 +1604,7 @@ export interface AcpPermissionOption {
 
 export interface AcpPermissionInput {
   kind: 'acp-permission';
-  provider: 'kimi' | 'grok' | 'opencode' | 'bubble' | 'deepseek';
+  provider: 'kimi' | 'grok' | 'opencode' | 'bubble' | 'deepseek' | 'devin';
   question: string;
   title: string;
   toolName: string;
@@ -1750,7 +1790,7 @@ export type StreamMessage =
       subtype: 'token_usage';
       uuid: string;
       session_id: string;
-      provider: 'codex' | 'kimi' | 'grok' | 'deepseek' | 'bubble';
+      provider: 'codex' | 'kimi' | 'grok' | 'deepseek' | 'bubble' | 'devin';
       model?: string;
       usage: CodexContextUsage;
     })

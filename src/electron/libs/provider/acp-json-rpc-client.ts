@@ -15,13 +15,15 @@ export type AcpJsonRpcNotification = {
 
 export type AcpJsonRpcResponse = {
   jsonrpc: '2.0';
-  id: number;
+  id: number | string;
   result?: unknown;
   error?: { code?: number; message?: string; data?: unknown };
 };
 
+// JSON-RPC ids may be numbers or strings: Grok numbers its reverse requests,
+// Devin uses UUID strings.
 export type AcpJsonRpcIncomingRequest = {
-  id: number;
+  id: number | string;
   method: string;
   params?: Record<string, unknown>;
 };
@@ -80,7 +82,7 @@ export class AcpJsonRpcClient {
     this.send({ jsonrpc: '2.0', method, params });
   }
 
-  respond(id: number, result?: Record<string, unknown>, error?: { code?: number; message?: string }): void {
+  respond(id: number | string, result?: Record<string, unknown>, error?: { code?: number; message?: string }): void {
     const payload: AcpJsonRpcResponse = error
       ? { jsonrpc: '2.0', id, error }
       : { jsonrpc: '2.0', id, result };
@@ -118,7 +120,7 @@ export class AcpJsonRpcClient {
       return;
     }
 
-    if (typeof parsed.id === 'number' && parsed.method) {
+    if ((typeof parsed.id === 'number' || typeof parsed.id === 'string') && parsed.method) {
       this.onRequest({ id: parsed.id, method: parsed.method, params: parsed.params });
       return;
     }

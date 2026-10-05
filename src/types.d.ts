@@ -29,6 +29,9 @@ import type {
   KimiModelConfig,
   GrokModelConfig,
   DeepseekModelConfig,
+  DevinModelConfig,
+  DevinRuntimeStatus,
+  DevinThoughtLevels,
   DeepseekKeyStatus,
   BrowserUsePermissionSettings,
   PiModelConfig,
@@ -254,6 +257,9 @@ declare global {
     getGrokRuntimeStatus: () => Promise<GrokRuntimeStatus>;
     getGrokModelConfig: () => Promise<GrokModelConfig>;
     getDeepseekModelConfig: () => Promise<DeepseekModelConfig>;
+    getDevinModelConfig: () => Promise<DevinModelConfig>;
+    getDevinRuntimeStatus: () => Promise<DevinRuntimeStatus>;
+    getDevinThoughtLevels: (model: string | null) => Promise<DevinThoughtLevels>;
     getDeepseekKeyStatus: () => Promise<DeepseekKeyStatus>;
     getDeepseekApiKey: () => Promise<string>;
     setDeepseekApiKey: (apiKey: string) => Promise<DeepseekKeyStatus>;

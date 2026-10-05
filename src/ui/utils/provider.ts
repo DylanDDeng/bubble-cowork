@@ -11,6 +11,7 @@ export const PROVIDERS: Array<{ id: AgentProvider; label: string }> = [
   { id: 'qoder', label: 'Qoder' },
   { id: 'bubble', label: 'Bubble' },
   { id: 'deepseek', label: 'DeepSeek Harness' },
+  { id: 'devin', label: 'Devin' },
 ];
 
 const STORAGE_KEY = 'cowork.preferredProvider';
@@ -18,7 +19,7 @@ const STORAGE_KEY = 'cowork.preferredProvider';
 export function loadPreferredProvider(): AgentProvider {
   if (typeof window === 'undefined') return 'claude';
   const raw = rendererStateStorage.getItem(STORAGE_KEY);
-  return raw === 'codex' || raw === 'opencode' || raw === 'kimi' || raw === 'claude' || raw === 'grok' || raw === 'pi' || raw === 'qoder' || raw === 'bubble' || raw === 'deepseek'
+  return raw === 'codex' || raw === 'opencode' || raw === 'kimi' || raw === 'claude' || raw === 'grok' || raw === 'pi' || raw === 'qoder' || raw === 'bubble' || raw === 'deepseek' || raw === 'devin'
     ? raw
     : 'claude';
 }

@@ -7,6 +7,7 @@ import openaiLogo from '../../assets/openai.svg';
 import piLogo from '../../assets/pi-logo-auto.svg';
 import bubbleLogo from '../../assets/bubble-logo-auto.svg';
 import qoderLogo from '../../assets/qoder.svg';
+import devinLogo from '../../assets/devin-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import { DeepseekLogo } from '../DeepseekLogo';
 import { ArrowLeft, Check, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Search } from '../icons';
@@ -56,6 +57,7 @@ const PROVIDER_LOGO_SRC: Record<Exclude<AgentProvider, 'opencode' | 'deepseek'>,
   pi: piLogo,
   qoder: qoderLogo,
   bubble: bubbleLogo,
+  devin: devinLogo,
 };
 
 // Black single-colour marks that need inverting on dark surfaces.

@@ -8,6 +8,7 @@ import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import grokLogo from '../../assets/grok.svg';
 import qoderLogo from '../../assets/qoder.svg';
+import devinLogo from '../../assets/devin-color.svg';
 import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
@@ -186,6 +187,8 @@ export function CompatibleProviderSettingsContent() {
   // IPC — the directory already checks CLI presence + login state.
   const { entries: agentReadinessEntries, loading: agentReadinessLoading } = useAgentReadiness();
   const qoderReadiness = agentReadinessEntries.find((entry) => entry.provider === 'qoder');
+  // Devin rides the same directory probe (probeDevin → devin-cli status).
+  const devinReadiness = agentReadinessEntries.find((entry) => entry.provider === 'devin');
 
   useEffect(() => {
     let cancelled = false;
@@ -386,6 +389,12 @@ export function CompatibleProviderSettingsContent() {
           logo={<img src={qoderLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
           detail={!agentReadinessLoading && qoderReadiness && qoderReadiness.state !== 'ready' ? qoderReadiness.detail : undefined}
           status={buildQoderRailStatus(qoderReadiness, agentReadinessLoading)}
+        />
+        <RuntimeStatusRow
+          title="Devin"
+          logo={<img src={devinLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          detail={!agentReadinessLoading && devinReadiness && devinReadiness.state !== 'ready' ? devinReadiness.detail : undefined}
+          status={buildQoderRailStatus(devinReadiness, agentReadinessLoading)}
         />
       </div></details>
 

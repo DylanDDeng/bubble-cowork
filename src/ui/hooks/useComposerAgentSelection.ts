@@ -16,6 +16,9 @@ import { usePiModelConfig } from './usePiModelConfig';
 import { useBubbleModelConfig } from './useBubbleModelConfig';
 import { useQoderModelConfig } from './useQoderModelConfig';
 import { useDeepseekModelConfig } from './useDeepseekModelConfig';
+import { useDevinModelConfig } from './useDevinModelConfig';
+import { useDevinThoughtLevels } from './useDevinThoughtLevels';
+import { resolveDevinThoughtLevel, savePreferredDevinThoughtLevel } from '../utils/devin-reasoning';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, PREFERRED_PROVIDER_EVENT, savePreferredProvider } from '../utils/provider';
 import {
@@ -49,6 +52,7 @@ import {
   DeepseekAgentPreset,
   DeepseekPermissionMode,
   DeepseekReasoningEffort,
+  DevinPermissionMode,
   BubblePermissionMode,
 } from '../../shared/types';
 import {
@@ -114,6 +118,10 @@ import {
   savePreferredDeepseekPermissionMode,
 } from '../utils/deepseek-permission';
 import {
+  loadPreferredDevinPermissionMode,
+  savePreferredDevinPermissionMode,
+} from '../utils/devin-permission';
+import {
   loadPreferredDeepseekReasoningEffort,
   savePreferredDeepseekReasoningEffort,
 } from '../utils/deepseek-reasoning';
@@ -127,6 +135,7 @@ const PI_MODEL_STORAGE_KEY = 'cowork.preferredPiModel';
 const BUBBLE_MODEL_STORAGE_KEY = 'cowork.preferredBubbleModel';
 const QODER_MODEL_STORAGE_KEY = 'cowork.preferredQoderModel';
 const DEEPSEEK_MODEL_STORAGE_KEY = 'cowork.preferredDeepseekModel';
+const DEVIN_MODEL_STORAGE_KEY = 'cowork.preferredDevinModel';
 
 export interface ComposerModelOption {
   key: string;
@@ -183,6 +192,21 @@ function savePreferredDeepseekModel(model: string | null): void {
     return;
   }
   rendererStateStorage.setItem(DEEPSEEK_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredDevinModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = rendererStateStorage.getItem(DEVIN_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredDevinModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    rendererStateStorage.removeItem(DEVIN_MODEL_STORAGE_KEY);
+    return;
+  }
+  rendererStateStorage.setItem(DEVIN_MODEL_STORAGE_KEY, model);
 }
 
 function loadPreferredGrokModel(): string | null {
@@ -449,6 +473,40 @@ function resolveConfiguredDeepseekModel(
   );
 }
 
+// Devin's catalog is its ACP session's model select (the account's own
+// models, Devin's labels); nothing is hardcoded here.
+function buildDevinModelOptions(config: ReturnType<typeof useDevinModelConfig>): ComposerModelOption[] {
+  const defaultModel = config.availableModels.find((entry) => entry.id === config.defaultModel);
+  const defaultOption: ComposerModelOption = {
+    key: 'devin:default',
+    value: '',
+    label: 'Default',
+    description: defaultModel ? `Use ${defaultModel.label}` : 'Use the Devin default model',
+  };
+  const explicitOptions = config.options.map((id) => {
+    const model = config.availableModels.find((entry) => entry.id === id);
+    return {
+      key: `devin:${id}`,
+      value: id,
+      label: model?.label || id,
+      details: id,
+    };
+  });
+  return [defaultOption, ...explicitOptions];
+}
+
+function resolveConfiguredDevinModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof useDevinModelConfig>
+): string | null {
+  return resolveListedOrPendingModel(
+    requestedModel,
+    loadPreferredDevinModel(),
+    config.defaultModel,
+    buildDevinModelOptions(config).map((option) => option.value)
+  );
+}
+
 function buildOpencodeComposerModelOptions(config: ReturnType<typeof useOpencodeModelConfig>): ComposerModelOption[] {
   const defaultOption: ComposerModelOption = {
     key: 'opencode:default',
@@ -627,6 +685,7 @@ export function useComposerAgentSelection(input?: {
   const bubbleModelConfig = useBubbleModelConfig();
   const qoderModelConfig = useQoderModelConfig();
   const deepseekModelConfig = useDeepseekModelConfig();
+  const devinModelConfig = useDevinModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
   const [model, setModelState] = useState<string | null>(() => {
@@ -646,6 +705,7 @@ export function useComposerAgentSelection(input?: {
     if (initialProvider === 'bubble') return resolveConfiguredBubbleModel(null, bubbleModelConfig);
     if (initialProvider === 'qoder') return loadPreferredQoderModel();
     if (initialProvider === 'deepseek') return loadPreferredDeepseekModel();
+    if (initialProvider === 'devin') return loadPreferredDevinModel();
     if (initialProvider === 'claude') return loadPreferredClaudeModel();
     return null;
   });
@@ -699,8 +759,9 @@ export function useComposerAgentSelection(input?: {
       bubble: buildBubbleModelOptions(bubbleModelConfig),
       qoder: buildQoderModelOptions(qoderModelConfig),
       deepseek: buildDeepseekModelOptions(deepseekModelConfig),
+      devin: buildDevinModelOptions(devinModelConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -766,8 +827,12 @@ export function useComposerAgentSelection(input?: {
       return buildDeepseekModelOptions(deepseekModelConfig);
     }
 
+    if (provider === 'devin') {
+      return buildDevinModelOptions(devinModelConfig);
+    }
+
     return [];
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, provider]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -849,12 +914,19 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
+      if (nextProvider === 'devin') {
+        return {
+          model: resolveConfiguredDevinModel(normalizedRequestedModel, devinModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
       return {
         model: null,
         compatibleProviderId: null,
       };
     },
-    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig]
+    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig]
   );
 
   const decorateAgentSelection = useCallback(
@@ -911,6 +983,24 @@ export function useComposerAgentSelection(input?: {
       ])
     ) as Record<AgentProvider, string | null>;
   }, [allAgentModelOptions, model, provider, resolveModelForProvider]);
+
+  // Devin thinking levels follow the model in Devin's submenu (also when
+  // another agent is active) and are read from Devin per model.
+  const devinLevelsModel = modelValueByProvider.devin ?? null;
+  const devinThoughtLevels = useDevinThoughtLevels(devinLevelsModel, devinModelConfig.options.length > 0);
+  const [devinThoughtLevelRevision, setDevinThoughtLevelRevision] = useState(0);
+  const devinThoughtLevel = useMemo(
+    () => resolveDevinThoughtLevel(devinLevelsModel, devinThoughtLevels),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [devinLevelsModel, devinThoughtLevels, devinThoughtLevelRevision]
+  );
+  const setDevinThoughtLevel = useCallback(
+    (level: string) => {
+      savePreferredDevinThoughtLevel(devinLevelsModel, level);
+      setDevinThoughtLevelRevision((revision) => revision + 1);
+    },
+    [devinLevelsModel]
+  );
 
   // Apply session switches during render so the first painted frame already
   // shows the target session's provider/model (avoids a one-frame "Default"
@@ -1106,6 +1196,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredQoderModel(nextModel);
       } else if (targetProvider === 'deepseek') {
         savePreferredDeepseekModel(nextModel);
+      } else if (targetProvider === 'devin') {
+        savePreferredDevinModel(nextModel);
       }
 
       input?.onSelectionChange?.(nextSelection);
@@ -1461,6 +1553,11 @@ export function useComposerAgentSelection(input?: {
   const [deepseekPermissionMode, setDeepseekPermissionModeState] = useState<DeepseekPermissionMode>(() =>
     loadPreferredDeepseekPermissionMode()
   );
+  // Devin keeps no per-session mode either; the adapter reconciles it live
+  // (session/set_mode) before each turn.
+  const [devinPermissionMode, setDevinPermissionModeState] = useState<DevinPermissionMode>(() =>
+    loadPreferredDevinPermissionMode()
+  );
   const [deepseekAgentPreset, setDeepseekAgentPresetState] = useState<DeepseekAgentPreset>(() =>
     input?.deepseekAgentPreset || loadPreferredDeepseekAgentPreset()
   );
@@ -1549,6 +1646,11 @@ export function useComposerAgentSelection(input?: {
   const setDeepseekPermissionMode = useCallback((mode: DeepseekPermissionMode) => {
     setDeepseekPermissionModeState(mode);
     savePreferredDeepseekPermissionMode(mode);
+  }, []);
+
+  const setDevinPermissionMode = useCallback((mode: DevinPermissionMode) => {
+    setDevinPermissionModeState(mode);
+    savePreferredDevinPermissionMode(mode);
   }, []);
 
   const setDeepseekAgentPreset = useCallback((preset: DeepseekAgentPreset) => {
@@ -1725,6 +1827,11 @@ export function useComposerAgentSelection(input?: {
     setDeepseekAgentPreset,
     deepseekReasoningEffort,
     setDeepseekReasoningEffort,
+    devinPermissionMode,
+    setDevinPermissionMode,
+    devinThoughtLevel,
+    devinThoughtLevels,
+    setDevinThoughtLevel,
     bubblePermissionMode,
     setBubblePermissionMode,
     bubbleExecutionMode,

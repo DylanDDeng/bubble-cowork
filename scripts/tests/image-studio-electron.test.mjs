@@ -46,7 +46,8 @@ Object.assign(window.electron,{
  getClaudeCompatibleProviderConfig:async()=>({}),getBubbleProvidersConfig:async()=>({providers:[]}),getProjectFolders:async()=>[],getModels:async()=>[],
  readAttachmentPreview:async path=>files[path]||null,
 });
-for(const p of ['Claude','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek','Codex'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
+for(const p of ['Claude','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek','Devin','Codex'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
+window.electron.getDevinThoughtLevels=async()=>({model:null,levels:[],defaultLevel:null});
 window.electron.getCodexModelConfig=async()=>({defaultModel:'gpt-test',options:['gpt-test'],availableModels:[{name:'gpt-test',label:'GPT Test'}]});
 const seed=store.getState().createDraftSession('/tmp/images'),template=store.getState().sessions[seed];
 for(const [id,provider] of [['codex','codex'],['grok','grok'],['claude','claude']])store.setState(s=>({sessions:{...s.sessions,[id]:{...template,id,isDraft:false,title:id,cwd:'/tmp/images',provider,model:provider==='grok'?'grok-test':'gpt-test',grokPermissionMode:provider==='grok'?'yolo':undefined,grokReasoningEffort:provider==='grok'?'high':undefined,status:'completed',permissionRequests:[],messages,readOnly:false,hydrated:true}}}));

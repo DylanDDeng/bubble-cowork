@@ -99,6 +99,9 @@ export type {
   KimiModelConfig,
   GrokModelConfig,
   DeepseekModelConfig,
+  DevinModelConfig,
+  DevinRuntimeStatus,
+  DevinThoughtLevels,
   DeepseekKeyStatus,
   BrowserUsePermissionSettings,
   ChromeCookieDomain,
@@ -110,6 +113,7 @@ export type {
   DeepseekPermissionMode,
   DeepseekAgentPreset,
   DeepseekReasoningEffort,
+  DevinPermissionMode,
   PiModelConfig,
   BubbleModelConfig,
   BubbleProvidersConfig,
@@ -354,6 +358,7 @@ export interface SessionView {
   deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
   deepseekAgentPreset?: import('../shared/types').DeepseekAgentPreset;
   deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
+  devinPermissionMode?: import('../shared/types').DevinPermissionMode;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   pinned?: boolean;
   folderPath?: string | null;

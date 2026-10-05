@@ -33,7 +33,8 @@ export interface SessionRow {
   qoder_session_id: string | null;
   deepseek_session_id: string | null;
   deepseek_agent_preset: import('../shared/types').DeepseekAgentPreset | null;
-  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
+  devin_session_id: string | null;
+  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;
@@ -135,6 +136,8 @@ export interface RunnerOptions {
   deepseekPermissionMode?: import('../shared/types').DeepseekPermissionMode;
   deepseekAgentPreset?: import('../shared/types').DeepseekAgentPreset;
   deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
+  devinPermissionMode?: import('../shared/types').DevinPermissionMode;
+  devinThoughtLevel?: string;
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;

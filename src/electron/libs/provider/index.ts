@@ -9,5 +9,6 @@ export { KimiServerAdapter, KimiThreadBindingError } from './kimi-server-adapter
 export { KimiAdapterFacade, isKimiServerCapable } from './kimi-adapter-facade';
 export { GrokAcpAdapter } from './grok-acp-adapter';
 export { DeepseekSdkAdapter } from './deepseek-sdk-adapter';
+export { DevinAcpAdapter } from './devin-acp-adapter';
 export { PiSdkAdapter } from './pi-sdk-adapter';
 export { BubbleSdkAdapter } from './bubble-sdk-adapter';

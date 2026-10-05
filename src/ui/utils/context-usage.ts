@@ -80,7 +80,8 @@ function isCodexTokenUsageMessage(
     (message.provider === 'codex' ||
       message.provider === 'kimi' ||
       message.provider === 'grok' ||
-      message.provider === 'deepseek')
+      message.provider === 'deepseek' ||
+      message.provider === 'devin')
   );
 }
 

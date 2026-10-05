@@ -650,6 +650,18 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-deepseek-model-config');
   },
 
+  getDevinModelConfig: () => {
+    return ipcRenderer.invoke('get-devin-model-config');
+  },
+
+  getDevinRuntimeStatus: () => {
+    return ipcRenderer.invoke('get-devin-runtime-status');
+  },
+
+  getDevinThoughtLevels: (model: string | null) => {
+    return ipcRenderer.invoke('get-devin-thought-levels', model);
+  },
+
   getPiModelConfig: () => {
     return ipcRenderer.invoke('get-pi-model-config');
   },

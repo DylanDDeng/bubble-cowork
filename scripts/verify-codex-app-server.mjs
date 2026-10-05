@@ -1526,7 +1526,7 @@ function testSourcePins() {
 
   assert.match(
     sessionStore,
-    /value === 'qoder'[\s\S]{0,80}\? value\s*: 'claude'/,
+    /value === 'qoder'[\s\S]{0,200}\? value\s*: 'claude'/,
     "normalizeAutomationProvider must accept 'qoder' (latent hardening)"
   );
   ok("normalizeAutomationProvider accepts 'qoder'");

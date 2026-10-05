@@ -229,7 +229,8 @@ function normalizeAutomationProvider(value?: string | null): AgentProvider {
     value === 'pi' ||
     value === 'qoder' ||
     value === 'bubble' ||
-    value === 'deepseek'
+    value === 'deepseek' ||
+    value === 'devin'
     ? value
     : 'claude';
 }
@@ -381,6 +382,7 @@ export function initialize(): void {
       bubble_session_id TEXT,
       deepseek_session_id TEXT,
       deepseek_agent_preset TEXT DEFAULT 'standard',
+      devin_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       conversation_scope TEXT DEFAULT 'project',
@@ -562,6 +564,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'bubble_session_id', 'TEXT');
   ensureColumn('sessions', 'deepseek_session_id', 'TEXT');
   ensureColumn('sessions', 'deepseek_agent_preset', "TEXT DEFAULT 'standard'");
+  ensureColumn('sessions', 'devin_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
@@ -827,6 +830,9 @@ function getSessionSourceOrigin(sessionId: string): SessionSource {
   if (row.provider === 'deepseek') {
     return 'deepseek_local';
   }
+  if (row.provider === 'devin') {
+    return 'devin_local';
+  }
   return 'aegis';
 }
 
@@ -1084,7 +1090,9 @@ function backfillMessageMetadata(): void {
                           ? 'bubble_local'
                           : row.provider === 'deepseek'
                             ? 'deepseek_local'
-                            : 'aegis';
+                            : row.provider === 'devin'
+                              ? 'devin_local'
+                              : 'aegis';
         const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
         updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
         upsertSearchIndexStmt.run(row.id, row.session_id, sourceOrigin, searchText, row.created_at);
@@ -1349,7 +1357,7 @@ export function createSession(params: {
   associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek';
+  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -2002,8 +2010,17 @@ export function setDeepseekSessionId(sessionId: string, deepseekSessionId: strin
   stmt.run(deepseekSessionId, now, sessionId);
 }
 
+// 更新 Devin Session ID
+export function updateDevinSessionId(sessionId: string, devinSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET devin_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(devinSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek'): void {
+export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?
@@ -3267,6 +3284,7 @@ const USAGE_PROVIDER_MODEL_FALLBACK: Partial<Record<AgentProvider, string>> = {
   qoder: 'Qoder',
   bubble: 'Bubble',
   deepseek: 'DeepSeek',
+  devin: 'Devin',
 };
 
 function looksLikeClaudeModelAlias(value: string): boolean {

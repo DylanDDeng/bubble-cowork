@@ -61,6 +61,7 @@ import {
   CLAUDE_PERMISSION_MODE_OPTIONS,
   CODEX_PERMISSION_MODE_OPTIONS,
   DEEPSEEK_PERMISSION_MODE_OPTIONS,
+  DEVIN_PERMISSION_MODE_OPTIONS,
   KIMI_PERMISSION_MODE_OPTIONS,
   OPENCODE_PERMISSION_MODE_OPTIONS,
   QODER_PERMISSION_MODE_OPTIONS,
@@ -465,6 +466,7 @@ export function PromptInput({
   const isQoderContextVisible = runtimeProvider === 'qoder' && activeSession?.provider === 'qoder';
   const isGrokContextVisible = runtimeProvider === 'grok' && activeSession?.provider === 'grok';
   const isDeepseekContextVisible = runtimeProvider === 'deepseek' && activeSession?.provider === 'deepseek';
+  const isDevinContextVisible = runtimeProvider === 'devin' && activeSession?.provider === 'devin';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
   const openCodeContextModel = isOpenCodeContextVisible ? selectedModel || activeSession?.model || null : null;
   const piContextModel = isPiContextVisible ? selectedModel || activeSession?.model || null : null;
@@ -484,10 +486,10 @@ export function PromptInput({
 
   const codexContextSnapshot = useMemo(
     () =>
-      isCodexContextVisible || isKimiContextVisible || isGrokContextVisible || isDeepseekContextVisible
+      isCodexContextVisible || isKimiContextVisible || isGrokContextVisible || isDeepseekContextVisible || isDevinContextVisible
         ? getLatestCodexContextSnapshot(activeSession.messages)
         : null,
-    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible, isGrokContextVisible, isDeepseekContextVisible]
+    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible, isGrokContextVisible, isDeepseekContextVisible, isDevinContextVisible]
   );
   const claudeContextSnapshot = useMemo(() => {
     if (!isClaudeContextVisible) {
@@ -950,6 +952,14 @@ export function PromptInput({
             runtimeProvider === 'deepseek'
               ? agentSelection.deepseekReasoningEffort
               : undefined,
+          devinPermissionMode:
+            runtimeProvider === 'devin'
+              ? agentSelection.devinPermissionMode
+              : undefined,
+          devinThoughtLevel:
+            runtimeProvider === 'devin'
+              ? agentSelection.devinThoughtLevel || undefined
+              : undefined,
           bubblePermissionMode:
             runtimeProvider === 'bubble'
               ? agentSelection.bubbleExecutionMode === 'plan'
@@ -1072,6 +1082,14 @@ export function PromptInput({
         deepseekReasoningEffort:
           runtimeProvider === 'deepseek'
             ? agentSelection.deepseekReasoningEffort
+            : undefined,
+        devinPermissionMode:
+          runtimeProvider === 'devin'
+            ? agentSelection.devinPermissionMode
+            : undefined,
+        devinThoughtLevel:
+          runtimeProvider === 'devin'
+            ? agentSelection.devinThoughtLevel || undefined
             : undefined,
         bubblePermissionMode:
           runtimeProvider === 'bubble'
@@ -1684,6 +1702,15 @@ export function PromptInput({
                   menuSide={menuSide}
                 />
               )}
+              {agentSelection.provider === 'devin' && (
+                <PermissionModePicker
+                  value={agentSelection.devinPermissionMode}
+                  options={DEVIN_PERMISSION_MODE_OPTIONS}
+                  menuMinWidthClass="min-w-[176px]"
+                  onChange={agentSelection.setDevinPermissionMode}
+                  menuSide={menuSide}
+                />
+              )}
               {agentSelection.provider === 'bubble' && (
                 <PermissionModePicker
                   value={agentSelection.bubblePermissionMode}
@@ -1774,6 +1801,9 @@ export function PromptInput({
                 }
                 deepseekReasoningEffort={agentSelection.deepseekReasoningEffort}
                 onDeepseekReasoningEffortChange={agentSelection.setDeepseekReasoningEffort}
+                devinThoughtLevels={agentSelection.devinThoughtLevels}
+                devinThoughtLevel={agentSelection.devinThoughtLevel}
+                onDevinThoughtLevelChange={agentSelection.setDevinThoughtLevel}
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={(enabled) =>
                   handleAgentConfigurationChange({ provider: 'codex', codexFastMode: enabled })
