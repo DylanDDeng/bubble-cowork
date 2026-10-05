@@ -1,4 +1,5 @@
 import { useAppReducedMotion } from '../hooks/useAppReducedMotion';
+import { CLAUDE_REASONING_EFFORT_LABELS, CLAUDE_REASONING_EFFORT_OPTIONS } from '../utils/claude-reasoning';
 import { type FC, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { ReasoningEffortSlider } from './ReasoningEffortSlider';
@@ -307,7 +308,7 @@ function codexEffortOptionsForModel(
     .filter(Boolean);
   return supported;
 }
-const claudeEffortOptions: ClaudeReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+const claudeEffortOptions = CLAUDE_REASONING_EFFORT_OPTIONS;
 const grokEffortOptions: GrokReasoningEffort[] = GROK_REASONING_EFFORT_OPTIONS;
 
 function grokEffortOptionsForModel(
@@ -509,13 +510,7 @@ export function ComposerModelPicker({
 
 // ─── Merged Agent+Model cascading picker ───
 
-const claudeEffortLabels: Record<ClaudeReasoningEffort, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'X-High',
-  max: 'Max',
-};
+const claudeEffortLabels = CLAUDE_REASONING_EFFORT_LABELS;
 
 const grokEffortLabels = GROK_REASONING_EFFORT_LABELS;
 

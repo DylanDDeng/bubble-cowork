@@ -163,6 +163,7 @@ declare global {
     stopTerminalSession: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
     getTerminalTransportInfo: () => Promise<TerminalTransportInfo>;
     setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
+    remoteCompanion: (action: string, payload?: unknown) => Promise<any>;
     getAppVersion: () => Promise<string>;
     getWindowShellState: () => Promise<{ rounded: boolean }>;
     setTheme: (theme: 'light' | 'dark' | 'system') => Promise<{ ok: boolean }>;

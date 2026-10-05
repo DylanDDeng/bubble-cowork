@@ -1,3 +1,4 @@
+import { captureRemoteEvent, setupRemoteIPC, closeRemoteGateway, remoteTaskPayload } from './remote/integration';
 import { setShortcutCaptureActive } from './libs/keyboard-shortcuts';
 import { getSystemFonts, getSystemFontFamilies } from './libs/system-fonts';
 import { getAppPreferences, setAppPreferences, getTerminalShellOptions, trackTaskPowerState } from './libs/app-preferences';
@@ -3785,6 +3786,7 @@ function sendSessionReply(win: BrowserWindow, event: ServerEvent): void {
 }
 
 function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
+  captureRemoteEvent(event);
   if (event.type === 'permission.request') {
     const row = sessions.getSession(event.payload.sessionId);
     if (row && row.hidden_from_threads !== 1) notifySessionInput(row, event.payload.toolUseId, isQuestionRequest(event.payload.toolName, event.payload.input));
@@ -4640,6 +4642,20 @@ async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: 
 export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
   sessions.initialize();
+  setupRemoteIPC(mainWindow, {
+    start: (project, provider, prompt, extras) => handleSessionStart(mainWindow, {
+      cwd: project.path, projectCwd: project.path, provider, prompt, title: prompt.slice(0, 60), skipTitleGeneration: true,
+      envMode: 'local', createIsolatedWorkspace: extras?.worktree || undefined, scope: 'project', teamMode: 'solo', teamId: null,
+      ...remoteTaskPayload(provider, extras),
+    }),
+    send: (sessionId, prompt, extras) => {
+      const provider = sessions.getSession(sessionId)?.provider || 'claude';
+      return handleSessionContinue(mainWindow, { sessionId, prompt, ...remoteTaskPayload(provider, extras) });
+    },
+    stop: sessionId => handleSessionStop(mainWindow, sessionId),
+    permission: (request, decision) => handlePermissionResponse({ sessionId: request.sessionId, toolUseId: request.toolUseId, result: { behavior: decision, scope: 'once', ...(decision === 'allow' ? { updatedInput: request.input as unknown as Record<string, unknown> } : { message: 'Declined from iPhone' }) } }),
+    hasPermission: (sessionId, toolUseId) => sessionStates.get(sessionId)?.pendingPermissions.has(toolUseId) ?? false,
+  });
   attachComputerUsePreviewHost(mainWindow);
   computerUseGrants.on('change', ({ threadId, grants, reason }) => {
     rememberComputerUseGrants(threadId, grants);
@@ -12146,6 +12162,7 @@ function broadcastFolderChanged(mainWindow: BrowserWindow): void {
 
 // 清理资源
 export function cleanup(): void {
+  closeRemoteGateway();
   ipcMain.removeAllListeners('client-event');
   automationScheduler?.stop();
   automationScheduler = null;

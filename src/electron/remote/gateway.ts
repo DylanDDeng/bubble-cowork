@@ -1,0 +1,720 @@
+import { randomBytes, randomUUID, createHash, timingSafeEqual } from "crypto";
+import { hostname } from "os";
+import { join } from "path";
+import WebSocket from "ws";
+import { RemoteJournal } from "./journal";
+import {
+  REMOTE_PROTOCOL,
+  requestSchema,
+  type RemoteMessage,
+  type RemotePermission,
+  type RemoteSession,
+  type RemoteProject,
+  type CommandResult,
+  type Pairing,
+  type RemoteEnvironment,
+  type RemoteAgentOptions,
+  type RemoteAttachment,
+  type RemoteTaskSettings,
+} from "../../shared/remote/protocol";
+import type { ServerEvent, PermissionRequestPayload, Attachment } from "../../shared/types";
+
+/** Settings a phone may attach to a new task or a follow-up. */
+export interface RemoteTaskExtras {
+  settings?: RemoteTaskSettings;
+  worktree?: boolean;
+  attachments?: Attachment[];
+}
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const UPLOAD_TTL = 10 * 60 * 1000;
+
+interface Project extends RemoteProject {
+  path: string;
+}
+const permissionDetail = (p: PermissionRequestPayload) => JSON.stringify(p.input, null, 2) ?? "";
+const canApproveRemotely = (p: PermissionRequestPayload) =>
+  !/question|plan|computer/i.test(p.toolName) && permissionDetail(p).length <= 24000;
+export interface RemoteRuntime {
+  environment?: RemoteEnvironment;
+  projects(): Project[];
+  sessions(): RemoteSession[];
+  history(id: string): RemoteMessage[];
+  start(
+    project: Project,
+    provider: "claude" | "codex" | "bubble",
+    prompt: string,
+    extras?: RemoteTaskExtras,
+  ): Promise<string | null>;
+  send(id: string, prompt: string, extras?: RemoteTaskExtras): Promise<boolean>;
+  /** Agent catalog for the phone's pickers; must not include secrets. */
+  options?(): Promise<RemoteAgentOptions>;
+  /** Stores uploaded bytes as a desktop attachment (type and size validated). */
+  attach?(name: string, data: Uint8Array): Promise<Attachment>;
+  stop(id: string): void;
+  permission(
+    request: PermissionRequestPayload,
+    decision: "allow" | "deny",
+  ): boolean;
+  hasPermission(id: string, toolUseId: string): boolean;
+  confirm(name: string, peerId: string): Promise<boolean>;
+}
+export class RemoteGateway {
+  readonly hostBootId = randomUUID();
+  private socket?: WebSocket;
+  private channel?: Awaited<
+    ReturnType<
+      typeof import("../../shared/remote/secure-channel").secureChannel
+    >
+  >;
+  private retry?: ReturnType<typeof setTimeout>;
+  private timer?: ReturnType<typeof setTimeout>;
+  private generation = 0;
+  private invite?: { value: string; expiresAt: number; claimed: boolean };
+  private runIds = new Map<string, string>();
+  private permissions = new Map<string, PermissionRequestPayload>();
+  private live = new Map<string, Map<string, RemoteMessage>>();
+  private activePeer?: string;
+  private pendingCommands = new Set<string>();
+  private uploads = new Map<string, { peer: string; name: string; total: number; parts: Buffer[]; bytes: number; at: number }>();
+  private uploaded = new Map<string, { peer: string; attachment: Attachment; at: number }>();
+  status = "disabled";
+  constructor(
+    readonly journal: RemoteJournal,
+    private runtime: RemoteRuntime,
+  ) {}
+  private crypto(): typeof import("../../shared/remote/secure-channel") {
+    return require(join(__dirname, "secure-channel.cjs"));
+  }
+  describe() {
+    return {
+      status: this.status,
+      enabled: this.journal.state.config?.enabled ?? false,
+      environment: this.runtime.environment ?? "development",
+      relay: this.journal.state.config?.relay ?? "",
+      projects: this.runtime.projects().map(({ id, name }) => ({ id, name })),
+      projectIds: this.journal.state.config?.projectIds ?? [],
+      devices: this.journal.state.devices,
+    };
+  }
+  async configure(
+    relay: string,
+    registrationToken: string,
+    projectIds: string[],
+  ) {
+    const url = new URL(relay);
+    if (
+      url.protocol !== "wss:" &&
+      !(
+        url.protocol === "ws:" &&
+        ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+      )
+    )
+      throw new Error("Use WSS for remote connections");
+    if (url.username || url.password || url.search || url.hash)
+      throw new Error("Relay URL must not contain credentials");
+    if (registrationToken.length < 32 || registrationToken.length > 128)
+      throw new Error("Invalid relay registration token");
+    const allowed = new Set(this.runtime.projects().map((p) => p.id));
+    if (!projectIds.length || projectIds.some((id) => !allowed.has(id)))
+      throw new Error("Select valid projects");
+    this.close();
+    const identity = await this.crypto().createIdentity();
+    this.journal.update((s) => {
+      s.config = {
+        relay: url.toString(),
+        registrationToken,
+        room: randomBytes(16).toString("hex"),
+        routeToken: randomBytes(32).toString("hex"),
+        identity: identity.privateKey,
+        peerId: identity.peerId,
+        projectIds,
+        enabled: true,
+      };
+      s.devices = [];
+    });
+    this.connect();
+    return this.describe();
+  }
+  pairing(): Pairing {
+    const config = this.journal.state.config;
+    if (!config?.enabled || !["waiting", "connected"].includes(this.status))
+      throw new Error("Wait for the relay connection");
+    this.invite = {
+      value: randomBytes(32).toString("hex"),
+      expiresAt: Date.now() + 120000,
+      claimed: false,
+    };
+    return {
+      version: 1,
+      environment: this.runtime.environment ?? "development",
+      relay: config.relay,
+      room: config.room,
+      routeToken: config.routeToken,
+      hostPeerId: config.peerId,
+      name: hostname(),
+      invite: this.invite.value,
+      expiresAt: this.invite.expiresAt,
+    };
+  }
+  revoke(peerId: string) {
+    this.journal.update((s) => {
+      s.devices = s.devices.filter((d) => d.peerId !== peerId);
+    });
+    this.invite = undefined;
+    if (this.activePeer === peerId) {
+      try {
+        this.channel?.send({ type: "revoked" });
+      } catch {}
+      const socket = this.socket;
+      setTimeout(() => socket?.close(), 100);
+    }
+    return this.describe();
+  }
+  disable() {
+    this.journal.update((s) => {
+      if (s.config) s.config.enabled = false;
+    });
+    this.close();
+    return this.describe();
+  }
+  close() {
+    this.generation++;
+    clearTimeout(this.retry);
+    clearTimeout(this.timer);
+    this.invite = undefined;
+    this.channel?.close();
+    this.socket?.close();
+    this.channel = undefined;
+    this.activePeer = undefined;
+    this.status = "disabled";
+  }
+  connect() {
+    const config = this.journal.state.config;
+    if (!config?.enabled) return;
+    const generation = ++this.generation;
+    this.status = "connecting";
+    const socket = new WebSocket(config.relay, {
+      maxPayload: 256 * 1024,
+      perMessageDeflate: false,
+    });
+    this.socket = socket;
+    socket.binaryType = "arraybuffer";
+    socket.on("open", () =>
+      socket.send(
+        JSON.stringify({
+          role: "host",
+          room: config.room,
+          token: config.routeToken,
+          registrationToken: config.registrationToken,
+        }),
+      ),
+    );
+    const control = (event: any) => {
+      if (typeof event.data !== "string") {
+        socket.close();
+        return;
+      }
+      let type: string;
+      try {
+        type = JSON.parse(event.data).type;
+      } catch {
+        socket.close();
+        return;
+      }
+      if (type === "registered") this.status = "waiting";
+      else if (type === "peer") {
+        socket.removeEventListener("message", control);
+        void this.accept(socket, generation).catch(() => socket.close());
+      } else socket.close();
+    };
+    socket.addEventListener("message", control);
+    socket.on("error", () => {
+      this.status = "offline";
+    });
+    socket.on("close", () => {
+      if (generation !== this.generation) return;
+      this.status = "offline";
+      this.channel = undefined;
+      this.activePeer = undefined;
+      this.retry = setTimeout(() => this.connect(), 1500);
+    });
+  }
+  private async accept(socket: WebSocket, generation: number) {
+    const config = this.journal.state.config!;
+    const channel = await this.crypto().secureChannel(
+      socket as any,
+      config.identity,
+      false,
+    );
+    const authTimeout = setTimeout(() => channel.close(), 15000);
+    try {
+      const first = await channel.messages.next();
+      const auth = first.value as any;
+      if (
+        auth?.type !== "auth" ||
+        auth.protocol !== REMOTE_PROTOCOL ||
+        auth.environment !== (this.runtime.environment ?? "development") ||
+        typeof auth.name !== "string" ||
+        auth.name.length > 80
+      )
+        throw new Error("Invalid auth");
+      let device = this.journal.state.devices.find(
+        (d) => d.peerId === channel.peerId,
+      );
+      if (!device) {
+        const invite = this.invite;
+        if (
+          !invite ||
+          invite.claimed ||
+          invite.expiresAt < Date.now() ||
+          typeof auth.invite !== "string" ||
+          auth.invite.length !== invite.value.length ||
+          !timingSafeEqual(Buffer.from(auth.invite), Buffer.from(invite.value))
+        )
+          throw new Error("Pairing expired");
+        invite.claimed = true;
+        clearTimeout(authTimeout);
+        const approved = await this.runtime.confirm(auth.name, channel.peerId);
+        if (
+          !approved ||
+          generation !== this.generation ||
+          this.invite !== invite ||
+          invite.expiresAt < Date.now()
+        )
+          throw new Error("Pairing rejected");
+        device = {
+          peerId: channel.peerId,
+          name: auth.name,
+          pairedAt: Date.now(),
+        };
+        this.journal.update((s) => s.devices.push(device!));
+        this.invite = undefined;
+      }
+      clearTimeout(authTimeout);
+      if (generation !== this.generation) throw new Error("Stale connection");
+      this.channel = channel;
+      this.activePeer = device.peerId;
+      this.status = "connected";
+      channel.send({
+        type: "authenticated",
+        environment: this.runtime.environment ?? "development",
+        protocol: REMOTE_PROTOCOL,
+        hostBootId: this.hostBootId,
+        serverTime: Date.now(),
+      });
+      for await (const data of channel.messages) {
+        if (
+          generation !== this.generation ||
+          !this.journal.state.devices.some((d) => d.peerId === channel.peerId)
+        )
+          throw new Error("Revoked");
+        // Controls remain responsive while a provider starts or handles a prompt.
+        if (this.pendingCommands.size >= 32)
+          throw new Error("Too many requests");
+        void this.dispatch(data, channel.peerId)
+          .then((result) => {
+            if (generation === this.generation) channel.send(result);
+          })
+          .catch(() => channel.close());
+      }
+    } catch {
+      try {
+        channel.send({ type: "auth-rejected" });
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      clearTimeout(authTimeout);
+      channel.close();
+    }
+  }
+  private allowedSession(sessionId: string) {
+    const session = this.runtime.sessions().find((s) => s.id === sessionId);
+    if (
+      !session ||
+      !this.journal.state.config?.projectIds.includes(session.projectId)
+    )
+      throw new Error("SCOPE_DENIED");
+    return session;
+  }
+  private runId(id: string) {
+    const session = this.runtime.sessions().find((s) => s.id === id);
+    if (!session || !["running", "stopping"].includes(session.status))
+      return null;
+    if (!this.runIds.has(id)) this.runIds.set(id, randomUUID());
+    return this.runIds.get(id)!;
+  }
+  snapshot(
+    sessionId?: string,
+    before?: number,
+    expectedHistoryRevision?: string,
+  ) {
+    const allowed = this.journal.state.config?.projectIds ?? [];
+    const sessions = this.runtime
+      .sessions()
+      .filter((s) => allowed.includes(s.projectId))
+      .map((s) => ({ ...s, runId: this.runId(s.id) }));
+    const visible = new Set(sessions.map((s) => s.id));
+    const permissions: RemotePermission[] = [];
+    for (const [requestId, p] of this.permissions) {
+      const runId = this.runId(p.sessionId);
+      if (
+        visible.has(p.sessionId) &&
+        runId &&
+        this.runtime.hasPermission(p.sessionId, p.toolUseId)
+      )
+        permissions.push({
+          requestId,
+          sessionId: p.sessionId,
+          runId,
+          toolName: p.toolName,
+          detail: permissionDetail(p).length > 24000
+            ? permissionDetail(p).slice(0, 24000) + "\n… Too long to show here. Review the full request on your Mac."
+            : permissionDetail(p),
+          canApprove: canApproveRemotely(p),
+        });
+    }
+    let messages: RemoteMessage[] | undefined;
+    let historyRevision: string | undefined;
+    let cursor: number | null = null;
+    if (sessionId) {
+      this.allowedSession(sessionId);
+      const merged = new Map(
+        this.runtime.history(sessionId).map((m) => [m.id, m]),
+      );
+      for (const [id, message] of this.live.get(sessionId) ?? [])
+        merged.set(id, message);
+      const all = [...merged.values()];
+      historyRevision = createHash("sha256")
+        .update(JSON.stringify(all))
+        .digest("hex");
+      if (before !== undefined && expectedHistoryRevision !== historyRevision)
+        throw new Error("HISTORY_CHANGED");
+      const end = Math.min(before ?? all.length, all.length);
+      let start = end;
+      let bytes = 0;
+      while (start > 0 && end - start < 100) {
+        const size = Buffer.byteLength(JSON.stringify(all[start - 1]));
+        if (bytes + size > 512 * 1024) break;
+        bytes += size;
+        start--;
+      }
+      messages = all.slice(start, end);
+      cursor = start > 0 ? start : null;
+    }
+    const state = {
+      projects: this.runtime
+        .projects()
+        .filter((p) => allowed.includes(p.id))
+        .map(({ id, name, isRepo }) => ({ id, name, isRepo })),
+      sessions,
+      permissions,
+      sessionId,
+      messages,
+      before: cursor,
+      historyRevision,
+    };
+    return {
+      ...state,
+      protocol: REMOTE_PROTOCOL,
+      hostBootId: this.hostBootId,
+      machineName: hostname(),
+      environment: this.runtime.environment ?? "development",
+      serverTime: Date.now(),
+      revision: createHash("sha256")
+        .update(JSON.stringify(state))
+        .digest("hex"),
+    };
+  }
+  async dispatch(data: unknown, peerId: string): Promise<unknown> {
+    const parsed = requestSchema.safeParse(data);
+    const requestId =
+      typeof (data as any)?.id === "string"
+        ? (data as any).id.slice(0, 160)
+        : "";
+    if (!parsed.success)
+      return { type: "response", id: requestId, error: "INVALID_REQUEST" };
+    const request = parsed.data;
+    try {
+      if (
+        !this.journal.state.devices.some((d) => d.peerId === peerId) ||
+        !this.journal.state.config?.enabled
+      )
+        throw new Error("UNAUTHORIZED");
+      if (request.method === "ping")
+        return {
+          type: "response",
+          id: request.id,
+          result: { serverTime: Date.now() },
+        };
+      if (request.method === "snapshot")
+        return {
+          type: "response",
+          id: request.id,
+          result: this.snapshot(
+            request.sessionId,
+            request.before,
+            request.historyRevision,
+          ),
+        };
+      if (request.method === "options")
+        return {
+          type: "response",
+          id: request.id,
+          result: (await this.runtime.options?.()) ?? {},
+        };
+      if (request.method === "attachment.chunk")
+        return {
+          type: "response",
+          id: request.id,
+          result: await this.receiveChunk(request, peerId),
+        };
+      const key = peerId + ":" + request.commandId;
+      if (request.method === "command.get")
+        return {
+          type: "response",
+          id: request.id,
+          result: this.journal.state.commands[key]?.result ?? null,
+        };
+      const { id: _id, ...payload } = request;
+      const fingerprint = createHash("sha256")
+        .update(JSON.stringify(payload))
+        .digest("hex");
+      const existing = this.journal.state.commands[key];
+      if (existing) {
+        if (existing.fingerprint !== fingerprint)
+          throw new Error("COMMAND_MISMATCH");
+        return {
+          type: "response",
+          id: request.id,
+          result: structuredClone(existing.result),
+        };
+      }
+      if (
+        request.expiresAt < Date.now() ||
+        request.expiresAt > Date.now() + 305000
+      )
+        throw new Error("COMMAND_EXPIRED");
+      const attachments =
+        "attachmentIds" in request && request.attachmentIds?.length
+          ? request.attachmentIds.map((attachmentId) => {
+              const entry = this.uploaded.get(attachmentId);
+              if (!entry || entry.peer !== peerId) throw new Error("ATTACHMENT_EXPIRED");
+              return entry.attachment;
+            })
+          : undefined;
+      if ("sessionId" in request) {
+        const session = this.allowedSession(request.sessionId);
+        if (!["claude", "codex", "bubble"].includes(session.provider))
+          throw new Error("DESKTOP_REQUIRED");
+      }
+      if (
+        request.method === "create" &&
+        !this.journal.state.config.projectIds.includes(request.projectId)
+      )
+        throw new Error("SCOPE_DENIED");
+      if ("runId" in request && request.runId !== this.runId(request.sessionId))
+        throw new Error("STALE_RUN");
+      if (
+        request.method === "send" &&
+        (this.runId(request.sessionId) ||
+          this.pendingCommands.has("session:" + request.sessionId))
+      )
+        throw new Error("SESSION_BUSY");
+      if (request.method === "permission") {
+        const permission = this.permissions.get(request.requestId);
+        if (
+          !permission ||
+          permission.sessionId !== request.sessionId ||
+          !this.runtime.hasPermission(
+            permission.sessionId,
+            permission.toolUseId,
+          )
+        )
+          throw new Error("PERMISSION_EXPIRED");
+        if (
+          request.decision === "allow" &&
+          !canApproveRemotely(permission)
+        )
+          throw new Error("DESKTOP_REQUIRED");
+      }
+      const result: CommandResult = {
+        commandId: request.commandId,
+        state: "accepted",
+        ...("sessionId" in request ? { sessionId: request.sessionId } : {}),
+      };
+      this.journal.update((s) => {
+        for (const [id, entry] of Object.entries(s.commands))
+          if (entry.expiresAt < Date.now() - 30 * 86400000)
+            delete s.commands[id];
+        s.commands[key] = { fingerprint, result, expiresAt: request.expiresAt };
+      });
+      this.pendingCommands.add(key);
+      if (request.method === "send")
+        this.pendingCommands.add("session:" + request.sessionId);
+      try {
+        if (request.method === "create") {
+          const project = this.runtime
+            .projects()
+            .find((p) => p.id === request.projectId);
+          if (!project) throw new Error("SCOPE_DENIED");
+          const id = await this.runtime.start(
+            project,
+            request.provider,
+            request.prompt,
+            { settings: request.settings, worktree: request.worktree, attachments },
+          );
+          if (!id) throw new Error("START_FAILED");
+          result.sessionId = id;
+        } else if (request.method === "send") {
+          if (
+            !(await this.runtime.send(request.sessionId, request.prompt, {
+              settings: request.settings,
+              attachments,
+            }))
+          )
+            throw new Error("SEND_FAILED");
+        } else if (request.method === "stop")
+          this.runtime.stop(request.sessionId);
+        else if (request.method === "permission") {
+          const permission = this.permissions.get(request.requestId);
+          if (
+            !permission ||
+            permission.sessionId !== request.sessionId ||
+            !this.runtime.hasPermission(
+              permission.sessionId,
+              permission.toolUseId,
+            )
+          )
+            throw new Error("PERMISSION_EXPIRED");
+          if (
+            request.decision === "allow" &&
+            !canApproveRemotely(permission)
+          )
+            throw new Error("DESKTOP_REQUIRED");
+          if (!this.runtime.permission(permission, request.decision))
+            throw new Error("PERMISSION_EXPIRED");
+          this.permissions.delete(request.requestId);
+        }
+        result.state = "completed";
+      } catch {
+        result.state = "unknown";
+        result.error = "Check the result on your Mac before sending this again.";
+      } finally {
+        this.pendingCommands.delete(key);
+        if (request.method === "send")
+          this.pendingCommands.delete("session:" + request.sessionId);
+      }
+      this.journal.update((s) => {
+        s.commands[key].result = result;
+      });
+      this.invalidate();
+      return { type: "response", id: request.id, result };
+    } catch (error) {
+      return {
+        type: "response",
+        id: request.id,
+        error: error instanceof Error ? error.message : "REQUEST_FAILED",
+      };
+    }
+  }
+  private async receiveChunk(
+    request: { uploadId: string; name: string; index: number; total: number; data: string },
+    peer: string,
+  ): Promise<RemoteAttachment | { received: number }> {
+    if (!this.runtime.attach) throw new Error("UNSUPPORTED");
+    const now = Date.now();
+    for (const [key, upload] of this.uploads) if (now - upload.at > UPLOAD_TTL) this.uploads.delete(key);
+    for (const [key, entry] of this.uploaded) if (now - entry.at > UPLOAD_TTL * 6) this.uploaded.delete(key);
+    let upload = this.uploads.get(request.uploadId);
+    if (!upload) {
+      if (request.index !== 0) throw new Error("UPLOAD_EXPIRED");
+      if ([...this.uploads.values()].filter((u) => u.peer === peer).length >= 4) throw new Error("TOO_MANY_UPLOADS");
+      upload = { peer, name: request.name, total: request.total, parts: [], bytes: 0, at: now };
+      this.uploads.set(request.uploadId, upload);
+    }
+    if (upload.peer !== peer || upload.total !== request.total || request.index !== upload.parts.length)
+      throw new Error("UPLOAD_OUT_OF_ORDER");
+    const part = Buffer.from(request.data, "base64");
+    upload.bytes += part.length;
+    if (upload.bytes > MAX_UPLOAD_BYTES) {
+      this.uploads.delete(request.uploadId);
+      throw new Error("ATTACHMENT_TOO_LARGE");
+    }
+    upload.parts.push(part);
+    upload.at = now;
+    if (upload.parts.length < upload.total) return { received: upload.parts.length };
+    this.uploads.delete(request.uploadId);
+    const attachment = await this.runtime.attach(upload.name, new Uint8Array(Buffer.concat(upload.parts)));
+    const attachmentId = randomUUID();
+    this.uploaded.set(attachmentId, { peer, attachment, at: now });
+    return {
+      attachmentId,
+      name: attachment.name,
+      size: attachment.size,
+      kind: attachment.kind,
+      mimeType: attachment.mimeType,
+    };
+  }
+  capture(event: ServerEvent) {
+    const p = event.payload as any;
+    const id = p.sessionId as string | undefined;
+    if (event.type === "stream.user_prompt" && id) {
+      this.runIds.set(id, randomUUID());
+      this.live.delete(id);
+      for (const [key, value] of this.permissions)
+        if (value.sessionId === id) this.permissions.delete(key);
+    }
+    if (event.type === "stream.message" && id) {
+      const message = p.message;
+      if (
+        message.type === "stream_event" &&
+        message.event?.delta?.type === "text_delta" &&
+        typeof message.event.delta.text === "string"
+      ) {
+        const messages = this.live.get(id) ?? new Map<string, RemoteMessage>();
+        const key = id + ":live";
+        const text = (messages.get(key)?.text ?? "") + message.event.delta.text;
+        messages.set(key, {
+          id: key,
+          role: "assistant",
+          text: text.slice(-64000),
+          streaming: true,
+        });
+        this.live.set(id, messages);
+      } else if (message.type === "assistant" && !message.streaming)
+        this.live.delete(id);
+    }
+    if (event.type === "permission.request")
+      this.permissions.set(
+        this.hostBootId + ":" + p.sessionId + ":" + p.toolUseId,
+        event.payload,
+      );
+    if (event.type === "permission.dismissed")
+      this.permissions.delete(
+        this.hostBootId + ":" + p.sessionId + ":" + p.toolUseId,
+      );
+    if (
+      event.type === "session.status" &&
+      id &&
+      !["running", "stopping"].includes(p.status)
+    ) {
+      this.runIds.delete(id);
+      this.live.delete(id);
+    }
+    if (
+      event.type.startsWith("session.") ||
+      event.type.startsWith("stream.") ||
+      event.type.startsWith("permission.")
+    )
+      this.invalidate();
+  }
+  private invalidate() {
+    if (this.timer) return;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      try {
+        this.channel?.send({ type: "changed" });
+      } catch {}
+    }, 180);
+  }
+}

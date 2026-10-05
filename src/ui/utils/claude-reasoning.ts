@@ -3,6 +3,15 @@ import type { ClaudeReasoningEffort, ClaudeReasoningLevelOption } from '../types
 
 const STORAGE_KEY = 'cowork.preferredClaudeReasoningEfforts';
 
+export const CLAUDE_REASONING_EFFORT_OPTIONS: ClaudeReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+export const CLAUDE_REASONING_EFFORT_LABELS: Record<ClaudeReasoningEffort, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'X-High',
+  max: 'Max',
+};
+
 function normalizeClaudeReasoningEffort(
   raw: string | null | undefined
 ): ClaudeReasoningEffort | null {
