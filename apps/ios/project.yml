@@ -1,0 +1,55 @@
+name: Aegis
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+packages:
+  AegisKit:
+    path: AegisKit
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.2"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Aegis:
+    type: application
+    platform: iOS
+    sources:
+      - path: Aegis
+    dependencies:
+      - package: AegisKit
+    settings:
+      base:
+        PRODUCT_NAME: Aegis
+        INFOPLIST_FILE: Aegis/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SUPPORTS_MACCATALYST: NO
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: ai.aegis.companion.dev
+          AEGIS_DISPLAY_NAME: Aegis Dev
+          AEGIS_URL_SCHEME: aegis-dev
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: ai.aegis.companion
+          AEGIS_DISPLAY_NAME: Aegis
+          AEGIS_URL_SCHEME: aegis
+schemes:
+  Aegis:
+    build:
+      targets:
+        Aegis: all
+      preActions:
+        - name: Bundle shared view logic
+          settingsTarget: Aegis
+          script: |
+            export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+            cd "$PROJECT_DIR/../.." && node apps/ios/core/build.mjs
+    run:
+      config: Debug
+    archive:
+      config: Release

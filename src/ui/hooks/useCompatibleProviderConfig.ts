@@ -4,6 +4,7 @@ import type {
   ClaudeCompatibleProviderId,
   ClaudeCompatibleProvidersConfig,
 } from '../types';
+import { COMPATIBLE_PROVIDER_LABELS } from '../utils/compatible-provider-labels';
 
 export interface CompatibleProviderOption {
   id: ClaudeCompatibleProviderId;
@@ -11,14 +12,7 @@ export interface CompatibleProviderOption {
   model: string;
 }
 
-const COMPATIBLE_PROVIDER_LABELS: Record<ClaudeCompatibleProviderId, string> = {
-  minimaxCn: 'MiniMax (CN)',
-  minimax: 'MiniMax (GLOBAL)',
-  mimo: 'MiMo',
-  zhipu: 'Zhipu AI',
-  moonshot: 'Moonshot AI',
-  deepseek: 'DeepSeek',
-};
+export { COMPATIBLE_PROVIDER_LABELS };
 
 const DEFAULT_CONFIG: ClaudeCompatibleProvidersConfig = {
   providers: {
