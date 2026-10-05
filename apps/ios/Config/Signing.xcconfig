@@ -1,0 +1,7 @@
+// Device signing. Put your Apple team in Config/Local.xcconfig (not committed):
+//   DEVELOPMENT_TEAM = ABCDE12345
+// A team that can't use ai.aegis.companion can override the bundle id there too:
+//   AEGIS_BUNDLE_ID = com.example.aegis
+// The relay must then allow the new topics (APNS_TOPICS).
+AEGIS_BUNDLE_ID = ai.aegis.companion
+#include? "Local.xcconfig"

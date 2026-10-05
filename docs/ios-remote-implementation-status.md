@@ -54,7 +54,7 @@ iOS 由原生编译配置确定环境；两端在配对与加密认证中检查�
 ## 尚未完成及环境阻塞
 
 1. 原生模拟器发送、新建和真实开发环境双向同步已验证。软键盘、中文输入法、相机与真实设备验收仍待完成；真机测试还需连接、解锁并信任手机。
-2. Apple Development Team、真机签名、公网 WSS 测试中继、APNs 与 TestFlight 尚未配置。未创建 Apple 凭据，也未提交商店。
+2. 公网中继（Fly.io，Mac 用 Ed25519 密钥证明房间归属，无共享令牌）、APNs 推送网关、手机端推送注册与签名配置已在代码中实现，见 `services/relay/README.md`。实际部署、Apple 付费开发者账号、APNs Key 与 TestFlight 尚未完成。
 3. Capacitor 目前是预览路线；未完成与 React Native 的同场景真机比较，不能声称 P0 已验收。
 4. 业务仅增加了远程适配入口，尚未完整提取 SessionService/PermissionRegistry。加密日志是独立原子文件，不与桌面 SQLite 组成一个事务；Provider 执行后崩溃仍可能得到 unknown，不能宣称跨崩溃严格执行一次。
 5. 同步采用快照、失效通知和定期刷新，缺少正式 SQLite outbox、持久 feed、目录删除标记与游标缺口恢复；项目/会话目录尚未分页。仅支持一部手机同时连接。

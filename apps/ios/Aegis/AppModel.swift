@@ -1,6 +1,7 @@
 import AegisKit
 import Observation
 import SwiftUI
+import UserNotifications
 
 /// A photo or file picked in the composer, uploaded to the Mac before sending.
 @Observable
@@ -43,6 +44,7 @@ final class AppModel {
     // Activity
     var busy = false
     var notice = ""
+    var notificationStatus: UNAuthorizationStatus = .notDetermined
     /// Increments on send; the conversation jumps to the bottom.
     var sendTick = 0
     var attachments: [PendingAttachment] = []
@@ -299,7 +301,10 @@ final class AppModel {
                 self.draft = ""
                 self.attachments = []
                 Haptics.success()
-                if sessionId == nil, let created = result.sessionId { self.open(session: created) }
+                if sessionId == nil, let created = result.sessionId {
+                    self.open(session: created)
+                    if self.notificationStatus == .notDetermined { Task { await self.requestNotifications() } }
+                }
             case .rejected:
                 self.notice = result.error == "SESSION_BUSY"
                     ? "This task is already running on your Mac. Your message is kept as a draft."

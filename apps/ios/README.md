@@ -48,21 +48,25 @@ This command:
 
 ## Run against Aegis Dev
 
-1. Start a relay:
+By default the desktop uses the public Aegis relay (`DEFAULT_RELAY` in `src/electron/remote/relay-auth.ts`, see `services/relay/README.md`).
 
-   ```sh
-   RELAY_REGISTRATION_TOKEN=… npm run dev:relay
-   ```
+1. Start Aegis Dev with `npm run dev`. To use a local relay for the simulator instead, run `npm run dev:relay` and start the desktop with `AEGIS_REMOTE_RELAY=ws://127.0.0.1:8788 npm run dev`. Real phones need WSS.
+2. In Settings → Connections, choose **Set up**, pick the projects, and show the pairing code.
+3. In the app, scan the code, or open the link with `xcrun simctl openurl booted 'aegis-dev://pair#…'` and tap Connect.
+4. Approve the device on the Mac.
 
-   The simulator may use `ws://127.0.0.1:8788`; real phones need WSS.
-2. Start Aegis Dev with `npm run dev`.
-3. In Settings → General → iPhone Access, set the relay and token, choose projects, and show the pairing code.
-4. In the app, scan the code, or open the link with `xcrun simctl openurl booted 'aegis-dev://pair#…'` and tap Connect.
-5. Approve the device on the Mac.
+## Run on an iPhone
+
+1. Put your Apple team in `apps/ios/Config/Local.xcconfig` (ignored by git): `DEVELOPMENT_TEAM = ABCDE12345`.
+2. Connect the iPhone, trust this Mac, and turn on Developer Mode.
+3. Run `npm run ios:device`. It builds Release and installs it; `AEGIS_CONFIG=Debug` builds Aegis Dev instead.
+
+A Release app pairs only with a packaged desktop (`npm run dist`), and a Debug app only with Aegis Dev. Push needs a paid team: the `aps-environment` entitlement is `development` for Debug and `production` for Release.
 
 ## Notes
 
-- **Not available on the phone yet:** answering agent questions, approving plans, file preview and push notifications. These need host APIs.
+- **Not available on the phone yet:** answering agent questions and approving plans. These need host APIs.
+- **Notifications:** the app asks after the first task it starts and sends its APNs token to the Mac over the encrypted channel. The Mac notifies through the relay only while no phone is connected, and only with status ("A task needs your approval"). Tapping a notification opens that task.
 - **Drafts** are files under Application Support, written on every change.
 - **The snapshot cache** is a per-Mac JSON file.
 - **Removing the Mac** clears the cache, drafts, pairing and journal, but keeps the phone identity.

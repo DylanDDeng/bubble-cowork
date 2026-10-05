@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct AegisApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = AppModel()
 
     var body: some Scene {
@@ -31,10 +32,23 @@ struct RootView: View {
         }
         .tint(Color.text1)
         .preferredColorScheme(model.theme == "dark" ? .dark : model.theme == "light" ? .light : nil)
-        .task { await model.client.start() }
+        .task {
+            AppDelegate.model = model
+            await model.refreshNotifications()
+            await model.client.start()
+        }
+        .onChange(of: model.paired) { _, paired in
+            if paired, let id = AppDelegate.pendingSession {
+                AppDelegate.pendingSession = nil
+                model.open(session: id)
+            }
+        }
         .task(id: model.client.agentOptions) { await model.reloadCatalogs() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model.client.foreground() } }
+            if phase == .active {
+                Task { await model.client.foreground() }
+                Task { await model.refreshNotifications() }
+            }
         }
         .onOpenURL { url in
             // A pairing link pre-fills the sheet; connecting stays a deliberate tap.

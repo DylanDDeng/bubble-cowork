@@ -40,7 +40,7 @@ struct ProjectsPage: View {
                         .foregroundStyle(Color.text2)
                 }
             } footer: {
-                Label("Only projects you share from Aegis on your Mac appear here. Change access in Settings → General → iPhone Access on the Mac.", systemImage: "lock")
+                Label("Only projects you share from Aegis on your Mac appear here. Change access in Settings → Connections on the Mac.", systemImage: "lock")
                     .font(.system(size: 13))
             }
         }
@@ -162,6 +162,7 @@ struct SettingsPage: View {
             } footer: {
                 Text("Your Mac needs to stay awake and online. Closing the Aegis window doesn’t stop running tasks; project access is managed on the Mac.")
             }
+            NotificationsSection()
             Section("Appearance") {
                 Picker("Appearance", selection: $model.theme) {
                     Text("System").tag("system")

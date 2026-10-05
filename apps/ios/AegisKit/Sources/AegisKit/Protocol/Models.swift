@@ -131,6 +131,22 @@ public struct RemoteFileContent: Codable, Equatable, Sendable {
     public let truncated: Bool
 }
 
+/// APNs registration a paired Mac uses to notify this phone.
+public struct PushRegistration: Equatable, Sendable {
+    /// Hex APNs device token.
+    public let deviceToken: String
+    /// The app's bundle id.
+    public let topic: String
+    /// `development` (sandbox) or `production`, matching the aps-environment entitlement.
+    public let environment: String
+
+    public init(deviceToken: String, topic: String, environment: String) {
+        self.deviceToken = deviceToken
+        self.topic = topic
+        self.environment = environment
+    }
+}
+
 public struct RemoteAttachment: Codable, Equatable, Sendable {
     public let attachmentId: String
     public let name: String

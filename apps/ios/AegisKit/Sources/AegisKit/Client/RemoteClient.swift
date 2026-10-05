@@ -242,6 +242,7 @@ public final class RemoteClient {
             Task { await refresh() }
             Task { await reconcile() }
             Task { await loadOptions() }
+            Task { await sendPushRegistration() }
             poll = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5))
@@ -381,6 +382,25 @@ public final class RemoteClient {
 
     public func loadOptions() async {
         if let options = try? await request(["method": "options"]) { agentOptions = options }
+    }
+
+    // MARK: Notifications
+
+    /// This app's APNs registration; the Mac gets it after every authentication.
+    public var push: PushRegistration? {
+        didSet {
+            if push != oldValue, connection == .connected { Task { await sendPushRegistration() } }
+        }
+    }
+
+    func sendPushRegistration() async {
+        guard let push else { return }
+        _ = try? await request([
+            "method": "push.register",
+            "deviceToken": .string(push.deviceToken),
+            "topic": .string(push.topic),
+            "environment": .string(push.environment),
+        ])
     }
 
     // MARK: Project files (read-only)

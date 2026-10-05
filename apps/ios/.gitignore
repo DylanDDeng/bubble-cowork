@@ -4,3 +4,6 @@ Aegis.xcodeproj/
 AegisKit/Sources/AegisKit/Resources/aegis-core.js
 AegisKit/.build/
 AegisKit/.swiftpm/
+# Personal signing settings (team id)
+Config/Local.xcconfig
+build/
