@@ -704,7 +704,7 @@ const usage = read('src/ui/components/settings/ClaudeUsageSettings.tsx');
 assert.ok(
     providers.includes("{ id: 'deepseek', label: 'DeepSeek Harness' }") &&
     picker.includes('DeepseekLogo') &&
-    onboarding.includes('deepseek: <DeepseekLogo') &&
+    /case 'deepseek':\s*return <DeepseekLogo/.test(onboarding) &&
     deepseekLogo.includes('<svg') &&
     deepseekLogo.includes('fill="currentColor"') &&
     deepseekLogo.includes('M23.748 4.482') &&
@@ -737,7 +737,8 @@ assert.ok(
 );
 
 // ── Composer permission picker (unified mapping) ────────────────────────────
-const unifiedPicker = read('src/ui/components/PermissionModePicker.tsx');
+// Per-provider mode lists live in the shared option maps the picker renders.
+const unifiedPicker = read('src/ui/utils/permission-modes.ts');
 const deepseekOptionsBlock =
   unifiedPicker.match(/DEEPSEEK_PERMISSION_MODE_OPTIONS[\s\S]*?\];/)?.[0] ?? '';
 assert.ok(

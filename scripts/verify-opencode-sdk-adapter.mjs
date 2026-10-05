@@ -211,7 +211,8 @@ assert.ok(
   'OpenCode context indicator must support an empty waiting state before first usage'
 );
 
-const permissionPickerSrc = read('src/ui/components/PermissionModePicker.tsx');
+// Per-provider mode lists live in the shared option maps the picker renders.
+const permissionPickerSrc = read('src/ui/utils/permission-modes.ts');
 const openCodeOptionsBlock =
   permissionPickerSrc.match(/OPENCODE_PERMISSION_MODE_OPTIONS[\s\S]*?\];/)?.[0] ?? '';
 assert.ok(

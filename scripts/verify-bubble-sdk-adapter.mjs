@@ -107,8 +107,9 @@ assert.ok(
 );
 
 const permissionUtil = read('src/ui/utils/bubble-permission.ts');
+// Per-provider mode lists live in the shared option maps the picker renders.
 const permissionPicker =
-  read('src/ui/components/PermissionModePicker.tsx').match(
+  read('src/ui/utils/permission-modes.ts').match(
     /BUBBLE_PERMISSION_MODE_OPTIONS[\s\S]*?\];/
   )?.[0] ?? '';
 const warmSend = read('src/electron/libs/warm-send-options.ts');
