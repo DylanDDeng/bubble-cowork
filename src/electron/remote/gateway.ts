@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from "crypto";
+import { listProjectDir, readProjectFile, searchProjectFiles } from "./project-files";
 import { hostname } from "os";
 import { join } from "path";
 import WebSocket from "ws";
@@ -462,6 +463,30 @@ export class RemoteGateway {
           id: request.id,
           result: (await this.runtime.options?.()) ?? {},
         };
+      if (
+        request.method === "files.list" ||
+        request.method === "files.search" ||
+        request.method === "files.read"
+      ) {
+        if (!this.journal.state.config.projectIds.includes(request.projectId))
+          throw new Error("SCOPE_DENIED");
+        const project = this.runtime.projects().find((p) => p.id === request.projectId);
+        if (!project) throw new Error("SCOPE_DENIED");
+        let result;
+        try {
+          result =
+            request.method === "files.list"
+              ? await listProjectDir(project.path, request.path)
+              : request.method === "files.search"
+                ? await searchProjectFiles(project.path, request.query)
+                : await readProjectFile(project.path, request.path);
+        } catch (error) {
+          // Only our own codes go back; fs messages would leak absolute paths.
+          const code = error instanceof Error ? error.message : "";
+          throw new Error(/^[A-Z_]+$/.test(code) ? code : "FILE_UNAVAILABLE");
+        }
+        return { type: "response", id: request.id, result };
+      }
       if (request.method === "attachment.chunk")
         return {
           type: "response",

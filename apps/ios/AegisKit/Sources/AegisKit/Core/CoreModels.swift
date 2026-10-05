@@ -20,6 +20,11 @@ public struct ChangedFile: Decodable, Equatable, Sendable {
     public let path: String
     public let additions: Int
     public let deletions: Int
+    /// The change record diff (often bare hunks).
+    public let diff: String?
+
+    /// The diff as a one-file patch the parser can read.
+    public var patch: String? { Stage.File.wrap(diff, path: path) }
 }
 
 public enum SessionItem: Decodable, Equatable, Sendable, Identifiable {
@@ -142,7 +147,11 @@ public struct Stage: Decodable, Equatable, Sendable, Identifiable {
 
         /// The diff as a one-file patch. Tool diffs are often bare hunks, which
         /// the patch parser only reads under a file header.
-        public var patch: String? {
+        public var patch: String? { Self.wrap(diff, path: path) }
+
+        /// Tool diffs are often bare hunks, which the patch parser only reads
+        /// under a file header.
+        static func wrap(_ diff: String?, path: String) -> String? {
             guard let diff, !diff.isEmpty else { return nil }
             if diff.hasPrefix("diff --git") || diff.hasPrefix("--- ") || diff.contains("\n+++ ") { return diff }
             return "--- a/\(path)\n+++ b/\(path)\n" + diff

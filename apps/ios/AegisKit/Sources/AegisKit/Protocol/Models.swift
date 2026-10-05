@@ -114,6 +114,23 @@ public struct CommandResult: Codable, Equatable, Sendable {
     public var unresolved: Bool { state == .unknown || state == .accepted }
 }
 
+public struct RemoteFileEntry: Codable, Equatable, Hashable, Identifiable, Sendable {
+    public enum Kind: String, Codable, Sendable { case dir, file }
+    public let name: String
+    /// Relative to the project root, with forward slashes.
+    public let path: String
+    public let kind: Kind
+    public var id: String { path }
+}
+
+public struct RemoteFileContent: Codable, Equatable, Sendable {
+    public let path: String
+    public let size: Double
+    /// Nil for binary files.
+    public let text: String?
+    public let truncated: Bool
+}
+
 public struct RemoteAttachment: Codable, Equatable, Sendable {
     public let attachmentId: String
     public let name: String

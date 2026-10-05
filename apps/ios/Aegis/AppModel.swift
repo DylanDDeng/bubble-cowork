@@ -27,10 +27,6 @@ final class AppModel {
     enum Screen: Hashable { case home, session(String) }
     enum Route: Hashable {
         case projects, project(String), settings
-        /// A turn's changes card (turn_changes message).
-        case diff(sessionId: String, itemId: String, file: Int)
-        /// Files of one edit stage in the work trace.
-        case stageDiff(stageId: String, file: Int)
     }
 
     let client: RemoteClient
@@ -51,8 +47,8 @@ final class AppModel {
     var sendTick = 0
     var attachments: [PendingAttachment] = []
 
-    /// Parsed diffs of trace edit stages, by stage id (filled when one is opened).
-    var stageDiffs: [String: [DiffFile]] = [:]
+    /// The diff sheet, when open.
+    var diffReview: DiffReview?
 
     // Agent catalogs from the Mac, per provider.
     var catalogs: [String: AgentCatalog] = [:]
@@ -187,7 +183,6 @@ final class AppModel {
     func push(_ route: Route) {
         drawerOpen = false
         path.append(route)
-        if case .diff(let sessionId, _, _) = route { client.select(sessionId) }
     }
 
     /// Parses an edit stage's file diffs (one file per entry, in stage order).
@@ -203,9 +198,20 @@ final class AppModel {
     func openStageDiff(_ stage: Stage, file: Stage.File) async {
         let files = await diffFiles(for: stage)
         guard !files.isEmpty else { return }
-        stageDiffs[stage.id] = files
-        let index = files.firstIndex { $0.path == file.path || $0.path.hasSuffix("/" + file.name) || file.path.hasSuffix($0.path) } ?? 0
-        push(.stageDiff(stageId: stage.id, file: index))
+        let focus = files.first { $0.path == file.path || $0.path.hasSuffix("/" + file.name) || file.path.hasSuffix($0.path) }
+        diffReview = DiffReview(files: files, focus: focus?.path, projectId: currentSession?.projectId)
+    }
+
+    /// Opens a turn's changed files, scrolled to `focus` when given.
+    func openTurnDiff(_ changed: [ChangedFile], focus: String?) async {
+        var files: [DiffFile] = []
+        for file in changed {
+            guard let patch = file.patch else { continue }
+            files += await core.parsePatch(patch)
+        }
+        guard !files.isEmpty else { return }
+        let match = focus.flatMap { f in files.first { $0.path == f || f.hasSuffix("/" + $0.path) || $0.path.hasSuffix("/" + f) } }
+        diffReview = DiffReview(files: files, focus: match?.path, projectId: currentSession?.projectId)
     }
 
     func newTask(in project: String? = nil) {

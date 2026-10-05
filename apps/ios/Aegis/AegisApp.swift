@@ -73,8 +73,6 @@ private struct MainShell: View {
                         case .projects: ProjectsPage()
                         case .project(let id): ProjectPage(projectId: id)
                         case .settings: SettingsPage()
-                        case .diff(let sessionId, let itemId, let file): DiffPage(source: .turn(sessionId: sessionId, itemId: itemId), index: file)
-                        case .stageDiff(let stageId, let file): DiffPage(source: .stage(stageId), index: file)
                         }
                     }
             }
@@ -95,6 +93,7 @@ private struct MainShell: View {
         }
         .animation(.interpolatingSpring(duration: 0.32, bounce: 0), value: model.drawerOpen)
         .sheet(item: $model.approval) { ApprovalSheet(permission: $0) }
+        .sheet(item: $model.diffReview) { DiffSheet(review: $0) }
         .onChange(of: model.drawerOpen) { _, open in
             if open { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
         }

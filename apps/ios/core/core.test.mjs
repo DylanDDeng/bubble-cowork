@@ -81,17 +81,23 @@ test("legacy hosts without raw fall back to text rows", () => {
   assert.equal(model.items[3].label, "Stopping…");
 });
 
-test("turn changes become a changes card keyed by the message uuid", () => {
-  const patch = "diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1,2 +1,2 @@\n-a\n+b\n c";
-  const model = call("renderSession", {
-    messages: [prompt("p1", "x", 1), { id: "c1", role: "system", text: "", raw: { type: "system", subtype: "turn_changes", uuid: "c1", createdAt: 2, turnChanges: { patch, truncated: false } } }],
-    running: false,
-    status: "idle",
+test("a finished turn with edits gets the desktop's files-changed card", () => {
+  const changes = { "/repo/a.ts": { type: "update", unified_diff: "@@ -1,2 +1,2 @@\n x\n-old\n+new\n" } };
+  const edit = (uuid, id, at) => ({
+    id: uuid, role: "assistant", text: "",
+    raw: { type: "assistant", uuid, createdAt: at, message: { content: [{ type: "tool_use", id, name: "Edit", input: JSON.stringify({ changes }) }] } },
   });
-  const changes = model.items.find((i) => i.kind === "changes");
-  assert.deepEqual(changes, { kind: "changes", id: "c1", files: [{ path: "x.ts", additions: 1, deletions: 1 }] });
-  const files = call("parsePatch", { patch });
-  assert.deepEqual(files[0].lines.map((l) => l.type), ["hunk", "del", "add", "ctx"]);
+  const turn = [prompt("p1", "fix", 1), edit("a1", "e1", 2), toolResult("r1", "e1", JSON.stringify({ output: "Done", changes }), 3), answer("a2", "Fixed.", 4)];
+  const done = call("renderSession", { messages: turn, running: false, status: "idle" });
+  assert.deepEqual(done.items.map((i) => i.kind), ["user", "work", "answer", "changes"]);
+  const card = done.items[3];
+  assert.deepEqual(card.files.map((f) => [f.path, f.additions, f.deletions]), [["/repo/a.ts", 1, 1]]);
+  assert.match(card.files[0].diff, /\+new/);
+  // The card waits while the turn is still running.
+  const live = call("renderSession", { messages: turn.slice(0, 3), running: true, status: "running" });
+  assert.ok(!live.items.some((i) => i.kind === "changes"));
+  const files = call("parsePatch", { patch: "--- a/a.ts\n+++ b/a.ts\n" + card.files[0].diff });
+  assert.deepEqual(files[0].lines.map((l) => l.type), ["hunk", "ctx", "del", "add"]);
 });
 
 test("catalog evaluates per-model efforts and fast mode", () => {

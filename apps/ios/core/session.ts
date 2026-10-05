@@ -18,9 +18,8 @@ import {
   type WorkstreamStage,
 } from "../../../src/ui/utils/workstream-stages";
 import type { ChangeRecord } from "../../../src/ui/utils/change-records";
-import { buildTurnChangeContext } from "../../../src/ui/utils/turn-change-records";
+import { buildTurnChangeContext, type TurnChangeSummary } from "../../../src/ui/utils/turn-change-records";
 import { buildTranscript, type Transcript } from "./transcript";
-import { parsePatch } from "./patch";
 
 export interface Lane {
   id: string;
@@ -75,7 +74,7 @@ export type SessionItem =
   | { kind: "user"; id: string; prompt: string; attachments: { id: string; name: string; image: boolean }[] }
   | { kind: "answer"; id: string; markdown: string; streaming: boolean }
   | { kind: "plan"; id: string; markdown: string }
-  | { kind: "changes"; id: string; files: { path: string; additions: number; deletions: number }[] }
+  | { kind: "changes"; id: string; files: { path: string; additions: number; deletions: number; diff: string | null }[] }
   | { kind: "work"; id: string; work: WorkBlock }
   | { kind: "activity"; id: string; steps: { id: string; detail: string }[] }
   | { kind: "working"; id: string; label: string };
@@ -307,6 +306,29 @@ function workBlock(group: TimelineWorkGroup, active: boolean, running: boolean, 
   };
 }
 
+/**
+ * Same placement as the desktop ChatPane: each completed turn with changed
+ * files gets its card after the last timeline item of that turn. The running
+ * turn's card waits until the turn ends.
+ */
+function turnCardsByTimelineIndex(transcript: Transcript, turns: TurnChangeSummary[], running: boolean) {
+  const map = new Map<number, TurnChangeSummary>();
+  const lastMessageIndex = transcript.messages.length - 1;
+  for (const turn of turns) {
+    if (turn.totalFiles === 0) continue;
+    if (running && turn.lastMessageIndex >= lastMessageIndex) continue;
+    let lastIdx = -1;
+    for (let i = 0; i < transcript.items.length; i += 1) {
+      const item = transcript.items[i];
+      const lastOrig = item.type === "work" ? item.group.originalIndices[item.group.originalIndices.length - 1] : item.originalIndex;
+      if (lastOrig <= turn.lastMessageIndex) lastIdx = i;
+      else break;
+    }
+    if (lastIdx >= 0) map.set(lastIdx, turn);
+  }
+  return map;
+}
+
 export function renderSession(messages: RemoteMessage[], running: boolean, status: string): SessionModel {
   const transcript = buildTranscript(messages, running);
   const items: SessionItem[] = [];
@@ -320,8 +342,22 @@ export function renderSession(messages: RemoteMessage[], running: boolean, statu
   const working = { kind: "working" as const, id: "working", label: status === "stopping" ? "Stopping…" : "Working" };
 
   if (transcript.structured) {
-    const records = buildTurnChangeContext(transcript.messages).changeRecordsByToolUseId;
-    transcript.items.forEach((item) => {
+    const changeContext = buildTurnChangeContext(transcript.messages);
+    const records = changeContext.changeRecordsByToolUseId;
+    const cards = turnCardsByTimelineIndex(transcript, changeContext.turns, running);
+    const pushCard = (index: number) => {
+      const turn = cards.get(index);
+      if (!turn) return;
+      const first = transcript.messages[turn.firstMessageIndex] as { uuid?: string } | undefined;
+      items.push({
+        kind: "changes",
+        id: unique("changes:" + (first?.uuid ?? turn.turnIndex)),
+        files: turn.records.map((r) => ({ path: r.filePath, additions: r.addedLines, deletions: r.removedLines, diff: r.diffContent })),
+      });
+    };
+    transcript.items.forEach((item, timelineIndex) => {
+      // The desktop's per-turn changes card follows the turn's last item.
+      if (timelineIndex > 0) pushCard(timelineIndex - 1);
       if (item.type === "work") {
         const work = workBlock(item.group, item.active, running, transcript, item.defaultExpanded, item.canCollapse !== false, records);
         // Ids from the first message survive "load earlier", unlike the index-based group id.
@@ -338,10 +374,6 @@ export function renderSession(messages: RemoteMessage[], running: boolean, statu
           prompt: m.prompt,
           attachments: (m.attachments ?? []).map((a) => ({ id: a.id, name: a.name, image: a.kind === "image" })),
         });
-      } else if (m.type === "system" && m.subtype === "turn_changes") {
-        const files = parsePatch(m.turnChanges.patch);
-        if (files.length)
-          items.push({ kind: "changes", id: m.uuid, files: files.map((f) => ({ path: f.path, additions: f.additions, deletions: f.deletions })) });
       } else if (m.type === "proposed_plan") {
         items.push({ kind: "plan", id, markdown: m.planMarkdown });
       } else if (m.type === "assistant") {
@@ -349,6 +381,7 @@ export function renderSession(messages: RemoteMessage[], running: boolean, statu
         if (text.trim()) items.push({ kind: "answer", id, markdown: text, streaming: m.streaming === true });
       }
     });
+    pushCard(transcript.items.length - 1);
     const lastItem = transcript.items[transcript.items.length - 1];
     const liveWork = lastItem?.type === "work" && lastItem.active;
     if (running && transcript.partialText && !liveWork)

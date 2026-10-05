@@ -383,6 +383,23 @@ public final class RemoteClient {
         if let options = try? await request(["method": "options"]) { agentOptions = options }
     }
 
+    // MARK: Project files (read-only)
+
+    public func listFiles(projectId: String, path: String = "") async throws -> [RemoteFileEntry] {
+        var params: [String: JSONValue] = ["method": "files.list", "projectId": .string(projectId)]
+        if !path.isEmpty { params["path"] = .string(path) }
+        return try await request(params).decode([RemoteFileEntry].self)
+    }
+
+    public func searchFiles(projectId: String, query: String) async throws -> [RemoteFileEntry] {
+        try await request(["method": "files.search", "projectId": .string(projectId), "query": .string(query)]).decode([RemoteFileEntry].self)
+    }
+
+    /// `path` is relative to the project, or absolute inside it.
+    public func readFile(projectId: String, path: String) async throws -> RemoteFileContent {
+        try await request(["method": "files.read", "projectId": .string(projectId), "path": .string(path)], timeout: 30).decode(RemoteFileContent.self)
+    }
+
     public func select(_ sessionId: String?) {
         guard selectedSession != sessionId else { return }
         selectedSession = sessionId

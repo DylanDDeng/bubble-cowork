@@ -270,8 +270,8 @@ private struct ItemView: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.hair, lineWidth: 0.5))
-        case .changes(let itemId, let files):
-            ChangesCard(files: files) { index in model.push(.diff(sessionId: sessionId, itemId: itemId, file: index)) }
+        case .changes(_, let files):
+            ChangesCard(files: files) { path in Task { await model.openTurnDiff(files, focus: path) } }
         case .work(_, let work):
             WorkBlockView(work: work)
         case .activity(_, let steps):
@@ -309,37 +309,58 @@ private struct LegacyActivity: View {
     }
 }
 
+/// A turn's changed files: collapsible, first three shown, the rest in the sheet.
 private struct ChangesCard: View {
     let files: [ChangedFile]
-    let onOpen: (Int) -> Void
+    let onOpen: (String?) -> Void
+    @State private var open = true
+    private let shown = 3
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("\(files.count) \(files.count == 1 ? "file" : "files") changed").font(.system(size: 14, weight: .semibold))
-                Spacer()
-                DiffCounts(added: files.reduce(0) { $0 + $1.additions }, removed: files.reduce(0) { $0 + $1.deletions })
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { open.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text("\(files.count) \(files.count == 1 ? "file" : "files") changed").font(.system(size: 14, weight: .semibold))
+                    DiffCounts(added: files.reduce(0) { $0 + $1.additions }, removed: files.reduce(0) { $0 + $1.deletions })
+                    Spacer()
+                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.text3)
+                        .rotationEffect(.degrees(open ? 0 : -90))
+                }
+                .padding(.horizontal, 14).padding(.vertical, 12)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 14).padding(.vertical, 12)
-            ForEach(Array(files.enumerated()), id: \.offset) { index, file in
-                Divider().overlay(Color.hair)
-                Button { onOpen(index) } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "doc.text").font(.system(size: 15)).foregroundStyle(Color.text3)
-                        Text(file.path).font(.system(size: 13, design: .monospaced)).lineLimit(1).truncationMode(.head)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        DiffCounts(added: file.additions, removed: file.deletions)
-                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.text3)
+            .buttonStyle(.plain)
+            if open {
+                ForEach(Array(files.prefix(shown).enumerated()), id: \.offset) { _, file in
+                    Divider().overlay(Color.hair)
+                    Button { onOpen(file.path) } label: {
+                        HStack(spacing: 10) {
+                            Text(file.path).font(.system(size: 13)).lineLimit(1).truncationMode(.head)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            DiffCounts(added: file.additions, removed: file.deletions)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .buttonStyle(.plain)
+                }
+                Divider().overlay(Color.hair)
+                Button { onOpen(nil) } label: {
+                    HStack {
+                        Text(files.count > shown ? "View \(files.count - shown) more \(files.count - shown == 1 ? "file" : "files")" : "Review changes")
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                    }
+                    .font(.system(size: 13)).foregroundStyle(Color.text2)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .background(Color.page, in: .rect(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.hair, lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.04), radius: 1, y: 1)
+        .background(Color.fill2, in: .rect(cornerRadius: 18))
     }
 }
 

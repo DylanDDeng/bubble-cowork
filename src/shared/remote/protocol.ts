@@ -40,6 +40,16 @@ export const requestSchema = z.discriminatedUnion("method", [
     .strict(),
   z.object({ id, method: z.literal("command.get"), commandId: id }).strict(),
   z.object({ id, method: z.literal("options") }).strict(),
+  // Read-only browsing of an authorized project's files.
+  z
+    .object({ id, method: z.literal("files.list"), projectId: id, path: z.string().max(1024).optional() })
+    .strict(),
+  z
+    .object({ id, method: z.literal("files.search"), projectId: id, query: z.string().trim().min(1).max(200) })
+    .strict(),
+  z
+    .object({ id, method: z.literal("files.read"), projectId: id, path: z.string().min(1).max(1024) })
+    .strict(),
   z
     .object({
       id,
@@ -148,6 +158,19 @@ export interface RemoteAgentOptions {
       defaultReasoningLevel?: string | null;
     }>;
   };
+}
+export interface RemoteFileEntry {
+  name: string;
+  /** Relative to the project root, with forward slashes. */
+  path: string;
+  kind: "dir" | "file";
+}
+export interface RemoteFileContent {
+  path: string;
+  size: number;
+  /** Null for binary files. */
+  text: string | null;
+  truncated: boolean;
 }
 export interface RemoteAttachment {
   attachmentId: string;

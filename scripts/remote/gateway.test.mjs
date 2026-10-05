@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -14,6 +14,17 @@ const {
   remoteTaskPayload,
 } = require("../../dist-electron/electron/remote/task-payload.js");
 const dir = mkdtempSync(join(tmpdir(), "aegis-remote-tests-"));
+// A small project for the read-only file requests.
+const projectDir = join(dir, "project");
+mkdirSync(join(projectDir, "src"), { recursive: true });
+mkdirSync(join(projectDir, "node_modules", "pkg"), { recursive: true });
+writeFileSync(join(projectDir, "README.md"), "# Hello\n");
+writeFileSync(join(projectDir, "src", "app.ts"), "export const x = 1;\n");
+writeFileSync(join(projectDir, "src", "logo.bin"), Buffer.from([1, 0, 2, 3]));
+writeFileSync(join(projectDir, ".env"), "SECRET=1\n");
+writeFileSync(join(projectDir, "node_modules", "pkg", "app.js"), "x");
+writeFileSync(join(dir, "outside.txt"), "outside\n");
+symlinkSync(join(dir, "outside.txt"), join(projectDir, "escape.txt"));
 let lastExtras;
 let starts = 0,
   sends = 0,
@@ -42,7 +53,7 @@ const sessions = [
 ];
 const runtime = {
   projects: () => [
-    { id: "allowed", name: "Allowed", path: "/allowed" },
+    { id: "allowed", name: "Allowed", path: projectDir },
     { id: "hidden", name: "Hidden", path: "/hidden" },
   ],
   sessions: () => sessions,
@@ -255,6 +266,21 @@ try {
     if (r.error) tooLarge = r.error;
   }
   assert.equal(tooLarge, "ATTACHMENT_TOO_LARGE");
+  // Read-only project files: scoped, no dot entries, no escapes.
+  const files = (data, peer) => request(data, peer);
+  const root = (await files({ method: "files.list", projectId: "allowed" })).result;
+  assert.deepEqual(root.map((e) => `${e.kind}:${e.path}`), ["dir:node_modules", "dir:src", "file:README.md"]);
+  assert.deepEqual((await files({ method: "files.list", projectId: "allowed", path: "src" })).result.map((e) => e.path), ["src/app.ts", "src/logo.bin"]);
+  assert.equal((await files({ method: "files.read", projectId: "allowed", path: "src/app.ts" })).result.text, "export const x = 1;\n");
+  assert.equal((await files({ method: "files.read", projectId: "allowed", path: join(projectDir, "README.md") })).result.path, "README.md");
+  assert.equal((await files({ method: "files.read", projectId: "allowed", path: "src/logo.bin" })).result.text, null);
+  assert.equal((await files({ method: "files.read", projectId: "allowed", path: "../outside.txt" })).error, "SCOPE_DENIED");
+  assert.equal((await files({ method: "files.read", projectId: "allowed", path: "escape.txt" })).error, "SCOPE_DENIED");
+  assert.equal((await files({ method: "files.read", projectId: "allowed", path: ".env" })).error, "SCOPE_DENIED");
+  assert.equal((await files({ method: "files.read", projectId: "allowed", path: "missing.ts" })).error, "NOT_FOUND");
+  assert.equal((await files({ method: "files.list", projectId: "hidden" })).error, "SCOPE_DENIED");
+  assert.equal((await files({ method: "files.list", projectId: "allowed" }, "attacker")).error, "UNAUTHORIZED");
+  assert.deepEqual((await files({ method: "files.search", projectId: "allowed", query: "APP" })).result.map((e) => e.path), ["src/app.ts"]);
   // Phone settings map onto the desktop composer's payload fields.
   assert.deepEqual(remoteTaskPayload("codex", { settings: { model: "m", effort: "high", fast: true, permissionMode: "fullAccess", plan: true } }), {
     model: "m", attachments: undefined, codexPermissionMode: "fullAccess", codexExecutionMode: "plan", codexReasoningEffort: "high", codexFastMode: true,
