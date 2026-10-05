@@ -44,10 +44,10 @@ extension Font {
 /// Provider marks, same artwork as the desktop ProviderIcon (template SVGs in the asset catalog).
 let providerLabels: [String: String] = [
     "claude": "Claude", "codex": "Codex", "bubble": "Bubble", "kimi": "Kimi", "grok": "Grok",
-    "opencode": "OpenCode", "pi": "Pi", "qoder": "Qoder", "deepseek": "DeepSeek",
+    "opencode": "OpenCode", "pi": "Pi", "qoder": "Qoder", "deepseek": "DeepSeek", "devin": "Devin",
 ]
 func providerLabel(_ id: String) -> String { providerLabels[id] ?? id }
-let agentProviders = ["claude", "codex", "bubble"]
+let agentProviders = ["claude", "codex", "bubble", "devin"]
 
 struct ProviderGlyph: View {
     let provider: String
@@ -57,7 +57,8 @@ struct ProviderGlyph: View {
         if UIImage(named: "provider-\(provider)") != nil {
             Image("provider-\(provider)")
                 .resizable()
-                .renderingMode(.template)
+                // Devin's mark keeps its brand colors, like on the desktop.
+                .renderingMode(provider == "devin" ? .original : .template)
                 .aspectRatio(contentMode: .fit)
                 .frame(width: size, height: size)
         } else {

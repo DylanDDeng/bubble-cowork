@@ -15,12 +15,33 @@ import { getClaudeModelConfigWithCatalog } from "../libs/claude-settings";
 import { loadCompatibleProviderConfig } from "../libs/compatible-provider-config";
 import { getCodexModelConfig } from "../libs/codex-settings";
 import { getBubbleModelConfig } from "../libs/bubble-settings";
+import { getDevinModelConfig, getDevinThoughtLevels } from "../libs/devin-cli";
 import { importAttachmentBytes } from "../libs/file-attachments";
 
+/** Devin's catalog with thinking levels per model (both cached by devin-cli). */
+async function devinOptions(): Promise<RemoteAgentOptions["devin"] | null> {
+  const config = await getDevinModelConfig();
+  if (!config.availableModels.length) return null;
+  const thoughtLevels: NonNullable<RemoteAgentOptions["devin"]>["thoughtLevels"] = {};
+  // Each uncached model is probed through Devin's ACP session; stop waiting
+  // after a few seconds so the phone's pickers still load.
+  await Promise.race([
+    Promise.all(
+      config.availableModels.map(async ({ id }) => {
+        const levels = await getDevinThoughtLevels(id);
+        thoughtLevels[id] = { levels: levels.levels, defaultLevel: levels.defaultLevel };
+      }),
+    ),
+    new Promise((resolve) => setTimeout(resolve, 8000)),
+  ]);
+  return { defaultModel: config.defaultModel, availableModels: config.availableModels, thoughtLevels };
+}
+
 async function agentOptions(): Promise<RemoteAgentOptions> {
-  const [claude, bubble] = await Promise.all([
+  const [claude, bubble, devin] = await Promise.all([
     getClaudeModelConfigWithCatalog().catch(() => null),
     getBubbleModelConfig().catch(() => null),
+    devinOptions().catch(() => null),
   ]);
   let codex: ReturnType<typeof getCodexModelConfig> | null = null;
   try {
@@ -58,6 +79,7 @@ async function agentOptions(): Promise<RemoteAgentOptions> {
           },
         }
       : {}),
+    ...(devin ? { devin } : {}),
     ...(bubble
       ? {
           bubble: {

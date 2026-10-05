@@ -291,6 +291,9 @@ try {
   assert.equal(bubble.bubblePermissionMode, "plan");
   assert.equal(bubble.bubblePlanExitMode, "bypassPermissions");
   assert.equal(bubble.bubbleThinkingLevel, "max");
+  const devin = remoteTaskPayload("devin", { settings: { model: "swe-1.5", permissionMode: "plan", effort: "high" } });
+  assert.deepEqual(devin, { model: "swe-1.5", attachments: undefined, devinPermissionMode: "plan", devinThoughtLevel: "high" });
+  assert.equal(remoteTaskPayload("devin", { settings: { permissionMode: "yolo" } }).devinPermissionMode, "accept-edits");
   gateway.revoke("phone");
   assert.equal((await request({ method: "snapshot" })).error, "UNAUTHORIZED");
   console.log(

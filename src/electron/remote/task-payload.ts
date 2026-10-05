@@ -7,6 +7,8 @@ const PERMISSION_MODES: Record<string, string[]> = {
   claude: ["default", "auto", "acceptEdits", "dontAsk", "bypassPermissions"],
   codex: ["defaultPermissions", "auto", "fullAccess"],
   bubble: ["default", "bypassPermissions"],
+  // Devin's plan is one of its ACP session modes, picked in the same menu.
+  devin: ["accept-edits", "smart", "ask", "plan", "bypass"],
 };
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
@@ -37,6 +39,10 @@ export function remoteTaskPayload(
     payload.bubblePermissionMode = s.plan ? "plan" : base;
     payload.bubblePlanExitMode = base === "bypassPermissions" ? "bypassPermissions" : "default";
     payload.bubbleThinkingLevel = s.effort || undefined;
+  } else if (provider === "devin") {
+    payload.devinPermissionMode = (mode ?? "accept-edits") as SessionContinuePayload["devinPermissionMode"];
+    // Thinking levels are an open set per model; the desktop validates them.
+    payload.devinThoughtLevel = s.effort || undefined;
   }
   return payload;
 }

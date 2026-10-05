@@ -5,7 +5,7 @@ export const environmentSchema = z.enum(["development", "production", "fixture"]
 export type RemoteEnvironment = z.infer<typeof environmentSchema>;
 export const environmentLabel = (value: RemoteEnvironment) =>
   ({ development: "Aegis Dev", production: "Aegis", fixture: "Fixture" })[value];
-export const providerSchema = z.enum(["claude", "codex", "bubble"]);
+export const providerSchema = z.enum(["claude", "codex", "bubble", "devin"]);
 const id = z.string().min(1).max(160);
 const short = z.string().trim().min(1).max(120);
 /**
@@ -145,6 +145,12 @@ export interface RemoteAgentOptions {
       supportsFastMode?: boolean;
     }>;
   };
+  devin?: {
+    defaultModel: string | null;
+    availableModels: Array<{ id: string; label: string }>;
+    /** Per model id; models whose levels could not be read are absent. */
+    thoughtLevels: Record<string, RemoteDevinThoughtLevels>;
+  };
   bubble?: {
     defaultModel: string | null;
     options: string[];
@@ -171,6 +177,11 @@ export interface RemoteFileContent {
   /** Null for binary files. */
   text: string | null;
   truncated: boolean;
+}
+/** Devin thinking levels for one model; empty when the model has none. */
+export interface RemoteDevinThoughtLevels {
+  levels: Array<{ id: string; label: string }>;
+  defaultLevel: string | null;
 }
 export interface RemoteAttachment {
   attachmentId: string;

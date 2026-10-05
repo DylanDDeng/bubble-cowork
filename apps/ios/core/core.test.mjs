@@ -143,6 +143,26 @@ test("Codex edits name the file and count lines, like the desktop", () => {
   assert.equal(stage.genericText, "");
 });
 
+test("Devin catalog: models and thinking levels from the Mac, plan as a mode", () => {
+  const devin = call("catalog", {
+    provider: "devin",
+    options: {
+      devin: {
+        defaultModel: "swe",
+        availableModels: [{ id: "swe", label: "SWE" }, { id: "opus", label: "Opus" }],
+        thoughtLevels: { swe: { levels: [], defaultLevel: null }, opus: { levels: [{ id: "low", label: "Low" }, { id: "high", label: "High" }], defaultLevel: "high" } },
+      },
+    },
+  });
+  assert.deepEqual(devin.models.map((m) => m.label), ["Default", "SWE", "Opus"]);
+  assert.deepEqual(devin.perModel[""].efforts, []);
+  assert.deepEqual(devin.perModel.opus.efforts.map((e) => e.value), ["low", "high"]);
+  assert.equal(devin.perModel.opus.defaultEffort, "high");
+  assert.equal(devin.defaultPermission, "accept-edits");
+  assert.ok(devin.permissionModes.some((p) => p.mode === "plan"));
+  assert.equal(devin.supportsPlan, false);
+});
+
 test("errors come back as values", () => {
   assert.ok(JSON.parse(context.AegisCore.renderSession("not json")).error);
 });
