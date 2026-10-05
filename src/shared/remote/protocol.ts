@@ -40,6 +40,16 @@ export const requestSchema = z.discriminatedUnion("method", [
     .strict(),
   z.object({ id, method: z.literal("command.get"), commandId: id }).strict(),
   z.object({ id, method: z.literal("options") }).strict(),
+  z
+    .object({
+      id,
+      method: z.literal("push.register"),
+      deviceToken: z.string().regex(/^[a-f0-9]{64,200}$/),
+      // The app's bundle id; the relay decides which topics it serves.
+      topic: z.string().regex(/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/).max(155),
+      environment: z.enum(["development", "production"]),
+    })
+    .strict(),
   // Read-only browsing of an authorized project's files.
   z
     .object({ id, method: z.literal("files.list"), projectId: id, path: z.string().max(1024).optional() })

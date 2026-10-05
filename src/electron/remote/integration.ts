@@ -7,6 +7,7 @@ import { canonicalProjectPath } from "../libs/project-paths";
 import { ipcMainHandle } from "../util";
 import { RemoteGateway, type RemoteRuntime } from "./gateway";
 import { RemoteJournal } from "./journal";
+import { defaultRelay } from "./relay-auth";
 import { projectMessages } from "../../shared/remote/projection";
 import type { RemoteAgentOptions } from "../../shared/remote/protocol";
 import type { ServerEvent } from "../../shared/types";
@@ -204,6 +205,7 @@ export function setupRemoteIPC(
                 enabled: false,
                 environment: app.isPackaged ? "production" : "development",
                 relay: "",
+                defaultRelay: defaultRelay(),
                 projects: listProjects().map(({ id, name }) => ({ id, name })),
                 projectIds: [],
                 devices: [],

@@ -3,17 +3,18 @@ import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { WebSocket } from "ws";
 import { createRelay } from "../../services/relay/server.mjs";
+import { hostAuth, hostRoom } from "./relay-host.mjs";
 const { createIdentity, secureChannel } = createRequire(import.meta.url)(
   "../../dist-electron/electron/remote/secure-channel.cjs",
 );
 async function setup(wrongPin = false) {
-  const token = randomBytes(32).toString("hex"),
-    room = randomBytes(16).toString("hex");
+  const token = randomBytes(32).toString("hex");
   const relay = createRelay({ port: 0, registrationToken: token });
   const address = await relay.listen();
   const hi = await createIdentity(),
     pi = await createIdentity(),
     wrong = await createIdentity();
+  const room = hostRoom(hi.privateKey);
   let hostSocket, phoneSocket;
   const connect = (role) =>
     new Promise((resolve, reject) => {
@@ -23,9 +24,9 @@ async function setup(wrongPin = false) {
       else phoneSocket = ws;
       ws.on("error", reject);
       ws.on("open", () =>
-        ws.send(
-          JSON.stringify({ role, room, token, registrationToken: token }),
-        ),
+        role === "host"
+          ? hostAuth(ws, hi.privateKey, { token, registrationToken: token })
+          : ws.send(JSON.stringify({ role, room, token })),
       );
       const onmessage = (event) => {
         if (

@@ -4,6 +4,7 @@ import { hostname } from "os";
 import { join } from "path";
 import WebSocket from "ws";
 import { RemoteJournal } from "./journal";
+import { defaultRelay, hostProof, identityKeys, pushRequest, relayHttpOrigin, roomFor } from "./relay-auth";
 import {
   REMOTE_PROTOCOL,
   requestSchema,
@@ -78,6 +79,10 @@ export class RemoteGateway {
   private pendingCommands = new Set<string>();
   private uploads = new Map<string, { peer: string; name: string; total: number; parts: Buffer[]; bytes: number; at: number }>();
   private uploaded = new Map<string, { peer: string; attachment: Attachment; at: number }>();
+  private attempt = 0;
+  private relayError?: string;
+  private running = new Set<string>();
+  private notified = new Map<string, number>();
   status = "disabled";
   constructor(
     readonly journal: RemoteJournal,
@@ -92,17 +97,20 @@ export class RemoteGateway {
       enabled: this.journal.state.config?.enabled ?? false,
       environment: this.runtime.environment ?? "development",
       relay: this.journal.state.config?.relay ?? "",
+      defaultRelay: defaultRelay(),
+      relayError: this.relayError,
       projects: this.runtime.projects().map(({ id, name }) => ({ id, name })),
       projectIds: this.journal.state.config?.projectIds ?? [],
       devices: this.journal.state.devices,
     };
   }
+  /** An empty relay means the public Aegis relay; the token is only for self-hosted relays. */
   async configure(
-    relay: string,
-    registrationToken: string,
+    relay: string | undefined,
+    registrationToken: string | undefined,
     projectIds: string[],
   ) {
-    const url = new URL(relay);
+    const url = new URL(relay?.trim() || defaultRelay());
     if (
       url.protocol !== "wss:" &&
       !(
@@ -113,7 +121,8 @@ export class RemoteGateway {
       throw new Error("Use WSS for remote connections");
     if (url.username || url.password || url.search || url.hash)
       throw new Error("Relay URL must not contain credentials");
-    if (registrationToken.length < 32 || registrationToken.length > 128)
+    registrationToken = registrationToken?.trim() || undefined;
+    if (registrationToken && (registrationToken.length < 32 || registrationToken.length > 128))
       throw new Error("Invalid relay registration token");
     const allowed = new Set(this.runtime.projects().map((p) => p.id));
     if (!projectIds.length || projectIds.some((id) => !allowed.has(id)))
@@ -123,8 +132,8 @@ export class RemoteGateway {
     this.journal.update((s) => {
       s.config = {
         relay: url.toString(),
-        registrationToken,
-        room: randomBytes(16).toString("hex"),
+        ...(registrationToken ? { registrationToken } : {}),
+        room: roomFor(identityKeys(identity.privateKey).publicKey),
         routeToken: randomBytes(32).toString("hex"),
         identity: identity.privateKey,
         peerId: identity.peerId,
@@ -190,9 +199,19 @@ export class RemoteGateway {
     this.status = "disabled";
   }
   connect() {
-    const config = this.journal.state.config;
+    let config = this.journal.state.config;
     if (!config?.enabled) return;
+    const keys = identityKeys(config.identity);
+    const room = roomFor(keys.publicKey);
+    if (config.room !== room) {
+      // Rooms used to be random; they now follow the host key. Phones re-pair once.
+      this.journal.update((s) => {
+        s.config!.room = room;
+      });
+      config = this.journal.state.config!;
+    }
     const generation = ++this.generation;
+    clearTimeout(this.retry);
     this.status = "connecting";
     const socket = new WebSocket(config.relay, {
       maxPayload: 256 * 1024,
@@ -204,9 +223,10 @@ export class RemoteGateway {
       socket.send(
         JSON.stringify({
           role: "host",
-          room: config.room,
+          room,
           token: config.routeToken,
-          registrationToken: config.registrationToken,
+          publicKey: keys.publicKey,
+          ...(config.registrationToken ? { registrationToken: config.registrationToken } : {}),
         }),
       ),
     );
@@ -215,15 +235,21 @@ export class RemoteGateway {
         socket.close();
         return;
       }
-      let type: string;
+      let message: { type?: string; nonce?: string };
       try {
-        type = JSON.parse(event.data).type;
+        message = JSON.parse(event.data);
       } catch {
         socket.close();
         return;
       }
-      if (type === "registered") this.status = "waiting";
-      else if (type === "peer") {
+      const type = message.type;
+      if (type === "challenge" && typeof message.nonce === "string" && /^[a-f0-9]{64}$/.test(message.nonce))
+        socket.send(JSON.stringify({ type: "proof", signature: keys.sign(hostProof(message.nonce, room)).toString("base64") }));
+      else if (type === "registered") {
+        this.status = "waiting";
+        this.attempt = 0;
+        this.relayError = undefined;
+      } else if (type === "peer") {
         socket.removeEventListener("message", control);
         void this.accept(socket, generation).catch(() => socket.close());
       } else socket.close();
@@ -232,12 +258,16 @@ export class RemoteGateway {
     socket.on("error", () => {
       this.status = "offline";
     });
-    socket.on("close", () => {
+    socket.on("close", (code: number, reason: Buffer) => {
       if (generation !== this.generation) return;
-      this.status = "offline";
       this.channel = undefined;
       this.activePeer = undefined;
-      this.retry = setTimeout(() => this.connect(), 1500);
+      // 1008 is the relay refusing this Mac; retrying fast would not change that.
+      const rejected = code === 1008;
+      this.status = rejected ? "rejected" : "offline";
+      if (rejected) this.relayError = reason.toString().slice(0, 120) || "Connection rejected";
+      const base = rejected ? 60000 : Math.min(60000, 1500 * 2 ** this.attempt++);
+      this.retry = setTimeout(() => this.connect(), base * (0.8 + Math.random() * 0.4));
     });
   }
   private async accept(socket: WebSocket, generation: number) {
@@ -457,6 +487,17 @@ export class RemoteGateway {
             request.historyRevision,
           ),
         };
+      if (request.method === "push.register") {
+        const { deviceToken, topic, environment } = request;
+        this.journal.update((s) => {
+          for (const device of s.devices) {
+            // A token belongs to one phone; drop it from any other device record.
+            if (device.peerId === peerId) device.push = { deviceToken, topic, environment };
+            else if (device.push?.deviceToken === deviceToken) delete device.push;
+          }
+        });
+        return { type: "response", id: request.id, result: { ok: true } };
+      }
       if (request.method === "options")
         return {
           type: "response",
@@ -709,6 +750,11 @@ export class RemoteGateway {
       } else if (message.type === "assistant" && !message.streaming)
         this.live.delete(id);
     }
+    if (event.type === "permission.request" && id) this.notify("approval", id);
+    if (event.type === "session.status" && id) {
+      if (["running", "stopping"].includes(p.status)) this.running.add(id);
+      else if (this.running.delete(id)) this.notify(p.status === "error" ? "failed" : "finished", id);
+    }
     if (event.type === "permission.request")
       this.permissions.set(
         this.hostBootId + ":" + p.sessionId + ":" + p.toolUseId,
@@ -732,6 +778,51 @@ export class RemoteGateway {
       event.type.startsWith("permission.")
     )
       this.invalidate();
+  }
+  /** Tells paired phones through APNs, only while none is connected to see it live. */
+  private notify(kind: "approval" | "finished" | "failed", sessionId: string) {
+    const config = this.journal.state.config;
+    if (!config?.enabled || this.activePeer || this.status !== "waiting") return;
+    const session = this.runtime.sessions().find((s) => s.id === sessionId);
+    if (!session || !config.projectIds.includes(session.projectId)) return;
+    const key = kind + ":" + sessionId;
+    const now = Date.now();
+    if (now - (this.notified.get(key) ?? 0) < 60000) return;
+    this.notified.set(key, now);
+    for (const [k, at] of this.notified) if (now - at > 600000) this.notified.delete(k);
+    for (const device of this.journal.state.devices) {
+      const push = device.push;
+      if (!push) continue;
+      void this.deliver(config.relay, config.identity, device.peerId, { ...push, kind, sessionId, machineName: hostname().slice(0, 100) });
+    }
+  }
+  private async deliver(
+    relay: string,
+    identity: string,
+    peerId: string,
+    fields: Parameters<typeof pushRequest>[1],
+  ) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        // Re-sign every attempt: the relay rejects reused nonces.
+        const { body, signature } = pushRequest(identity, fields);
+        const res = await fetch(relayHttpOrigin(relay) + "/v1/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Aegis-Signature": signature },
+          body,
+          signal: AbortSignal.timeout(15000),
+        });
+        const result = (await res.json().catch(() => ({}))) as { unregistered?: boolean };
+        if (result.unregistered)
+          this.journal.update((s) => {
+            const device = s.devices.find((d) => d.peerId === peerId);
+            if (device?.push?.deviceToken === fields.deviceToken) delete device.push;
+          });
+        // Only network trouble and relay/APNs hiccups are worth another try.
+        if (res.status < 500 || res.status === 503) return;
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 2000 * 4 ** attempt));
+    }
   }
   private invalidate() {
     if (this.timer) return;

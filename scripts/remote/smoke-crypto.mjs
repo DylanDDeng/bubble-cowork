@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { WebSocket } from "ws";
 import { createRelay } from "../../services/relay/server.mjs";
+import { hostAuth, hostRoom } from "./relay-host.mjs";
 const { createIdentity, secureChannel } = createRequire(import.meta.url)(
   "../../dist-electron/electron/remote/secure-channel.cjs",
 );
@@ -11,13 +12,15 @@ const relay = createRelay({ port: 0, registrationToken: token });
 const address = await relay.listen();
 const hostIdentity = await createIdentity(),
   phoneIdentity = await createIdentity();
-const room = randomBytes(16).toString("hex");
+const room = hostRoom(hostIdentity.privateKey);
 function connect(role) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${address.port}`);
     ws.binaryType = "arraybuffer";
     ws.on("open", () =>
-      ws.send(JSON.stringify({ role, room, token, registrationToken: token })),
+      role === "host"
+        ? hostAuth(ws, hostIdentity.privateKey, { token, registrationToken: token })
+        : ws.send(JSON.stringify({ role, room, token })),
     );
     const listener = (event) => {
       if (

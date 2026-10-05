@@ -1,0 +1,37 @@
+# Aegis relay on Fly.io. Rooms live in memory, so this runs exactly one machine.
+#   fly apps create <name>      # then set `app` below and DEFAULT_RELAY in src/electron/remote/relay-auth.ts
+#   fly deploy
+#   fly secrets set APNS_KEY="$(cat AuthKey_XXXX.p8)" APNS_KEY_ID=XXXX APNS_TEAM_ID=XXXX
+app = "aegis-relay"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  RELAY_BIND = "0.0.0.0"
+  PORT = "8788"
+  RELAY_TRUST_PROXY = "1"
+
+[http_service]
+  internal_port = 8788
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 4000
+    hard_limit = 6000
+
+  [[http_service.checks]]
+    grace_period = "5s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "3s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

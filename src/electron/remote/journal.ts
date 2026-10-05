@@ -14,7 +14,8 @@ export interface RemoteConfig {
   relay: string;
   room: string;
   routeToken: string;
-  registrationToken: string;
+  /** Only for a self-hosted relay that gates hosts with a shared token. */
+  registrationToken?: string;
   identity: string;
   peerId: string;
   projectIds: string[];
@@ -24,6 +25,12 @@ export interface RemoteDevice {
   peerId: string;
   name: string;
   pairedAt: number;
+  /** APNs registration the phone sent over the encrypted channel. */
+  push?: {
+    deviceToken: string;
+    topic: string;
+    environment: "development" | "production";
+  };
 }
 interface Entry {
   fingerprint: string;
