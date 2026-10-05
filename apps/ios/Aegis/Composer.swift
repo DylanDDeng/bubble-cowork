@@ -13,6 +13,8 @@ struct Composer: View {
     let placeholder: String
     let running: Bool
     let canStop: Bool
+    /// New tasks can switch agents from the model picker; a session's agent is fixed.
+    var choosesAgent = false
 
     @FocusState private var focused: Bool
     @State private var picker = false
@@ -182,6 +184,9 @@ struct Composer: View {
     private var modelChip: some View {
         Button { picker = true } label: {
             HStack(spacing: 4) {
+                if choosesAgent {
+                    ProviderGlyph(provider: catalog.provider, size: 14).foregroundStyle(Color.ink).padding(.trailing, 1)
+                }
                 if r.fast {
                     Image(systemName: "bolt.fill").font(.system(size: 11)).foregroundStyle(Color.accent)
                 }
@@ -197,9 +202,9 @@ struct Composer: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Model and reasoning: \(r.modelLabel)\(r.effortLabel.map { ", \($0)" } ?? "")")
+        .accessibilityLabel("\(choosesAgent ? providerLabel(catalog.provider) + ", " : "")Model and reasoning: \(r.modelLabel)\(r.effortLabel.map { ", \($0)" } ?? "")")
         .popover(isPresented: $picker, arrowEdge: .bottom) {
-            ModelPicker(catalog: catalog, settings: settings, onSettings: onSettings)
+            ModelPicker(catalog: catalog, settings: settings, onSettings: onSettings, choosesAgent: choosesAgent)
                 .presentationCompactAdaptation(.popover)
         }
     }
@@ -293,14 +298,22 @@ struct ModelPicker: View {
     let catalog: AgentCatalog
     let settings: RemoteTaskSettings
     let onSettings: (RemoteTaskSettings) -> Void
-    @State private var browsing = false
+    var choosesAgent = false
+    @Environment(AppModel.self) private var model
+    @State private var page = Page.settings
     @State private var query = ""
     @State private var index = 0.0
 
     private var r: ResolvedSettings { catalog.resolve(settings) }
 
     var body: some View {
-        Group { if browsing { models } else { compact } }
+        Group {
+            switch page {
+            case .settings: compact
+            case .models: models
+            case .agents: agents
+            }
+        }
             .padding(12)
             .frame(width: 300)
     }
@@ -311,10 +324,31 @@ struct ModelPicker: View {
         onSettings(next)
     }
 
+    private enum Page { case settings, models, agents }
+
     private var position: Double { Double(r.efforts.firstIndex { $0.value == r.shownEffort } ?? 0) }
 
     private var compact: some View {
         VStack(spacing: 10) {
+            if choosesAgent {
+                Button { page = .agents } label: {
+                    HStack(spacing: 10) {
+                        ProviderGlyph(provider: catalog.provider, size: 16)
+                            .foregroundStyle(Color.text1)
+                            .frame(width: 30, height: 30)
+                            .background(Color.fill3, in: .rect(cornerRadius: 8))
+                        Text(providerLabel(catalog.provider)).font(.system(size: 15, weight: .medium)).foregroundStyle(Color.text1)
+                        Spacer(minLength: 4)
+                        Text("Agent").font(.system(size: 13)).foregroundStyle(Color.text3)
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(Color.text3)
+                    }
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Agent: \(providerLabel(catalog.provider))")
+                Divider().overlay(Color.hair)
+            }
             HStack(alignment: .top, spacing: 0) {
                 Group {
                     if r.fastAvailable {
@@ -328,7 +362,7 @@ struct ModelPicker: View {
                     }
                 }
                 .frame(width: 32)
-                Button { browsing = true } label: {
+                Button { page = .models } label: {
                     VStack(spacing: 1) {
                         HStack(spacing: 3) {
                             Text(r.efforts.isEmpty ? r.modelLabel : (r.effortLabel ?? "Default"))
@@ -391,15 +425,7 @@ struct ModelPicker: View {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         let items = catalog.models.filter { q.isEmpty || $0.label.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q) }
         return VStack(alignment: .leading, spacing: 6) {
-            Button { browsing = false } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.text3)
-                    Text("Models").font(.system(size: 15, weight: .medium))
-                }
-                .frame(height: 36)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            backButton("Models")
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Color.text3)
                 TextField("Search models", text: $query).font(.system(size: 15))
@@ -421,7 +447,7 @@ struct ModelPicker: View {
                                     $0.compatibleProviderId = item.compatibleProviderId
                                     $0.effort = nil
                                 }
-                                browsing = false
+                                page = .settings
                             } label: {
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 1) {
@@ -444,6 +470,56 @@ struct ModelPicker: View {
                 }
                 .frame(height: min(340, CGFloat(items.count) * 50))
             }
+        }
+    }
+
+    private func backButton(_ title: String) -> some View {
+        Button { page = .settings } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.text3)
+                Text(title).font(.system(size: 15, weight: .medium))
+            }
+            .frame(height: 36)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Agents on the Mac, each with its logo and current model · reasoning.
+    private var agents: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            backButton("Agents on \(model.macName)")
+            ForEach(agentProviders, id: \.self) { p in
+                let selected = p == catalog.provider
+                Button {
+                    Haptics.tap()
+                    model.provider = p
+                    page = .settings
+                } label: {
+                    HStack(spacing: 12) {
+                        ProviderGlyph(provider: p, size: 18)
+                            .foregroundStyle(Color.text1)
+                            .frame(width: 32, height: 32)
+                            .background(Color.fill3, in: .rect(cornerRadius: 9))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(providerLabel(p)).font(.system(size: 15.5, weight: .medium)).foregroundStyle(Color.text1)
+                            Text(model.describe(p)).font(.system(size: 12.5)).foregroundStyle(Color.text2).lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
+                        if selected { Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)) }
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 52)
+                    .background(selected ? Color.fill2 : .clear, in: .rect(cornerRadius: 12))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+            Text("Uses the agents and sign-ins configured in Aegis on your Mac.")
+                .font(.system(size: 12)).foregroundStyle(Color.text3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10).padding(.top, 4)
         }
     }
 }

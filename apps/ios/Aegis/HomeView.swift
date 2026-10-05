@@ -45,7 +45,8 @@ struct HomeView: View {
                     onSettings: { model.setNewSettings($0) },
                     placeholder: "message to agent",
                     running: false,
-                    canStop: false
+                    canStop: false,
+                    choosesAgent: true
                 )
             }
             .padding(.horizontal, 12)
@@ -53,13 +54,6 @@ struct HomeView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { SidebarButton() }
-            ToolbarItem(placement: .principal) { AgentTitleMenu() }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("New task", systemImage: "square.and.pencil") {
-                    model.draft = ""
-                    model.attachments = []
-                }
-            }
         }
     }
 
@@ -92,43 +86,6 @@ struct HomeView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(model.projects.isEmpty && model.snapshot != nil ? Color.text2 : Color.text1)
         }
-    }
-}
-
-/// Header title: agent picker (glyph, name, model · effort).
-private struct AgentTitleMenu: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let r = model.catalog(model.provider).resolve(model.newSettings)
-        Menu {
-            Section("Agents on \(model.macName)") {
-                ForEach(agentProviders, id: \.self) { p in
-                    Button { model.provider = p } label: {
-                        Label {
-                            Text(providerLabel(p))
-                            Text(model.describe(p))
-                        } icon: {
-                            Image(systemName: p == model.provider ? "checkmark" : "circle").opacity(p == model.provider ? 1 : 0)
-                        }
-                    }
-                }
-            }
-            Section { Text("Uses the agents and sign-ins configured in Aegis on your Mac.") }
-        } label: {
-            VStack(spacing: 1) {
-                HStack(spacing: 5) {
-                    ProviderGlyph(provider: model.provider, size: 16)
-                    Text(providerLabel(model.provider)).font(.system(size: 16, weight: .semibold))
-                    Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)).foregroundStyle(Color.text3)
-                }
-                Text(r.modelLabel + (r.effortLabel.map { " · \($0)" } ?? ""))
-                    .font(.system(size: 12)).foregroundStyle(Color.text2).lineLimit(1)
-            }
-            .foregroundStyle(Color.text1)
-        }
-        .menuOrder(.fixed)
-        .accessibilityLabel("Agent: \(providerLabel(model.provider))")
     }
 }
 
