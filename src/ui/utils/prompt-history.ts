@@ -51,6 +51,8 @@ export function collectPromptHistory(messages: StreamMessage[]): PromptHistoryEn
   const history: PromptHistoryEntry[] = [];
   for (const message of messages) {
     if (message.type !== 'user_prompt') continue;
+    // Prompts the workflow engine sent are not the user's to recall.
+    if (message.workflowPrompt) continue;
     const text = message.prompt?.trim();
     if (!text) continue;
     const id = typeof message.createdAt === 'number' ? String(message.createdAt) : null;

@@ -35,7 +35,7 @@ const run = {
 };
 const plannedMembers = [
   member('current', 'implementer', 'current', 'claude', { currentSessionId: 'PARENT' }),
-  member('reviewer', 'reviewer', 'deepseek', 'deepseek', { source: 'user', currentSessionId: 's-rev' }),
+  member('reviewer', 'reviewer', 'deepseek', 'deepseek', { source: 'user', currentSessionId: 's-rev', focus: 'Review the uncommitted diff in /tmp/board-project and mark each issue as blocking or not' }),
 ];
 
 const harness = `
@@ -50,11 +50,12 @@ import {useAppStore} from '/src/ui/store/useAppStore';
 import '/src/ui/index.css';
 window.qa={actions:[],store:useAppStore};
 window.electron={getProjectTree:async()=>null,getRecentCwds:async()=>[],sendClientEvent:()=>{},getAgentRuntimeDirectory:async()=>({checkedAt:Date.now(),entries:[]}),getProjectGitSummary:async()=>({isGitRepository:false}),getSessionUserPrompts:async()=>[],
-  workflows:{list:async()=>[],get:async()=>null,setDefaults:async()=>{},start:async()=>({ok:false,error:'unused'}),act:async a=>{qa.actions.push(a);return qa.onAct(a)}}};
+  workflows:{list:async()=>[],get:async()=>null,setDefaults:async()=>{},start:async()=>({ok:false,error:'unused'}),sessionInfo:async id=>({id,title:'member',status:'completed',provider:'deepseek',cwd:'/tmp/copy',hiddenFromThreads:true,createdAt:Date.now(),updatedAt:Date.now()}),act:async a=>{qa.actions.push(a);return qa.onAct(a)}}};
 const a=useAppStore.getState();const id=a.createDraftSession('/tmp/board-project');
 const toolUse={type:'tool_use',id:'toolu_wf',name:'mcp__aegis-sessions__start_workflow',input:{request:'Have DeepSeek review your changes and fix what it finds.'}};
 const toolResult={type:'tool_result',tool_use_id:'toolu_wf',content:JSON.stringify({workflowId:'run-1',status:'planning'})};
-const messages=[{type:'user_prompt',uuid:'u1',prompt:'让 DeepSeek review 一下你的改动',createdAt:Date.now()},{type:'assistant',uuid:'a1',message:{content:[{type:'text',text:'Starting a workflow.'},toolUse]}},{type:'user',uuid:'r1',message:{content:[toolResult]}}];
+const fixReply='I changed multiply to return a * b.\\n\\n\\u0060\\u0060\\u0060json\\n{\\n  "schemaVersion": 1,\\n  "status": "completed",\\n  "summary": "Fixed multiply",\\n  "changes": [{"file":"src/math.js","description":"a * b"}]\\n}\\n\\u0060\\u0060\\u0060';
+const messages=[{type:'user_prompt',uuid:'u1',prompt:'让 DeepSeek review 一下你的改动',createdAt:Date.now()},{type:'assistant',uuid:'a1',message:{content:[{type:'text',text:'Starting a workflow.'},toolUse]}},{type:'user',uuid:'r1',message:{content:[toolResult]}},{type:'user_prompt',uuid:'u2',prompt:"Workflow asked this chat to fix DeepSeek's findings (round 1)",workflowPrompt:'event',createdAt:Date.now()},{type:'assistant',uuid:'a2',message:{content:[{type:'text',text:fixReply}]}},{type:'user_prompt',uuid:'u3',prompt:'# Workflow step: review\\nYou are a reviewer. Long brief text.',workflowPrompt:'task',createdAt:Date.now()}];
 useAppStore.setState(s=>({projectCwd:'/tmp/board-project',sessions:{...s.sessions,[id]:{...s.sessions[id],provider:'claude',isDraft:false,status:'completed',hydrated:true,messages}}}));
 a.setActiveSession(id);
 function Conversation(){const session=useAppStore(s=>s.sessions[s.activeSessionId]);const results=new Map([['toolu_wf',toolResult]]);const status=new Map([['toolu_wf','success']]);
@@ -85,6 +86,15 @@ try{
  await waitFor('!!document.querySelector("[data-workflow-board]")','board');
  let body=await text();
  assert.match(body,/Planning the workflow/);assert.doesNotMatch(body,/start_workflow/);
+ // Prompts the workflow sent are notices, not user bubbles; a member's brief is one expandable line.
+ assert.equal(await js('document.querySelector("[data-workflow-event]")?.textContent'),"Workflow asked this chat to fix DeepSeek's findings (round 1)");
+ assert.match(body,/Task from workflow/);assert.doesNotMatch(body,/Long brief text/);
+ await js('document.querySelector("[data-workflow-task] button").click()');await delay(150);
+ assert.match(await text(),/Long brief text/,'expanding shows the brief');
+ // The chat's own workflow turn: the result block for the engine is one collapsed line.
+ assert.match(body,/I changed multiply to return a \* b\./);assert.match(body,/Result sent to workflow/);assert.doesNotMatch(body,/schemaVersion/);
+ await js('document.querySelector("[data-workflow-result] button").click()');await delay(150);
+ assert.match(await text(),/"schemaVersion": 1/,'expanding shows the result');
  await capture('1-planning');
 
  // Plan card: confirm with the revision shown.
@@ -110,11 +120,20 @@ try{
  await push(view);
  await waitFor('document.body.textContent.includes("This chat · fix")','lanes');
  body=await text();
- assert.match(body,/DeepSeek · review · round 1/);assert.match(body,/changes requested/);
- assert.match(body,/Assumes: npm test is the test command/,'assumptions stay visible once running');
+ assert.match(body,/DeepSeek · review · round 1/);assert.doesNotMatch(body,/Review the uncommitted diff/,'the focus instruction stays in the tooltip');assert.match(body,/changes requested/);
+ assert.match(body,/Assumptions \(1\)/,'assumptions collapse to one line once running');assert.doesNotMatch(body,/Assumes:/);
  await capture('3-running');
+ // The chevron collapses the board to its header and opens it again.
+ await js('document.querySelector("[data-workflow-toggle]").click()');await delay(150);
+ assert.equal(await js('document.querySelector("[data-workflow-board]").textContent.includes("DeepSeek · review")'),false,'collapsed hides the lanes');
+ assert.equal(await js('document.querySelector("[data-workflow-board]").textContent.includes("running")'),true,'the header stays');
+ await capture('3b-collapsed');
+ await js('document.querySelector("[data-workflow-toggle]").click()');await delay(150);
+ assert.equal(await js('document.querySelector("[data-workflow-board]").textContent.includes("DeepSeek · review · round 1")'),true,'expanding shows them again');
  await js('[...document.querySelectorAll("[data-workflow-board] button")].find(e=>e.textContent.includes("DeepSeek · review · round 1")).click()');await delay(150);
  assert.equal(await js('qa.store.getState().activeRightUtilityTab'),'workflow-member:s-rev');
+ // Member sessions are hidden from the thread list; opening one loads it so the panel can show its log.
+ assert.equal(await js('!!qa.store.getState().sessions["s-rev"]?.hiddenFromThreads'),true,'the hidden member session is loaded on open');
  assert.equal(await js('[...document.querySelectorAll("[data-workflow-board] button")].find(e=>e.textContent.includes("This chat · fix")).disabled'),true);
 
  // A question for the user.

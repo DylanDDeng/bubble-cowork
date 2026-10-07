@@ -52,6 +52,12 @@ export type RunControl = {
   cancelled: boolean;
 };
 
+/** Engine events plus what only the Host knows: a question for the user, a member session that just started. */
+export type HostEvent =
+  | WorkflowEvent
+  | { type: 'ask'; key: string; question: string; options?: string[] }
+  | { type: 'session_attached'; key: string; sessionId: string };
+
 const GATE_SETTLE_MS = 1_500;
 const GATE_ATTEMPTS = 3;
 const STOP_CONFIRM_MS = 20_000;
@@ -64,16 +70,34 @@ function shortId(version: string) {
   return version.slice(0, 12);
 }
 
-/** One line the chat shows for a workflow turn of the session itself. */
+const AGENT_LABELS: Record<string, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  kimi: 'Kimi',
+  opencode: 'OpenCode',
+  grok: 'Grok',
+  pi: 'Pi',
+  qoder: 'Qoder',
+  bubble: 'Bubble',
+  deepseek: 'DeepSeek',
+  devin: 'Devin',
+};
+
+/** One-line notice the chat shows for a workflow turn of the session itself (the agent gets the full brief). */
 function currentSessionDisplay(instance: AgentInstance, members: Map<string, MemberRow>): string {
-  const reviewers = instance.blocks.flatMap((b) =>
-    b.kind === 'from' && b.outputKind === 'review' && b.member ? [members.get(b.member)?.agent ?? b.member] : [],
-  );
+  const reviewers = [
+    ...new Set(
+      instance.blocks.flatMap((b) =>
+        b.kind === 'from' && b.outputKind === 'review' && b.member ? [members.get(b.member)?.agent ?? b.member] : [],
+      ),
+    ),
+  ].map((agent) => AGENT_LABELS[agent] ?? agent);
+  const round = instance.iterations.length ? ` (round ${instance.iterations[instance.iterations.length - 1] + 1})` : '';
   if (instance.outputKind === 'implementation' && reviewers.length > 0) {
-    return `Workflow: address the findings from ${[...new Set(reviewers)].join(', ')}`;
+    return `Workflow asked this chat to fix ${reviewers.join(' and ')}'s findings${round}`;
   }
-  if (instance.outputKind === 'implementation') return 'Workflow: implement the task';
-  return `Workflow: ${instance.stepId}`;
+  if (instance.outputKind === 'implementation') return `Workflow asked this chat to implement the task${round}`;
+  return `Workflow asked this chat for ${instance.phase ?? instance.stepId}${round}`;
 }
 
 function safeName(key: string) {
@@ -93,12 +117,22 @@ export class AegisWorkflowHost implements WorkflowHost {
       artifactsDir: string;
       control: RunControl;
       appGeneration: string;
-      onEvent: (event: WorkflowEvent | { type: 'ask'; key: string; question: string; options?: string[] }) => void;
+      onEvent: (event: HostEvent) => void;
     },
   ) {}
 
   emit(event: WorkflowEvent) {
     this.deps.onEvent(event);
+  }
+
+  /**
+   * Record the session a step runs in and tell the UI right away, so a
+   * running step's lane can open that session (otherwise the view only
+   * learns it when the step settles).
+   */
+  private async attachSession(key: string, sessionId: string) {
+    await this.deps.store.attachSession(key, sessionId);
+    this.deps.onEvent({ type: 'session_attached', key, sessionId });
   }
 
   // ---- agent steps ------------------------------------------------------------
@@ -167,12 +201,12 @@ export class AegisWorkflowHost implements WorkflowHost {
         }
         sessionId = reuse;
         if (!(await this.waitUntilIdle(sessionId))) return { status: 'cancelled' };
-        await this.deps.store.attachSession(instance.key, sessionId);
+        await this.attachSession(instance.key, sessionId);
         turn = await this.continueTurn(sessionId, prompt, member.provider, payload, display);
       } else if (reuse) {
         sessionId = reuse;
         setWorkflowSessionPolicy(sessionId, policy);
-        await this.deps.store.attachSession(instance.key, sessionId);
+        await this.attachSession(instance.key, sessionId);
         turn = await this.continueTurn(sessionId, prompt, member.provider, payload);
       } else {
         const started = await this.startTurn(instance, member, workspaceDir, prompt, payload, policy);
@@ -191,7 +225,7 @@ export class AegisWorkflowHost implements WorkflowHost {
           repairPrompt(output.errors, instance.outputKind),
           member.provider,
           payload,
-          isCurrent ? 'Workflow: the result could not be read; please resend it' : undefined,
+          isCurrent ? 'Workflow asked this chat to resend its result' : undefined,
         );
         const repairFailure = this.turnFailure(repair);
         if (repairFailure) return repairFailure;
@@ -265,6 +299,7 @@ export class AegisWorkflowHost implements WorkflowHost {
         ...payload,
         title: `${run.title} · ${member.key}`,
         prompt,
+        workflowPrompt: 'task',
         ...this.sessionLocation(cwd),
         provider: member.provider as SessionStartPayload['provider'],
         ...(member.model ? { model: member.model } : {}),
@@ -278,7 +313,7 @@ export class AegisWorkflowHost implements WorkflowHost {
         turnPromise = expectTurn(sessionId);
         setMemberSession(run.id, member.key, sessionId);
         member.currentSessionId = sessionId;
-        void this.deps.store.attachSession(instance.key, sessionId);
+        void this.attachSession(instance.key, sessionId);
       },
     );
     if (!id || !turnPromise) {
@@ -329,7 +364,7 @@ export class AegisWorkflowHost implements WorkflowHost {
     const ok = await this.deps.bridge.continue({
       ...(payload as Partial<SessionContinuePayload>),
       sessionId,
-      ...(display ? { prompt: display, effectivePrompt: prompt } : { prompt }),
+      ...(display ? { prompt: display, effectivePrompt: prompt, workflowPrompt: 'event' as const } : { prompt, workflowPrompt: 'task' as const }),
       provider: provider as SessionContinuePayload['provider'],
     });
     if (!ok) {

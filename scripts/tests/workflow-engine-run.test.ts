@@ -153,6 +153,17 @@ test('reviewLoop with no repair rounds reports findings and finishes instead of 
   assert.deepEqual(evaluateAcceptance(spec, store.all(), 'v0').map((a) => a.status), ['unsatisfied', 'satisfied']);
 });
 
+test('reviewLoop steps keep their own phase names even when the loop has a phase', () => {
+  const spec = loginSpec();
+  (spec.steps[0] as any).phase = 'review';
+  const sequence = expandSpec(spec).steps[0] as any;
+  assert.equal(sequence.phase, 'review');
+  const [implement, rounds] = sequence.steps;
+  assert.equal(implement.phase, 'implement');
+  assert.deepEqual(rounds.steps.map((s: any) => s.phase), ['check', 'review', 'fix']);
+  assert.deepEqual(rounds.steps[1].steps.map((s: any) => s.phase), ['review', 'review'], 'each review step is named too');
+});
+
 test('reviewLoop: failed checks skip reviews and go straight to a fix', async () => {
   const host = new FakeWorkflowHost({
     agent: reviewScript({ security: [approved()], edges: [approved()] }),

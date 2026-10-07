@@ -18,19 +18,6 @@ export const START_WORKFLOW_DESCRIPTION = [
   'Use it only when the user asks for other agents to take part.',
 ].join(' ');
 
-/**
- * Standing instruction for chat sessions that have the tool. Without it an
- * agent asked to "have Codex review this" tends to run that agent's CLI
- * itself, which bypasses the workflow's roles, read-only guarantees and UI.
- */
-export const WORKFLOW_CHAT_INSTRUCTIONS = [
-  'Aegis can run other coding agents (for example Codex, Claude, Kimi, DeepSeek, Grok, Devin, Bubble) together with you as a workflow.',
-  'When the user asks another agent to do something, such as reviewing your changes, implementing, investigating or checking work,',
-  'call the start_workflow tool of the aegis-sessions MCP server (mcp__aegis-sessions__start_workflow) with the request.',
-  "Do not run another agent's command-line tool yourself (for example `codex review`, `codex exec`, `claude -p`, `kimi`) and do not do their part yourself.",
-  'After calling start_workflow, end your turn. The workflow shows its progress in this chat; tasks for you and its result arrive as follow-up messages.',
-].join(' ');
-
 export const startWorkflowSchema = {
   request: z
     .string()

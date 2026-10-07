@@ -118,6 +118,7 @@ const TOOL_VERBS: Record<string, VerbPair> = {
   Task: ['Running', 'Ran'],
   TodoWrite: ['Updating', 'Updated'],
   NotebookEdit: ['Editing', 'Edited'],
+  ToolSearch: ['Loading', 'Loaded'],
   read: ['Reading', 'Read'],
   read_image: ['Reading image', 'Read image'],
   write: ['Writing', 'Wrote'],
@@ -409,6 +410,22 @@ export function deriveReadableToolDisplay(
     const mappedStatus =
       status === 'error' ? 'error' : status === 'interrupted' ? 'interrupted' : status === 'success' ? 'success' : 'pending';
     return { verb: '', target: formatComputerUseLabel(action, mappedStatus) };
+  }
+
+  // Claude Code's deferred-tool loader: "select:a,b" loads those tools,
+  // anything else searches the deferred tool list.
+  if (name === 'ToolSearch') {
+    const query = getStringField(input, 'query') || '';
+    if (query.startsWith('select:')) {
+      const tools = query
+        .slice('select:'.length)
+        .split(',')
+        .map((tool) => tool.trim().split('__').pop() || tool.trim())
+        .filter(Boolean);
+      const target = tools.length ? `${tools.length === 1 ? 'tool' : 'tools'} ${truncate(tools.join(', '), 60)}` : 'tools';
+      return { verb: pickVerb(TOOL_VERBS.ToolSearch, status), target };
+    }
+    return { verb: pickVerb(TOOL_VERBS.Grep, status), target: query ? `tools for ${truncate(query, 40)}` : 'tools' };
   }
 
   // MCP-style names like "mcp__server__tool" — show just the tool segment.

@@ -1,6 +1,8 @@
 import { CompactionTracker } from './compaction-tracker';
 import { addAgentCost, costFields, emptyCostDetails } from '../agent-cost';
-import { createPiSessionReader } from '../session-native-tool';
+import { createPiSessionReader, createPiStartWorkflow } from '../session-native-tool';
+import { getWorkflowSessionPolicy } from '../workflow/session-hooks';
+import { START_WORKFLOW_TOOL } from '../../../shared/workflow';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
@@ -336,14 +338,16 @@ export class PiSdkAdapter implements ProviderAdapter {
     const { modelRuntime, modelRegistry } = await createPiModelRuntimeAndRegistry(sdk);
     const selectedModel = this.resolveModel(modelRegistry, input.model);
     const sessionManager = await this.createSessionManager(input.resumeSessionId, cwd, sdk.SessionManager);
+    const offersWorkflows = !getWorkflowSessionPolicy(input.threadId);
 
     const { session: piSession } = await sdk.createAgentSession({
       cwd,
       agentDir: resolvePiAgentDir(),
       modelRuntime,
       sessionManager,
-      tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'read_session'],
-      customTools: [createPiSessionReader()],
+      // Workflow members do not get the workflow entry (no nested workflows).
+      tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'read_session', ...(offersWorkflows ? [START_WORKFLOW_TOOL] : [])],
+      customTools: [createPiSessionReader(), ...(offersWorkflows ? [createPiStartWorkflow(input.threadId)] : [])],
       ...(selectedModel ? { model: selectedModel } : {}),
     });
 

@@ -1,3 +1,6 @@
+import { getWorkflowSessionPolicy } from '../workflow/session-hooks';
+import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
+import { createGrokAcpHttpMcpServer } from './grok-acp-mcp';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
 import { readFileSync } from 'fs';
@@ -490,6 +493,13 @@ export class DevinAcpAdapter implements ProviderAdapter {
       })
       .catch(fail);
 
+    // Aegis's session tools (read_session, start_workflow) for chat sessions,
+    // passed for this session only (Devin's ACP accepts http MCP servers);
+    // workflow members get none.
+    const mcpServers = getWorkflowSessionPolicy(input.threadId)
+      ? []
+      : [createGrokAcpHttpMcpServer(SESSION_MCP_SERVER_NAME, await getSessionReaderHttpConfig())];
+
     let sessionRecord: Record<string, unknown> | null = null;
     let providerSessionId = '';
     if (input.resumeSessionId) {
@@ -498,7 +508,7 @@ export class DevinAcpAdapter implements ProviderAdapter {
           await rpc.request('session/load', {
             sessionId: input.resumeSessionId,
             cwd: input.cwd,
-            mcpServers: [],
+            mcpServers,
           })
         );
         providerSessionId = input.resumeSessionId;
@@ -512,7 +522,7 @@ export class DevinAcpAdapter implements ProviderAdapter {
       }
     }
     if (!providerSessionId) {
-      sessionRecord = getRecord(await rpc.request('session/new', { cwd: input.cwd, mcpServers: [] }).catch(fail));
+      sessionRecord = getRecord(await rpc.request('session/new', { cwd: input.cwd, mcpServers }).catch(fail));
       providerSessionId = getString(sessionRecord?.sessionId);
       if (!providerSessionId) {
         fail(new Error('Devin ACP did not return a sessionId.'));

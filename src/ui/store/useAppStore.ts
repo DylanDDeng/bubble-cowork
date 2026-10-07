@@ -60,7 +60,7 @@ import {
   setThemePackFonts,
   updateThemePack,
 } from '../theme/themes';
-import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkflowPromptKind } from '../../shared/types';
 import {
   appendComputerUseLiveFrame,
   hydrateComputerUseFramesFromMessages,
@@ -1994,6 +1994,17 @@ export const useAppStore = create<Store>()(
   },
 
   openWorkflowMemberPanel: (sessionId) => {
+    // Member sessions are hidden from the thread list, so they are not in the
+    // store until first opened; ChatPane hydrates the history once it is.
+    if (!get().sessions[sessionId]) {
+      void window.electron.workflows
+        .sessionInfo(sessionId)
+        .then((info) => {
+          if (!info || get().sessions[sessionId]) return;
+          set((state) => ({ sessions: { ...state.sessions, [sessionId]: freshSessionViewFromInfo(info) } }));
+        })
+        .catch(() => {});
+    }
     set((state) => {
       const target = workflowMemberTab(sessionId);
       return {
@@ -3488,10 +3499,10 @@ function handleSessionDeleted(
 
 // 处理用户 prompt
 function handleUserPrompt(
-  payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number },
+  payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number; workflowPrompt?: WorkflowPromptKind },
   set: SetState
 ) {
-  const { sessionId, prompt, attachments, createdAt } = payload;
+  const { sessionId, prompt, attachments, createdAt, workflowPrompt } = payload;
 
   set((state) => {
     const session = state.sessions[sessionId];
@@ -3502,6 +3513,7 @@ function handleUserPrompt(
       prompt,
       attachments,
       createdAt: typeof createdAt === 'number' ? createdAt : Date.now(),
+      ...(workflowPrompt ? { workflowPrompt } : {}),
     };
 
     return {

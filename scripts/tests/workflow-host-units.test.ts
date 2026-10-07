@@ -24,6 +24,10 @@ import { findPendingStartWorkflowCall } from '../../src/electron/libs/workflow/c
 import { buildMemberConfigs, declarationForAgent } from '../../src/electron/libs/workflow/member-configs';
 import { headTree } from '../../src/electron/libs/workflow/workspace-snapshot';
 import { isFullAccessMode, isStartWorkflowToolName } from '../../src/shared/workflow';
+import { splitWorkflowResult } from '../../src/ui/utils/workflow-result';
+import { classifyToolUse, deriveReadableToolDisplay } from '../../src/ui/utils/tool-summary';
+import { deriveSubagentSummaries } from '../../src/ui/utils/subagent-registry';
+import { latestTurnHasPendingSubagentTasks } from '../../src/ui/utils/workstream';
 
 const tests: Array<[string, () => Promise<void> | void]> = [];
 const test = (name: string, fn: () => Promise<void> | void) => tests.push([name, fn]);
@@ -228,6 +232,50 @@ test('start_workflow calls are attributed to the pending tool_use with the same 
     assert.equal(isStartWorkflowToolName(name), true, name);
   }
   assert.equal(isStartWorkflowToolName('restart_workflow_x'), false);
+});
+
+test('a reply\'s trailing workflow result collapses; other JSON stays in the reply', () => {
+  const report = '{\n  "schemaVersion": 1,\n  "status": "completed",\n  "summary": "Fixed multiply",\n  "changes": []\n}';
+  assert.deepEqual(splitWorkflowResult('I fixed it.\n\n```json\n' + report + '\n```\n'), { body: 'I fixed it.', result: report });
+  const review = '{"schemaVersion":1,"verdict":"approved","summary":"ok","findings":[]}';
+  assert.equal(splitWorkflowResult('Looks good.\n```json\n' + review + '\n```').result, review);
+  // An earlier JSON example in the reply does not swallow the text before the result.
+  const twoBlocks = 'Example:\n```json\n{"a":1}\n```\nDone.\n```json\n' + review + '\n```';
+  assert.equal(splitWorkflowResult(twoBlocks).body, 'Example:\n```json\n{"a":1}\n```\nDone.');
+  for (const text of [
+    'Here is a config:\n```json\n{"schemaVersion":1,"name":"x"}\n```',
+    'Result:\n```json\n{"schemaVersion":1,"verdict":"approved"\n```',
+    '```json\n{"schemaVersion":1,"verdict":"approved"}\n```\nand more text after it',
+    'no json at all',
+  ]) {
+    assert.equal(splitWorkflowResult(text).result, null, text);
+  }
+});
+
+test('tool search rows name the tools they load instead of showing the raw query', () => {
+  assert.deepEqual(deriveReadableToolDisplay('ToolSearch', { query: 'select:mcp__aegis-sessions__start_workflow', max_results: 1 }, 'success'), {
+    verb: 'Loaded',
+    target: 'tool start_workflow',
+  });
+  assert.deepEqual(deriveReadableToolDisplay('ToolSearch', { query: 'select:Read,mcp__x__y', max_results: 2 }, 'pending'), {
+    verb: 'Loading',
+    target: 'tools Read, y',
+  });
+  assert.deepEqual(deriveReadableToolDisplay('ToolSearch', { query: 'slack send' }, 'success'), { verb: 'Searched', target: 'tools for slack send' });
+});
+
+test('a start_workflow call renders as a board but is not a subagent', () => {
+  const messages = [
+    { type: 'user_prompt', prompt: 'have Codex review your changes', createdAt: 1 },
+    {
+      type: 'assistant',
+      uuid: 'a1',
+      message: { content: [{ type: 'tool_use', id: 't1', name: 'mcp__aegis-sessions__start_workflow', input: { request: 'review' } }] },
+    },
+  ] as never;
+  assert.equal(classifyToolUse('mcp__aegis-sessions__start_workflow', {}), 'subagent', 'shares the task stage for its board');
+  assert.deepEqual(deriveSubagentSummaries(messages), [], 'not listed among subagents');
+  assert.equal(latestTurnHasPendingSubagentTasks(messages), false, 'does not keep the turn "waiting for subagents"');
 });
 
 test('full access is recognized per provider, so the workflow follows the chat\'s permission mode', () => {

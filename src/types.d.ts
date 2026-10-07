@@ -130,6 +130,8 @@ declare global {
       list: () => Promise<WorkflowRunView[]>;
       get: (runId: string) => Promise<WorkflowRunView | null>;
       setDefaults: (defaults: { permissionModes: Record<string, string> }) => Promise<void>;
+      /** A workflow member or planner session (hidden from the thread list). */
+      sessionInfo: (sessionId: string) => Promise<SessionInfo | null>;
     };
     forkSession: (
       sessionId: string,

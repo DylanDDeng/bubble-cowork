@@ -71,8 +71,9 @@ function expandReviewLoop(loop: ReviewLoopStep): XStep {
   const checkIds = loop.checks.map((c) => c.id);
   const reviewIds = loop.reviewers.map(ids.review);
   const phase = loop.phase;
-  const withPhase = <T extends object>(step: T, name: string): T =>
-    ({ ...step, phase: phase ?? name }) as T;
+  // Each generated step is named for what it does; a phase the planner gave
+  // the whole loop stays on the loop's containers.
+  const withPhase = <T extends object>(step: T, name: string): T => ({ ...step, phase: name }) as T;
 
   const implement: AgentStep = withPhase(
     {
@@ -107,6 +108,7 @@ function expandReviewLoop(loop: ReviewLoopStep): XStep {
         (member): AgentStep => ({
           id: ids.review(member),
           kind: 'agent',
+          phase: 'review',
           member,
           task: reviewTask(member),
           workspace: 'snapshot',

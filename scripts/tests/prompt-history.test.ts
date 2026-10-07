@@ -42,6 +42,16 @@ const FILE: Attachment = {
   );
   assert.deepEqual(collectPromptHistory([]), []);
 
+  // Prompts the workflow engine sent (notices, member briefs) are not recallable.
+  assert.deepEqual(
+    collectPromptHistory([
+      { type: 'user_prompt', prompt: 'mine', createdAt: 10 },
+      { type: 'user_prompt', prompt: "Workflow asked this chat to fix Codex's findings", workflowPrompt: 'event', createdAt: 20 },
+      { type: 'user_prompt', prompt: '# Workflow step: review', workflowPrompt: 'task', createdAt: 30 },
+    ]),
+    entries(['mine', ['10']])
+  );
+
   // Messages without createdAt produce id-less entries.
   assert.deepEqual(collectPromptHistory([{ type: 'user_prompt', prompt: 'legacy' }]), [
     { text: 'legacy', ids: [] },

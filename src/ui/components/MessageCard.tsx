@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Copy, Check, History, Pencil, RotateCcw, TargetArrow } from './icons';
+import { ChevronRight, Copy, Check, History, Pencil, RotateCcw, TargetArrow, Workflow } from './icons';
 import { parseGoalInput, supportsGoalUI, isClaudeGoalClearObjective } from '../../shared/session-goal';
 import type { ThreadGoal } from '../../shared/session-goal';
 import { formatDurationLabel } from '../utils/format-duration';
@@ -8,6 +8,7 @@ import { useAppStore } from '../store/useAppStore';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import { StructuredResponse } from './StructuredResponse';
+import { splitWorkflowResult } from '../utils/workflow-result';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import {
@@ -65,6 +66,9 @@ export function MessageCard({
 }: MessageCardProps) {
   switch (message.type) {
     case 'user_prompt':
+      // Prompts the workflow engine sent are not the user's words.
+      if (message.workflowPrompt === 'event') return <WorkflowEventRow text={message.prompt} />;
+      if (message.workflowPrompt === 'task') return <WorkflowTaskRow text={message.prompt} />;
       return (
         <UserPromptCard
           prompt={message.prompt}
@@ -642,9 +646,11 @@ function AssistantCard({
     [blocks]
   );
 
+  // A workflow result block at the end of a reply is for the engine, not the reader.
+  const textParts = useMemo(() => textBlocks.map((block) => splitWorkflowResult(block.text)), [textBlocks]);
   const markdownToCopy = useMemo(
-    () => textBlocks.map((block) => block.text).join('\n\n'),
-    [textBlocks]
+    () => textParts.map((part) => part.body).filter(Boolean).join('\n\n'),
+    [textParts]
   );
 
   const showCopyBar = !hideCopyBar && !isProgress && !isStreaming && markdownToCopy.length > 0;
@@ -666,19 +672,81 @@ function AssistantCard({
           subagentMessagesByParent={subagentMessagesByParent}
         />
       ) : null}
-      {textBlocks.map((block, idx) => (
+      {textParts.map((part, idx) => (
         <div key={`text-${idx}`} className="min-w-0 overflow-x-auto">
-          <StructuredResponse
-            content={block.text}
-            streaming={isStreaming}
-            className={isProgress ? 'assistant-progress-markdown' : ''}
-          />
+          {part.body ? (
+            <StructuredResponse
+              content={part.body}
+              streaming={isStreaming}
+              className={isProgress ? 'assistant-progress-markdown' : ''}
+            />
+          ) : null}
+          {part.result ? <WorkflowResultLine json={part.result} /> : null}
         </div>
       ))}
       {!isProgress && memoryCitationBlocks.map((block, idx) => (
         <MemoryCitationsBlock key={`memory-citations-${idx}`} block={block} />
       ))}
       {showCopyBar ? <AssistantCopyAction text={markdownToCopy} completedGoals={completedGoals} /> : null}
+    </div>
+  );
+}
+
+/** A step the workflow drove in this chat (its task, or the run's outcome): a notice, not a user message. */
+function WorkflowEventRow({ text }: { text: string }) {
+  return (
+    <div className="my-4 flex justify-center" data-workflow-event>
+      <span className="inline-flex max-w-full items-center gap-1.5 text-[12px] leading-5 text-[var(--text-muted)]">
+        <Workflow className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" />
+        <span className="min-w-0 truncate">{text}</span>
+      </span>
+    </div>
+  );
+}
+
+/** A member session's brief from the workflow: one line, expandable to the full task. */
+function WorkflowTaskRow({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="my-3 text-[12px] text-[var(--text-muted)]" data-workflow-task>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="inline-flex items-center gap-1.5 py-1 leading-5 transition-colors hover:text-[var(--text-secondary)]"
+        aria-expanded={expanded}
+      >
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <Workflow className="h-3.5 w-3.5 text-[var(--accent)]" />
+        <span>Task from workflow</span>
+      </button>
+      {expanded ? (
+        <div className="mt-1 max-h-96 overflow-auto rounded-md bg-[var(--bg-secondary)] px-3 py-2 text-[12px] leading-5 text-[var(--text-secondary)]">
+          <StructuredResponse content={text} streaming={false} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The structured result a reply handed to the workflow engine, collapsed to one line. */
+function WorkflowResultLine({ json }: { json: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="mt-2 max-w-[760px] text-[12px] text-[var(--text-muted)]" data-workflow-result>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="inline-flex items-center gap-1.5 py-1 text-[12px] leading-5 text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
+        aria-expanded={expanded}
+      >
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <span>Result sent to workflow</span>
+      </button>
+      {expanded ? (
+        <pre className="mt-1 max-h-72 overflow-auto rounded-md bg-[var(--bg-secondary)] p-2 font-mono text-[11px] leading-4 text-[var(--text-secondary)]">
+          {json}
+        </pre>
+      ) : null}
     </div>
   );
 }

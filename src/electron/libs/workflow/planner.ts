@@ -106,6 +106,7 @@ export async function planWorkflow(input: {
       ...(payload as Partial<SessionStartPayload>),
       title: 'Workflow planner',
       prompt: plannerPrompt(input.goal, input.context.memberConfigs, schema),
+      workflowPrompt: 'task',
       // Session cwd follows projectCwd: keep both on the empty planner directory.
       cwd: input.workDir,
       projectCwd: input.workDir,
@@ -137,6 +138,7 @@ export async function planWorkflow(input: {
       ...(payload as object),
       sessionId: id,
       provider: declaration.provider,
+      workflowPrompt: 'task',
       prompt: [
         'The workflow could not be used:',
         ...attempt.errors.slice(0, 30).map((e) => `- ${e}`),

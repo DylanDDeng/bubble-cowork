@@ -215,6 +215,15 @@ async function main(): Promise<void> {
       'no fs/terminal (Devin runs its own tools); form elicitation for its questions'
     );
     assert.equal(startCalls[3].params.modeId, 'smart');
+    const mcpServers = startCalls[1].params.mcpServers as Array<{ type: string; name: string; url: string; headers: Array<{ name: string; value: string }> }>;
+    assert.equal(mcpServers.length, 1, 'chat sessions get the Aegis session MCP server (read_session)');
+    assert.equal(mcpServers[0].type, 'http');
+    assert.equal(mcpServers[0].name, 'aegis-sessions');
+    assert.match(mcpServers[0].url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    assert.ok(
+      mcpServers[0].headers.some((header) => header.name === 'Authorization' && header.value.startsWith('Bearer ')),
+      'the session MCP endpoint is called with its bearer token'
+    );
 
     const init = events.find((event) => event.type === 'system_init');
     assert.equal(init?.sessionId, 'fresh-session');

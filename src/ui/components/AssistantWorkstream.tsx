@@ -789,8 +789,8 @@ function SubagentBoard({ entries }: { entries: TaskEntry[] }) {
 
   return (
     <div className="my-1 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/40">
-      <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--subagent-bg)] px-2.5 py-1.5">
-        <Workflow className="h-3.5 w-3.5 flex-shrink-0 text-[var(--subagent)]" />
+      <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--accent-light)] px-2.5 py-1.5">
+        <Workflow className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" />
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--text-primary)]">
           {entries.length} subagents in parallel
         </span>

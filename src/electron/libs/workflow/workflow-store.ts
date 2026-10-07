@@ -397,6 +397,52 @@ export function findMemberBySession(sessionId: string): { runId: string; key: st
   return row ? { runId: row.run_id, key: row.key, role: row.role } : null;
 }
 
+export function isPlannerSession(sessionId: string): boolean {
+  return Boolean(db().prepare('SELECT 1 FROM workflow_runs WHERE planner_session_id = ? LIMIT 1').get(sessionId));
+}
+
+/**
+ * Prompts the workflow engine sent before they carried `workflowPrompt`:
+ * every prompt of a member or planner session is a brief ('task'); in a chat
+ * that started a run, the notices sent after the run began ("Workflow: …",
+ * "Workflow finished …") are events. Messages already marked are left alone,
+ * so this is safe to run on every start.
+ */
+export function backfillWorkflowPromptMarkers(): number {
+  const unmarked = "message_type = 'user_prompt' AND json_extract(data, '$.workflowPrompt') IS NULL";
+  const tasks = db()
+    .prepare(
+      `UPDATE messages SET data = json_set(data, '$.workflowPrompt', 'task')
+       WHERE ${unmarked} AND session_id IN (
+         SELECT current_session_id FROM workflow_members WHERE current_session_id IS NOT NULL AND agent != ?
+         UNION SELECT session_id FROM workflow_instances WHERE session_id IS NOT NULL
+         UNION SELECT planner_session_id FROM workflow_runs WHERE planner_session_id IS NOT NULL
+       ) AND session_id NOT IN (
+         SELECT json_extract(options_json, '$.parent.sessionId') FROM workflow_runs
+         WHERE json_extract(options_json, '$.parent.sessionId') IS NOT NULL
+       )`,
+    )
+    .run(CURRENT_SESSION_AGENT).changes;
+  const events = db()
+    .prepare(
+      `UPDATE messages SET data = json_set(data, '$.workflowPrompt', 'event')
+       WHERE ${unmarked}
+         AND (json_extract(data, '$.prompt') LIKE 'Workflow: %' OR json_extract(data, '$.prompt') LIKE 'Workflow finished%'
+              OR json_extract(data, '$.prompt') LIKE 'Workflow failed%')
+         AND EXISTS (
+           SELECT 1 FROM workflow_runs r
+           WHERE json_extract(r.options_json, '$.parent.sessionId') = messages.session_id AND messages.created_at >= r.created_at
+         )`,
+    )
+    .run().changes;
+  return tasks + events;
+}
+
+/** Any session a workflow step ran in (reviewers get a fresh session every round). */
+export function isInstanceSession(sessionId: string): boolean {
+  return Boolean(db().prepare('SELECT 1 FROM workflow_instances WHERE session_id = ? LIMIT 1').get(sessionId));
+}
+
 /** Instance records for one run, cached in memory and written through to SQLite. */
 export class SqliteInstanceStore implements InstanceStore {
   private readonly cache = new Map<string, InstanceRecord & { sessionId?: string }>();

@@ -223,6 +223,7 @@ contextBridge.exposeInMainWorld('electron', {
     list: () => ipcRenderer.invoke('workflow-list'),
     get: (runId: string) => ipcRenderer.invoke('workflow-get', runId),
     setDefaults: (defaults: { permissionModes: Record<string, string> }) => ipcRenderer.invoke('workflow-set-defaults', defaults),
+    sessionInfo: (sessionId: string) => ipcRenderer.invoke('workflow-session-info', sessionId),
   },
 
   sessionHandoff: (payload: { sessionId: string; targetProvider: string }) => {

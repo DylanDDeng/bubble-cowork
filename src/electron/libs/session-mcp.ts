@@ -42,7 +42,9 @@ export async function createSessionSdkMcpServer(options: { callerSessionId?: str
       sdk.tool('read_session', READ_SESSION_DESCRIPTION, schema, readSessionTool, { annotations }),
       ...(options.workflows && options.callerSessionId
         ? [sdk.tool(START_WORKFLOW_TOOL, START_WORKFLOW_DESCRIPTION, startWorkflowSchema,
-          (args: StartWorkflowArgs) => startWorkflowTool(options.callerSessionId!, args), { annotations: workflowAnnotations })]
+          (args: StartWorkflowArgs) => startWorkflowTool(options.callerSessionId!, args),
+          // Always in the prompt: the agent should not have to discover it through tool search.
+          { annotations: workflowAnnotations, alwaysLoad: true })]
         : []),
     ],
   });

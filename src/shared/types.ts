@@ -987,7 +987,7 @@ export type ServerEvent =
   | { type: 'session.renamed'; payload: { sessionId: string; title: string; updatedAt: number } }
   | {
       type: 'stream.user_prompt';
-      payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number };
+      payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number; workflowPrompt?: WorkflowPromptKind };
     }
   | { type: 'stream.message'; payload: { sessionId: string; message: StreamMessage } }
   // Incremental stdout/stderr from a tool that is still running (codex
@@ -1063,11 +1063,20 @@ export type ServerEvent =
   | { type: 'browser.open-panel'; payload: { sessionId: string } };
 
 // Payload 类型
+/**
+ * A prompt the workflow engine sent, not the user: `event` is a one-line
+ * notice in a chat taking part in a workflow (its task or the run's outcome),
+ * `task` is a member session's full brief. The conversation shows neither as
+ * a user message.
+ */
+export type WorkflowPromptKind = 'event' | 'task';
+
 export interface SessionStartPayload {
   codexGoal?: import('./session-goal').GoalAction;
   title: string;
   prompt: string;
   effectivePrompt?: string;
+  workflowPrompt?: WorkflowPromptKind;
   automationRunId?: string;
   skipTitleGeneration?: boolean;
   cwd?: string;
@@ -1166,6 +1175,7 @@ export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;
   effectivePrompt?: string;
+  workflowPrompt?: WorkflowPromptKind;
   attachments?: Attachment[];
   provider?: AgentProvider;
   model?: string;
@@ -1703,7 +1713,7 @@ export interface AvailableCommand {
 }
 
 export type StreamMessage =
-  | (StreamMessageBase & { type: 'user_prompt'; prompt: string; attachments?: Attachment[] })
+  | (StreamMessageBase & { type: 'user_prompt'; prompt: string; attachments?: Attachment[]; workflowPrompt?: WorkflowPromptKind })
   | (StreamMessageBase & {
       /** Durable, native completion metadata; never sent to the model as a prompt. */
       type: 'goal_completed';

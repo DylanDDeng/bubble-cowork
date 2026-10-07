@@ -18,7 +18,20 @@ import {
 import { useAppStore } from '../../store/useAppStore';
 import { findRunForToolUse, useWorkflowStore } from '../../store/useWorkflowStore';
 import { ProviderIcon } from '../AgentModelPicker';
-import { AlertTriangle, Check, CircleDashed, CircleX, LoaderCircle, Play, ShieldAlert, Square, Workflow, X } from '../icons';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleDashed,
+  CircleX,
+  LoaderCircle,
+  Play,
+  ShieldAlert,
+  Square,
+  Workflow,
+  X,
+} from '../icons';
 import { cn } from '../../utils/cn';
 
 const STATUS_WORD: Record<WorkflowRunStatus, string> = {
@@ -132,14 +145,22 @@ function RunBoard({ run }: { run: WorkflowRunView }) {
       setBusy(false);
     }
   };
+  const collapsed = useWorkflowStore((s) => s.collapsed[run.id] === true);
+  const toggleCollapsed = () => useWorkflowStore.getState().toggleCollapsed(run.id);
   const members = new Map(run.members.map((m) => [m.key, m]));
   const lanes = laneSteps(run);
-  const counts = laneCounts(lanes);
+  const counts = laneCounts(lanes, FINISHED.has(run.status));
 
   return (
     <div className="my-1 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/40" data-workflow-board={run.id}>
-      <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--subagent-bg)] px-2.5 py-1.5">
-        <Workflow className="h-3.5 w-3.5 flex-shrink-0 text-[var(--subagent)]" />
+      <div
+        className={cn(
+          'flex cursor-pointer items-center gap-2 bg-[var(--accent-light)] px-2.5 py-1.5',
+          !collapsed && 'border-b border-[var(--border)]',
+        )}
+        onClick={toggleCollapsed}
+      >
+        <Workflow className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" />
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--text-primary)]" title={run.goal}>
           {run.description || run.title}
         </span>
@@ -154,42 +175,67 @@ function RunBoard({ run }: { run: WorkflowRunView }) {
             title="Stop the workflow"
             aria-label="Stop the workflow"
             disabled={busy}
-            onClick={() => void perform({ type: 'cancel', runId: run.id, expectedRevision: run.revision })}
+            onClick={(event) => {
+              event.stopPropagation();
+              void perform({ type: 'cancel', runId: run.id, expectedRevision: run.revision });
+            }}
           >
             <Square className="h-3 w-3" />
           </button>
         ) : null}
+        <button
+          type="button"
+          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          title={collapsed ? 'Show steps' : 'Hide steps'}
+          aria-label={collapsed ? 'Show steps' : 'Hide steps'}
+          aria-expanded={!collapsed}
+          data-workflow-toggle
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleCollapsed();
+          }}
+        >
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', collapsed && '-rotate-90')} />
+        </button>
       </div>
 
-      <div className="divide-y divide-[var(--border)]/60">
-        {run.status === 'planning' ? (
-          <Lane
-            icon={<Workflow className="h-3 w-3 text-[var(--text-muted)]" />}
-            label="Planning the workflow"
-            state="running"
-            sessionId={run.plannerSessionId}
-          />
-        ) : null}
-        {lanes.map((step) => (
-          <StepLane key={step.key} step={step} member={step.memberKey ? members.get(step.memberKey) : undefined} showRound={hasRounds(lanes)} />
-        ))}
-      </div>
+      {collapsed ? null : (
+        <>
+          <div className="divide-y divide-[var(--border)]/60">
+            {run.status === 'planning' ? (
+              <Lane
+                icon={<Workflow className="h-3 w-3 text-[var(--text-muted)]" />}
+                label="Planning the workflow"
+                state="running"
+                sessionId={run.plannerSessionId}
+              />
+            ) : null}
+            {lanes.map((step) => (
+              <StepLane
+                key={step.key}
+                step={step}
+                member={step.memberKey ? members.get(step.memberKey) : undefined}
+                members={run.members}
+                showRound={hasRounds(lanes)}
+              />
+            ))}
+          </div>
 
-      {run.status === 'awaiting_confirmation' ? (
-        <PlanSection run={run} busy={busy} perform={perform} />
-      ) : run.assumptions.length > 0 && run.status !== 'planning' ? (
-        // Assumptions do not stop the run; they stay visible here.
-        <div className="border-t border-[var(--border)] px-2.5 py-1 text-[11px] leading-4 text-[var(--text-muted)]">
-          Assumes: {run.assumptions.join('; ')}
-        </div>
-      ) : null}
+          {run.status !== 'awaiting_confirmation' && run.assumptions.length > 0 && run.status !== 'planning' ? (
+            <AssumptionsLine assumptions={run.assumptions} />
+          ) : null}
+          {run.status === 'succeeded' || run.status === 'completed_with_gaps' ? (
+            <OutcomeSection run={run} busy={busy} perform={perform} />
+          ) : null}
+        </>
+      )}
+
+      {/* What the user must act on stays visible even when the board is collapsed. */}
+      {run.status === 'awaiting_confirmation' ? <PlanSection run={run} busy={busy} perform={perform} /> : null}
       {run.needsInput && (run.status === 'needs_input' || run.status === 'interrupted') ? (
         <NeedsInputSection run={run} busy={busy} perform={perform} />
       ) : null}
       {run.status === 'failed' && run.error ? <Section tone="error">{run.error}</Section> : null}
-      {run.status === 'succeeded' || run.status === 'completed_with_gaps' ? (
-        <OutcomeSection run={run} busy={busy} perform={perform} />
-      ) : null}
     </div>
   );
 }
@@ -204,7 +250,8 @@ function laneSteps(run: WorkflowRunView): WorkflowStepView[] {
   );
 }
 
-function laneCounts(lanes: WorkflowStepView[]): string[] {
+function laneCounts(lanes: WorkflowStepView[], finished: boolean): string[] {
+  if (finished) return lanes.length ? [`${lanes.length} ${lanes.length === 1 ? 'step' : 'steps'}`] : [];
   const done = lanes.filter((s) => s.state === 'succeeded' || s.state === 'failed').length;
   const running = lanes.filter((s) => s.state === 'running').length;
   return [done ? `${done} done` : null, running ? `${running} running` : null].filter((p): p is string => p !== null);
@@ -214,22 +261,65 @@ function hasRounds(lanes: WorkflowStepView[]): boolean {
   return lanes.some((s) => (s.iteration?.[s.iteration.length - 1] ?? 0) > 0);
 }
 
-function memberName(member: WorkflowMemberView | undefined): string {
+/**
+ * Short member name for lanes and the plan card. The planner's focus text can
+ * be a whole instruction, so it goes in the tooltip; the member key only
+ * appears when two members share a provider.
+ */
+function memberName(member: WorkflowMemberView | undefined, members: WorkflowMemberView[] = []): string {
   if (!member) return 'Check';
   if (member.agent === CURRENT_SESSION_AGENT) return 'This chat';
-  return `${PROVIDER_LABEL[member.provider] ?? member.agent}${member.focus ? ` (${member.focus})` : ''}`;
+  const name = PROVIDER_LABEL[member.provider] ?? member.agent;
+  const shared = members.some((m) => m.key !== member.key && m.provider === member.provider && m.agent !== CURRENT_SESSION_AGENT);
+  return shared ? `${name} (${member.key})` : name;
 }
 
-function StepLane({ step, member, showRound }: { step: WorkflowStepView; member?: WorkflowMemberView; showRound: boolean }) {
+/** Assumptions do not stop the run; they stay available behind one line. */
+function AssumptionsLine({ assumptions }: { assumptions: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-[var(--border)] px-2.5 py-1 text-[11px] leading-4 text-[var(--text-muted)]">
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 hover:text-[var(--text-secondary)]"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
+        Assumptions ({assumptions.length})
+      </button>
+      {open ? (
+        <ul className="mt-1 ml-4 list-disc space-y-0.5">
+          {assumptions.map((a) => (
+            <li key={a}>{a}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function StepLane({
+  step,
+  member,
+  members,
+  showRound,
+}: {
+  step: WorkflowStepView;
+  member?: WorkflowMemberView;
+  members: WorkflowMemberView[];
+  showRound: boolean;
+}) {
   const isCurrent = member?.agent === CURRENT_SESSION_AGENT;
   const approvals = useAppStore((s) => (step.sessionId && !isCurrent ? s.sessions[step.sessionId]?.permissionRequests?.length ?? 0 : 0));
   const round = step.iteration ? step.iteration[step.iteration.length - 1] + 1 : null;
-  const what = step.kind === 'check' ? step.label : step.phase ?? step.label;
+  // Agent step labels read "<member> · <output>"; the lane already names the member.
+  const what = step.kind === 'check' ? step.label : step.phase ?? step.label.split(' · ').pop() ?? step.label;
   return (
     <Lane
       icon={member ? <ProviderIcon provider={member.provider as AgentProvider} /> : <CircleDashed className="h-3 w-3 text-[var(--text-muted)]" />}
-      label={`${memberName(member)} · ${what}${showRound && round ? ` · round ${round}` : ''}`}
-      title={step.summary ?? undefined}
+      label={`${memberName(member, members)} · ${what}${showRound && round ? ` · round ${round}` : ''}`}
+      title={[member?.focus, step.summary].filter(Boolean).join('\n') || undefined}
       state={step.state}
       verdict={step.verdict}
       approvals={approvals}
@@ -341,7 +431,9 @@ function PlanSection({ run, busy, perform }: { run: WorkflowRunView; busy: boole
               <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
                 <ProviderIcon provider={m.provider as AgentProvider} />
               </span>
-              <span className="text-[var(--text-primary)]">{memberName(m)}</span>
+              <span className="text-[var(--text-primary)]" title={m.focus ?? undefined}>
+                {memberName(m, run.members)}
+              </span>
               <span className="text-[var(--text-muted)]">{m.role === 'implementer' ? 'writes code' : `${m.role}, read-only`}</span>
               {m.source === 'inferred' ? <span className="text-[11px] text-[var(--text-muted)]">· suggested</span> : null}
               {m.unverified ? <span className="text-[11px] text-[var(--text-muted)]">· not yet conformance-tested</span> : null}

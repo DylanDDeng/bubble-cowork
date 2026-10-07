@@ -29,7 +29,7 @@ import {
   type WorkflowStepView,
   type WorkflowTemplateRequest,
 } from '../../../shared/workflow';
-import { AegisWorkflowHost, type RunControl, type SessionBridge } from './aegis-host';
+import { AegisWorkflowHost, type HostEvent, type RunControl, type SessionBridge } from './aegis-host';
 import { isGroupAlive, processStartTime, terminateGroup } from './check-executor';
 import { buildMemberConfigs, declarationFor, declarationForAgent, memberSessionPayload } from './member-configs';
 import { planWorkflow, readProjectScripts } from './planner';
@@ -89,6 +89,13 @@ export class WorkflowService {
   /** Session ids owned by workflows, so session lists and the iPhone companion can hide them. */
   isWorkflowSession(sessionId: string): boolean {
     return store.findMemberBySession(sessionId) !== null;
+  }
+
+  /** Member and planner sessions: hidden from thread lists, opened from a workflow board. */
+  ownsHiddenSession(sessionId: string): boolean {
+    if (this.isWorkflowSession(sessionId) || store.isPlannerSession(sessionId)) return true;
+    // The chat that started a run also has instance rows; it is never hidden.
+    return store.isInstanceSession(sessionId) && !store.listRuns(true).some((run) => run.options.parent?.sessionId === sessionId);
   }
 
   setDefaults(defaults: { permissionModes: Record<string, string> }) {
@@ -573,7 +580,7 @@ export class WorkflowService {
     });
   }
 
-  private onEvent(runId: string, event: WorkflowEvent | { type: 'ask'; key: string; question: string; options?: string[] }) {
+  private onEvent(runId: string, event: HostEvent) {
     store.appendEvent(runId, event);
     if (event.type === 'instance_skipped') {
       const run = store.getRun(runId)!;
@@ -603,6 +610,12 @@ export class WorkflowService {
   // ---- restart recovery (plan §7.3) -------------------------------------------
 
   recoverOnStartup(): void {
+    try {
+      const marked = store.backfillWorkflowPromptMarkers();
+      if (marked > 0) console.log(`[workflow] marked ${marked} earlier workflow prompt(s)`);
+    } catch (error) {
+      console.warn('[workflow] could not mark earlier workflow prompts', error);
+    }
     for (const run of store.listRuns()) {
       for (const member of store.listMembers(run.id)) {
         if (member.currentSessionId && member.agent !== CURRENT_SESSION_AGENT) {
@@ -706,7 +719,11 @@ export class WorkflowService {
       store.updateRun(runId, { options: { ...run.options, reported: true } });
       const view = this.view(runId)!;
       const records = new store.SqliteInstanceStore(runId).all();
-      const ok = await this.deps.reportToParent(parent.sessionId, `Workflow ${STATUS_WORDS[view.status] ?? view.status}: ${view.title}`, parentReport(view, records));
+      const ok = await this.deps.reportToParent(
+        parent.sessionId,
+        `Workflow ${STATUS_WORDS[view.status] ?? view.status} · result sent to this chat`,
+        parentReport(view, records),
+      );
       if (!ok) console.warn('[workflow] could not report the result to the chat session', parent.sessionId);
     } finally {
       this.reporting.delete(runId);
@@ -977,6 +994,7 @@ function stepViews(
   needsInput: WorkflowNeedsInput | null,
 ): WorkflowStepView[] {
   const views: WorkflowStepView[] = [];
+  const ranAt = new Map<string, number>();
   const byStep = new Map<string, Array<InstanceRecord & { sessionId?: string }>>();
   for (const record of [...records].sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER))) {
     const list = byStep.get(record.stepId) ?? [];
@@ -1032,6 +1050,7 @@ function stepViews(
                 : 'failed'
             : ((output as ReviewResult | undefined)?.verdict ?? null);
         const waiting = needsInput?.instanceKey === record.key;
+        ranAt.set(record.key, record.seq ?? Number.MAX_SAFE_INTEGER);
         views.push({
           key: record.key,
           stepId: step.id,
@@ -1078,5 +1097,8 @@ function stepViews(
     }
   };
   walk(expandSpec(spec).steps, null);
-  return views;
+  // Steps that ran are listed in the order they ran (review → fix → re-review),
+  // followed by the ones still to come in plan order.
+  const ran = views.filter((v) => ranAt.has(v.key)).sort((a, b) => ranAt.get(a.key)! - ranAt.get(b.key)!);
+  return [...ran, ...views.filter((v) => !ranAt.has(v.key))];
 }

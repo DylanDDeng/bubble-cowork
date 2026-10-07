@@ -90,7 +90,11 @@ app.whenReady().then(async () => {
       if (e.type === 'stream.message' && p.message && p.message.type === 'assistant' && !p.message.streaming) {
         for (const b of (p.message.message && p.message.message.content) || []) {
           if (b.type === 'text' && b.text) assistantTexts.push(b.text);
-          if (b.type === 'tool_use') toolUses.push(b.name);
+          if (b.type === 'tool_use') {
+            // Commands are recorded in full: running another agent's CLI instead of start_workflow is the failure to spot.
+            const command = b.input && (b.input.command || b.input.cmd);
+            toolUses.push(command ? b.name + ': ' + String(Array.isArray(command) ? command.join(' ') : command).slice(0, 160) : b.name);
+          }
         }
       }
     }
@@ -104,6 +108,7 @@ app.whenReady().then(async () => {
   let last = '';
   let reported = false;
   let idleChecks = 0;
+  const runningWithSession = new Set();
   while (Date.now() < deadline) {
     await delay(3000);
     absorb(await events());
@@ -121,6 +126,10 @@ app.whenReady().then(async () => {
       run = await js('window.electron.workflows.get(' + JSON.stringify(run.id) + ')');
       const line = run.status + ' | ' + run.steps.map((s) => s.key + ':' + s.state + (s.verdict ? '(' + s.verdict + ')' : '')).join(', ');
       if (line !== last) { console.log('[chat-e2e]', line); last = line; }
+      // A running agent step must already name its session so its lane can open it.
+      for (const step of run.steps) {
+        if (step.kind === 'agent' && step.state === 'running' && step.sessionId) runningWithSession.add(step.key);
+      }
       if (run.status === 'awaiting_confirmation') {
         console.log('[chat-e2e] confirming plan:', JSON.stringify(run.confirmReasons));
         await js('window.electron.workflows.act(' + JSON.stringify({ type: 'confirm', runId: run.id, expectedRevision: run.revision }) + ')');
@@ -141,6 +150,7 @@ app.whenReady().then(async () => {
   const result = { mode: ${JSON.stringify(mode)}, parent, run, userPrompts, assistantTexts, toolUses, reported };
   fs.writeFileSync(path.join(${JSON.stringify(tmp)}, 'result.json'), JSON.stringify(result, null, 2));
   fs.writeFileSync(path.join(${JSON.stringify(tmp)}, 'events.json'), JSON.stringify(log, null, 2));
+  console.log('[chat-e2e] running steps that already had a session:', JSON.stringify([...runningWithSession]));
   console.log('[chat-e2e] chat tool calls:', JSON.stringify(toolUses));
   console.log('[chat-e2e] chat prompts:', JSON.stringify(userPrompts));
   if (run) {

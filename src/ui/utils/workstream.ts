@@ -1,3 +1,4 @@
+import { isStartWorkflowToolName } from '../../shared/workflow';
 import { deriveCompactionEntries, type CompactionEntry, type WorkstreamMessage } from './compaction';
 import type { ToolExecutionMetadata } from '../../shared/types';
 import type {
@@ -306,6 +307,10 @@ export function groupSubagentMessagesByParent(
 export function isSubagentTaskBlock(block: ContentBlock): boolean {
   const normalized = normalizeToolUseBlock(block);
   if (!normalized) return false;
+  // start_workflow shares the task stage only to render its board; the run
+  // is not a subagent (no child trace, returns at once), so subagent lists,
+  // tabs and "still running" checks leave it out.
+  if (isStartWorkflowToolName(normalized.name)) return false;
   if (classifyToolUse(normalized.name, normalized.input) === 'subagent') return true;
   const input = normalized.input as Record<string, unknown> | undefined;
   return typeof input?.subagent_type === 'string' && input.subagent_type.trim().length > 0;

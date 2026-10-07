@@ -1,5 +1,5 @@
 import { extractSessionLinks } from '../../shared/session-links';
-import { createNativeSessionReader } from './session-native-tool';
+import { createNativeSessionReader, createNativeStartWorkflow } from './session-native-tool';
 import type { BubbleContentPart } from './provider/bubble-sdk-loader';
 
 export const BUBBLE_SESSION_TOOL = 'read_session';
@@ -9,11 +9,13 @@ const installed = new WeakSet<object>();
  * The pinned SDK patch retains native Plan read-only checks and explicit deny rules. */
 export function installBubbleSessionReader(instance: object): void {
   if (installed.has(instance)) return;
-  const sdk = instance as { registerHostTool?: (tool: ReturnType<typeof createNativeSessionReader>) => void };
+  const sdk = instance as { registerHostTool?: (tool: object) => void };
   if (typeof sdk.registerHostTool !== 'function') {
     throw new Error('This Bubble SDK cannot register the Aegis conversation reader. Reinstall dependencies to apply the host patch.');
   }
   sdk.registerHostTool(createNativeSessionReader());
+  // The workflow entry (start_workflow); member sessions are refused at call time.
+  sdk.registerHostTool(createNativeStartWorkflow());
   installed.add(instance);
 }
 

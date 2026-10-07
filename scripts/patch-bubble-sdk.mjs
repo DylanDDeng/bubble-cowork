@@ -16,7 +16,9 @@ export async function patchBubbleSdk(root) {
     if (source.split(before).length !== 2) throw new Error('Bubble SDK host patch no longer matches upstream');
     return source.replace(before, after);
   };
-  js = replace(js, '    projectTrustAsked = new Set();', `    // Aegis: serialize trust per folder; cancellation never consumes future prompts.
+  // Steps whose output a later step rewrites are skipped once that later form is present.
+  const hostToolsGated = js.includes('return tool.requiresApproval ? gateMcpTools([hosted], approvalController)[0] : hosted;');
+  if (!js.includes('    hostTools = new Map();')) js = replace(js, '    projectTrustAsked = new Set();', `    // Aegis: serialize trust per folder; cancellation never consumes future prompts.
     projectTrustPending = new Map();
     hostTools = new Map();
     registerHostTool(tool) {
@@ -72,7 +74,7 @@ export async function patchBubbleSdk(root) {
         await awaitWithAbort(operation, signal);
     }
 ` + js.slice(finish);
-  js = replace(js,
+  if (!hostToolsGated) js = replace(js,
     '            tools.push(...gateMcpTools(await awaitWithAbort(this.mcpToolsFor(cwd), abortSignal), approvalController));',
     `            const mcpTools = await awaitWithAbort(this.mcpToolsFor(cwd), abortSignal);
             tools.push(...gateMcpTools(mcpTools.filter(tool => !this.hostTools.has(tool.name)), approvalController));
@@ -86,6 +88,31 @@ export async function patchBubbleSdk(root) {
                     return tool.execute(args, ctx);
                 },
             })));`);
+  // Host actions (not readers) are gated like MCP tools, so they follow the
+  // session's permission mode and stay out of Plan mode (readOnly false).
+  js = replace(js,
+    '        if (!tool.readOnly || tool.effect !== "read") throw new Error("Host tools must be read-only");',
+    '        if ((!tool.readOnly || tool.effect !== "read") && tool.requiresApproval !== true) throw new Error("Host tools must be read-only or require approval");');
+  if (!hostToolsGated) js = replace(js,
+    `            tools.push(...Array.from(this.hostTools.values(), tool => ({
+                ...tool,
+                execute: (args, ctx) => {
+                    const rule = approvalController.checkRules({ tool: tool.name });
+                    if (rule.decision === "deny") return Promise.resolve({ content: "Blocked by deny rule: " + rule.rule?.source, isError: true });
+                    return tool.execute(args, ctx);
+                },
+            })));`,
+    `            tools.push(...Array.from(this.hostTools.values(), tool => {
+                const hosted = {
+                    ...tool,
+                    execute: (args, ctx) => {
+                        const rule = approvalController.checkRules({ tool: tool.name });
+                        if (rule.decision === "deny") return Promise.resolve({ content: "Blocked by deny rule: " + rule.rule?.source, isError: true });
+                        return tool.execute(args, ctx);
+                    },
+                };
+                return tool.requiresApproval ? gateMcpTools([hosted], approvalController)[0] : hosted;
+            }));`);
   types = replace(types, '    private readonly projectTrustAsked;', '    private readonly projectTrustPending;\n    private readonly hostTools;\n    registerHostTool(tool: import("../types.js").ToolRegistryEntry): void;');
   await writeFile(jsPath, js);
   await writeFile(typesPath, types);
@@ -93,5 +120,5 @@ export async function patchBubbleSdk(root) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await patchBubbleSdk(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../node_modules/@bubblebrain-ai/bubble'));
-  console.log('Bubble SDK host patch applied (read-only tools and repeatable project trust)');
+  console.log('Bubble SDK host patch applied (host tools and repeatable project trust)');
 }

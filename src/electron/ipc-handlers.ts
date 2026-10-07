@@ -4590,6 +4590,7 @@ function setupWorkflows(mainWindow: BrowserWindow): void {
         sessionId,
         prompt: display,
         effectivePrompt: prompt,
+        workflowPrompt: 'event',
         provider: (session.provider || 'claude') as AgentProvider,
       });
     },
@@ -4601,6 +4602,13 @@ function setupWorkflows(mainWindow: BrowserWindow): void {
     discardIsolated: (sessionId) => discardIsolatedWorkspace(sessionId),
   });
   setupWorkflowIPC(service);
+  // Workflow sessions are hidden from the thread list, so the board loads
+  // one on demand when the user opens it in the right panel.
+  ipcMainHandle('workflow-session-info', (_event, sessionId: string) => {
+    if (typeof sessionId !== 'string' || !service.ownsHiddenSession(sessionId)) return null;
+    const row = sessions.getSession(sessionId);
+    return row ? buildSessionInfoFromRow(row, sessions.getLatestClaudeModelUsageBySession()[sessionId]) : null;
+  });
   service.recoverOnStartup();
 
   const claimed = new Set<string>();
@@ -8988,6 +8996,7 @@ async function handleSessionStart(
     title,
     prompt,
     effectivePrompt,
+    workflowPrompt,
     automationRunId,
     skipTitleGeneration,
     cwd,
@@ -9244,7 +9253,13 @@ async function handleSessionStart(
   const createdAt = Date.now();
   broadcast(mainWindow, {
     type: 'stream.user_prompt',
-    payload: { sessionId: session.id, prompt: outgoingPrompt, attachments: outgoingAttachments, createdAt },
+    payload: {
+      sessionId: session.id,
+      prompt: outgoingPrompt,
+      attachments: outgoingAttachments,
+      createdAt,
+      ...(workflowPrompt ? { workflowPrompt } : {}),
+    },
   });
 
   // 保存 user_prompt
@@ -9253,6 +9268,7 @@ async function handleSessionStart(
     prompt: outgoingPrompt,
     attachments: outgoingAttachments,
     createdAt,
+    ...(workflowPrompt ? { workflowPrompt } : {}),
   });
 
   // 检查运行时状态（在会话状态已设为 running 之后，以便前端立即显示 spinning 效果）
@@ -9465,6 +9481,7 @@ async function handleSessionContinueImpl(
     sessionId,
     prompt,
     effectivePrompt,
+    workflowPrompt,
     attachments,
     provider,
     model,
@@ -9859,7 +9876,13 @@ async function handleSessionContinueImpl(
     const createdAt = Date.now();
     broadcast(mainWindow, {
       type: 'stream.user_prompt',
-      payload: { sessionId, prompt: outgoingPrompt, attachments: outgoingAttachments, createdAt },
+      payload: {
+        sessionId,
+        prompt: outgoingPrompt,
+        attachments: outgoingAttachments,
+        createdAt,
+        ...(workflowPrompt ? { workflowPrompt } : {}),
+      },
     });
 
     // 保存 user_prompt
@@ -9868,6 +9891,7 @@ async function handleSessionContinueImpl(
       prompt: outgoingPrompt,
       attachments: outgoingAttachments,
       createdAt,
+      ...(workflowPrompt ? { workflowPrompt } : {}),
     });
   }
 

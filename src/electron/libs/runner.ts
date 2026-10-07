@@ -3,7 +3,6 @@ import { createClaudeGoalController, releaseClaudeGoalController, rejectClaudeGo
 import { isWithinProjectPath } from './project-paths';
 import { createSessionSdkMcpServer, SESSION_MCP_SERVER_NAME } from './session-mcp';
 import { isStartWorkflowToolName } from '../../shared/workflow';
-import { WORKFLOW_CHAT_INSTRUCTIONS } from './workflow/chat-entry';
 import type {
   McpServerConfig as SDKMcpServerConfig,
   PermissionMode as ClaudeSdkPermissionMode,
@@ -841,7 +840,6 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         callerSessionId: session.id,
         workflows: offersWorkflows,
       });
-      const systemAppend = [memoryAppend, offersWorkflows ? WORKFLOW_CHAT_INSTRUCTIONS : ''].filter(Boolean).join('\n\n');
       if (workflowPolicy?.readOnly) {
         for (const name of Object.keys(mcpServers)) delete (mcpServers as Record<string, unknown>)[name];
       }
@@ -866,8 +864,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       const result = sdk.query({
         prompt: inputQueue,
         options: {
-          systemPrompt: systemAppend
-            ? { type: 'preset', preset: 'claude_code', append: systemAppend }
+          systemPrompt: memoryAppend
+            ? { type: 'preset', preset: 'claude_code', append: memoryAppend }
             : { type: 'preset', preset: 'claude_code' },
           cwd: sessionCwd,
           additionalDirectories: getSessionProjectSources(session.id, sessionCwd).slice(1),
