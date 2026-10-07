@@ -20,6 +20,8 @@ createRoot(document.getElementById('root')).render(<Harness/>);
 `;
 const main = `
 const {app,BrowserWindow,ipcMain}=require('electron');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 app.setPath('userData',path.join(__dirname,'profile'));fs.mkdirSync(app.getPath('userData'),{recursive:true});
 const root=process.env.QA_ROOT;const load=file=>require(path.join(root,'dist-electron/electron',file));
 const sessions=load('libs/session-store.js');const windows=load('ipc/session-windows.js');const {ipcMainHandle,ipcMainOn}=load('util.js');

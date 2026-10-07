@@ -23,6 +23,8 @@ createRoot(document.getElementById('root')).render(<main style={{maxWidth:900,ma
 `;
 const main = String.raw`
 const {app,BrowserWindow}=require('electron');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=process.env.QA_ROOT,temp=process.env.QA_TEMP;
 app.setPath('userData',path.join(temp,'profile'));fs.mkdirSync(app.getPath('userData'),{recursive:true});

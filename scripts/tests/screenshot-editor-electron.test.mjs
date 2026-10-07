@@ -12,6 +12,8 @@ let server;
 
 const main = String.raw`
 const {app,BrowserWindow,clipboard,ipcMain}=require('electron');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 let copiedImage;clipboard.clear=()=>{copiedImage=null};clipboard.writeImage=image=>{copiedImage=image};clipboard.readImage=()=>copiedImage;
 ipcMain.on('get-ui-resume-state-sync',e=>{e.returnValue=null});ipcMain.on('renderer-state:get-all-sync',e=>{e.returnValue={}});ipcMain.handle('set-theme',()=>{});ipcMain.handle('get-app-preferences',()=>({}));const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 app.setPath('userData',path.join(__dirname,'profile'));

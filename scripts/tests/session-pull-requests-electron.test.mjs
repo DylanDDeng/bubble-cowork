@@ -7,6 +7,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const tmp = await mkdtemp(path.join(os.tmpdir(), 'aegis-pr-test-'));
 const main = String.raw`
 const {app,BrowserWindow,ipcMain}=require('electron');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 const fs=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
 const {execFileSync}=require('node:child_process');
 const root=process.env.QA_ROOT;

@@ -77,6 +77,8 @@ createRoot(document.getElementById('root')).render(<App/>);
 `;
 const main=String.raw`
 const {app,BrowserWindow}=require('electron');const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 app.setPath('userData',path.join(__dirname,'profile'));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{const w=new BrowserWindow({width:1000,height:900,show:true});const errors=[];

@@ -64,6 +64,8 @@ createRoot(document.getElementById('root')).render(<Tooltip.Provider><div style=
 
 const main = String.raw`
 const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 app.setPath('userData',path.join(__dirname,'profile'));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const RUN=${JSON.stringify(run)};const MEMBERS=${JSON.stringify(plannedMembers)};

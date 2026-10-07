@@ -96,6 +96,8 @@ createRoot(document.getElementById('root')).render(<Tooltip.Provider><App/></Too
 `;
 const main = String.raw`
 const {app,BrowserWindow}=require('electron');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 app.setPath('userData',path.join(__dirname,'profile'));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));

@@ -41,6 +41,8 @@ createRoot(document.getElementById('root')).render(<Harness/>);
 `;
 const main = String.raw`
 const {app,BrowserWindow}=require('electron');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 app.setPath('userData',path.join(__dirname,'profile'));
 app.whenReady().then(async()=>{

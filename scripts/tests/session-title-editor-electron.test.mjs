@@ -38,6 +38,8 @@ createRoot(document.getElementById('root')).render(<Harness/>);
 `;
 const main = `
 const {app,BrowserWindow,ipcMain}=require('electron');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
@@ -67,6 +69,9 @@ app.whenReady().then(async()=>{
  try{
   console.log('Loading title editor fixture');
   await win.loadURL(process.env.QA_URL+'?session='+row.id);
+  // Blur only fires in a focused page; don't depend on which app is in front.
+  win.webContents.debugger.attach('1.3');
+  await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled',{enabled:true});
   console.log('Title editor fixture loaded');
   for(let i=0;i<150;i++){if(await js('!!window.qa && !!qa.button()'))break;await delay(100);}
   win.focus();

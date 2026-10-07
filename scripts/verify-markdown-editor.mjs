@@ -581,6 +581,8 @@ contextBridge.exposeInMainWorld('electron', {
 
   const main = `
 const { app, BrowserWindow } = require('electron');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 app.setPath('userData', process.env.AEGIS_MD_QA_PROFILE);
 
 function delay(ms) {

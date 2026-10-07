@@ -166,6 +166,8 @@ createRoot(document.getElementById('root')).render(<Harness />);
 
   const main = `
 const { app, BrowserWindow } = require('electron');
+// CI runners have Reduce Motion on; tests expect the default motion preference.
+app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
