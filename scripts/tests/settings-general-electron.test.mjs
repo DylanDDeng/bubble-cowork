@@ -37,7 +37,7 @@ window.electron={...window.preferenceBridge,
  getProjectGitSummary:async()=>({isGitRepository:false}),getProjectTree:async()=>null,
  remoteCompanion:async()=>({status:'stopped',enabled:false,environment:'fixture',relay:'',projects:[],projectIds:[],devices:[]}),
 };
-for(const p of ['Claude','Codex','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek','Devin'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
+for(const p of ['Claude','Codex','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek','Devin','Mimo'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
 window.electron.getDevinThoughtLevels=async()=>({model:null,levels:[],defaultLevel:null});
 useAppStore.setState({showSettings:true,activeSettingsTab:'general'});
 function Harness(){

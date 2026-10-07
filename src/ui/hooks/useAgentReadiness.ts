@@ -37,6 +37,7 @@ const PROVIDER_ORDER: Array<{ provider: AgentProvider; label: string }> = [
   { provider: 'bubble', label: 'Bubble' },
   { provider: 'deepseek', label: 'DeepSeek Harness' },
   { provider: 'devin', label: 'Devin' },
+  { provider: 'mimo', label: 'MiMo Code' },
 ];
 
 // Shared across hook instances: several pickers/panels mount at once and the

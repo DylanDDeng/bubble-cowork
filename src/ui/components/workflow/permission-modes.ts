@@ -4,6 +4,7 @@ import { loadPreferredCodexPermissionMode } from '../../utils/codex-permission';
 import { loadPreferredDeepseekPermissionMode } from '../../utils/deepseek-permission';
 import { loadPreferredDevinPermissionMode } from '../../utils/devin-permission';
 import { loadPreferredKimiPermissionMode } from '../../utils/kimi-permission';
+import { loadPreferredMimoPermissionMode } from '../../utils/mimo-permission';
 import { loadPreferredOpencodePermissionMode } from '../../utils/opencode-permission';
 import { loadPreferredQoderPermissionMode } from '../../utils/qoder-permission';
 
@@ -18,6 +19,7 @@ export function composerPermissionModes(): Record<string, string> {
     qoder: loadPreferredQoderPermissionMode(),
     deepseek: loadPreferredDeepseekPermissionMode(),
     devin: loadPreferredDevinPermissionMode(),
+    mimo: loadPreferredMimoPermissionMode(),
     bubble: loadPreferredBubblePermissionMode(),
   };
   // Plan mode is not a permission level for someone who must write code.

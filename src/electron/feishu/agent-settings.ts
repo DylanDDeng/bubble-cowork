@@ -10,18 +10,20 @@ import {
   DEEPSEEK_PERMISSION_MODE_OPTIONS,
   DEVIN_PERMISSION_MODE_OPTIONS,
   KIMI_PERMISSION_MODE_OPTIONS,
+  MIMO_PERMISSION_MODE_OPTIONS,
   OPENCODE_PERMISSION_MODE_OPTIONS,
   QODER_PERMISSION_MODE_OPTIONS,
   type PermissionModeOption,
 } from "../../ui/utils/permission-modes";
 import type { ScopePrefs } from "./store";
 
-export const PROVIDERS: AgentProvider[] = ["claude", "codex", "bubble", "devin", "kimi", "grok", "deepseek", "opencode", "qoder", "pi"];
+export const PROVIDERS: AgentProvider[] = ["claude", "codex", "bubble", "devin", "mimo", "kimi", "grok", "deepseek", "opencode", "qoder", "pi"];
 export const PROVIDER_LABELS: Record<string, string> = {
   claude: "Claude",
   codex: "Codex",
   bubble: "Bubble",
   devin: "Devin",
+  mimo: "MiMo",
   kimi: "Kimi",
   grok: "Grok",
   deepseek: "DeepSeek",
@@ -36,6 +38,7 @@ export const PERMISSION_OPTIONS: Record<string, ReadonlyArray<PermissionModeOpti
   codex: CODEX_PERMISSION_MODE_OPTIONS,
   bubble: BUBBLE_PERMISSION_MODE_OPTIONS,
   devin: DEVIN_PERMISSION_MODE_OPTIONS,
+  mimo: MIMO_PERMISSION_MODE_OPTIONS,
   kimi: KIMI_PERMISSION_MODE_OPTIONS,
   grok: KIMI_PERMISSION_MODE_OPTIONS,
   deepseek: DEEPSEEK_PERMISSION_MODE_OPTIONS,
@@ -111,6 +114,10 @@ export function resolveAgent(prefs: ScopePrefs, desktop: Record<string, string>)
     case "devin":
       payload.devinPermissionMode = (permissionMode ?? "accept-edits") as SessionStartPayload["devinPermissionMode"];
       payload.devinThoughtLevel = perModel(desktop["cowork.preferredDevinThoughtLevels"], model);
+      break;
+    case "mimo":
+      payload.mimoPermissionMode = (permissionMode ?? "ask") as SessionStartPayload["mimoPermissionMode"];
+      payload.mimoReasoningEffort = perModel(desktop["cowork.preferredMimoReasoningEfforts"], model);
       break;
     case "kimi":
       payload.kimiPermissionMode = (permissionMode ?? "default") as SessionStartPayload["kimiPermissionMode"];

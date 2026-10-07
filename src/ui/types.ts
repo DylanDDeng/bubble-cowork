@@ -102,6 +102,8 @@ export type {
   DevinModelConfig,
   DevinRuntimeStatus,
   DevinThoughtLevels,
+  MimoModelConfig,
+  MimoRuntimeStatus,
   DeepseekKeyStatus,
   BrowserUsePermissionSettings,
   ChromeCookieDomain,
@@ -114,6 +116,7 @@ export type {
   DeepseekAgentPreset,
   DeepseekReasoningEffort,
   DevinPermissionMode,
+  MimoPermissionMode,
   PiModelConfig,
   BubbleModelConfig,
   BubbleProvidersConfig,
@@ -361,6 +364,7 @@ export interface SessionView {
   deepseekAgentPreset?: import('../shared/types').DeepseekAgentPreset;
   deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
   devinPermissionMode?: import('../shared/types').DevinPermissionMode;
+  mimoPermissionMode?: import('../shared/types').MimoPermissionMode;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   pinned?: boolean;
   folderPath?: string | null;

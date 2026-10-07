@@ -28,6 +28,7 @@ export const DELEGATE_TARGET_PROVIDERS: AgentProvider[] = [
   'bubble',
   'deepseek',
   'devin',
+  'mimo',
 ];
 
 const DELEGATE_TIMEOUT_MS = Number(process.env.AEGIS_DELEGATE_TIMEOUT_MS || '') || 30 * 60 * 1000;
@@ -311,6 +312,9 @@ export function applyPermissionTier(
       // accept-edits is Devin's least permissive working mode: edits pass,
       // commands outside its allowlist still ask.
       payload.devinPermissionMode = tier === 'full' ? 'bypass' : 'accept-edits';
+      break;
+    case 'mimo':
+      payload.mimoPermissionMode = tier === 'full' ? 'build' : 'ask';
       break;
     default:
       break;

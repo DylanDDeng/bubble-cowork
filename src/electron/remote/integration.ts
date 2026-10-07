@@ -17,6 +17,7 @@ import { loadCompatibleProviderConfig } from "../libs/compatible-provider-config
 import { getCodexModelConfig } from "../libs/codex-settings";
 import { getBubbleModelConfig } from "../libs/bubble-settings";
 import { getDevinModelConfig, getDevinThoughtLevels } from "../libs/devin-cli";
+import { getMimoModelConfig } from "../libs/mimo-cli";
 import { importAttachmentBytes } from "../libs/file-attachments";
 
 /** Devin's catalog with thinking levels per model (both cached by devin-cli). */
@@ -38,11 +39,22 @@ async function devinOptions(): Promise<RemoteAgentOptions["devin"] | null> {
   return { defaultModel: config.defaultModel, availableModels: config.availableModels, thoughtLevels };
 }
 
+/** MiMo's catalog; reasoning levels ride on each model (cached by mimo-cli). */
+async function mimoOptions(): Promise<RemoteAgentOptions["mimo"] | null> {
+  const config = await getMimoModelConfig();
+  if (!config.availableModels.length) return null;
+  return {
+    defaultModel: config.defaultModel,
+    availableModels: config.availableModels.map(({ id, label, reasoningEfforts }) => ({ id, label, reasoningEfforts })),
+  };
+}
+
 async function agentOptions(): Promise<RemoteAgentOptions> {
-  const [claude, bubble, devin] = await Promise.all([
+  const [claude, bubble, devin, mimo] = await Promise.all([
     getClaudeModelConfigWithCatalog().catch(() => null),
     getBubbleModelConfig().catch(() => null),
     devinOptions().catch(() => null),
+    mimoOptions().catch(() => null),
   ]);
   let codex: ReturnType<typeof getCodexModelConfig> | null = null;
   try {
@@ -81,6 +93,7 @@ async function agentOptions(): Promise<RemoteAgentOptions> {
         }
       : {}),
     ...(devin ? { devin } : {}),
+    ...(mimo ? { mimo } : {}),
     ...(bubble
       ? {
           bubble: {

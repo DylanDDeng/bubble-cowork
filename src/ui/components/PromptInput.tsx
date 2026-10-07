@@ -61,6 +61,7 @@ import {
   CODEX_PERMISSION_MODE_OPTIONS,
   DEEPSEEK_PERMISSION_MODE_OPTIONS,
   DEVIN_PERMISSION_MODE_OPTIONS,
+  MIMO_PERMISSION_MODE_OPTIONS,
   KIMI_PERMISSION_MODE_OPTIONS,
   OPENCODE_PERMISSION_MODE_OPTIONS,
   QODER_PERMISSION_MODE_OPTIONS,
@@ -476,6 +477,7 @@ export function PromptInput({
   const isGrokContextVisible = runtimeProvider === 'grok' && activeSession?.provider === 'grok';
   const isDeepseekContextVisible = runtimeProvider === 'deepseek' && activeSession?.provider === 'deepseek';
   const isDevinContextVisible = runtimeProvider === 'devin' && activeSession?.provider === 'devin';
+  const isMimoContextVisible = runtimeProvider === 'mimo' && activeSession?.provider === 'mimo';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
   const openCodeContextModel = isOpenCodeContextVisible ? selectedModel || activeSession?.model || null : null;
   const piContextModel = isPiContextVisible ? selectedModel || activeSession?.model || null : null;
@@ -495,10 +497,10 @@ export function PromptInput({
 
   const codexContextSnapshot = useMemo(
     () =>
-      isCodexContextVisible || isKimiContextVisible || isGrokContextVisible || isDeepseekContextVisible || isDevinContextVisible
+      isCodexContextVisible || isKimiContextVisible || isGrokContextVisible || isDeepseekContextVisible || isDevinContextVisible || isMimoContextVisible
         ? getLatestCodexContextSnapshot(activeSession.messages)
         : null,
-    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible, isGrokContextVisible, isDeepseekContextVisible, isDevinContextVisible]
+    [activeSession?.messages, isCodexContextVisible, isKimiContextVisible, isGrokContextVisible, isDeepseekContextVisible, isDevinContextVisible, isMimoContextVisible]
   );
   const claudeContextSnapshot = useMemo(() => {
     if (!isClaudeContextVisible) {
@@ -969,6 +971,14 @@ export function PromptInput({
             runtimeProvider === 'devin'
               ? agentSelection.devinThoughtLevel || undefined
               : undefined,
+          mimoPermissionMode:
+            runtimeProvider === 'mimo'
+              ? agentSelection.mimoPermissionMode
+              : undefined,
+          mimoReasoningEffort:
+            runtimeProvider === 'mimo'
+              ? agentSelection.mimoReasoningEffort || undefined
+              : undefined,
           bubblePermissionMode:
             runtimeProvider === 'bubble'
               ? agentSelection.bubbleExecutionMode === 'plan'
@@ -1099,6 +1109,14 @@ export function PromptInput({
         devinThoughtLevel:
           runtimeProvider === 'devin'
             ? agentSelection.devinThoughtLevel || undefined
+            : undefined,
+        mimoPermissionMode:
+          runtimeProvider === 'mimo'
+            ? agentSelection.mimoPermissionMode
+            : undefined,
+        mimoReasoningEffort:
+          runtimeProvider === 'mimo'
+            ? agentSelection.mimoReasoningEffort || undefined
             : undefined,
         bubblePermissionMode:
           runtimeProvider === 'bubble'
@@ -1677,6 +1695,15 @@ export function PromptInput({
                   menuSide={menuSide}
                 />
               )}
+              {agentSelection.provider === 'mimo' && (
+                <PermissionModePicker
+                  value={agentSelection.mimoPermissionMode}
+                  options={MIMO_PERMISSION_MODE_OPTIONS}
+                  menuMinWidthClass="min-w-[176px]"
+                  onChange={agentSelection.setMimoPermissionMode}
+                  menuSide={menuSide}
+                />
+              )}
               {agentSelection.provider === 'bubble' && (
                 <PermissionModePicker
                   value={agentSelection.bubblePermissionMode}
@@ -1770,6 +1797,9 @@ export function PromptInput({
                 devinThoughtLevels={agentSelection.devinThoughtLevels}
                 devinThoughtLevel={agentSelection.devinThoughtLevel}
                 onDevinThoughtLevelChange={agentSelection.setDevinThoughtLevel}
+                mimoReasoningEfforts={agentSelection.mimoReasoningEfforts}
+                mimoReasoningEffort={agentSelection.mimoReasoningEffort}
+                onMimoReasoningEffortChange={agentSelection.setMimoReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={(enabled) =>
                   handleAgentConfigurationChange({ provider: 'codex', codexFastMode: enabled })

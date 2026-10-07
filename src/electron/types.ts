@@ -34,7 +34,8 @@ export interface SessionRow {
   deepseek_session_id: string | null;
   deepseek_agent_preset: import('../shared/types').DeepseekAgentPreset | null;
   devin_session_id: string | null;
-  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
+  mimo_session_id: string | null;
+  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin' | 'mimo';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;
@@ -139,6 +140,8 @@ export interface RunnerOptions {
   deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
   devinPermissionMode?: import('../shared/types').DevinPermissionMode;
   devinThoughtLevel?: string;
+  mimoPermissionMode?: import('../shared/types').MimoPermissionMode;
+  mimoReasoningEffort?: string;
   /** Set when the session is a member of an app-level workflow (plan §6.3). */
   workflowPolicy?: import('../shared/workflow').WorkflowSessionPolicy;
   codexSkills?: import('../shared/types').ProviderInputReference[];

@@ -9,6 +9,8 @@ const PERMISSION_MODES: Record<string, string[]> = {
   bubble: ["default", "bypassPermissions"],
   // Devin's plan is one of its ACP session modes, picked in the same menu.
   devin: ["accept-edits", "smart", "ask", "plan", "bypass"],
+  // MiMo's plan is one of its agents, like Devin's.
+  mimo: ["ask", "plan", "build"],
 };
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
@@ -43,6 +45,10 @@ export function remoteTaskPayload(
     payload.devinPermissionMode = (mode ?? "accept-edits") as SessionContinuePayload["devinPermissionMode"];
     // Thinking levels are an open set per model; the desktop validates them.
     payload.devinThoughtLevel = s.effort || undefined;
+  } else if (provider === "mimo") {
+    payload.mimoPermissionMode = (mode ?? "ask") as SessionContinuePayload["mimoPermissionMode"];
+    // Variants are an open set per model; the desktop validates them.
+    payload.mimoReasoningEffort = s.effort || undefined;
   }
   return payload;
 }

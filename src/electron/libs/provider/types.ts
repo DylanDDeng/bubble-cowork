@@ -27,6 +27,7 @@ import type {
   DeepseekPermissionMode,
   DeepseekReasoningEffort,
   DevinPermissionMode,
+  MimoPermissionMode,
   OpenCodePermissionMode,
   QoderPermissionMode,
   BubblePermissionMode,
@@ -51,7 +52,7 @@ import type { SessionRow } from '../../types';
 
 // ── Provider Identity ──────────────────────────────────────────────────────
 
-export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
+export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin' | 'mimo';
 
 export interface ProviderAdapterCapabilities {
   /** Supports switching model mid-session */
@@ -98,6 +99,8 @@ export interface ProviderSessionStartInput {
   deepseekReasoningEffort?: DeepseekReasoningEffort;
   devinPermissionMode?: DevinPermissionMode;
   devinThoughtLevel?: string;
+  mimoPermissionMode?: MimoPermissionMode;
+  mimoReasoningEffort?: string;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -130,6 +133,8 @@ export interface ProviderSendTurnInput {
   deepseekReasoningEffort?: DeepseekReasoningEffort;
   devinPermissionMode?: DevinPermissionMode;
   devinThoughtLevel?: string;
+  mimoPermissionMode?: MimoPermissionMode;
+  mimoReasoningEffort?: string;
   opencodePermissionMode?: OpenCodePermissionMode;
   qoderPermissionMode?: QoderPermissionMode;
   bubblePermissionMode?: BubblePermissionMode;

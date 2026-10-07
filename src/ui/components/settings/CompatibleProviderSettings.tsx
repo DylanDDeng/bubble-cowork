@@ -189,6 +189,7 @@ export function CompatibleProviderSettingsContent() {
   const qoderReadiness = agentReadinessEntries.find((entry) => entry.provider === 'qoder');
   // Devin rides the same directory probe (probeDevin → devin-cli status).
   const devinReadiness = agentReadinessEntries.find((entry) => entry.provider === 'devin');
+  const mimoReadiness = agentReadinessEntries.find((entry) => entry.provider === 'mimo');
 
   useEffect(() => {
     let cancelled = false;
@@ -395,6 +396,12 @@ export function CompatibleProviderSettingsContent() {
           logo={<img src={devinLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
           detail={!agentReadinessLoading && devinReadiness && devinReadiness.state !== 'ready' ? devinReadiness.detail : undefined}
           status={buildQoderRailStatus(devinReadiness, agentReadinessLoading)}
+        />
+        <RuntimeStatusRow
+          title="MiMo Code"
+          logo={<img src={mimoLogo} alt="" className="h-5 w-5 provider-monochrome-logo" aria-hidden="true" />}
+          detail={!agentReadinessLoading && mimoReadiness && mimoReadiness.state !== 'ready' ? mimoReadiness.detail : undefined}
+          status={buildQoderRailStatus(mimoReadiness, agentReadinessLoading)}
         />
       </div></details>
 

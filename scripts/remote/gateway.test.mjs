@@ -294,6 +294,9 @@ try {
   const devin = remoteTaskPayload("devin", { settings: { model: "swe-1.5", permissionMode: "plan", effort: "high" } });
   assert.deepEqual(devin, { model: "swe-1.5", attachments: undefined, devinPermissionMode: "plan", devinThoughtLevel: "high" });
   assert.equal(remoteTaskPayload("devin", { settings: { permissionMode: "yolo" } }).devinPermissionMode, "accept-edits");
+  const mimo = remoteTaskPayload("mimo", { settings: { model: "xiaomi/mimo-v2.6-pro", permissionMode: "plan", effort: "high" } });
+  assert.deepEqual(mimo, { model: "xiaomi/mimo-v2.6-pro", attachments: undefined, mimoPermissionMode: "plan", mimoReasoningEffort: "high" });
+  assert.equal(remoteTaskPayload("mimo", { settings: { permissionMode: "bypass" } }).mimoPermissionMode, "ask");
   // Phone approvals must not swap the tool's real input for the approval card's fields.
   const ipcSource = (await import("node:fs")).readFileSync(join(process.cwd(), "src/electron/ipc-handlers.ts"), "utf8");
   assert(!ipcSource.includes("updatedInput: request.input"), "phone approvals keep the tool's own input");

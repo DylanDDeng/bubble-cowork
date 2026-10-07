@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-// Live check that ACP agents can read a referenced Aegis conversation
-// through read_session — REAL `devin acp` + login, real Aegis
+// Live check that Devin and MiMo can read a referenced Aegis conversation
+// through read_session — REAL `devin acp` / `mimo acp` + logins, real Aegis
 // session MCP server over HTTP, scratch session database.
 // Not part of `npm test`: makes small real model requests.
 // Run after `npm run transpile:electron`:
-//   node scripts/verify-session-reader-acp-live.mjs [devin]
+//   node scripts/verify-session-reader-acp-live.mjs [devin] [mimo]
+// MiMo's ACP default model may be unavailable on an account; override with
+// MIMO_LIVE_MODEL (default xiaomi/mimo-v2.6-pro).
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -47,6 +49,11 @@ sessions.addMessage(source.id, {
 
 const providers = {
   devin: { file: 'libs/provider/devin-acp-adapter.js', exportName: 'DevinAcpAdapter', options: {} },
+  mimo: {
+    file: 'libs/provider/mimo-acp-adapter.js',
+    exportName: 'MimoAcpAdapter',
+    options: { model: process.env.MIMO_LIVE_MODEL || 'xiaomi/mimo-v2.6-pro' },
+  },
 };
 const selected = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(providers);
 

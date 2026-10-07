@@ -10,6 +10,7 @@ import qoderLogo from '../../assets/qoder.svg';
 import devinLogo from '../../assets/devin-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import { DeepseekLogo } from '../DeepseekLogo';
+import { MimoLogo } from '../MimoLogo';
 import { ArrowLeft, Check, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Search } from '../icons';
 import type {
   AgentProvider,
@@ -37,6 +38,8 @@ function ProviderLogo({ provider, className }: { provider: AgentProvider; classN
       return <OpenCodeLogo className={className} />;
     case 'deepseek':
       return <DeepseekLogo className={className} />;
+    case 'mimo':
+      return <MimoLogo className={className} />;
     default:
       return (
         <img
@@ -49,7 +52,7 @@ function ProviderLogo({ provider, className }: { provider: AgentProvider; classN
   }
 }
 
-const PROVIDER_LOGO_SRC: Record<Exclude<AgentProvider, 'opencode' | 'deepseek'>, string> = {
+const PROVIDER_LOGO_SRC: Record<Exclude<AgentProvider, 'opencode' | 'deepseek' | 'mimo'>, string> = {
   claude: claudeLogo,
   codex: openaiLogo,
   kimi: moonshotLogo,

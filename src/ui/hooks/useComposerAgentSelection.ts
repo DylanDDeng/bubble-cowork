@@ -19,6 +19,8 @@ import { useDeepseekModelConfig } from './useDeepseekModelConfig';
 import { useDevinModelConfig } from './useDevinModelConfig';
 import { useDevinThoughtLevels } from './useDevinThoughtLevels';
 import { resolveDevinThoughtLevel, savePreferredDevinThoughtLevel } from '../utils/devin-reasoning';
+import { useMimoModelConfig } from './useMimoModelConfig';
+import { resolveMimoReasoningEffort, savePreferredMimoReasoningEffort } from '../utils/mimo-reasoning';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, PREFERRED_PROVIDER_EVENT, savePreferredProvider } from '../utils/provider';
 import {
@@ -53,6 +55,7 @@ import {
   DeepseekPermissionMode,
   DeepseekReasoningEffort,
   DevinPermissionMode,
+  MimoPermissionMode,
   BubblePermissionMode,
 } from '../../shared/types';
 import {
@@ -122,6 +125,10 @@ import {
   savePreferredDevinPermissionMode,
 } from '../utils/devin-permission';
 import {
+  loadPreferredMimoPermissionMode,
+  savePreferredMimoPermissionMode,
+} from '../utils/mimo-permission';
+import {
   loadPreferredDeepseekReasoningEffort,
   savePreferredDeepseekReasoningEffort,
 } from '../utils/deepseek-reasoning';
@@ -136,6 +143,7 @@ const BUBBLE_MODEL_STORAGE_KEY = 'cowork.preferredBubbleModel';
 const QODER_MODEL_STORAGE_KEY = 'cowork.preferredQoderModel';
 const DEEPSEEK_MODEL_STORAGE_KEY = 'cowork.preferredDeepseekModel';
 const DEVIN_MODEL_STORAGE_KEY = 'cowork.preferredDevinModel';
+const MIMO_MODEL_STORAGE_KEY = 'cowork.preferredMimoModel';
 
 export interface ComposerModelOption {
   key: string;
@@ -207,6 +215,21 @@ function savePreferredDevinModel(model: string | null): void {
     return;
   }
   rendererStateStorage.setItem(DEVIN_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredMimoModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = rendererStateStorage.getItem(MIMO_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredMimoModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    rendererStateStorage.removeItem(MIMO_MODEL_STORAGE_KEY);
+    return;
+  }
+  rendererStateStorage.setItem(MIMO_MODEL_STORAGE_KEY, model);
 }
 
 function loadPreferredGrokModel(): string | null {
@@ -507,6 +530,40 @@ function resolveConfiguredDevinModel(
   );
 }
 
+// MiMo's catalog is `mimo models` (its configured providers); reasoning
+// levels ride on each model as variants.
+function buildMimoModelOptions(config: ReturnType<typeof useMimoModelConfig>): ComposerModelOption[] {
+  const defaultModel = config.availableModels.find((entry) => entry.id === config.defaultModel);
+  const defaultOption: ComposerModelOption = {
+    key: 'mimo:default',
+    value: '',
+    label: 'Default',
+    description: defaultModel ? `Use ${defaultModel.label}` : 'Use the MiMo Code default model',
+  };
+  const explicitOptions = config.options.map((id) => {
+    const model = config.availableModels.find((entry) => entry.id === id);
+    return {
+      key: `mimo:${id}`,
+      value: id,
+      label: model?.label || id,
+      details: id,
+    };
+  });
+  return [defaultOption, ...explicitOptions];
+}
+
+function resolveConfiguredMimoModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof useMimoModelConfig>
+): string | null {
+  return resolveListedOrPendingModel(
+    requestedModel,
+    loadPreferredMimoModel(),
+    config.defaultModel,
+    buildMimoModelOptions(config).map((option) => option.value)
+  );
+}
+
 function buildOpencodeComposerModelOptions(config: ReturnType<typeof useOpencodeModelConfig>): ComposerModelOption[] {
   const defaultOption: ComposerModelOption = {
     key: 'opencode:default',
@@ -686,6 +743,7 @@ export function useComposerAgentSelection(input?: {
   const qoderModelConfig = useQoderModelConfig();
   const deepseekModelConfig = useDeepseekModelConfig();
   const devinModelConfig = useDevinModelConfig();
+  const mimoModelConfig = useMimoModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
   const [model, setModelState] = useState<string | null>(() => {
@@ -706,6 +764,7 @@ export function useComposerAgentSelection(input?: {
     if (initialProvider === 'qoder') return loadPreferredQoderModel();
     if (initialProvider === 'deepseek') return loadPreferredDeepseekModel();
     if (initialProvider === 'devin') return loadPreferredDevinModel();
+    if (initialProvider === 'mimo') return loadPreferredMimoModel();
     if (initialProvider === 'claude') return loadPreferredClaudeModel();
     return null;
   });
@@ -760,8 +819,9 @@ export function useComposerAgentSelection(input?: {
       qoder: buildQoderModelOptions(qoderModelConfig),
       deepseek: buildDeepseekModelOptions(deepseekModelConfig),
       devin: buildDevinModelOptions(devinModelConfig),
+      mimo: buildMimoModelOptions(mimoModelConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig, mimoModelConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -831,8 +891,12 @@ export function useComposerAgentSelection(input?: {
       return buildDevinModelOptions(devinModelConfig);
     }
 
+    if (provider === 'mimo') {
+      return buildMimoModelOptions(mimoModelConfig);
+    }
+
     return [];
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig, provider]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig, mimoModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -921,12 +985,19 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
+      if (nextProvider === 'mimo') {
+        return {
+          model: resolveConfiguredMimoModel(normalizedRequestedModel, mimoModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
       return {
         model: null,
         compatibleProviderId: null,
       };
     },
-    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig]
+    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, bubbleModelConfig, qoderModelConfig, deepseekModelConfig, devinModelConfig, mimoModelConfig]
   );
 
   const decorateAgentSelection = useCallback(
@@ -1000,6 +1071,27 @@ export function useComposerAgentSelection(input?: {
       setDevinThoughtLevelRevision((revision) => revision + 1);
     },
     [devinLevelsModel]
+  );
+
+  // MiMo reasoning levels are the variants of the model in MiMo's submenu
+  // (the Default row uses the configured default model's).
+  const mimoLevelsModel = modelValueByProvider.mimo ?? null;
+  const mimoReasoningEfforts = useMemo(() => {
+    const id = mimoLevelsModel || mimoModelConfig.defaultModel;
+    return mimoModelConfig.availableModels.find((entry) => entry.id === id)?.reasoningEfforts ?? [];
+  }, [mimoLevelsModel, mimoModelConfig]);
+  const [mimoReasoningEffortRevision, setMimoReasoningEffortRevision] = useState(0);
+  const mimoReasoningEffort = useMemo(
+    () => resolveMimoReasoningEffort(mimoLevelsModel, mimoReasoningEfforts),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mimoLevelsModel, mimoReasoningEfforts, mimoReasoningEffortRevision]
+  );
+  const setMimoReasoningEffort = useCallback(
+    (effort: string | null) => {
+      savePreferredMimoReasoningEffort(mimoLevelsModel, effort);
+      setMimoReasoningEffortRevision((revision) => revision + 1);
+    },
+    [mimoLevelsModel]
   );
 
   // Apply session switches during render so the first painted frame already
@@ -1198,6 +1290,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredDeepseekModel(nextModel);
       } else if (targetProvider === 'devin') {
         savePreferredDevinModel(nextModel);
+      } else if (targetProvider === 'mimo') {
+        savePreferredMimoModel(nextModel);
       }
 
       input?.onSelectionChange?.(nextSelection);
@@ -1558,6 +1652,10 @@ export function useComposerAgentSelection(input?: {
   const [devinPermissionMode, setDevinPermissionModeState] = useState<DevinPermissionMode>(() =>
     loadPreferredDevinPermissionMode()
   );
+  // MiMo likewise: the adapter reconciles the agent (session/set_mode) per turn.
+  const [mimoPermissionMode, setMimoPermissionModeState] = useState<MimoPermissionMode>(() =>
+    loadPreferredMimoPermissionMode()
+  );
   const [deepseekAgentPreset, setDeepseekAgentPresetState] = useState<DeepseekAgentPreset>(() =>
     input?.deepseekAgentPreset || loadPreferredDeepseekAgentPreset()
   );
@@ -1651,6 +1749,11 @@ export function useComposerAgentSelection(input?: {
   const setDevinPermissionMode = useCallback((mode: DevinPermissionMode) => {
     setDevinPermissionModeState(mode);
     savePreferredDevinPermissionMode(mode);
+  }, []);
+
+  const setMimoPermissionMode = useCallback((mode: MimoPermissionMode) => {
+    setMimoPermissionModeState(mode);
+    savePreferredMimoPermissionMode(mode);
   }, []);
 
   const setDeepseekAgentPreset = useCallback((preset: DeepseekAgentPreset) => {
@@ -1832,6 +1935,11 @@ export function useComposerAgentSelection(input?: {
     devinThoughtLevel,
     devinThoughtLevels,
     setDevinThoughtLevel,
+    mimoPermissionMode,
+    setMimoPermissionMode,
+    mimoReasoningEffort,
+    mimoReasoningEfforts,
+    setMimoReasoningEffort,
     bubblePermissionMode,
     setBubblePermissionMode,
     bubbleExecutionMode,

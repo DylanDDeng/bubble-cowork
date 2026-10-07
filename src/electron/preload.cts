@@ -594,6 +594,11 @@ contextBridge.exposeInMainWorld('electron', {
   ): Promise<ProviderListSkillsResult> => {
     return ipcRenderer.invoke('devin-list-skills', input);
   },
+  listMimoSkills: (
+    input: Omit<ProviderListSkillsInput, 'provider'>
+  ): Promise<ProviderListSkillsResult> => {
+    return ipcRenderer.invoke('mimo-list-skills', input);
+  },
   readCodexPlugin: (
     input: Omit<ProviderReadPluginInput, 'provider'>
   ): Promise<ProviderReadPluginResult> => {
@@ -674,6 +679,12 @@ contextBridge.exposeInMainWorld('electron', {
 
   getDevinThoughtLevels: (model: string | null) => {
     return ipcRenderer.invoke('get-devin-thought-levels', model);
+  },
+  getMimoModelConfig: () => {
+    return ipcRenderer.invoke('get-mimo-model-config');
+  },
+  getMimoRuntimeStatus: () => {
+    return ipcRenderer.invoke('get-mimo-runtime-status');
   },
 
   getPiModelConfig: () => {

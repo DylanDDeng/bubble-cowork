@@ -209,6 +209,8 @@ import {
   getDevinThoughtLevels,
 } from './libs/devin-cli';
 import { normalizeDevinPermissionMode, normalizeDevinThoughtLevel } from './libs/provider/devin-acp-adapter';
+import { formatMimoRuntimeBlockingMessage, getMimoModelConfig, getMimoRuntimeStatus } from './libs/mimo-cli';
+import { normalizeMimoPermissionMode, normalizeMimoReasoningEffort } from './libs/provider/mimo-acp-adapter';
 import { AutomationScheduler } from './libs/automation-scheduler';
 import { recycleSessionWorktree } from './libs/worktree-hygiene';
 import {
@@ -1786,6 +1788,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'bubble') return 'Bubble';
   if (provider === 'deepseek') return 'DeepSeek Harness';
   if (provider === 'devin') return 'Devin';
+  if (provider === 'mimo') return 'MiMo Code';
   return 'Claude Code';
 }
 
@@ -3415,7 +3418,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
+    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin' | 'mimo';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -3433,6 +3436,8 @@ const runnerHandles = new Map<
     deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
     devinPermissionMode?: import('../shared/types').DevinPermissionMode;
     devinThoughtLevel?: string;
+    mimoPermissionMode?: import('../shared/types').MimoPermissionMode;
+    mimoReasoningEffort?: string;
     opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
     qoderPermissionMode?: import('../shared/types').QoderPermissionMode;
     bubblePermissionMode?: import('../shared/types').BubblePermissionMode;
@@ -4917,6 +4922,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (row.provider === 'devin' && runner?.provider === 'devin') {
         return runner.devinPermissionMode === 'bypass';
       }
+      if (row.provider === 'mimo' && runner?.provider === 'mimo') {
+        return runner.mimoPermissionMode === 'build';
+      }
       return false;
     },
     requestPermission: (sessionId, question, url, signal) =>
@@ -6253,6 +6261,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     });
   });
 
+  ipcMainHandle('mimo-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'mimo',
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
+    });
+  });
+
   ipcMainHandle('deepseek-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
     ensureProviderService();
     return getProviderService().listSkills({
@@ -6430,6 +6448,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-devin-thought-levels', async (_event, model?: string | null) => {
     return getDevinThoughtLevels(typeof model === 'string' ? model : null);
+  });
+
+  ipcMainHandle('get-mimo-model-config', async () => {
+    return getMimoModelConfig();
+  });
+
+  ipcMainHandle('get-mimo-runtime-status', async () => {
+    return getMimoRuntimeStatus();
   });
 
   ipcMainHandle('get-pi-model-config', async () => {
@@ -8913,7 +8939,9 @@ function buildSessionInfoFromRow(
                         ? 'deepseek_local'
                         : row.provider === 'devin'
                           ? 'devin_local'
-                          : 'aegis',
+                          : row.provider === 'mimo'
+                            ? 'mimo_local'
+                            : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
@@ -9032,6 +9060,8 @@ async function handleSessionStart(
     deepseekReasoningEffort,
     devinPermissionMode,
     devinThoughtLevel,
+    mimoPermissionMode,
+    mimoReasoningEffort,
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
@@ -9138,6 +9168,10 @@ async function handleSessionStart(
     chosenProvider === 'devin' ? normalizeDevinPermissionMode(devinPermissionMode) : undefined;
   const selectedDevinThoughtLevel =
     chosenProvider === 'devin' ? normalizeDevinThoughtLevel(devinThoughtLevel) : undefined;
+  const selectedMimoPermissionMode =
+    chosenProvider === 'mimo' ? normalizeMimoPermissionMode(mimoPermissionMode) : undefined;
+  const selectedMimoReasoningEffort =
+    chosenProvider === 'mimo' ? normalizeMimoReasoningEffort(mimoReasoningEffort) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -9242,6 +9276,7 @@ async function handleSessionStart(
       deepseekPermissionMode: selectedDeepseekPermissionMode,
       deepseekAgentPreset: selectedDeepseekAgentPreset,
       devinPermissionMode: selectedDevinPermissionMode,
+      mimoPermissionMode: selectedMimoPermissionMode,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
@@ -9368,6 +9403,22 @@ async function handleSessionStart(
       });
       return null;
     }
+  } else if (chosenProvider === 'mimo') {
+    const runtimeStatus = await getMimoRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', formatMimoRuntimeBlockingMessage(runtimeStatus));
+        broadcastAutomationChanged(mainWindow);
+      }
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatMimoRuntimeBlockingMessage(runtimeStatus),
+        },
+      });
+      return null;
+    }
   }
 
   // 异步生成更好的标题（不阻塞）
@@ -9451,7 +9502,9 @@ async function handleSessionStart(
     payload.codexGoal,
     selectedBubblePlanExitMode,
     selectedDevinPermissionMode,
-    selectedDevinThoughtLevel
+    selectedDevinThoughtLevel,
+    selectedMimoPermissionMode,
+    selectedMimoReasoningEffort
   );
   return session.id;
 }
@@ -9504,6 +9557,8 @@ async function handleSessionContinueImpl(
     deepseekReasoningEffort,
     devinPermissionMode,
     devinThoughtLevel,
+    mimoPermissionMode,
+    mimoReasoningEffort,
     opencodePermissionMode,
     qoderPermissionMode,
     bubblePermissionMode,
@@ -9706,6 +9761,12 @@ async function handleSessionContinueImpl(
     : undefined;
   const nextDevinThoughtLevel = nextProvider === 'devin'
     ? normalizeDevinThoughtLevel(devinThoughtLevel)
+    : undefined;
+  const nextMimoPermissionMode = nextProvider === 'mimo'
+    ? normalizeMimoPermissionMode(mimoPermissionMode)
+    : undefined;
+  const nextMimoReasoningEffort = nextProvider === 'mimo'
+    ? normalizeMimoReasoningEffort(mimoReasoningEffort)
     : undefined;
   const nextTeamMode = teamMode !== undefined
     ? normalizeSessionTeamMode(teamMode)
@@ -9974,6 +10035,19 @@ async function handleSessionContinueImpl(
       });
       return false;
     }
+  } else if (nextProvider === 'mimo') {
+    const runtimeStatus = await getMimoRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatMimoRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
   }
 
   // While a codex turn is still streaming, a follow-up send becomes a
@@ -10086,6 +10160,8 @@ async function handleSessionContinueImpl(
         deepseekReasoningEffort: nextDeepseekReasoningEffort,
         devinPermissionMode: nextDevinPermissionMode,
         devinThoughtLevel: nextDevinThoughtLevel,
+        mimoPermissionMode: nextMimoPermissionMode,
+        mimoReasoningEffort: nextMimoReasoningEffort,
         opencodePermissionMode: nextOpenCodePermissionMode,
         qoderPermissionMode: nextQoderPermissionMode,
         bubblePermissionMode: nextBubblePermissionMode,
@@ -10130,6 +10206,13 @@ async function handleSessionContinueImpl(
       if (nextProvider === 'devin' && nextDevinThoughtLevel !== undefined) {
         existingEntry.devinThoughtLevel = nextDevinThoughtLevel;
       }
+      // MiMo too: model + variant via set_config_option, mode via set_mode.
+      if (nextProvider === 'mimo' && nextMimoPermissionMode !== undefined) {
+        existingEntry.mimoPermissionMode = nextMimoPermissionMode;
+      }
+      if (nextProvider === 'mimo' && nextMimoReasoningEffort !== undefined) {
+        existingEntry.mimoReasoningEffort = nextMimoReasoningEffort;
+      }
       return true;
     }
   }
@@ -10166,7 +10249,9 @@ async function handleSessionContinueImpl(
                         ? session.deepseek_session_id ?? undefined
                         : nextProvider === 'devin'
                           ? session.devin_session_id ?? undefined
-                          : undefined;
+                          : nextProvider === 'mimo'
+                            ? session.mimo_session_id ?? undefined
+                            : undefined;
   let nextResumeSessionId = resumeSessionId;
 
   if (
@@ -10249,7 +10334,9 @@ async function handleSessionContinueImpl(
     undefined,
     nextBubblePlanExitMode,
     nextDevinPermissionMode,
-    nextDevinThoughtLevel
+    nextDevinThoughtLevel,
+    nextMimoPermissionMode,
+    nextMimoReasoningEffort
   );
   return true;
 }
@@ -10261,7 +10348,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin',
+  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin' | 'mimo',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -10301,7 +10388,9 @@ function startRunner(
   codexGoal?: GoalAction,
   bubblePlanExitMode?: 'default' | 'bypassPermissions',
   devinPermissionMode?: import('../shared/types').DevinPermissionMode,
-  devinThoughtLevel?: string
+  devinThoughtLevel?: string,
+  mimoPermissionMode?: import('../shared/types').MimoPermissionMode,
+  mimoReasoningEffort?: string
 ): void {
   if (!session) return;
 
@@ -10349,7 +10438,9 @@ function startRunner(
           ? 'codex-app-server'
           : provider === 'kimi'
             ? 'kimi acp'
-            : 'opencode sdk',
+            : provider === 'devin' || provider === 'mimo'
+              ? `${provider} acp`
+              : 'opencode sdk',
       model: resolvedModelOverride,
       compatibleProviderId,
       cwd: runnerSession.cwd || process.cwd(),
@@ -10408,6 +10499,8 @@ function startRunner(
     deepseekReasoningEffort,
     devinPermissionMode,
     devinThoughtLevel,
+    mimoPermissionMode,
+    mimoReasoningEffort,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
@@ -10472,6 +10565,11 @@ function startRunner(
           }
         } else if (provider === 'devin') {
           sessions.updateDevinSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'mimo') {
+          sessions.updateMimoSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }
@@ -11257,6 +11355,8 @@ function startRunner(
       provider === 'deepseek' ? normalizeDeepseekReasoningEffort(deepseekReasoningEffort) : undefined,
     devinPermissionMode: provider === 'devin' ? normalizeDevinPermissionMode(devinPermissionMode) : undefined,
     devinThoughtLevel: provider === 'devin' ? normalizeDevinThoughtLevel(devinThoughtLevel) : undefined,
+    mimoPermissionMode: provider === 'mimo' ? normalizeMimoPermissionMode(mimoPermissionMode) : undefined,
+    mimoReasoningEffort: provider === 'mimo' ? normalizeMimoReasoningEffort(mimoReasoningEffort) : undefined,
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,

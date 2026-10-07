@@ -12,6 +12,7 @@ import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
 import { DeepseekLogo } from './DeepseekLogo';
 import { DevinLogo } from './DevinLogo';
+import { MimoLogo } from './MimoLogo';
 
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
@@ -46,6 +47,9 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'devin') {
     return <DevinLogo />;
+  }
+  if (provider === 'mimo') {
+    return <MimoLogo />;
   }
 
   return null;

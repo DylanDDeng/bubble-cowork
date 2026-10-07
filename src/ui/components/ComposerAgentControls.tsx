@@ -34,6 +34,7 @@ import {
 } from '../utils/deepseek-reasoning';
 import { formatCodexModelLabel } from '../utils/codex-model';
 import { formatDevinThoughtLevelLabel } from '../utils/devin-reasoning';
+import { formatMimoReasoningEffortLabel } from '../utils/mimo-reasoning';
 import { formatCodexReasoningEffortLabel } from '../utils/codex-reasoning';
 import {
   useAgentReadiness,
@@ -50,6 +51,7 @@ import { BubbleLogo } from './BubbleLogo';
 import { QoderLogo } from './QoderLogo';
 import { DeepseekLogo } from './DeepseekLogo';
 import { DevinLogo } from './DevinLogo';
+import { MimoLogo } from './MimoLogo';
 
 export function AgentIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
@@ -81,6 +83,9 @@ export function AgentIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'devin') {
     return <DevinLogo />;
+  }
+  if (provider === 'mimo') {
+    return <MimoLogo />;
   }
   return null;
 }
@@ -844,6 +849,29 @@ const DevinAgentSubContent: FC<{
     preserveEffortOrder />
 );
 
+// MiMo: levels are the selected model's variants; resetting runs the model
+// without one (MiMo's default).
+const MimoAgentSubContent: FC<{
+  modelOptions: ComposerModelOption[];
+  selectedModel: string | null;
+  efforts: string[];
+  effort: string | null;
+  onSelectModel: (option: ComposerModelOption) => void;
+  onEffortChange: (effort: string | null) => void;
+}> = ({
+  modelOptions,
+  selectedModel,
+  efforts,
+  effort,
+  onSelectModel,
+  onEffortChange,
+}) => (
+  <EffortModelPanel modelOptions={modelOptions} selectedModel={selectedModel ?? ''} onSelectModel={onSelectModel}
+    efforts={efforts} effort={effort} onEffortChange={onEffortChange}
+    formatEffort={formatMimoReasoningEffortLabel} preserveEffortOrder
+    onResetEffort={effort ? () => onEffortChange(null) : undefined} />
+);
+
 // Bubble shares the animated Reasoning and Model panel.
 // Thinking levels come ONLY from the SDK catalog's per-model metadata —
 // deliberately no fallback list: a model without metadata (e.g. a
@@ -930,6 +958,9 @@ export function ComposerAgentModelPicker({
   devinThoughtLevels,
   devinThoughtLevel,
   onDevinThoughtLevelChange,
+  mimoReasoningEfforts,
+  mimoReasoningEffort,
+  onMimoReasoningEffortChange,
   codexFastMode,
   onCodexFastModeChange,
   kimiThinkingOptions,
@@ -962,6 +993,9 @@ export function ComposerAgentModelPicker({
   devinThoughtLevels?: DevinThoughtLevels | null;
   devinThoughtLevel?: string | null;
   onDevinThoughtLevelChange?: (level: string) => void;
+  mimoReasoningEfforts?: string[];
+  mimoReasoningEffort?: string | null;
+  onMimoReasoningEffortChange?: (effort: string | null) => void;
   codexFastMode?: boolean;
   onCodexFastModeChange?: (enabled: boolean) => void;
   /** Thinking tiers valid for the selected kimi model (metadata-derived). */
@@ -1014,6 +1048,9 @@ export function ComposerAgentModelPicker({
   const devinEffortSuffix = agentProvider === 'devin' && devinThoughtLevel
     ? ` ${formatDevinThoughtLevelLabel(devinThoughtLevels ?? null, devinThoughtLevel)}`
     : '';
+  const mimoEffortSuffix = agentProvider === 'mimo' && mimoReasoningEffort
+    ? ` ${formatMimoReasoningEffortLabel(mimoReasoningEffort)}`
+    : '';
   const kimiThinkingSuffix =
     agentProvider === 'kimi' &&
     (kimiThinkingOptions?.length ?? 0) > 0 &&
@@ -1030,6 +1067,7 @@ export function ComposerAgentModelPicker({
     bubbleEffortSuffix ||
     deepseekEffortSuffix ||
     devinEffortSuffix ||
+    mimoEffortSuffix ||
     kimiThinkingSuffix;
 
   return (
@@ -1275,6 +1313,47 @@ export function ComposerAgentModelPicker({
                         onThoughtLevelChange={(level) => {
                           onAgentChange(provider);
                           onDevinThoughtLevelChange?.(level);
+                        }}
+                      />
+                    </DropdownMenu.SubContent>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Sub>
+              );
+            }
+
+            if (provider === 'mimo') {
+              return (
+                <DropdownMenu.Sub key={provider}>
+                  <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">
+                    <AgentIcon provider={provider} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                        {agentLabel(provider)}
+                      </span>
+                      {hint ? (
+                        <span className="block truncate text-[11px] text-[var(--text-muted)]">{hint}</span>
+                      ) : null}
+                    </span>
+                    {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
+                      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(readiness.state)}`} aria-hidden="true" />
+                    ) : null}
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.SubContent
+                      sideOffset={6}
+                      alignOffset={-4}
+                      className="z-50 w-[256px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+                    >
+                      <MimoAgentSubContent
+                        modelOptions={modelOptions}
+                        selectedModel={modelValueByProvider[provider]}
+                        efforts={mimoReasoningEfforts ?? []}
+                        effort={mimoReasoningEffort ?? null}
+                        onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        onEffortChange={(effort) => {
+                          onAgentChange(provider);
+                          onMimoReasoningEffortChange?.(effort);
                         }}
                       />
                     </DropdownMenu.SubContent>

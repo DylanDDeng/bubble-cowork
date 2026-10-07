@@ -230,7 +230,8 @@ function normalizeAutomationProvider(value?: string | null): AgentProvider {
     value === 'qoder' ||
     value === 'bubble' ||
     value === 'deepseek' ||
-    value === 'devin'
+    value === 'devin' ||
+    value === 'mimo'
     ? value
     : 'claude';
 }
@@ -383,6 +384,7 @@ export function initialize(): void {
       deepseek_session_id TEXT,
       deepseek_agent_preset TEXT DEFAULT 'standard',
       devin_session_id TEXT,
+      mimo_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       conversation_scope TEXT DEFAULT 'project',
@@ -565,6 +567,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'deepseek_session_id', 'TEXT');
   ensureColumn('sessions', 'deepseek_agent_preset', "TEXT DEFAULT 'standard'");
   ensureColumn('sessions', 'devin_session_id', 'TEXT');
+  ensureColumn('sessions', 'mimo_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
@@ -834,6 +837,9 @@ function getSessionSourceOrigin(sessionId: string): SessionSource {
   if (row.provider === 'devin') {
     return 'devin_local';
   }
+  if (row.provider === 'mimo') {
+    return 'mimo_local';
+  }
   return 'aegis';
 }
 
@@ -1093,7 +1099,9 @@ function backfillMessageMetadata(): void {
                             ? 'deepseek_local'
                             : row.provider === 'devin'
                               ? 'devin_local'
-                              : 'aegis';
+                              : row.provider === 'mimo'
+                                ? 'mimo_local'
+                                : 'aegis';
         const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
         updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
         upsertSearchIndexStmt.run(row.id, row.session_id, sourceOrigin, searchText, row.created_at);
@@ -1363,7 +1371,7 @@ export function createSession(params: {
   associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin';
+  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin' | 'mimo';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -2027,8 +2035,17 @@ export function updateDevinSessionId(sessionId: string, devinSessionId: string):
   stmt.run(devinSessionId, now, sessionId);
 }
 
+// 更新 MiMo Session ID
+export function updateMimoSessionId(sessionId: string, mimoSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET mimo_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(mimoSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin'): void {
+export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' | 'qoder' | 'bubble' | 'deepseek' | 'devin' | 'mimo'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?
@@ -3293,6 +3310,7 @@ const USAGE_PROVIDER_MODEL_FALLBACK: Partial<Record<AgentProvider, string>> = {
   bubble: 'Bubble',
   deepseek: 'DeepSeek',
   devin: 'Devin',
+  mimo: 'MiMo',
 };
 
 function looksLikeClaudeModelAlias(value: string): boolean {

@@ -9,6 +9,7 @@ import piLogo from '../../assets/pi-logo-auto.svg';
 import bubbleLogo from '../../assets/bubble-logo-auto.svg';
 import qoderLogo from '../../assets/qoder.svg';
 import devinLogo from '../../assets/devin-color.svg';
+import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import type {
@@ -59,6 +60,7 @@ const USAGE_PROVIDERS: Array<{ id: AgentProvider; title: string; logoSrc?: strin
   { id: 'bubble', title: 'Bubble', logoSrc: bubbleLogo },
   { id: 'deepseek', title: 'DeepSeek Harness', logoSrc: deepseekLogo },
   { id: 'devin', title: 'Devin', logoSrc: devinLogo },
+  { id: 'mimo', title: 'MiMo Code', logoSrc: mimoLogo },
 ];
 
 type ActivityViewMode = 'daily' | 'weekly' | 'cumulative';
@@ -96,7 +98,7 @@ export function ClaudeUsageSettingsContent() {
           id: provider.id,
           title: provider.title,
           logo: provider.logoSrc ? (
-            <img src={provider.logoSrc} alt="" className={`h-3.5 w-3.5 flex-shrink-0 ${[claudeLogo, openaiLogo, grokLogo, moonshotLogo].includes(provider.logoSrc) ? 'settings-monochrome-logo' : ''}`} aria-hidden="true" />
+            <img src={provider.logoSrc} alt="" className={`h-3.5 w-3.5 flex-shrink-0 ${[claudeLogo, openaiLogo, grokLogo, moonshotLogo, mimoLogo].includes(provider.logoSrc) ? 'settings-monochrome-logo' : ''}`} aria-hidden="true" />
           ) : (
             <OpenCodeLogo className="h-3.5 w-3.5 flex-shrink-0" />
           ),
@@ -1573,6 +1575,10 @@ function getProviderLogoForModel(model: string): string | null {
 
   if (normalized.startsWith('minimax')) {
     return minimaxLogo;
+  }
+
+  if (normalized.startsWith('mimo') || providerId === 'xiaomi') {
+    return mimoLogo;
   }
 
   return null;

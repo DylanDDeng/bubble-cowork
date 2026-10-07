@@ -30,6 +30,8 @@ export type WarmSendOptions = Pick<
   | 'deepseekReasoningEffort'
   | 'devinPermissionMode'
   | 'devinThoughtLevel'
+  | 'mimoPermissionMode'
+  | 'mimoReasoningEffort'
   | 'opencodePermissionMode'
   | 'qoderPermissionMode'
   | 'bubblePermissionMode'
@@ -51,6 +53,8 @@ export function buildWarmSendOptions(next: WarmSendOptions): WarmSendOptions {
     deepseekReasoningEffort: next.deepseekReasoningEffort,
     devinPermissionMode: next.devinPermissionMode,
     devinThoughtLevel: next.devinThoughtLevel,
+    mimoPermissionMode: next.mimoPermissionMode,
+    mimoReasoningEffort: next.mimoReasoningEffort,
     opencodePermissionMode: next.opencodePermissionMode,
     qoderPermissionMode: next.qoderPermissionMode,
     bubblePermissionMode: next.bubblePermissionMode,

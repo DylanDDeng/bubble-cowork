@@ -359,7 +359,9 @@ function parsePermissionRequest(request: PermissionRequestPayload): ParsedPermis
               ? 'BUBBLE'
               : input.provider === 'devin'
                 ? 'DEVIN'
-                : 'KIMI ACP',
+                : input.provider === 'mimo'
+                  ? 'MIMO'
+                  : 'KIMI ACP',
       tool: input.toolName || request.toolName,
       fileName: null,
       fileDir: null,

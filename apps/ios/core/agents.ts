@@ -15,6 +15,7 @@ import {
 import { buildCodexModelOptions, formatCodexModelLabel } from "../../../src/ui/utils/codex-model";
 import { formatCodexReasoningEffortLabel } from "../../../src/ui/utils/codex-reasoning";
 import { formatBubbleThinkingLevelLabel } from "../../../src/ui/utils/bubble-reasoning";
+import { formatMimoReasoningEffortLabel } from "../../../src/ui/utils/mimo-reasoning";
 import {
   CLAUDE_REASONING_EFFORT_LABELS,
   CLAUDE_REASONING_EFFORT_OPTIONS,
@@ -24,6 +25,7 @@ import {
   CLAUDE_PERMISSION_MODE_OPTIONS,
   CODEX_PERMISSION_MODE_OPTIONS,
   DEVIN_PERMISSION_MODE_OPTIONS,
+  MIMO_PERMISSION_MODE_OPTIONS,
 } from "../../../src/ui/utils/permission-modes";
 import { orderedEfforts } from "../../../src/ui/utils/effort-order";
 import { COMPATIBLE_PROVIDER_LABELS } from "../../../src/ui/utils/compatible-provider-labels";
@@ -98,6 +100,29 @@ export function catalogFor(provider: string, options?: RemoteAgentOptions): Agen
       // Plan is one of Devin's modes, listed in this menu instead of a toggle.
       permissionModes: visible(DEVIN_PERMISSION_MODE_OPTIONS),
       defaultPermission: "accept-edits",
+      supportsPlan: false,
+    };
+  }
+  if (provider === "mimo") {
+    // Models come from `mimo models` on the Mac; reasoning levels are each
+    // model's variants, and no level means MiMo's own default.
+    const config = options?.mimo;
+    const models = config?.availableModels ?? [];
+    const meta = (model: string) => models.find((m) => m.id === (model || config?.defaultModel || ""));
+    return {
+      provider,
+      models: [
+        { value: "", label: "Default", description: "Do not override the default model" },
+        ...models.map((m) => ({ value: m.id, label: m.label || m.id })),
+      ],
+      defaultModel: "",
+      effortsFor: (model) => meta(model)?.reasoningEfforts ?? [],
+      defaultEffortFor: () => null,
+      effortLabel: formatMimoReasoningEffortLabel,
+      fastFor: () => false,
+      // Plan is one of MiMo's agents, listed in this menu instead of a toggle.
+      permissionModes: visible(MIMO_PERMISSION_MODE_OPTIONS),
+      defaultPermission: "ask",
       supportsPlan: false,
     };
   }

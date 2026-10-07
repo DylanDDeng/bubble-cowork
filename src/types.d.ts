@@ -38,6 +38,8 @@ import type {
   DevinModelConfig,
   DevinRuntimeStatus,
   DevinThoughtLevels,
+  MimoModelConfig,
+  MimoRuntimeStatus,
   DeepseekKeyStatus,
   BrowserUsePermissionSettings,
   PiModelConfig,
@@ -254,6 +256,7 @@ declare global {
     listBubbleSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listGrokSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listDevinSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
+    listMimoSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listDeepseekSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     readCodexPlugin: (input: Omit<ProviderReadPluginInput, 'provider'>) => Promise<ProviderReadPluginResult>;
     readCodexSkillContent: (skillPath: string) => Promise<{ ok: boolean; content?: string; message?: string }>;
@@ -275,6 +278,8 @@ declare global {
     getDevinModelConfig: () => Promise<DevinModelConfig>;
     getDevinRuntimeStatus: () => Promise<DevinRuntimeStatus>;
     getDevinThoughtLevels: (model: string | null) => Promise<DevinThoughtLevels>;
+    getMimoModelConfig: () => Promise<MimoModelConfig>;
+    getMimoRuntimeStatus: () => Promise<MimoRuntimeStatus>;
     getDeepseekKeyStatus: () => Promise<DeepseekKeyStatus>;
     getDeepseekApiKey: () => Promise<string>;
     setDeepseekApiKey: (apiKey: string) => Promise<DeepseekKeyStatus>;

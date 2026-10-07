@@ -63,6 +63,7 @@ const PROVIDER_LABEL: Record<string, string> = {
   bubble: 'Bubble',
   deepseek: 'DeepSeek',
   devin: 'Devin',
+  mimo: 'MiMo Code',
 };
 
 const NEEDS_TITLE: Record<string, string> = {

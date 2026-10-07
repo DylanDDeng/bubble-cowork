@@ -15,7 +15,7 @@ import '/src/ui/index.css';
 localStorage.setItem('cowork.preferredProvider','bubble');
 localStorage.setItem('cowork.preferredBubblePermissionMode','bypassPermissions');
 window.electron={getProjectTree:async()=>null,cancelProjectTreeRead:async()=>{},getRecentCwds:async()=>[],getProjectGitSummary:async()=>({isGitRepository:false}),getAgentRuntimeDirectory:async()=>({checkedAt:Date.now(),entries:[]}),getSessionUserPrompts:async()=>[],getSessionGoal:async()=>({goal:null,supported:false,revision:0}),onSessionGoalChanged:()=>()=>{},getClaudeCompatibleProviderConfig:async()=>({}),getBubbleProvidersConfig:async()=>({providers:[]}),getProjectFolders:async()=>[],getModels:async()=>[],sendClientEvent:e=>qa.events.push(e)};
-for(const p of ['Claude','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek','Devin','Codex'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
+for(const p of ['Claude','Kimi','Grok','Opencode','Pi','Bubble','Qoder','Deepseek','Devin','Mimo','Codex'])window.electron['get'+p+'ModelConfig']=async()=>({defaultModel:null,options:[],availableModels:[]});
 window.electron.getDevinThoughtLevels=async()=>({model:null,levels:[],defaultLevel:null});
 window.electron.getBubbleModelConfig=async()=>({defaultModel:'openai:contract',options:['openai:contract'],availableModels:[{name:'openai:contract',label:'Contract',enabled:true}]});
 const store=useAppStore,id=store.getState().createDraftSession('/tmp/bubble-host-qa');

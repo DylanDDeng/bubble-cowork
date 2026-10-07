@@ -21,6 +21,7 @@ import { GrokSkillLibraryContent } from './GrokSkillLibrary';
 import { QoderSkillLibraryContent } from './QoderSkillLibrary';
 import { BubbleSkillLibraryContent } from './BubbleSkillLibrary';
 import { DevinSkillLibraryContent } from './DevinSkillLibrary';
+import { MimoSkillLibraryContent } from './MimoSkillLibrary';
 
 const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
@@ -53,7 +54,7 @@ export function SkillMarketSettingsContent() {
     claudeUserSkills,
     claudeProjectSkills,
   } = useAppStore();
-  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode' | 'kimi' | 'bubble' | 'grok' | 'qoder' | 'devin'>('skills');
+  const [view, setView] = useState<'skills' | 'market' | 'codex' | 'opencode' | 'kimi' | 'bubble' | 'grok' | 'qoder' | 'devin' | 'mimo'>('skills');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SkillMarketItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -276,6 +277,15 @@ export function SkillMarketSettingsContent() {
             >
               Devin
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'mimo'}
+              onClick={() => setView('mimo')}
+              className={getTopTabClassName('mimo')}
+            >
+              MiMo Code
+            </button>
           </div>
         </div>
       </div>
@@ -296,6 +306,8 @@ export function SkillMarketSettingsContent() {
         <QoderSkillLibraryContent />
       ) : view === 'devin' ? (
         <DevinSkillLibraryContent />
+      ) : view === 'mimo' ? (
+        <MimoSkillLibraryContent />
       ) : (
         <>
           <MarketCardGrid

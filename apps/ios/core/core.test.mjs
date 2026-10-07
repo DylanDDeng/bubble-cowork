@@ -163,6 +163,30 @@ test("Devin catalog: models and thinking levels from the Mac, plan as a mode", (
   assert.equal(devin.supportsPlan, false);
 });
 
+test("MiMo catalog: models and variant levels from the Mac, plan as a mode", () => {
+  const mimo = call("catalog", {
+    provider: "mimo",
+    options: {
+      mimo: {
+        defaultModel: "xiaomi/mimo-v2.6-pro",
+        availableModels: [
+          { id: "xiaomi/mimo-v2.6-pro", label: "MiMo-V2.6-Pro", reasoningEfforts: ["low", "medium", "high"] },
+          { id: "anthropic/claude", label: "Claude", reasoningEfforts: [] },
+        ],
+      },
+    },
+  });
+  assert.deepEqual(mimo.models.map((m) => m.label), ["Default", "MiMo-V2.6-Pro", "Claude"]);
+  // The Default row offers the configured default model's levels.
+  assert.deepEqual(mimo.perModel[""].efforts.map((e) => e.value), ["low", "medium", "high"]);
+  assert.deepEqual(mimo.perModel["xiaomi/mimo-v2.6-pro"].efforts.map((e) => e.label), ["Low", "Medium", "High"]);
+  assert.equal(mimo.perModel["xiaomi/mimo-v2.6-pro"].defaultEffort, null);
+  assert.deepEqual(mimo.perModel["anthropic/claude"].efforts, []);
+  assert.equal(mimo.defaultPermission, "ask");
+  assert.deepEqual(mimo.permissionModes.map((p) => p.mode), ["ask", "plan", "build"]);
+  assert.equal(mimo.supportsPlan, false);
+});
+
 test("errors come back as values", () => {
   assert.ok(JSON.parse(context.AegisCore.renderSession("not json")).error);
 });

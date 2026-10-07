@@ -15,6 +15,7 @@ import { getOpencodeRuntimeStatus } from './opencode-runtime-status';
 import { getKimiRuntimeStatus } from './kimi-runtime-status';
 import { getGrokRuntimeStatus } from './grok-runtime-status';
 import { DEVIN_DOCS_URL, DEVIN_INSTALL_COMMAND, getDevinRuntimeStatus } from './devin-cli';
+import { getMimoRuntimeStatus, MIMO_DOCS_URL } from './mimo-cli';
 import { resolvePiAgentDir } from './provider/pi-sdk-loader';
 import { resolveBubbleHome } from './provider/bubble-sdk-loader';
 import { findMachineQoderCli } from './provider/qoder-sdk-loader';
@@ -82,6 +83,11 @@ const PROVIDER_META: Record<
     title: 'Devin',
     npmPackage: null,
     docsUrl: DEVIN_DOCS_URL,
+  },
+  mimo: {
+    title: 'MiMo Code',
+    npmPackage: null,
+    docsUrl: MIMO_DOCS_URL,
   },
 };
 
@@ -355,6 +361,26 @@ async function probeDevin(): Promise<AgentRuntimeEntry> {
   });
 }
 
+async function probeMimo(): Promise<AgentRuntimeEntry> {
+  const status = await getMimoRuntimeStatus();
+  if (!status.cliAvailable) {
+    return entry('mimo', 'not_installed', {
+      detail: `Install MiMo Code from ${MIMO_DOCS_URL}, then re-detect.`,
+    });
+  }
+  const state: AgentRuntimeState = status.ready
+    ? 'ready'
+    : status.authState === 'login_required'
+      ? 'login_required'
+      : 'error';
+  return entry('mimo', state, {
+    version: status.cliVersion,
+    summary: status.summary,
+    detail: status.detail,
+    loginCommand: status.loginCommand,
+  });
+}
+
 export async function getAgentRuntimeDirectory(force = false): Promise<AgentRuntimeDirectoryReport> {
   const probes: Array<[AgentProvider, Promise<AgentRuntimeEntry>]> = [
     ['claude', probeClaude(force)],
@@ -367,6 +393,7 @@ export async function getAgentRuntimeDirectory(force = false): Promise<AgentRunt
     ['bubble', probeBubble()],
     ['deepseek', probeDeepseek()],
     ['devin', probeDevin()],
+    ['mimo', probeMimo()],
   ];
 
   const entries = await Promise.all(

@@ -4,6 +4,7 @@ import type {
   CodexPermissionMode,
   DeepseekPermissionMode,
   DevinPermissionMode,
+  MimoPermissionMode,
   KimiPermissionMode,
   OpenCodePermissionMode,
   QoderPermissionMode,
@@ -92,4 +93,12 @@ export const DEVIN_PERMISSION_MODE_OPTIONS: ReadonlyArray<PermissionModeOption<D
   { mode: 'ask', label: 'Ask' },
   { mode: 'plan', label: 'Plan' },
   { mode: 'bypass', label: 'Full Access', tone: 'full-access' },
+];
+
+// MiMo agents; applied live via session/set_mode before each turn. `build`
+// is MiMo's own agent, which runs every tool without asking.
+export const MIMO_PERMISSION_MODE_OPTIONS: ReadonlyArray<PermissionModeOption<MimoPermissionMode>> = [
+  { mode: 'ask', label: 'Ask' },
+  { mode: 'plan', label: 'Plan' },
+  { mode: 'build', label: 'Full Access', tone: 'full-access' },
 ];

@@ -43,7 +43,7 @@ export interface RemoteRuntime {
   history(id: string): RemoteMessage[];
   start(
     project: Project,
-    provider: "claude" | "codex" | "bubble" | "devin",
+    provider: "claude" | "codex" | "bubble" | "devin" | "mimo",
     prompt: string,
     extras?: RemoteTaskExtras,
   ): Promise<string | null>;
@@ -570,7 +570,7 @@ export class RemoteGateway {
           : undefined;
       if ("sessionId" in request) {
         const session = this.allowedSession(request.sessionId);
-        if (!["claude", "codex", "bubble", "devin"].includes(session.provider))
+        if (!["claude", "codex", "bubble", "devin", "mimo"].includes(session.provider))
           throw new Error("DESKTOP_REQUIRED");
       }
       if (

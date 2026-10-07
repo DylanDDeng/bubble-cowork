@@ -45,9 +45,10 @@ extension Font {
 let providerLabels: [String: String] = [
     "claude": "Claude", "codex": "Codex", "bubble": "Bubble", "kimi": "Kimi", "grok": "Grok",
     "opencode": "OpenCode", "pi": "Pi", "qoder": "Qoder", "deepseek": "DeepSeek", "devin": "Devin",
+    "mimo": "MiMo",
 ]
 func providerLabel(_ id: String) -> String { providerLabels[id] ?? id }
-let agentProviders = ["claude", "codex", "bubble", "devin"]
+let agentProviders = ["claude", "codex", "bubble", "devin", "mimo"]
 
 struct ProviderGlyph: View {
     let provider: String

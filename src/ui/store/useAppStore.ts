@@ -338,8 +338,8 @@ function shouldPreserveStreamingStateForMessage(
   if (provider === 'deepseek') {
     return !isGrokStreamCommit(message);
   }
-  // Devin (ACP) narrates between tool calls the same way.
-  if (provider === 'devin') {
+  // Devin and MiMo (ACP) narrate between tool calls the same way.
+  if (provider === 'devin' || provider === 'mimo') {
     return !isGrokStreamCommit(message);
   }
 

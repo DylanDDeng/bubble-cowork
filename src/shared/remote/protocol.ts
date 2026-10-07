@@ -5,7 +5,7 @@ export const environmentSchema = z.enum(["development", "production", "fixture"]
 export type RemoteEnvironment = z.infer<typeof environmentSchema>;
 export const environmentLabel = (value: RemoteEnvironment) =>
   ({ development: "Aegis Dev", production: "Aegis", fixture: "Fixture" })[value];
-export const providerSchema = z.enum(["claude", "codex", "bubble", "devin"]);
+export const providerSchema = z.enum(["claude", "codex", "bubble", "devin", "mimo"]);
 const id = z.string().min(1).max(160);
 const short = z.string().trim().min(1).max(120);
 /**
@@ -160,6 +160,11 @@ export interface RemoteAgentOptions {
     availableModels: Array<{ id: string; label: string }>;
     /** Per model id; models whose levels could not be read are absent. */
     thoughtLevels: Record<string, RemoteDevinThoughtLevels>;
+  };
+  mimo?: {
+    defaultModel: string | null;
+    /** Reasoning levels are each model's variants; none means no control. */
+    availableModels: Array<{ id: string; label: string; reasoningEfforts: string[] }>;
   };
   bubble?: {
     defaultModel: string | null;

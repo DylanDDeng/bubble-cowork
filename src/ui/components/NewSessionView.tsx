@@ -32,6 +32,7 @@ import {
   CODEX_PERMISSION_MODE_OPTIONS,
   DEEPSEEK_PERMISSION_MODE_OPTIONS,
   DEVIN_PERMISSION_MODE_OPTIONS,
+  MIMO_PERMISSION_MODE_OPTIONS,
   KIMI_PERMISSION_MODE_OPTIONS,
   OPENCODE_PERMISSION_MODE_OPTIONS,
   QODER_PERMISSION_MODE_OPTIONS,
@@ -328,6 +329,14 @@ export function NewSessionView() {
         devinThoughtLevel:
           agentSelection.provider === 'devin'
             ? agentSelection.devinThoughtLevel || undefined
+            : undefined,
+        mimoPermissionMode:
+          agentSelection.provider === 'mimo'
+            ? agentSelection.mimoPermissionMode
+            : undefined,
+        mimoReasoningEffort:
+          agentSelection.provider === 'mimo'
+            ? agentSelection.mimoReasoningEffort || undefined
             : undefined,
         bubblePermissionMode:
           agentSelection.provider === 'bubble'
@@ -680,6 +689,16 @@ export function NewSessionView() {
                         menuSide="top"
                       />
                     )}
+                    {agentSelection.provider === 'mimo' && (
+                      <PermissionModePicker
+                        value={agentSelection.mimoPermissionMode}
+                        options={MIMO_PERMISSION_MODE_OPTIONS}
+                        menuMinWidthClass="min-w-[176px]"
+                        onChange={agentSelection.setMimoPermissionMode}
+                        disabled={pendingStart}
+                        menuSide="top"
+                      />
+                    )}
                     {agentSelection.provider === 'bubble' && (
                       <PermissionModePicker
                         value={agentSelection.bubblePermissionMode}
@@ -733,6 +752,9 @@ export function NewSessionView() {
                       devinThoughtLevels={agentSelection.devinThoughtLevels}
                       devinThoughtLevel={agentSelection.devinThoughtLevel}
                       onDevinThoughtLevelChange={agentSelection.setDevinThoughtLevel}
+                      mimoReasoningEfforts={agentSelection.mimoReasoningEfforts}
+                      mimoReasoningEffort={agentSelection.mimoReasoningEffort}
+                      onMimoReasoningEffortChange={agentSelection.setMimoReasoningEffort}
                       codexFastMode={agentSelection.codexFastMode}
                       onCodexFastModeChange={(enabled) =>
                         agentSelection.selectAgentConfiguration({ provider: 'codex', codexFastMode: enabled })

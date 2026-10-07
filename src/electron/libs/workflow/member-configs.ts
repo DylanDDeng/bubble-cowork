@@ -26,7 +26,7 @@ export type ProviderWorkflowDeclaration = {
    * runtime (scripts/tests/workflow-conformance-electron.mjs). 2026-10-05:
    * claude, codex, kimi (plan mode), grok, devin and bubble (plan mode) passed;
    * qoder and deepseek could not run (account limits) and opencode could not
-   * start (SDK/CLI version mismatch).
+   * start (SDK/CLI version mismatch). 2026-10-07: mimo (plan mode) passed.
    */
   verified: boolean;
 };
@@ -88,6 +88,17 @@ export const PROVIDER_WORKFLOW_DECLARATIONS: ProviderWorkflowDeclaration[] = [
     readOnly: 'permissionGatedWrites',
     readOnlyPayload: { devinPermissionMode: 'ask' },
     permissionField: 'devinPermissionMode',
+    structuredOutput: 'json-tail',
+    resumeTurns: true,
+    verified: true,
+  },
+  {
+    provider: 'mimo',
+    label: 'MiMo Code',
+    // MiMo's plan agent denies every edit tool; shell writes ask and are refused.
+    readOnly: 'permissionGatedWrites',
+    readOnlyPayload: { mimoPermissionMode: 'plan' },
+    permissionField: 'mimoPermissionMode',
     structuredOutput: 'json-tail',
     resumeTurns: true,
     verified: true,
