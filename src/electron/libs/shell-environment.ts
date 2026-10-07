@@ -352,10 +352,14 @@ export function ensureShellEnvironment(): void {
   // locations, so drop them before appending the fallback entries. A successful
   // shell dump already replaced PATH with the user's shell PATH, which never
   // contains these chains.
-  if (source === 'none') {
+  // The shell dump does not clear them either when Aegis itself runs under an
+  // npm script (`npm run dev`): the login shell starts from the inherited PATH
+  // and only prepends its own entries, so the chains survive and can still win
+  // over the nvm bin (observed with codex). Strip them whenever npm launched us.
+  if (source === 'none' || process.env.npm_lifecycle_event) {
     process.env.PATH = (process.env.PATH || '')
       .split(':')
-      .filter((entry) => entry !== 'node_modules/.bin' && !entry.endsWith('/node_modules/.bin'))
+      .filter((entry) => entry !== 'node_modules/.bin' && !entry.endsWith('/node_modules/.bin') && !entry.endsWith('/@npmcli/run-script/lib/node-gyp-bin'))
       .join(':');
   }
 
