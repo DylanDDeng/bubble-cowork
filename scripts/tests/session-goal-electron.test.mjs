@@ -43,7 +43,8 @@ createRoot(document.getElementById('root')).render(<App/>);
 const main = String.raw`
 const {app,BrowserWindow}=require('electron');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
 app.setPath('userData',path.join(__dirname,'profile'));
-if(process.env.QA_REDUCED==='1')app.commandLine.appendSwitch('force-prefers-reduced-motion');
+// Force the motion preference both ways: CI runners have Reduce Motion on.
+app.commandLine.appendSwitch(process.env.QA_REDUCED==='1'?'force-prefers-reduced-motion':'force-prefers-no-reduced-motion');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{const win=new BrowserWindow({width:1050,height:760,show:false});const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error'){errors.push(e.message);console.error(e.message);}});
 const js=async code=>{try{return await win.webContents.executeJavaScript(code,true);}catch(e){throw new Error(code+' :: '+e.message);}};
