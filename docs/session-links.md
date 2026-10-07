@@ -82,6 +82,7 @@ extension mechanism, with no new entry in user-level agent configuration.
 | OpenCode | SDK server config passed through `OPENCODE_CONFIG_CONTENT` |
 | DeepSeek | Existing disposable MCP runtime configuration, removed on disposal |
 | Grok | ACP `session/new` or `session/resume` MCP parameters |
+| Devin | ACP `session/new` or `session/load` MCP parameters (HTTP) |
 | Kimi web daemon | Reference submission rejected; ordinary messages still work |
 
 Kimi's installed web-daemon interface did not expose a verified runtime-only MCP

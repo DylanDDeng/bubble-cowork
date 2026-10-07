@@ -195,7 +195,7 @@ app.whenReady().then(async()=>{
     codexConfig.upsertCodexMcpServer=originalCodex;kimiConfig.upsertKimiMcpServerRaw=originalKimi;
     sessionHttp.disposeSessionHttpServer();
   }
-  for(const provider of ['claude','codex','bubble','opencode','grok','pi','qoder','deepseek']){
+  for(const provider of ['claude','codex','bubble','opencode','grok','pi','qoder','deepseek','devin']){
     const context=refs.appendSessionReferences('',url,target.id,provider);
     assert.ok(context.includes('read_session'));assert.ok(!context.includes('delegate'));assert.ok(!context.includes('xxxxxxxx'));
   }

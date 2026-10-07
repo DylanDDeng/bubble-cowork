@@ -25,7 +25,7 @@ export function extractSessionLinks(text: string) {
 
 /** Runtimes that receive Aegis's read_session tool. */
 export function supportsSessionReferences(provider: string): boolean {
-  return ['claude', 'codex', 'bubble', 'pi', 'qoder', 'opencode', 'deepseek', 'grok'].includes(provider);
+  return ['claude', 'codex', 'bubble', 'pi', 'qoder', 'opencode', 'deepseek', 'grok', 'devin'].includes(provider);
 }
 
 /** Keep composer and main-process capability checks identical. */
