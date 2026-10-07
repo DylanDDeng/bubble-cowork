@@ -2,7 +2,7 @@ import { getWorkstreamDeniedActionIds } from '../utils/workstream-stages';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from './icons';
 import type { ContentBlock, PermissionRequestPayload, ToolStatus, StreamMessage } from '../types';
-import { AssistantWorkstream } from './AssistantWorkstream';
+import { AssistantWorkstream, TurnWorkflowBoards, WorkflowBoardsOutsideProvider } from './AssistantWorkstream';
 import {
   createBatchWorkstreamModel,
   type ToolResultBlock,
@@ -213,12 +213,15 @@ function WorkstreamDisclosureBody({
       {/* Live media belongs beside its tool result, before subsequent narration.
           Collapsible traces keep any remaining media outside the hidden body. */}
       <WorkstreamCollapse open={resolvedExpanded}>
-        <AssistantWorkstream
-          model={model}
-          generatedMedia={canCollapse ? undefined : generatedMedia}
-          mediaCwd={mediaCwd}
-        />
+        <WorkflowBoardsOutsideProvider value={canCollapse}>
+          <AssistantWorkstream
+            model={model}
+            generatedMedia={canCollapse ? undefined : generatedMedia}
+            mediaCwd={mediaCwd}
+          />
+        </WorkflowBoardsOutsideProvider>
       </WorkstreamCollapse>
+      {canCollapse ? <TurnWorkflowBoards entries={model.entries} /> : null}
       {canCollapse && generatedMedia?.length ? <GeneratedMediaGallery items={generatedMedia} cwd={mediaCwd ?? null} /> : null}
     </div>
   );

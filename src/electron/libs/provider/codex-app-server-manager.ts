@@ -1,3 +1,5 @@
+import { getCodexMcpServers } from '../codex-mcp-settings';
+import { getWorkflowSessionPolicy } from '../workflow/session-hooks';
 import { materializeGoalObjective, readGoalObjective } from '../codex-goal-objective';
 import { normalizeCodexReasoningEffort } from '../../../shared/codex-reasoning';
 import { validateGoalAction, type GoalAction, type ThreadGoal } from '../../../shared/session-goal';
@@ -241,6 +243,8 @@ function readCachedCodexFastTier(slug: string): CodexModelServiceTier | null {
 }
 
 interface CodexRunOptions {
+  /** Workflow reviewer/advisor/planner: read-only sandbox, approvals routed to the app (which denies them). */
+  workflowReadOnly?: boolean;
   model?: string;
   codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
@@ -383,6 +387,7 @@ export class CodexAppServerManager extends EventEmitter {
     const launchEnv = { ...process.env };
     const configArgs = buildCodexMcpConfigOverrideArgs({ computerUsePolicy: this.computerUsePolicy });
     const readerArgs = await getSessionReaderCodexArgs();
+    recordSpawnDefinedMcpServers([...configArgs, ...readerArgs]);
     if (epoch !== this.lifecycleEpoch || signal?.aborted) throw new CodexRpcTransportError('stopped', 'initialize');
     launchEnv[SESSION_TOKEN_ENV_VAR] = process.env[SESSION_TOKEN_ENV_VAR];
 
@@ -828,6 +833,32 @@ export class CodexAppServerManager extends EventEmitter {
    * `toolsAndAuthOnly` skips the resource inventory — the settings panel only
    * needs names, auth state, and tool names.
    */
+  /** Learn every configured MCP server name (plugins included) before a read-only thread starts. */
+  private async learnMcpServerNames(): Promise<void> {
+    try {
+      let cursor: string | null = null;
+      for (let page = 0; page < 20; page += 1) {
+        const response = (await this.sendRequest<Record<string, unknown>>(
+          'mcpServerStatus/list',
+          { detail: 'toolsAndAuthOnly', ...(cursor ? { cursor } : {}) },
+          REQUEST_TIMEOUT_MS
+        )) as Record<string, unknown>;
+        for (const raw of Array.isArray(response?.data) ? response.data : []) {
+          const record = this.asObject(raw);
+          const name = record ? this.readString(record, 'name') : null;
+          if (!record || !name) continue;
+          const pluginId = this.readString(record, 'pluginId');
+          if (pluginId) mcpServerPlugins.set(name, pluginId);
+          else seenMcpServerNames.add(name);
+        }
+        cursor = typeof response?.nextCursor === 'string' && response.nextCursor ? response.nextCursor : null;
+        if (!cursor) break;
+      }
+    } catch (error) {
+      console.warn('[Codex AppServer] could not list MCP servers for a read-only thread:', error);
+    }
+  }
+
   async listMcpServerStatus(): Promise<CodexMcpServerRuntimeStatus[]> {
     await this.ensureSpawned(process.cwd());
     const entries: CodexMcpServerRuntimeStatus[] = [];
@@ -1081,13 +1112,14 @@ export class CodexAppServerManager extends EventEmitter {
       // sees the context break instead of an agent that quietly forgot
       // everything. Auth errors are rethrown (auth recovery owns them).
       try {
+        if (isWorkflowReadOnly(threadId)) await this.learnMcpServerNames();
         response = (await this.sendRequest(
           'thread/resume',
           {
             threadId: resumeCursor,
             cwd,
             ...(options.model ? { model: options.model } : {}),
-            ...this.buildThreadPermissionOptions(cwd, options.codexPermissionMode, options.codexExecutionMode),
+            ...this.buildThreadPermissionOptions(cwd, options.codexPermissionMode, options.codexExecutionMode, isWorkflowReadOnly(threadId)),
             ...(await this.resolveServiceTierParam(threadId, options.model, options.codexFastMode)),
           },
           REQUEST_TIMEOUT_MS
@@ -1101,10 +1133,10 @@ export class CodexAppServerManager extends EventEmitter {
           console.log('[Codex AppServer] thread/resume failed, starting fresh thread:', reason);
         }
         resumeFallback = { reason };
-        response = await this.createNewThread(cwd, options);
+        response = await this.createNewThread(cwd, { ...options, workflowReadOnly: isWorkflowReadOnly(threadId) });
       }
     } else {
-      response = await this.createNewThread(cwd, options);
+      response = await this.createNewThread(cwd, { ...options, workflowReadOnly: isWorkflowReadOnly(threadId) });
     }
 
     const providerThreadId = String(
@@ -1197,12 +1229,18 @@ export class CodexAppServerManager extends EventEmitter {
     cwd: string,
     options: CodexRunOptions = {}
   ): Promise<Record<string, unknown>> {
+    if (options.workflowReadOnly) await this.learnMcpServerNames();
     return (await this.sendRequest(
       'thread/start',
       {
         cwd,
         ...(options.model ? { model: options.model } : {}),
-        ...this.buildThreadPermissionOptions(cwd, options.codexPermissionMode, options.codexExecutionMode),
+        ...this.buildThreadPermissionOptions(
+          cwd,
+          options.codexPermissionMode,
+          options.codexExecutionMode,
+          options.workflowReadOnly === true
+        ),
       },
       REQUEST_TIMEOUT_MS
     )) as Record<string, unknown>;
@@ -1348,7 +1386,8 @@ export class CodexAppServerManager extends EventEmitter {
           session.cwd,
           options.codexPermissionMode || session.codexPermissionMode,
           options.codexExecutionMode || session.codexExecutionMode,
-          getSessionProjectSources(threadId, session.cwd)
+          getSessionProjectSources(threadId, session.cwd),
+          isWorkflowReadOnly(threadId)
         ),
         ...(await this.resolveServiceTierParam(
           threadId,
@@ -1409,7 +1448,7 @@ export class CodexAppServerManager extends EventEmitter {
         // Always leave Plan. Preserve the server's effective effort when the
         // picker has no override; null is the native default for no effort.
         collaborationMode: { mode: 'default', settings: { model, reasoning_effort: effort ?? null, developer_instructions: null } },
-        ...this.buildTurnPermissionOptions(session.cwd, permission, 'execute', getSessionProjectSources(threadId, session.cwd)),
+        ...this.buildTurnPermissionOptions(session.cwd, permission, 'execute', getSessionProjectSources(threadId, session.cwd), isWorkflowReadOnly(threadId)),
         serviceTier: null,
         ...(await this.resolveServiceTierParam(threadId, model, options.codexFastMode ?? session.codexFastMode)),
       }, REQUEST_TIMEOUT_MS);
@@ -1664,8 +1703,19 @@ export class CodexAppServerManager extends EventEmitter {
   private buildThreadPermissionOptions(
     _cwd: string,
     mode: CodexPermissionMode | undefined,
-    executionMode: CodexExecutionMode | undefined
+    executionMode: CodexExecutionMode | undefined,
+    workflowReadOnly = false
   ): Record<string, unknown> {
+    if (workflowReadOnly) {
+      // MCP tools run outside Codex's sandbox, so a read-only workflow member
+      // gets none (plan §6.2: the sandbox alone does not make MCP read-only).
+      return {
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        sandbox: 'read-only',
+        config: readOnlyMcpOverrides(),
+      };
+    }
     if (this.normalizeCodexExecutionMode(executionMode) === 'plan') {
       return {
         approvalPolicy: 'on-request',
@@ -1705,9 +1755,10 @@ export class CodexAppServerManager extends EventEmitter {
     cwd: string,
     mode: CodexPermissionMode | undefined,
     executionMode: CodexExecutionMode | undefined,
-    workspaceRoots?: string[]
+    workspaceRoots?: string[],
+    workflowReadOnly = false
   ): Record<string, unknown> {
-    if (this.normalizeCodexExecutionMode(executionMode) === 'plan') {
+    if (workflowReadOnly || this.normalizeCodexExecutionMode(executionMode) === 'plan') {
       return {
         approvalPolicy: 'on-request',
         approvalsReviewer: 'user',
@@ -2648,6 +2699,7 @@ export class CodexAppServerManager extends EventEmitter {
 
       case 'mcpServer/startupStatus/updated': {
         const servers = this.parseMcpStartupStatus(params);
+        for (const server of servers) if (!mcpServerPlugins.has(server.name)) observedMcpServerNames.add(server.name);
         if (isDev()) {
           console.log(
             '[Codex AppServer] mcp status updated',
@@ -3449,4 +3501,57 @@ function decodeIdTokenAuthClaims(idToken: unknown): Record<string, unknown> | nu
   } catch {
     return null;
   }
+}
+
+/** Aegis thread ids are session ids; workflow read-only roles get the read-only sandbox (plan §6.2). */
+function isWorkflowReadOnly(threadId: string | undefined): boolean {
+  return threadId ? getWorkflowSessionPolicy(threadId)?.readOnly === true : false;
+}
+
+/** Configured (non-plugin) MCP server names reported by mcpServerStatus/list. */
+const seenMcpServerNames = new Set<string>();
+/** Servers defined by the app-server's spawn-time `-c mcp_servers.<name>.…` overrides. */
+const spawnDefinedMcpServers = new Set<string>();
+
+function recordSpawnDefinedMcpServers(args: string[]): void {
+  for (const arg of args) {
+    const match = /^mcp_servers\.("?)([^".=]+)\1(?:\.(?:command|url)=|=\{)/.exec(arg);
+    if (match) spawnDefinedMcpServers.add(match[2]);
+  }
+}
+/** Plugin-provided MCP servers → the plugin that provides them. */
+const mcpServerPlugins = new Map<string, string>();
+/** Names seen in startup notifications; only used when also defined in config. */
+const observedMcpServerNames = new Set<string>();
+
+/**
+ * Per-thread overrides that switch off every MCP server Codex may load: the
+ * user's ~/.codex config, Aegis' private catalog, and any server already seen
+ * reporting status. Overrides merge per key, so each server is disabled by
+ * name (`mcp_servers.<name>.enabled = false`).
+ */
+function readOnlyMcpOverrides(): Record<string, boolean> {
+  // Only servers defined in configuration can be disabled by name; naming a
+  // server that has no config entry makes Codex reject the whole config.
+  const defined = new Set<string>(spawnDefinedMcpServers);
+  try {
+    for (const name of Object.keys(getCodexMcpServers())) defined.add(name);
+  } catch {
+    /* catalog unreadable: rely on the other sources */
+  }
+  try {
+    const userConfig = readFileSync(join(homedir(), '.codex', 'config.toml'), 'utf8');
+    for (const match of userConfig.matchAll(/^\[mcp_servers\.("?)([^\].]+)\1\]\s*$/gm)) defined.add(match[2]);
+  } catch {
+    /* no user config */
+  }
+  for (const name of mcpServerPlugins.keys()) defined.delete(name);
+  const overrides: Record<string, boolean> = {};
+  for (const name of defined) overrides[`mcp_servers.${name}.enabled`] = false;
+  // Thread config override keys are split on dots, not parsed as TOML keys,
+  // so plugin ids (which contain "@") are used unquoted.
+  for (const pluginId of new Set(mcpServerPlugins.values())) overrides[`plugins.${pluginId}.enabled`] = false;
+  // The built-in apps connector (codex_apps) has neither a config entry nor a plugin.
+  overrides['features.apps'] = false;
+  return overrides;
 }

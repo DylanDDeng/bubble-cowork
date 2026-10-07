@@ -1,8 +1,19 @@
 import { captureRemoteEvent, setupRemoteIPC, closeRemoteGateway, remoteTaskPayload } from './remote/integration';
+import {
+  getWorkflowSessionPolicy,
+  observeTurnMessage,
+  recordDeniedTool,
+  requestsBackgroundExecution,
+  settleTurn as settleWorkflowTurn,
+} from './libs/workflow/session-hooks';
 import { setShortcutCaptureActive } from './libs/keyboard-shortcuts';
 import { getSystemFonts, getSystemFontFamilies } from './libs/system-fonts';
 import { getAppPreferences, setAppPreferences, getTerminalShellOptions, trackTaskPowerState } from './libs/app-preferences';
 import { setupSessionGoalIPC, getCachedSessionGoal, publishSessionGoal, rejectSessionGoalStart } from './ipc/session-goal';
+import { setupWorkflowIPC } from './ipc/workflows';
+import { WorkflowService } from './libs/workflow/workflow-service';
+import { findPendingStartWorkflowCall, setWorkflowChatEntry } from './libs/workflow/chat-entry';
+import { isFullAccessMode } from '../shared/workflow';
 import type { GoalAction } from '../shared/session-goal';
 import { parseGoalInput } from '../shared/session-goal';
 import { siteRootPathCandidates } from '../shared/site-root-path';
@@ -81,7 +92,7 @@ import {
   stopDelegationsForParent,
   type DelegateAgentModel,
 } from './libs/delegate-service';
-import { ensureDelegateHttpServer, disposeDelegateHttpServer } from './libs/delegate-http-server';
+import { disposeDelegateHttpServer, retireDelegateMcpEntries } from './libs/delegate-http-server';
 import {
   ensureBrowserUseHttpServer,
   disposeBrowserUseHttpServer,
@@ -4647,6 +4658,109 @@ async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: 
 
 
 // 初始化 IPC 处理器
+/** App-level agent workflows (docs/collaboration/README.md): member sessions run through the normal session path. */
+function setupWorkflows(mainWindow: BrowserWindow): void {
+  const service = new WorkflowService({
+    bridge: {
+      start: (payload, onCreated) => handleSessionStart(mainWindow, payload, onCreated),
+      continue: (payload) => handleSessionContinue(mainWindow, payload),
+      stop: (sessionId) => handleSessionStop(mainWindow, sessionId),
+      sessionCwd: (sessionId) => sessions.getSession(sessionId)?.cwd ?? null,
+      isBusy: (sessionId) => sessions.getSession(sessionId)?.status === 'running',
+    },
+    reportToParent: async (sessionId, display, prompt) => {
+      // The chat session finishes whatever it is doing first.
+      const deadline = Date.now() + 30 * 60_000;
+      while (sessions.getSession(sessionId)?.status === 'running') {
+        if (Date.now() > deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      const session = sessions.getSession(sessionId);
+      if (!session) return false;
+      return handleSessionContinue(mainWindow, {
+        sessionId,
+        prompt: display,
+        effectivePrompt: prompt,
+        provider: (session.provider || 'claude') as AgentProvider,
+      });
+    },
+    broadcast: (view) => broadcast(mainWindow, { type: 'workflow.updated', payload: view }),
+    userDataDir: app.getPath('userData'),
+    appGeneration: `${process.pid}-${Date.now()}`,
+    provisionIsolated: (projectCwd, label) => provisionIsolatedWorkspace(projectCwd, label),
+    applyIsolated: (sessionId) => applyIsolatedWorkspace(sessionId),
+    discardIsolated: (sessionId) => discardIsolatedWorkspace(sessionId),
+  });
+  setupWorkflowIPC(service);
+  service.recoverOnStartup();
+
+  const claimed = new Set<string>();
+  setWorkflowChatEntry(async ({ callerSessionId, request, context }) => {
+    // HTTP MCP calls do not say who is calling: find the session whose
+    // history holds this pending call (the tool_use may land a moment later).
+    let parentSessionId: string | null = null;
+    let toolUseId: string | null = null;
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const candidates = callerSessionId ? [callerSessionId] : [...runnerHandles.keys()];
+      for (const id of candidates) {
+        const found = findPendingStartWorkflowCall(sessions.getSessionHistory(id), request, claimed);
+        if (found) {
+          parentSessionId = id;
+          toolUseId = found;
+          break;
+        }
+      }
+      if (toolUseId || Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    parentSessionId ??= callerSessionId;
+    if (!parentSessionId) return { ok: false, error: 'Could not tell which conversation made this call. Try again.' };
+    if (toolUseId) claimed.add(toolUseId);
+    if (service.isWorkflowSession(parentSessionId) || getWorkflowSessionPolicy(parentSessionId)) {
+      return { ok: false, error: 'A workflow member cannot start another workflow.' };
+    }
+    const session = sessions.getSession(parentSessionId);
+    if (!session?.cwd) return { ok: false, error: 'This conversation has no project folder.' };
+    let available: string[] = [];
+    try {
+      available = (await getAgentRuntimeDirectory(false)).entries.filter((e) => e.state === 'ready').map((e) => e.provider);
+    } catch {
+      available = [];
+    }
+    const provider = session.provider || 'claude';
+    // Claude, Codex and OpenCode keep the mode on the session; the others run
+    // with the composer's current setting.
+    const mode =
+      provider === 'claude'
+        ? session.claude_access_mode
+        : provider === 'codex'
+          ? session.codex_permission_mode
+          : provider === 'opencode'
+            ? session.opencode_permission_mode
+            : service.defaultPermissionMode(provider);
+    const result = await service.startFromChat({
+      parent: { sessionId: parentSessionId, toolUseId, provider, fullAccess: isFullAccessMode(provider, mode) },
+      cwd: session.cwd,
+      request,
+      context,
+      availableAgents: available,
+    });
+    if (!result.ok) return { ok: false, error: result.error };
+    return {
+      ok: true,
+      runId: result.run.id,
+      text: JSON.stringify({
+        workflowId: result.run.id,
+        status: result.run.status,
+        note:
+          'The workflow is running in the background and its progress is shown in this conversation. ' +
+          'End your turn now. Fix requests and the final result will arrive as follow-up messages.',
+      }),
+    };
+  });
+}
+
 export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
   sessions.initialize();
@@ -4849,9 +4963,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
   // Loopback HTTP transport for non-Claude leads (v1: codex). Failure is
   // non-fatal — Claude leads work without it.
-  void ensureDelegateHttpServer().catch((error) => {
-    console.warn('Failed to start the delegate MCP HTTP server:', error);
-  });
+  // The aegis-delegate MCP is retired for new calls (workflows replace it):
+  // no server is started, and the entry Aegis wrote into its own private
+  // Codex catalog is removed. ~/.kimi/mcp.json is user configuration and is
+  // left untouched; its stale entry fails fast without a live server.
+  retireDelegateMcpEntries();
 
   // Browser Use (Codex parity): the same loopback HTTP MCP pattern, so
   // codex/kimi/qoder/opencode sessions can drive their session browser panel.
@@ -5053,6 +5169,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   setupSessionPullRequestsIPC();
+  setupWorkflows(mainWindow);
   setupSessionGoalIPC({
     changeClaudeGoal: async (sessionId, action, settings) => {
       const session = sessions.getSession(sessionId);
@@ -9415,7 +9532,22 @@ async function handleSessionStart(
 }
 
 // 继续会话
+const sessionDispatchLeases = new Set<string>();
 async function handleSessionContinue(
+  mainWindow: BrowserWindow,
+  payload: SessionContinuePayload,
+  internal?: { hideGoalPrompt: boolean },
+): Promise<boolean> {
+  if (sessionDispatchLeases.has(payload.sessionId)) {
+    broadcast(mainWindow, { type: 'runner.error', payload: { sessionId: payload.sessionId, message: 'A message is already being submitted. Please wait.' } });
+    return false;
+  }
+  sessionDispatchLeases.add(payload.sessionId);
+  try { return await handleSessionContinueImpl(mainWindow, payload, internal); }
+  finally { sessionDispatchLeases.delete(payload.sessionId); }
+}
+
+async function handleSessionContinueImpl(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload,
   internal?: { hideGoalPrompt: boolean },
@@ -10345,6 +10477,7 @@ function startRunner(
     bubblePermissionMode,
     bubblePlanExitMode,
     bubbleThinkingLevel,
+    workflowPolicy: getWorkflowSessionPolicy(session.id),
     onMessage: (message) => {
       // A runner the user stopped that has since been retired or replaced is
       // dead to this session: NOTHING it emits may touch session state again
@@ -10354,6 +10487,7 @@ function startRunner(
       if (userStoppedRunnerHandles.has(handle) && runnerHandles.get(session.id)?.handle !== handle) {
         return;
       }
+      observeTurnMessage(session.id, message);
 
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
@@ -10784,6 +10918,11 @@ function startRunner(
           // onTurnDone consumers (automation runs) want the turn's own
           // terminal outcome, not the still-running session status.
           turnDone?.(turnStatus, explicitFailureMessage || undefined);
+          settleWorkflowTurn(
+            session.id,
+            stoppedByUser ? 'stopped' : turnStatus === 'error' ? 'error' : 'completed',
+            explicitFailureMessage || undefined
+          );
           if (provider === 'claude') {
             // The interrupted turn's result has landed — settle one stopped
             // turn; the hard-abort fallback stands down once none remain.
@@ -10947,6 +11086,7 @@ function startRunner(
           clearStopFallbackTimer(currentEntry);
         }
         turnDone?.('error', message);
+        settleWorkflowTurn(session.id, 'error', message);
         // dispose, not abort: the session already errored, so a stopSession
         // here would emit a spurious stop_settled — but plain detach leaks
         // the adapter session's local resources (a live SSE loop double-fed
@@ -11038,6 +11178,19 @@ function startRunner(
       });
     },
     onPermissionRequest: async (toolUseId, toolName, input) => {
+      // Workflow members (plan §6.2–6.3): read-only roles may not write, run
+      // commands or call MCP tools, and nobody may start work that outlives
+      // the turn. These are answered here, never shown to the user.
+      const workflowPolicy = getWorkflowSessionPolicy(session.id);
+      if (workflowPolicy && (workflowPolicy.readOnly || requestsBackgroundExecution(input))) {
+        recordDeniedTool(session.id, toolName);
+        return {
+          behavior: 'deny',
+          message: workflowPolicy.readOnly
+            ? `This workflow ${workflowPolicy.role} is read-only; ${toolName} is not allowed. Report what you need in your result instead.`
+            : 'Background execution is disabled in workflows: run the command in the foreground so it finishes within this turn.',
+        };
+      }
       if (autoApprovePermissions) {
         return {
           behavior: 'allow',
@@ -11763,6 +11916,7 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
 
   // 更新状态为 idle（stop 不算 error）
   sessions.updateSessionStatus(sessionId, 'idle');
+  settleWorkflowTurn(sessionId, 'stopped');
 
   broadcast(mainWindow, {
     type: 'session.status',

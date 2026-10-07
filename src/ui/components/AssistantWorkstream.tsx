@@ -3,7 +3,7 @@ import { useWorkstreamDisclosure } from './WorkstreamDisclosureState';
 import { ToolResultContent, ToolOutputPanel } from './ToolResultContent';
 import { WorkstreamActivityLabel, WorkstreamCollapse, WorkstreamScrollArea, WorkstreamElapsed } from './WorkstreamPrimitives';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   BrandGithub,
   BrandSlack,
@@ -67,6 +67,8 @@ import { FileTypeIcon } from './FileTypeIcon';
 import { SubagentAvatar } from './SubagentAvatar';
 import { getSubagentPersona } from '../utils/subagent-persona';
 import { ProviderIcon } from './AgentModelPicker';
+import { WorkflowBoard } from './workflow/WorkflowBoard';
+import { isStartWorkflowToolName } from '../../shared/workflow';
 import type { AgentProvider } from '../../shared/types';
 import { GeneratedMediaGallery } from './GeneratedMediaGallery';
 import { isMediaGenerationTool, type GeneratedMediaItem } from '../utils/generated-media';
@@ -704,7 +706,58 @@ function isTaskEntry(entry: WorkstreamEntry): entry is TaskEntry {
   return entry.type === 'task';
 }
 
+function isWorkflowEntry(entry: WorkstreamEntry): entry is TaskEntry {
+  return entry.type === 'task' && isStartWorkflowToolName(entry.toolName);
+}
+
+/**
+ * A workflow outlives the turn that started it, so its board must stay
+ * visible when the finished turn's trace collapses: the turn then renders the
+ * boards outside the collapsible body and the trace leaves them out.
+ */
+const WorkflowBoardsOutside = createContext(false);
+export const WorkflowBoardsOutsideProvider = WorkflowBoardsOutside.Provider;
+
+export function TurnWorkflowBoards({ entries }: { entries: WorkstreamEntry[] }) {
+  const workflows = entries.filter(isWorkflowEntry);
+  if (workflows.length === 0) return null;
+  return (
+    <>
+      {workflows.map((entry) => (
+        <WorkflowEntryBoard key={entry.id} entry={entry} />
+      ))}
+    </>
+  );
+}
+
+/** A start_workflow call: the workflow it started, live, in place of a subagent lane. */
+function WorkflowEntryBoard({ entry }: { entry: TaskEntry }) {
+  const resultText = entry.result ? getToolResultOutputContent(entry.result) : null;
+  return (
+    <WorkflowBoard
+      toolUseId={entry.block.id}
+      resultText={resultText}
+      failed={entry.status === 'error' || entry.result?.is_error === true}
+    />
+  );
+}
+
 function SubagentStage({ stage }: { stage: WorkstreamStage }) {
+  const outside = useContext(WorkflowBoardsOutside);
+  const workflows = stage.entries.filter(isWorkflowEntry);
+  if (workflows.length > 0) {
+    const rest = stage.entries.filter((entry) => !isWorkflowEntry(entry));
+    return (
+      <>
+        {outside
+          ? null
+          : workflows.map((entry) => (
+              <WorkflowEntryBoard key={entry.id} entry={entry} />
+            ))}
+        {rest.length > 0 ? <SubagentStage stage={{ ...stage, entries: rest }} /> : null}
+      </>
+    );
+  }
   const taskEntries = stage.entries.filter(isTaskEntry);
   // Anything classified into a task stage that didn't map to a task entry
   // still renders as a plain row instead of silently disappearing.
@@ -846,8 +899,10 @@ function getTaskDescription(entry: TaskEntry): string | null {
 // ── Entry row dispatcher ────────────────────────────────────────────────────
 
 function EntryRow({ entry, showChangeHint = true }: { entry: WorkstreamEntry; showChangeHint?: boolean }) {
+  const workflowsOutside = useContext(WorkflowBoardsOutside);
   if (entry.type === 'compaction') return <CompactionActivity entry={entry} />;
   if (entry.type === 'task') {
+    if (isStartWorkflowToolName(entry.toolName)) return workflowsOutside ? null : <WorkflowEntryBoard entry={entry} />;
     // Task entries render as a subagent chip row rather than a generic tool
     // row — clicking the chip opens the subagent's tab in the detail panel,
     // where its full working trace lives.

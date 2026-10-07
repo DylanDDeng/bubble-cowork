@@ -1,4 +1,5 @@
 import type { SessionMenuRequest, SessionMenuAction } from '../shared/session-menu';
+import type { WorkflowAction, WorkflowStartRequest } from '../shared/workflow';
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 import type {
   AutomationDefinition,
@@ -214,6 +215,14 @@ contextBridge.exposeInMainWorld('electron', {
 
   startBackgroundSession: (payload: SessionStartPayload) => {
     return ipcRenderer.invoke('session-start-background', payload);
+  },
+
+  workflows: {
+    start: (request: WorkflowStartRequest) => ipcRenderer.invoke('workflow-start', request),
+    act: (action: WorkflowAction) => ipcRenderer.invoke('workflow-action', action),
+    list: () => ipcRenderer.invoke('workflow-list'),
+    get: (runId: string) => ipcRenderer.invoke('workflow-get', runId),
+    setDefaults: (defaults: { permissionModes: Record<string, string> }) => ipcRenderer.invoke('workflow-set-defaults', defaults),
   },
 
   sessionHandoff: (payload: { sessionId: string; targetProvider: string }) => {

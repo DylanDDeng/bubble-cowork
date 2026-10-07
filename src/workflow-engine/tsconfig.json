@@ -1,0 +1,16 @@
+{
+  // Type-checks the engine on its own with no DOM or Node typings, so any
+  // accidental dependency on Electron, Node built-ins or the UI fails here.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": [],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["./**/*.ts"]
+}

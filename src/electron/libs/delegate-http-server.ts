@@ -20,7 +20,7 @@ import {
   getDelegateStatus,
   runDelegateTask,
 } from './delegate-service';
-import { upsertCodexMcpServer } from './codex-mcp-settings';
+import { getCodexMcpServers, saveCodexMcpServers, upsertCodexMcpServer } from './codex-mcp-settings';
 import { upsertKimiMcpServerRaw } from './kimi-mcp-settings';
 
 export const DELEGATE_TOKEN_ENV_VAR = 'AEGIS_DELEGATE_TOKEN';
@@ -290,4 +290,23 @@ export function disposeDelegateHttpServer(): void {
     httpServer = null;
   }
   serverPromise = null;
+}
+
+/**
+ * Remove the delegate entry from Aegis' private Codex MCP catalog (an
+ * app-owned file), only when it is exactly the entry Aegis wrote: same name
+ * and a loopback URL.
+ */
+export function retireDelegateMcpEntries(): void {
+  try {
+    const servers = getCodexMcpServers();
+    const entry = servers[DELEGATE_MCP_SERVER_NAME] as { url?: unknown } | undefined;
+    if (!entry) return;
+    const url = typeof entry.url === 'string' ? entry.url : '';
+    if (!/^http:\/\/127\.0\.0\.1:\d+\//.test(url)) return;
+    delete servers[DELEGATE_MCP_SERVER_NAME];
+    saveCodexMcpServers(servers);
+  } catch (error) {
+    console.warn('Failed to remove the retired delegate MCP entry:', error);
+  }
 }

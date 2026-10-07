@@ -1,4 +1,5 @@
 import { consolidateThemeFonts } from '../theme/themes';
+import { useWorkflowStore } from './useWorkflowStore';
 import { useSessionOrganizationStore, changeSessionOrganization } from './useSessionOrganizationStore';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -87,6 +88,7 @@ import {
   isRightUtilityFileTab,
   resolveRightUtilityTabOpen,
   resolveRightUtilityTabOpenPreservingActive,
+  workflowMemberTab,
 } from '../utils/right-utility-tabs';
 import {
   captureLiveRightPanel,
@@ -1132,6 +1134,10 @@ export const useAppStore = create<Store>()(
         handlePermissionRequest(event.payload, set);
         break;
 
+      case 'workflow.updated':
+        useWorkflowStore.getState().upsert(event.payload);
+        break;
+
       case 'permission.dismissed':
         set((state) => {
           const session = state.sessions[event.payload.sessionId];
@@ -1977,6 +1983,19 @@ export const useAppStore = create<Store>()(
     // review rejected — it only fires on an explicit click.
     set((state) => {
       const target: ProjectUtilityPanelTarget = `subagent:${subagentId}`;
+      return {
+        rightUtilityTabs: addRightUtilityTab(state.rightUtilityTabs, target),
+        activeRightUtilityTab: target,
+        rightUtilityPanelHidden: false,
+        projectTreeCollapsed: true,
+        browserPanelOpen: false,
+      };
+    });
+  },
+
+  openWorkflowMemberPanel: (sessionId) => {
+    set((state) => {
+      const target = workflowMemberTab(sessionId);
       return {
         rightUtilityTabs: addRightUtilityTab(state.rightUtilityTabs, target),
         activeRightUtilityTab: target,

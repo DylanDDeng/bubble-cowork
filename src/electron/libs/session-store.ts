@@ -1199,6 +1199,11 @@ function backfillExternalizedMessagePayloads(): void {
   transaction();
 }
 
+/** Shared connection for modules that keep their own tables in the app database (e.g. workflows). */
+export function getDatabase(): Database.Database {
+  return getDb();
+}
+
 // 获取数据库实例
 function getDb(): Database.Database {
   if (!db) {

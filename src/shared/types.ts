@@ -977,6 +977,7 @@ export interface AppUpdateStatus {
 
 // Server -> Client 事件
 export type ServerEvent =
+  | { type: 'workflow.updated'; payload: import('./workflow').WorkflowRunView }
   | { type: 'session.open'; payload: { sessionId: string } }
   | { type: 'session.list'; payload: { sessions: SessionInfo[] } }
   | { type: 'session.status'; payload: SessionStatusPayload }

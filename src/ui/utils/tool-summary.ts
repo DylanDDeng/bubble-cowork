@@ -1,3 +1,4 @@
+import { isStartWorkflowToolName } from '../../shared/workflow';
 import type { CanonicalToolKind, ToolStatus } from '../types';
 import {
   classifyComputerUseAction,
@@ -480,6 +481,9 @@ export function classifyToolUse(toolName: string, input: unknown): CanonicalTool
   // runs another agent whose trace mirrors into this session exactly like a
   // subagent — render it as one, not as a generic MCP row.
   if (normalized === 'delegate_task' || normalized.endsWith('__delegate_task')) return 'subagent';
+  // App workflows started from the chat render as a workflow board in the
+  // task stage (AssistantWorkstream), next to subagent runs.
+  if (isStartWorkflowToolName(normalized)) return 'subagent';
   if (
     normalized === 'image_gen' ||
     normalized === 'image_edit' ||

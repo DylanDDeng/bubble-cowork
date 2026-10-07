@@ -54,6 +54,14 @@ export function isSideChatPendingTab(
   return target === SIDE_CHAT_PENDING_TAB;
 }
 
+export function workflowMemberTab(sessionId: string): ProjectUtilityPanelTarget {
+  return `workflow-member:${sessionId}`;
+}
+
+export function getWorkflowMemberSessionId(target: ProjectUtilityPanelTarget | null | undefined): string | null {
+  return target?.startsWith('workflow-member:') ? target.slice('workflow-member:'.length) : null;
+}
+
 export function getSideChatSessionId(target: ProjectUtilityPanelTarget): string {
   return target.slice('side-chat:'.length);
 }
@@ -64,6 +72,7 @@ export function getRightUtilityTabKind(
   if (target.startsWith('sources:')) return 'sources';
   if (target.startsWith('images:')) return 'images';
   if (target.startsWith('goal:')) return 'goal';
+  if (target.startsWith('workflow-member:')) return 'workflow-member';
   if (isRightUtilityFileTab(target)) return 'files';
   if (isRightUtilityBrowserTab(target)) return 'browser';
   if (isRightUtilitySubagentTab(target)) return 'subagent';

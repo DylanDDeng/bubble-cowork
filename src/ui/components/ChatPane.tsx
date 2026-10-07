@@ -945,6 +945,7 @@ export function ChatPane({
   headerActions,
   showHeader = true,
   onWorkspaceGitChanged,
+  approvalsOnly = false,
 }: {
   paneId: string;
   sessionId: string | null;
@@ -957,6 +958,8 @@ export function ChatPane({
   headerActions?: ReactNode;
   showHeader?: boolean;
   onWorkspaceGitChanged?: () => Promise<void>;
+  /** Workflow member logs: show pending permission cards but no composer (the workflow drives the session). */
+  approvalsOnly?: boolean;
 }) {
   // P2: shallow-picked subscription + a session-scoped selector. A pane must
   // re-render for ITS session's updates only — with the old whole-store
@@ -2222,7 +2225,13 @@ export function ChatPane({
           />
           </div>
 
-          {session.readOnly ? null : (
+          {session.readOnly ? null : approvalsOnly ? (
+            activePermissionRequest ? (
+              <div className="aegis-chat-composer px-8 pb-4">
+                <ComposerPendingPermissionPanel request={activePermissionRequest} pendingCount={permissionQueue.length} onSubmit={handlePermissionResult} />
+              </div>
+            ) : null
+          ) : (
             <ImageStudioComposerHome sessionId={sessionId!}>
             <div className="aegis-chat-composer px-8 pb-4">
               {sessionId ? <ComputerUseGrantBadge sessionId={sessionId} grants={session?.computerUseGrants || []} /> : null}

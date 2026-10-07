@@ -2,6 +2,8 @@ import { getSessionProjectSources } from './session-store';
 import { createClaudeGoalController, releaseClaudeGoalController, rejectClaudeGoalSet } from './claude-goal-manager';
 import { isWithinProjectPath } from './project-paths';
 import { createSessionSdkMcpServer, SESSION_MCP_SERVER_NAME } from './session-mcp';
+import { isStartWorkflowToolName } from '../../shared/workflow';
+import { WORKFLOW_CHAT_INSTRUCTIONS } from './workflow/chat-entry';
 import type {
   McpServerConfig as SDKMcpServerConfig,
   PermissionMode as ClaudeSdkPermissionMode,
@@ -29,8 +31,7 @@ import { getRequiredClaudeCodeRuntime } from './claude-runtime';
 import { createPromptCancellation } from './claude-prompt-cancellation';
 import { captureGitTreeSnapshot, diffGitTreeSnapshots } from './git-turn-snapshot';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
-import { createDelegateMcpServer } from './delegate-mcp';
-import { DELEGATE_MCP_SERVER_NAME, isDelegateExecutionSession } from './delegate-service';
+import { isDelegateExecutionSession } from './delegate-service';
 import { BROWSER_USE_SERVER_NAME, createBrowserUseMcpServer } from './browser-use-mcp';
 import { setBrowserUseSessionFullAccess } from './browser-use-consent';
 import { isBrowserUseEnabled } from './browser-use-permissions';
@@ -513,6 +514,32 @@ async function buildUserMessage(
 }
 
 // 运行 Claude Agent
+/** Built-in tools a read-only workflow member may use (reviewer, advisor, planner). */
+const WORKFLOW_READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep'];
+/**
+ * Built-in tools a workflow implementer may use. An allowlist on purpose: the
+ * SDK keeps adding tools that spawn or defer work (Agent, Workflow, Monitor,
+ * CronCreate, ScheduleWakeup, RemoteTrigger, REPL, …) and a denylist would
+ * silently let each new one through.
+ */
+const WORKFLOW_IMPLEMENTER_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash', 'TodoWrite'];
+
+function workflowToolDenial(
+  policy: import('../../shared/workflow').WorkflowSessionPolicy,
+  toolName: string,
+  toolInput: unknown
+): string | null {
+  const allowed = policy.readOnly ? WORKFLOW_READ_ONLY_TOOLS : WORKFLOW_IMPLEMENTER_TOOLS;
+  if (!allowed.includes(toolName)) {
+    return `${toolName} is not available to a workflow ${policy.role}. Report what you need in your result instead.`;
+  }
+  const input = (toolInput ?? {}) as Record<string, unknown>;
+  if (input.run_in_background === true) {
+    return 'Background execution is disabled in workflows: run the command in the foreground so it finishes within this turn.';
+  }
+  return null;
+}
+
 export function runClaude(options: RunnerOptions): RunnerHandle {
   const {
     prompt,
@@ -529,6 +556,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     onPermissionRequest,
     onClaudeExecutionModeChange,
     onError,
+    workflowPolicy,
   } = options;
 
   const abortController = new AbortController();
@@ -542,10 +570,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let activeQuery: ClaudeQuery | null = null;
   const sessionApprovedExternalAccess = new Set<string>();
   const sessionApprovedToolAccess = new Set<string>();
-  let currentPermissionMode: ClaudeSdkPermissionMode = normalizeClaudeSdkPermissionMode(
-    claudeAccessMode,
-    claudeExecutionMode
-  );
+  let currentPermissionMode: ClaudeSdkPermissionMode = workflowPolicy?.readOnly
+    ? 'default'
+    : normalizeClaudeSdkPermissionMode(claudeAccessMode, claudeExecutionMode);
   let currentAccessMode: ClaudeAccessMode = 'default';
   if (claudeAccessMode && claudeAccessMode !== 'plan') {
     currentAccessMode = claudeAccessMode;
@@ -809,17 +836,19 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             'aegis-memory': await createAegisMemoryMcpServer(session.cwd ?? undefined),
           }
         : providerMcpServers;
-      (mcpServers as Record<string, unknown>)[SESSION_MCP_SERVER_NAME] = await createSessionSdkMcpServer();
-      // Cross-agent delegation: every top-level Claude session can be a lead.
-      // Delegate execution sessions don't get the server — combined with the
-      // server-side caller check this enforces the one-level depth limit.
-      if (!isDelegateExecutionSession(session.id)) {
-        (mcpServers as Record<string, unknown>)[DELEGATE_MCP_SERVER_NAME] =
-          await createDelegateMcpServer(session.id);
-        // Delegate calls block for the whole child run; lift the CLI's MCP
-        // tool timeout above the delegate's own 30-minute ceiling.
-        if (!env.MCP_TOOL_TIMEOUT) env.MCP_TOOL_TIMEOUT = String(35 * 60 * 1000);
-        if (!env.MCP_TIMEOUT) env.MCP_TIMEOUT = String(35 * 60 * 1000);
+      const offersWorkflows = !workflowPolicy && !isDelegateExecutionSession(session.id);
+      (mcpServers as Record<string, unknown>)[SESSION_MCP_SERVER_NAME] = await createSessionSdkMcpServer({
+        callerSessionId: session.id,
+        workflows: offersWorkflows,
+      });
+      const systemAppend = [memoryAppend, offersWorkflows ? WORKFLOW_CHAT_INSTRUCTIONS : ''].filter(Boolean).join('\n\n');
+      if (workflowPolicy?.readOnly) {
+        for (const name of Object.keys(mcpServers)) delete (mcpServers as Record<string, unknown>)[name];
+      }
+      // The aegis-delegate MCP is retired for new calls: multi-agent work runs
+      // as app-level workflows (docs/collaboration/README.md). Old delegate
+      // history stays readable.
+      if (!isDelegateExecutionSession(session.id) && !workflowPolicy) {
         // Browser Use (Codex parity): drives the session's built-in browser
         // panel. Built-in feature gated by the settings toggle; consent rides
         // the SAME permission card pipeline every other tool uses.
@@ -837,8 +866,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       const result = sdk.query({
         prompt: inputQueue,
         options: {
-          systemPrompt: memoryAppend
-            ? { type: 'preset', preset: 'claude_code', append: memoryAppend }
+          systemPrompt: systemAppend
+            ? { type: 'preset', preset: 'claude_code', append: systemAppend }
             : { type: 'preset', preset: 'claude_code' },
           cwd: sessionCwd,
           additionalDirectories: getSessionProjectSources(session.id, sessionCwd).slice(1),
@@ -868,10 +897,42 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           settingSources: compatibleProviderMatched
             ? CLAUDE_SETTING_SOURCES
             : OFFICIAL_CLAUDE_SETTING_SOURCES,
+          // Workflow members: built-in tools by allowlist (new SDK tools that
+          // spawn or defer work stay out), and only the MCP servers given here.
+          ...(workflowPolicy
+            ? {
+                tools: workflowPolicy.readOnly ? WORKFLOW_READ_ONLY_TOOLS : WORKFLOW_IMPLEMENTER_TOOLS,
+                strictMcpConfig: true,
+              }
+            : {}),
           mcpServers: mcpServers as Record<string, SDKMcpServerConfig>,
           // Compaction runs silently (no stream messages until the boundary),
           // so surface its start to the UI for a live "Compacting…" status.
           hooks: {
+            ...(workflowPolicy
+              ? {
+                  // Enforced regardless of permission mode or user allow
+                  // rules, which canUseTool would not see (plan §6.3).
+                  PreToolUse: [
+                    {
+                      hooks: [
+                        async (input) => {
+                          if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+                          const denial = workflowToolDenial(workflowPolicy, input.tool_name, input.tool_input);
+                          if (!denial) return { continue: true };
+                          return {
+                            hookSpecificOutput: {
+                              hookEventName: 'PreToolUse' as const,
+                              permissionDecision: 'deny' as const,
+                              permissionDecisionReason: denial,
+                            },
+                          };
+                        },
+                      ],
+                    },
+                  ],
+                }
+              : {}),
             UserPromptSubmit: [{ hooks: [async (input) => {
               if (input.hook_event_name === 'UserPromptSubmit')
                 await goalController.attachTranscript(input.transcript_path);
@@ -970,6 +1031,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             }
 
             if (ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS && isMemoryTool) {
+              return { behavior: 'allow' as const, updatedInput: input };
+            }
+
+            // The app's own workflow entry only hands the request to the
+            // workflow engine; the plan card is where the user approves
+            // anything that needs it (unrequested members, commands).
+            if (isStartWorkflowToolName(toolName)) {
               return { behavior: 'allow' as const, updatedInput: input };
             }
 

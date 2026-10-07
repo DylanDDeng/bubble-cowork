@@ -36,6 +36,7 @@ import {
   RefreshCw,
   Upload,
   Users,
+  Workflow,
   X,
 } from './components/icons';
 import { RightPanelToggleIcon } from './components/RightPanelToggleIcon';
@@ -102,7 +103,8 @@ import {
 import { resolveCodexModel } from './utils/codex-model';
 import { startQueueAutoFlush } from './lib/queue-auto-flush';
 import * as DialogPrimitive from '@/ui/components/ui/dialog';
-import { isSideChatPendingTab } from './utils/right-utility-tabs';
+import { getWorkflowMemberSessionId, isSideChatPendingTab } from './utils/right-utility-tabs';
+import { useWorkflowStore, workflowSessionLabel } from './store/useWorkflowStore';
 import { getDockedRightPanelMaxWidth, resolveDockedRightPanelWidth, RIGHT_PANEL_MIN_WIDTH } from './utils/right-panel-width';
 import { ResizableRightPane } from './components/ResizableRightPane';
 import {
@@ -159,6 +161,7 @@ function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUti
   if (target.startsWith('sources:')) return 'sources';
   if (target.startsWith('images:')) return 'images';
   if (target.startsWith('goal:')) return 'goal';
+  if (target.startsWith('workflow-member:')) return 'workflow-member';
   if (isProjectUtilityFileTab(target)) return 'files';
   if (isProjectUtilityBrowserTab(target)) return 'browser';
   if (isProjectUtilitySubagentTab(target)) return 'subagent';
@@ -723,12 +726,30 @@ export function App() {
     const studio = state.sessions[environmentContext.sessionId ?? ''];
     return studio?.view === 'single' ? studio.sourceAttachments?.[studio.activePath]?.name : undefined;
   });
+  const workflowRuns = useWorkflowStore((state) => state.runs);
+  // Declared before the descriptors below, which read it while rendering.
+  const workflowMemberRunningIds = useAppStore(
+    useShallow((s) =>
+      s.rightUtilityTabs
+        .map((tab) => getWorkflowMemberSessionId(tab))
+        .filter((id): id is string => Boolean(id) && s.sessions[id!]?.status === 'running')
+    )
+  );
   const rightUtilityTabDescriptors = useMemo<ProjectUtilityTabDescriptor[]>(() => {
     const workspaceLeaf = getPathLeaf(activeSession?.cwd || projectCwd || '');
     return rightUtilityTabs.map((tab) => {
       const kind = getProjectUtilityTabKind(tab);
       if (kind === 'images') return { id: tab, kind, label: tab === `images:${environmentContext.sessionId}` && sourceImageLabel || 'Images' };
       if (kind === 'goal') return { id: tab, kind, label: 'Edit goal' };
+      if (kind === 'workflow-member') {
+        const memberSessionId = getWorkflowMemberSessionId(tab);
+        return {
+          id: tab,
+          kind,
+          label: memberSessionId ? workflowSessionLabel(workflowRuns, memberSessionId) : 'Workflow',
+          running: memberSessionId ? workflowMemberRunningIds.includes(memberSessionId) : false,
+        };
+      }
       if (kind === 'sources') return { id: tab, kind, label: sessionSourceTabPath(tab)?.split(/[\\/]/).pop() || 'Sources' };
       if (kind === 'files') {
         return { id: tab, kind, label: activeProjectFileTabs[tab]?.name || 'Files' };
@@ -782,6 +803,8 @@ export function App() {
     rightUtilityTabs,
     environmentContext.sessionId,
     sourceImageLabel,
+    workflowRuns,
+    workflowMemberRunningIds,
   ]);
 
   const updateProjectFileTabLabel = useCallback((
@@ -818,6 +841,10 @@ export function App() {
   );
   const subagentUtilityTabs = useMemo(
     () => rightUtilityTabs.filter(isProjectUtilitySubagentTab),
+    [rightUtilityTabs]
+  );
+  const workflowMemberUtilityTabs = useMemo(
+    () => rightUtilityTabs.filter((tab) => tab.startsWith('workflow-member:')),
     [rightUtilityTabs]
   );
   const sideChatUtilityTabs = useMemo(
@@ -1285,6 +1312,28 @@ export function App() {
               subagentId={getProjectUtilitySubagentId(tabId) ?? ''}
             />
           ))}
+          {workflowMemberUtilityTabs.map((tabId) => {
+            const memberSessionId = getWorkflowMemberSessionId(tabId) ?? '';
+            const visible = activeRightUtilityTab === tabId;
+            // The workflow drives this session: show its log and any pending
+            // approvals, never a composer.
+            return (
+              <div
+                key={`${activeSessionId ?? 'new'}:${tabId}`}
+                className={visible ? 'absolute inset-0 z-20 flex min-h-0 min-w-0 flex-col' : 'hidden'}
+              >
+                <ChatPane
+                  paneId={`workflow-member:${memberSessionId}`}
+                  sessionId={memberSessionId}
+                  isActive={visible}
+                  onActivate={() => setActiveRightUtilityTab(tabId)}
+                  codexModelConfig={codexModelConfig}
+                  showHeader={false}
+                  approvalsOnly
+                />
+              </div>
+            );
+          })}
           {sideChatUtilityTabs.map((tabId) => {
             const visible = activeRightUtilityTab === tabId;
             if (isSideChatPendingTab(tabId)) {
@@ -1395,6 +1444,7 @@ function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
   if (target === 'side-chat') return MessageCircle;
   if (target === 'review') return FileDiff;
   if (target === 'subagent') return Users;
+  if (target === 'workflow-member') return Workflow;
   return FolderClosed;
 }
 

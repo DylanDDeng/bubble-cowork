@@ -19,17 +19,11 @@ const root = process.cwd();
 // ── L1: static wiring guards ────────────────────────────────────────────────
 
 const runnerSource = fs.readFileSync(path.join(root, 'src', 'electron', 'libs', 'runner.ts'), 'utf8');
+// The delegate MCP is retired for new calls (docs/collaboration/README.md §9):
+// no session is given the server; old delegate history must stay readable.
 assert.ok(
-  runnerSource.includes('createDelegateMcpServer(session.id)'),
-  'runner.ts must inject the delegate MCP server with the parent session id'
-);
-assert.ok(
-  runnerSource.includes('!isDelegateExecutionSession(session.id)'),
-  'runner.ts must not inject the delegate server into delegate execution sessions (depth limit)'
-);
-assert.ok(
-  runnerSource.includes('MCP_TOOL_TIMEOUT'),
-  'runner.ts must lift the MCP tool timeout above the delegate ceiling'
+  !runnerSource.includes('createDelegateMcpServer('),
+  'runner.ts must no longer inject the retired delegate MCP server'
 );
 
 const ipcSource = fs.readFileSync(path.join(root, 'src', 'electron', 'ipc-handlers.ts'), 'utf8');
@@ -54,8 +48,8 @@ assert.ok(
   'the delegate service host must be initialized'
 );
 assert.ok(
-  ipcSource.includes('ensureDelegateHttpServer()'),
-  'the delegate HTTP transport must be started'
+  !ipcSource.includes('ensureDelegateHttpServer()') && ipcSource.includes('retireDelegateMcpEntries()'),
+  'the retired delegate HTTP transport must not start, and its app-owned Codex entry is removed'
 );
 assert.ok(
   ipcSource.includes('disposeDelegateHttpServer()'),

@@ -1,3 +1,4 @@
+import { syncWorkflowDefaults } from '../components/workflow/permission-modes';
 import { useEffect, useCallback } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import type { ClientEvent, ServerEvent } from '../types';
@@ -51,5 +52,8 @@ export function sendEvent(event: ClientEvent): void {
     console.error('[IPC] sendClientEvent unavailable', event);
     return;
   }
+  // A turn may hand work to a workflow (start_workflow); its new implementer
+  // sessions use the composer's current permission preferences.
+  if (event.type === 'session.start' || event.type === 'session.continue') syncWorkflowDefaults();
   window.electron.sendClientEvent(event);
 }

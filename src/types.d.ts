@@ -1,4 +1,10 @@
 import type { SessionMenuRequest, SessionMenuAction } from './shared/session-menu';
+import type {
+  WorkflowAction,
+  WorkflowActionResult,
+  WorkflowRunView,
+  WorkflowStartRequest,
+} from './shared/workflow';
 // 全局类型声明（Window 扩展）
 // 实际类型定义在 src/shared/types.ts
 
@@ -118,6 +124,13 @@ declare global {
     startBackgroundSession: (
       payload: SessionStartPayload
     ) => Promise<{ ok: boolean; sessionId: string | null }>;
+    workflows: {
+      start: (request: WorkflowStartRequest) => Promise<WorkflowActionResult>;
+      act: (action: WorkflowAction) => Promise<WorkflowActionResult>;
+      list: () => Promise<WorkflowRunView[]>;
+      get: (runId: string) => Promise<WorkflowRunView | null>;
+      setDefaults: (defaults: { permissionModes: Record<string, string> }) => Promise<void>;
+    };
     forkSession: (
       sessionId: string,
       options?: { hiddenFromThreads?: boolean; copyHistory?: boolean }

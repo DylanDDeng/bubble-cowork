@@ -199,7 +199,7 @@ export interface SessionStreamingState {
 export type ActiveWorkspace = 'chat' | 'skills' | 'automations' | 'prs';
 export type ChatSidebarView = 'threads' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
-export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent' | 'goal' | 'images' | 'sources';
+export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent' | 'goal' | 'images' | 'sources' | 'workflow-member';
 export type ProjectUtilityPanelTarget =
   | ProjectUtilityPanelKind
   | `files:${string}`
@@ -212,7 +212,10 @@ export type ProjectUtilityPanelTarget =
   | `subagent:${string}`
   // Codex-style side chats: one tab per forked side conversation (the
   // forked session id after the colon). Ephemeral — never persisted.
-  | `side-chat:${string}`;
+  | `side-chat:${string}`
+  // A workflow member's session (its id after the colon), opened from the
+  // workflow board in the chat that started the workflow. Never persisted.
+  | `workflow-member:${string}`;
 export interface ProjectFileOpenInput {
   cwd: string;
   path: string;
@@ -609,6 +612,8 @@ export interface AppActions {
   openReviewDiff: (selection: ReviewDiffSelectionInput) => void;
   /** Open (or focus) the dedicated top-level tab for a subagent (parentToolUseId). */
   openSubagentPanel: (subagentId: string) => void;
+  /** Open (or focus) a workflow member's session in the right panel of the chat that started the workflow. */
+  openWorkflowMemberPanel: (sessionId: string) => void;
   closeRightUtilityTab: (target: ProjectUtilityPanelTarget) => void;
   /** Fork the source conversation into a new ephemeral right-panel side chat tab. */
   openSideChat: (sourceSessionId: string | null) => Promise<void>;

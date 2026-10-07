@@ -138,6 +138,8 @@ export interface RunnerOptions {
   deepseekReasoningEffort?: import('../shared/types').DeepseekReasoningEffort;
   devinPermissionMode?: import('../shared/types').DevinPermissionMode;
   devinThoughtLevel?: string;
+  /** Set when the session is a member of an app-level workflow (plan §6.3). */
+  workflowPolicy?: import('../shared/workflow').WorkflowSessionPolicy;
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
