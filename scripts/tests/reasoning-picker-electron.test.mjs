@@ -63,6 +63,8 @@ app.whenReady().then(async()=>{
  const click=async selector=>{const rect=await js('(()=>{const r=document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()');win.webContents.sendInputEvent({type:'mouseDown',x:Math.round(rect.x),y:Math.round(rect.y),button:'left',clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',x:Math.round(rect.x),y:Math.round(rect.y),button:'left',clickCount:1});await delay(150);};
  const key=async keyCode=>{win.webContents.sendInputEvent({type:'keyDown',keyCode});win.webContents.sendInputEvent({type:'keyUp',keyCode});await delay(80);};
  // Store updates land a few frames after input; CI runners are slow, so poll instead of a fixed delay.
+ // Home/End are idempotent, so a key press dropped by the CI runner is safely sent again.
+ const press=async(keyCode,expr,expected,message)=>{for(let attempt=0;attempt<3;attempt++){await key(keyCode);for(let i=0;i<20;i++){if(await js(expr)===expected)return;await delay(50);}}assert.equal(await js(expr),expected,message);};
  const settle=async(expr,expected,message)=>{let value;for(let i=0;i<60;i++){value=await js(expr);if(value===expected)break;await delay(50);}assert.equal(value,expected,message);};
  const slider='.effort-model-view:not([inert]) input[type=range]';
  // The click can land while the menu is still settling (seen on CI); keys must go to the slider.
@@ -96,10 +98,9 @@ app.whenReady().then(async()=>{
   assert.equal(await js('!!document.querySelector(".effort-picker-endpoints")'),false);
   if(process.env.QA_CAPTURE){fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});fs.writeFileSync(path.join(process.env.QA_CAPTURE,'compact-picker.png'),(await win.webContents.capturePage({x:Math.floor(compactBounds.x)-5,y:Math.floor(compactBounds.y)-5,width:Math.ceil(compactBounds.width)+10,height:Math.ceil(compactBounds.height)+10})).toPNG());}
   assert.ok(await js('!!document.querySelector('+JSON.stringify(slider)+')'));
-  await click(slider);await focusSlider();await key('Home');
-  await settle('qa.efforts.codex','low','Home selects minimum from the provider catalog');
+  await click(slider);await focusSlider();await press('Home','qa.efforts.codex','low','Home selects minimum from the provider catalog');
   await key('Right');await settle('qa.efforts.codex','medium');
-  await key('End');await settle('qa.efforts.codex','xhigh');
+  await press('End','qa.efforts.codex','xhigh');
   await assertStable(closedTrigger);
   await settle('document.querySelector(".effort-picker-selected-effort").textContent','Extra High','toolbar effort follows keyboard selection');
   await settle('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")','Extra High');
@@ -110,8 +111,7 @@ app.whenReady().then(async()=>{
   await settle('qa.efforts.codex','xhigh','drag preview does not write configuration');
   win.webContents.sendInputEvent({type:'mouseUp',x:Math.round(r.x+14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});await delay(200);
   await settle('qa.efforts.codex','low','drag release commits');
-  await key('End');
-  await settle('qa.efforts.codex','xhigh','keyboard remains on slider after dragging');
+  await press('End','qa.efforts.codex','xhigh','keyboard remains on slider after dragging');
   await js('document.querySelector('+JSON.stringify(slider)+').dispatchEvent(new WheelEvent("wheel",{deltaY:30,cancelable:true,bubbles:true}))');await delay(100);
   await settle('qa.efforts.codex','high','focused wheel advances one discrete tier');
   win.webContents.sendInputEvent({type:'mouseDown',x:Math.round(r.x+r.w-14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});
@@ -122,7 +122,7 @@ app.whenReady().then(async()=>{
   await settle('qa.efforts.codex','high','pointer cancel discards preview');
   await settle('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")','High');
   win.webContents.sendInputEvent({type:'mouseUp',x:Math.round(r.x+14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});await delay(100);
-  await click(slider);await focusSlider();await key('Home');await settle('qa.efforts.codex','low');
+  await click(slider);await focusSlider();await press('Home','qa.efforts.codex','low');
   await click('[aria-label="Reset reasoning to default"]');await settle('qa.efforts.codex','high');
   await click('[aria-label="Fast mode"]');await settle('qa.fast',true);
   assert.equal(await js('document.querySelector(\'[aria-label="Fast mode"]\').getAttribute("aria-checked")'),'true');
@@ -146,12 +146,12 @@ app.whenReady().then(async()=>{
   assert.equal(await js('document.querySelector('+JSON.stringify(slider)+').max'),'1');
   assert.equal(await js('!!document.querySelector("[aria-label=\\"Fast mode\\"]")'),false,'unsupported Fast mode hidden');
   assert.equal(await js('document.activeElement.getAttribute("aria-label")'),'Choose model');
-  await click(slider);await focusSlider();await key('Home');await settle('qa.efforts.codex','low');
+  await click(slider);await focusSlider();await press('Home','qa.efforts.codex','low');
   await close();
   assert.equal(await js('document.activeElement.getAttribute("aria-label")'),'Select agent and model');
   assert.match((await triggerRect()).text,/codex1 Low/,'closing restores the latest model and effort');
   for (const [name,id,max] of [['Claude Code','claude','max'],['Grok Build','grok','high'],['Kimi Code','kimi','max'],['DeepSeek Harness','deepseek','max'],['Bubble','bubble','high']]) {
-   await open(name);const providerTrigger=await triggerRect();await click(slider);await focusSlider();await key('End');assert.equal(await js('qa.efforts.'+id),max,name);await assertStable(providerTrigger);
+   await open(name);const providerTrigger=await triggerRect();await click(slider);await focusSlider();await press('End','qa.efforts.'+id,max,name);await assertStable(providerTrigger);
    if(id==='kimi'){await js('document.querySelector(\'[aria-label="Reset reasoning to default"]\').click()');await delay(150);await settle('qa.efforts.kimi',null);}
    await close();
   }
@@ -185,9 +185,9 @@ app.whenReady().then(async()=>{
   }
   await click('[aria-label="Choose model"]');await delay(250);
   await js('Array.from(document.querySelectorAll(".effort-model-view[data-view=models] [role=menuitem]")).find(e=>e.textContent==="codex model 4").click()');await delay(350);
-  await click(slider);await focusSlider();await key('Home');await settle('qa.efforts.codex','high','Codex retains provider order instead of sorting tiers');
+  await click(slider);await focusSlider();await press('Home','qa.efforts.codex','high','Codex retains provider order instead of sorting tiers');
   await key('Right');await settle('qa.efforts.codex','turbo','new provider tiers pass through unchanged');
-  await key('End');await settle('qa.efforts.codex','low');
+  await press('End','qa.efforts.codex','low');
   await key('Escape');
   assert.deepEqual(errors,[]);
   console.log('Reasoning picker: stable trigger labels/geometry, pointer, keyboard, model view/search, six providers, unsupported tiers, popup directions and focus passed');app.exit(0);
