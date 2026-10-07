@@ -65,6 +65,8 @@ app.whenReady().then(async()=>{
  // Store updates land a few frames after input; CI runners are slow, so poll instead of a fixed delay.
  const settle=async(expr,expected,message)=>{let value;for(let i=0;i<60;i++){value=await js(expr);if(value===expected)break;await delay(50);}assert.equal(value,expected,message);};
  const slider='.effort-model-view:not([inert]) input[type=range]';
+ // The click can land while the menu is still settling (seen on CI); keys must go to the slider.
+ const focusSlider=()=>js('document.querySelector('+JSON.stringify(slider)+').focus()');
  const triggerRect=async(selector='[aria-label="Select agent and model"]')=>js('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');const r=e.getBoundingClientRect();return {text:e.innerText,x:r.x,width:r.width,neighborX:document.querySelector("[data-qa=neighbor]").getBoundingClientRect().x};})()');
  const assertStable=async(before,selector)=>{
   const after=await triggerRect(selector);
@@ -90,7 +92,7 @@ app.whenReady().then(async()=>{
   assert.equal(await js('!!document.querySelector(".effort-picker-endpoints")'),false);
   if(process.env.QA_CAPTURE){fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});fs.writeFileSync(path.join(process.env.QA_CAPTURE,'compact-picker.png'),(await win.webContents.capturePage({x:Math.floor(compactBounds.x)-5,y:Math.floor(compactBounds.y)-5,width:Math.ceil(compactBounds.width)+10,height:Math.ceil(compactBounds.height)+10})).toPNG());}
   assert.ok(await js('!!document.querySelector('+JSON.stringify(slider)+')'));
-  await click(slider);await key('Home');
+  await click(slider);await focusSlider();await key('Home');
   await settle('qa.efforts.codex','low','Home selects minimum from the provider catalog');
   await key('Right');await settle('qa.efforts.codex','medium');
   await key('End');await settle('qa.efforts.codex','xhigh');
@@ -116,7 +118,7 @@ app.whenReady().then(async()=>{
   await settle('qa.efforts.codex','high','pointer cancel discards preview');
   assert.equal(await js('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")'),'High');
   win.webContents.sendInputEvent({type:'mouseUp',x:Math.round(r.x+14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});await delay(100);
-  await click(slider);await key('Home');await settle('qa.efforts.codex','low');
+  await click(slider);await focusSlider();await key('Home');await settle('qa.efforts.codex','low');
   await click('[aria-label="Reset reasoning to default"]');await settle('qa.efforts.codex','high');
   await click('[aria-label="Fast mode"]');await settle('qa.fast',true);
   assert.equal(await js('document.querySelector(\'[aria-label="Fast mode"]\').getAttribute("aria-checked")'),'true');
@@ -140,19 +142,19 @@ app.whenReady().then(async()=>{
   assert.equal(await js('document.querySelector('+JSON.stringify(slider)+').max'),'1');
   assert.equal(await js('!!document.querySelector("[aria-label=\\"Fast mode\\"]")'),false,'unsupported Fast mode hidden');
   assert.equal(await js('document.activeElement.getAttribute("aria-label")'),'Choose model');
-  await click(slider);await key('Home');await settle('qa.efforts.codex','low');
+  await click(slider);await focusSlider();await key('Home');await settle('qa.efforts.codex','low');
   await close();
   assert.equal(await js('document.activeElement.getAttribute("aria-label")'),'Select agent and model');
   assert.match((await triggerRect()).text,/codex1 Low/,'closing restores the latest model and effort');
   for (const [name,id,max] of [['Claude Code','claude','max'],['Grok Build','grok','high'],['Kimi Code','kimi','max'],['DeepSeek Harness','deepseek','max'],['Bubble','bubble','high']]) {
-   await open(name);const providerTrigger=await triggerRect();await click(slider);await key('End');assert.equal(await js('qa.efforts.'+id),max,name);await assertStable(providerTrigger);
+   await open(name);const providerTrigger=await triggerRect();await click(slider);await focusSlider();await key('End');assert.equal(await js('qa.efforts.'+id),max,name);await assertStable(providerTrigger);
    if(id==='kimi'){await js('document.querySelector(\'[aria-label="Reset reasoning to default"]\').click()');await delay(150);await settle('qa.efforts.kimi',null);}
    await close();
   }
   await js('qa.setUnknown(true)');await open('Bubble');
   assert.equal(await js('!!document.querySelector('+JSON.stringify(slider)+')'),false,'unknown Bubble model offers no invented tiers');await close();
   await js('qa.setSide("top");qa.setTheme("dark")');await delay(100);
-  await open('Codex');await click(slider);await key('End');await delay(400);
+  await open('Codex');await click(slider);await focusSlider();await key('End');await delay(400);
   assert.equal(await js('document.documentElement.classList.contains("dark")'),true);
   let previousFlow;
   for(const [mode,accent,expected] of [['light','#067a64','rgb(6, 122, 100)'],['dark','#e4a85c','rgb(228, 168, 92)']]) {
@@ -168,7 +170,7 @@ app.whenReady().then(async()=>{
   if(process.env.QA_CAPTURE){fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});fs.writeFileSync(path.join(process.env.QA_CAPTURE,'reasoning-picker'+(process.env.QA_REDUCED==='1'?'-reduced':'')+'.png'),(await win.webContents.capturePage()).toPNG());}
   if(process.env.QA_REDUCED==='1')assert.equal(await js('getComputedStyle(document.querySelector(".effort-model-views")).transitionDuration'),'0s');
   await close();const standaloneClosed=await triggerRect('[aria-label="Select model"]');await click('[aria-label="Select model"]');const standaloneTrigger=await triggerRect('[aria-label="Select model"]');assert.ok(standaloneTrigger.width>=standaloneClosed.width,'short labels reserve enough room for the placeholder on open');await assertStable(standaloneTrigger,'[aria-label="Select model"]');assert.ok(await js('!!document.querySelector('+JSON.stringify(slider)+')'));
-  await click(slider);await key('Home');await assertStable(standaloneTrigger,'[aria-label="Select model"]');
+  await click(slider);await focusSlider();await key('Home');await assertStable(standaloneTrigger,'[aria-label="Select model"]');
   await key('End');await assertStable(standaloneTrigger,'[aria-label="Select model"]');
   // Explicitly empty and single-tier catalogs must not offer fallback choices.
   for (const model of ['codex model 2','codex model 3']) {
@@ -179,7 +181,7 @@ app.whenReady().then(async()=>{
   }
   await click('[aria-label="Choose model"]');await delay(250);
   await js('Array.from(document.querySelectorAll(".effort-model-view[data-view=models] [role=menuitem]")).find(e=>e.textContent==="codex model 4").click()');await delay(350);
-  await click(slider);await key('Home');await settle('qa.efforts.codex','high','Codex retains provider order instead of sorting tiers');
+  await click(slider);await focusSlider();await key('Home');await settle('qa.efforts.codex','high','Codex retains provider order instead of sorting tiers');
   await key('Right');await settle('qa.efforts.codex','turbo','new provider tiers pass through unchanged');
   await key('End');await settle('qa.efforts.codex','low');
   await key('Escape');
