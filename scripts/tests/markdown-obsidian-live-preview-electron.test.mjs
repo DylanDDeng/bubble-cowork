@@ -87,7 +87,7 @@ app.whenReady().then(async()=>{
  const clipUrl='data:video/mp4;base64,AAAA';const lookups=[];
  ipcMain.handle('read-project-file-preview',(_e,cwd,file)=>file==='/proj/attachments/clip.mp4'?{kind:'video',path:file,name:'clip.mp4',ext:'.mp4',previewUrl:clipUrl}:{kind:'error',path:file,name:'',ext:'',message:'File not found'});
  ipcMain.handle('find-project-file-by-name',(_e,cwd,name)=>{lookups.push([cwd,name]);return name==='clip.mp4'?'/proj/attachments/clip.mp4':null});
- const win=new BrowserWindow({width:900,height:1100,show:true,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs')}});
+ const win=new BrowserWindow({width:900,height:1100,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs')}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message)});
  const js=code=>win.webContents.executeJavaScript(code,true);
  const waitFor=async(cond,label)=>{for(let i=0;i<80;i++){if(await js(cond))return;await delay(100)}throw Error('Timed out waiting for '+label)};

@@ -187,7 +187,7 @@ async function waitForReady(win) {
 
 app.commandLine.appendSwitch('disable-gpu');
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 800, height: 340, show: false });
+  const win = new BrowserWindow({webPreferences:{backgroundThrottling:false}, width: 800, height: 340, show: false });
   try {
     await win.loadURL(process.env.AEGIS_FILE_REVEAL_VERIFY_URL);
     await waitForReady(win);

@@ -42,7 +42,7 @@ const path = require('node:path');
 app.setPath('userData',path.join(__dirname,'profile'));
 const delay = ms => new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
- const win=new BrowserWindow({width:1000,height:800,show:false});
+ const win=new BrowserWindow({webPreferences:{backgroundThrottling:false},width:1000,height:800,show:false});
  const errors=[];
  win.webContents.on('console-message',event=>{if(event.level==='error'){errors.push(event.message);console.error(event.message);}});
  const js=async code=>{try{return await win.webContents.executeJavaScript(code,true);}catch(e){throw new Error(code+' :: '+e.message);}};

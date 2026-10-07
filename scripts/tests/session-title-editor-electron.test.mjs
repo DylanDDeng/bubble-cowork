@@ -52,7 +52,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
  sessions.initialize();
  const row=sessions.createSession({title:'复制 Codex Session 标题交互',cwd:'/projects/coworker',provider:'claude'});
- const win=new BrowserWindow({width:1100,height:740,show:true,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs')}});
+ const win=new BrowserWindow({width:1100,height:740,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs')}});
  const errors=[]; win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message);});
  let broadcasts=0;
  const emit=e=>{broadcasts++;win.webContents.send('server-event',JSON.stringify(e));};

@@ -52,7 +52,7 @@ ipcMain.handle('capture',(e,active)=>setShortcutCaptureActive(e.sender,active));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
  Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'Test',submenu:[{label:'Reserved',accelerator:'CommandOrControl+Q',click:()=>nativeCalls++}]}]));
- const win=new BrowserWindow({width:1124,height:900,show:true,webPreferences:{preload:path.join(__dirname,'preload.cjs')}});
+ const win=new BrowserWindow({width:1124,height:900,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(__dirname,'preload.cjs')}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message);});
  const js=c=>win.webContents.executeJavaScript(c,true);
  const until=async(c,label)=>{for(let i=0;i<80;i++){if(await js(c))return;await delay(100);}throw Error('Timed out: '+label);};

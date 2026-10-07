@@ -66,7 +66,7 @@ app.whenReady().then(async()=>{
   // Real preload + trusted IPC + broadcast with a separate hidden renderer.
   require(path.join(root,'dist-electron/electron/ipc/session-pull-requests.js')).setupSessionPullRequestsIPC();
   ipcMain.on('get-ui-resume-state-sync',e=>{e.returnValue=null});ipcMain.on('renderer-state:get-all-sync',e=>{e.returnValue={}});
-  const win=new BrowserWindow({show:false,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs')}});
+  const win=new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs')}});
   await win.loadFile(path.join(__dirname,'dist-react/index.html'));
   const js=code=>win.webContents.executeJavaScript(code,true);
   await js('window.changes=[];window.electron.onSessionPullRequestsChanged(id=>window.changes.push(id));true');

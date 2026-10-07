@@ -33,7 +33,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 app.setPath('userData',path.join(__dirname,'profile'));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
- const win=new BrowserWindow({width:700,height:450,show:true});
+ const win=new BrowserWindow({webPreferences:{backgroundThrottling:false},width:700,height:450,show:true});
  const js=c=>win.webContents.executeJavaScript(c,true);
  const key=async(keyCode,modifiers=[])=>{
   win.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});

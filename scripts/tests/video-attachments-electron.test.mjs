@@ -53,7 +53,7 @@ fs.writeFileSync(video,Buffer.from('00000020ftypmp42video-attachment-fixture'));
 const large=path.join(__dirname,'Large clip.MOV');fs.writeFileSync(large,'video');fs.truncateSync(large,24*1024*1024);
 const tooLarge=path.join(__dirname,'Too large.mp4');fs.writeFileSync(tooLarge,'video');fs.truncateSync(tooLarge,513*1024*1024);
 app.whenReady().then(async()=>{
- const win=new BrowserWindow({width:1040,height:760,show:true,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs')}});
+ const win=new BrowserWindow({width:1040,height:760,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs')}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error'){errors.push(e.message);console.error(e.message);}});
  setupAttachmentIPC(win);
  for(const [channel,value] of [['get-ui-resume-state-sync',null],['renderer-state:get-all-sync',{}],['save-ui-resume-state-sync',true]])ipcMain.on(channel,e=>{e.returnValue=value;});

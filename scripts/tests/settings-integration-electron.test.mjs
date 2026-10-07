@@ -48,7 +48,7 @@ app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 app.setPath('userData',path.join(__dirname,'profile'));
 app.whenReady().then(async()=>{
- const win=new BrowserWindow({width:1124,height:1000,show:true});
+ const win=new BrowserWindow({webPreferences:{backgroundThrottling:false},width:1124,height:1000,show:true});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message);});
  const delay=ms=>new Promise(r=>setTimeout(r,ms));
  const js=async code=>{try{return await win.webContents.executeJavaScript(code,true);}catch(error){console.error('Failed evaluation:',code);throw error;}};

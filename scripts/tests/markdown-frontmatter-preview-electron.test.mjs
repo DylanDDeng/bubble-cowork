@@ -135,7 +135,7 @@ async function capture(win, name) {
 
 app.commandLine.appendSwitch('disable-gpu');
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1000, height: 780, show: false });
+  const win = new BrowserWindow({webPreferences:{backgroundThrottling:false}, width: 1000, height: 780, show: false });
   const consoleErrors = [];
   win.webContents.on('console-message', (_event, level, message) => {
     if (level >= 3) consoleErrors.push(message);

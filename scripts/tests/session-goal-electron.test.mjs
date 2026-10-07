@@ -46,7 +46,7 @@ app.setPath('userData',path.join(__dirname,'profile'));
 // Force the motion preference both ways: CI runners have Reduce Motion on.
 app.commandLine.appendSwitch(process.env.QA_REDUCED==='1'?'force-prefers-reduced-motion':'force-prefers-no-reduced-motion');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-app.whenReady().then(async()=>{const win=new BrowserWindow({width:1050,height:760,show:false});const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error'){errors.push(e.message);console.error(e.message);}});
+app.whenReady().then(async()=>{const win=new BrowserWindow({webPreferences:{backgroundThrottling:false},width:1050,height:760,show:false});const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error'){errors.push(e.message);console.error(e.message);}});
 const js=async code=>{try{return await win.webContents.executeJavaScript(code,true);}catch(e){throw new Error(code+' :: '+e.message);}};
 const click=async selector=>{await js('document.querySelector('+JSON.stringify(selector)+').click()');await delay(160);};
 const key=async(keyCode,modifiers=[])=>{win.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});win.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers});await delay(100);};

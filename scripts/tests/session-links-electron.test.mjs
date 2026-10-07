@@ -57,7 +57,7 @@ app.whenReady().then(async()=>{
  const source=sessions.createSession({title:'Source conversation',cwd:'/projects/test/worktree',provider:'claude'});
  const target=sessions.createSession({title:'Target conversation',cwd:'/projects/test',provider:'codex'});
  const url=links.createSessionLink(source.id);
- const win=new BrowserWindow({width:1060,height:700,show:true,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs')}});
+ const win=new BrowserWindow({width:1060,height:700,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs')}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message)});
  ipc.setupSessionLinksIPC(e=>win.webContents.send('server-event',JSON.stringify(e)));
  require(path.join(root,'dist-electron/electron/ipc/session-title.js')).setupSessionTitleIPC(e=>win.webContents.send('server-event',JSON.stringify(e)));

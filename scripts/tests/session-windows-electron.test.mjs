@@ -35,7 +35,7 @@ app.whenReady().then(async()=>{try{
  ipcMainOn('client-event',(event,json)=>{if(JSON.parse(json).type==='session.list')event.sender.send('server-event',JSON.stringify({type:'session.list',payload:{sessions:sessions.listSessions().map(row=>({id:row.id,title:row.title,cwd:row.cwd,provider:row.provider,status:row.status,createdAt:row.created_at,updatedAt:row.updated_at}))}}))});
  load('ipc/session-organization.js').setupSessionOrganizationIPC();
  windows.setupSessionWindowsIPC({backgroundColor:()=> '#ffffff',rendererState:()=>original,onCreate:()=>{}});
- const win=new BrowserWindow({show:false,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+ const win=new BrowserWindow({show:false,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  const errors=[];win.webContents.on('console-message',event=>{if(event.level==='error')errors.push(event.message)});
  await win.loadURL(process.env.QA_URL);const js=code=>win.webContents.executeJavaScript(code,true);
  for(let i=0;i<100&&!await js('Boolean(window.qa?.store.getState().sessionsLoaded)');i++)await delay(50);

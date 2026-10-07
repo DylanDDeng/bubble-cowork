@@ -51,7 +51,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('get-bubble-providers-config',()=>({providers:bubbleProviders,defaultProviderId:null}));
  ipcMain.handle('set-bubble-provider-key',(_e,id,key)=>{bubbleCalls.push(['key',id,key]);states.bubble='ready';return{providers:bubbleProviders,defaultProviderId:null}});
  ipcMain.handle('set-bubble-default-provider',(_e,id)=>{bubbleCalls.push(['default',id]);return{providers:bubbleProviders,defaultProviderId:id}});
- const win=new BrowserWindow({width:760,height:860,show:true,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs')}});
+ const win=new BrowserWindow({width:760,height:860,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs')}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message)});
  const js=code=>win.webContents.executeJavaScript(code,true);
  const byText=text=>'[...document.querySelectorAll("button")].find(e=>e.textContent.trim().startsWith('+JSON.stringify(text)+'))';

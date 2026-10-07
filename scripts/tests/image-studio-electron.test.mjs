@@ -81,7 +81,7 @@ const {app,BrowserWindow}=require('electron');const fs=require('node:fs'),path=r
 app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 app.setPath('userData',path.join(__dirname,'profile'));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-app.whenReady().then(async()=>{const w=new BrowserWindow({width:1000,height:900,show:true});const errors=[];
+app.whenReady().then(async()=>{const w=new BrowserWindow({webPreferences:{backgroundThrottling:false},width:1000,height:900,show:true});const errors=[];
 w.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message)});
 const js=async s=>{try{return await w.webContents.executeJavaScript(s,true)}catch(e){console.error(s,errors);throw e}};
 const until=async(s,label)=>{for(let i=0;i<80;i++){if(await js(s))return;await delay(100)}throw Error('Timed out: '+label)};

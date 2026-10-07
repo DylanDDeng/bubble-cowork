@@ -122,7 +122,7 @@ async function capture(win, name) {
 
 app.commandLine.appendSwitch('disable-gpu');
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1000, height: 700, show: false });
+  const win = new BrowserWindow({webPreferences:{backgroundThrottling:false}, width: 1000, height: 700, show: false });
   try {
     await win.loadURL(process.env.AEGIS_FILES_RAIL_VERIFY_URL);
     await waitForReady(win);

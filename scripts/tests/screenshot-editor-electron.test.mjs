@@ -22,7 +22,7 @@ const {setupScreenshotIPC}=require(path.join(root,'dist-electron/electron/ipc/sc
 const shots=require(path.join(root,'dist-electron/electron/libs/screenshot.js'));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
- const host=new BrowserWindow({width:900,height:560,show:true,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+ const host=new BrowserWindow({width:900,height:560,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  await host.loadURL(process.env.QA_HOST_URL);
  setupScreenshotIPC(host);
  const errors=[];

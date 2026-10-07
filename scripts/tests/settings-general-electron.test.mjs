@@ -87,7 +87,7 @@ ipcMain.handle('prefs:get',()=>prefs.getAppPreferences());ipcMain.handle('prefs:
 ipcMain.handle('shells',()=>prefs.getTerminalShellOptions());ipcMain.handle('notices:get',()=>notices.getNotificationSettings());ipcMain.handle('notices:set',(_,p)=>notices.setNotificationSettings(p));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
- const win=new BrowserWindow({width:1124,height:900,show:true,webPreferences:{preload:path.join(__dirname,'preload.cjs')}});
+ const win=new BrowserWindow({width:1124,height:900,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(__dirname,'preload.cjs')}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error'){errors.push(e.message);console.error(e.message);}});
  const js=c=>win.webContents.executeJavaScript(c,true);
  const until=async(c,label)=>{for(let i=0;i<100;i++){if(await js(c))return;await delay(100);}throw Error('Timed out: '+label);};

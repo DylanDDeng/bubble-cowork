@@ -58,7 +58,8 @@ const fs=require('node:fs');const path=require('node:path');
 app.setPath('userData',path.join(__dirname,'profile'));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
- const win=new BrowserWindow({width:1124,height:879,show:true});
+ // Occluded windows are throttled on CI, which stalls requestAnimationFrame-driven animations.
+const win=new BrowserWindow({width:1124,height:879,show:true,webPreferences:{backgroundThrottling:false}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error'){errors.push(e.message);console.error(e.message);}});
  const js=code=>win.webContents.executeJavaScript(code,true);
  const until=async(code,label)=>{for(let i=0;i<100;i++){if(await js(code))return;await delay(100);}throw Error('Timed out: '+label);};
@@ -88,8 +89,9 @@ app.whenReady().then(async()=>{
   assert(Math.abs((logo.left+logo.width/2)-(initial.heading.left+initial.heading.width/2))<1,'logo is centered over title');
   assert.equal(await js('getComputedStyle(document.querySelector(".aegis-new-thread-logo")).opacity'),'0.3');
   await js('document.querySelector(".aegis-new-thread-logo").dispatchEvent(new PointerEvent("pointerup",{bubbles:true,button:0,pointerType:"mouse"}))');
-  await delay(150);
-  assert.notEqual(await js('getComputedStyle(document.querySelector(".aegis-new-thread-logo")).transform'),'none','logo responds to pointer');
+  let logoTransform='none';
+  for(let i=0;i<40&&logoTransform==='none';i++){await delay(50);logoTransform=await js('getComputedStyle(document.querySelector(".aegis-new-thread-logo")).transform');}
+  assert.notEqual(logoTransform,'none','logo responds to pointer');
   await delay(1200);
   await shot('new-task-light');
   // The same anchor survives window resizing and longer input.

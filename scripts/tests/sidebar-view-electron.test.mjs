@@ -66,7 +66,7 @@ app.whenReady().then(async()=>{
  const pr=(number,state)=>({number,title:'PR '+number,state,url:'https://github.com/o/r/pull/'+number});
  ipcMain.handle('list-sidebar-pull-requests',()=>({s6:pr(41,'open'),s8:pr(38,'merged'),s4:pr(44,'open')}));
  ipcMain.handle('get-git-branch',()=>({ok:true,branch:'master'}));ipcMain.handle('get-environment-editor-launchers',()=>[]);
- const win=new BrowserWindow({width:760,height:820,show:true,webPreferences:{preload:path.join(root,'dist-electron/electron/preload.cjs')}});
+ const win=new BrowserWindow({width:760,height:820,show:true,webPreferences:{backgroundThrottling:false,preload:path.join(root,'dist-electron/electron/preload.cjs')}});
  const errors=[];win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message)});
  const js=code=>win.webContents.executeJavaScript(code,true);
  // Menus render a little later on CI runners: wait for the element instead of failing at once.

@@ -70,7 +70,7 @@ app.setPath('userData',path.join(__dirname,'profile'));
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const RUN=${JSON.stringify(run)};const MEMBERS=${JSON.stringify(plannedMembers)};
 const STEP=${step.toString()};
-app.whenReady().then(async()=>{const win=new BrowserWindow({width:1000,height:760,show:false});const errors=[];
+app.whenReady().then(async()=>{const win=new BrowserWindow({webPreferences:{backgroundThrottling:false},width:1000,height:760,show:false});const errors=[];
 win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message)});
 const js=code=>win.webContents.executeJavaScript(code,true);
 const push=view=>js('qa.store.getState().handleServerEvent({type:"workflow.updated",payload:'+JSON.stringify(view)+'});0').then(()=>delay(200));

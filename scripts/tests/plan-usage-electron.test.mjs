@@ -46,7 +46,7 @@ app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 app.setPath('userData',path.join(__dirname,'profile'));
 app.whenReady().then(async()=>{
- const win=new BrowserWindow({width:1100,height:750,show:false,webPreferences:{contextIsolation:true}});
+ const win=new BrowserWindow({width:1100,height:750,show:false,webPreferences:{backgroundThrottling:false,contextIsolation:true}});
  const errors=[];
  win.webContents.on('console-message',event=>{if(event.level==='error')errors.push(event.message);});
  const js=code=>win.webContents.executeJavaScript(code);
