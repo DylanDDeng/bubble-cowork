@@ -47,8 +47,7 @@ import type {
   SkillMarketItem,
   SkillMarketDetail,
   SkillMarketInstallResult,
-  FeishuBridgeConfig,
-  FeishuBridgeStatus,
+  FeishuStatus,
   AppUpdateStatus,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
@@ -343,13 +342,9 @@ declare global {
     listSystemFonts: () => Promise<SystemFontOption[]>;
     importFontFile: () => Promise<FontSettingsPayload | null>;
     deleteImportedFont: (fontId: string) => Promise<FontSettingsPayload>;
-    getFeishuBridgeConfig: () => Promise<FeishuBridgeConfig>;
-    saveFeishuBridgeConfig: (config: FeishuBridgeConfig) => Promise<FeishuBridgeConfig>;
-    getFeishuBridgeStatus: () => Promise<FeishuBridgeStatus>;
+    feishu: (action: string, payload?: Record<string, unknown>) => Promise<FeishuStatus>;
     getMemoryWorkspace: (projectCwd?: string | null) => Promise<MemoryWorkspace>;
     saveMemoryDocument: (filePath: string, content: string) => Promise<MemoryDocument>;
-    startFeishuBridge: () => Promise<FeishuBridgeStatus>;
-    stopFeishuBridge: () => Promise<FeishuBridgeStatus>;
     selectDirectory: () => Promise<string | null>;
     getPathForFile: (file: File) => string;
     getClipboardFilePaths: () => string[];

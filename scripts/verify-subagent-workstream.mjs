@@ -33,9 +33,9 @@ const ipcSourceForGuards = fs.readFileSync(
   'utf8'
 );
 assert.equal(
-  ipcSourceForGuards.includes('shouldPersistMessage && !attributedMessage.parentToolUseId'),
+  fs.readFileSync(path.join(root, 'src', 'electron', 'feishu', 'turn.ts'), 'utf8').includes('if (message.parentToolUseId) return false;'),
   true,
-  'the feishu bridge must not receive subagent internal messages'
+  'the feishu bridge must not render subagent internal messages as replies'
 );
 assert.equal(
   (ipcSourceForGuards.match(/if \(message\.parentToolUseId\) continue;/g) || []).length >= 3,

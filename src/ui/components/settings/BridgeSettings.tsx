@@ -1,355 +1,206 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { ChevronDown, FolderOpen, Play, Square } from '../icons';
-import { PreferenceSelect } from './GeneralSettingsContent';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import type { FeishuBridgeConfig, FeishuBridgeStatus } from '../../types';
-import {
-  SettingsGroup,
-  SettingsRow,
-  SettingsToggle,
-} from './SettingsPrimitives';
+import * as Dialog from '../ui/dialog';
+import { ChevronDown, FolderOpen, X } from '../icons';
+import { PreferenceSelect } from './GeneralSettingsContent';
+import type { FeishuStatus } from '../../types';
+import { SettingsGroup, SettingsRow, SettingsToggle } from './SettingsPrimitives';
 
-const DEFAULT_CONFIG: FeishuBridgeConfig = {
-  enabled: false,
-  appId: '',
-  appSecret: '',
-  defaultCwd: '',
-  provider: 'claude',
-  model: '',
-  allowedUserIds: '',
-  autoStart: false,
+const CONNECTION_LABELS: Record<FeishuStatus['connection'], string> = {
+  off: 'Off',
+  connecting: 'Connecting…',
+  connected: 'Connected',
+  reconnecting: 'Reconnecting…',
+  error: 'Not connected',
 };
 
-const INPUT_CLASS = 'settings-control w-full';
-const GHOST_BUTTON_CLASS = 'settings-button';
-
 export function BridgeSettingsContent() {
-  const [config, setConfig] = useState<FeishuBridgeConfig>(DEFAULT_CONFIG);
-  const [savedConfig, setSavedConfig] = useState<FeishuBridgeConfig | null>(null);
+  const [status, setStatus] = useState<FeishuStatus>();
   const [loadError, setLoadError] = useState('');
   const [retry, setRetry] = useState(0);
-  const [status, setStatus] = useState<FeishuBridgeStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [toggling, setToggling] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const [appId, setAppId] = useState('');
+  const [appSecret, setAppSecret] = useState('');
+  const [domain, setDomain] = useState<'feishu' | 'lark'>('feishu');
+  const alive = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setLoadError('');
-
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
     const load = async () => {
       try {
-        const [nextConfig, nextStatus] = await Promise.all([
-          window.electron.getFeishuBridgeConfig(),
-          window.electron.getFeishuBridgeStatus(),
-        ]);
-        if (!cancelled) {
-          setConfig(nextConfig);
-          setSavedConfig(nextConfig);
-          setStatus(nextStatus);
-        }
+        const next = await window.electron.feishu('status');
+        if (!active) return;
+        setStatus(next);
+        setLoadError('');
       } catch (error) {
-        if (!cancelled) {
-          setLoadError(error instanceof Error ? error.message : 'Failed to load bridge settings.');
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (active) setLoadError(error instanceof Error ? error.message : String(error));
       }
     };
-
     void load();
-    const timer = window.setInterval(() => {
-      void window.electron
-        .getFeishuBridgeStatus()
-        .then((nextStatus) => {
-          if (!cancelled) setStatus(nextStatus);
-        })
-        .catch(() => {});
-    }, 3000);
+    const timer = window.setInterval(load, qrOpen ? 1500 : 3000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [retry, qrOpen]);
+  useEffect(() => {
+    if (!qrOpen) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [qrOpen]);
+  // Scanning finished: the bot is configured and no registration is pending.
+  useEffect(() => {
+    if (qrOpen && status?.configured && !status.registration) {
+      setQrOpen(false);
+      toast.success('Feishu bot connected.');
+    }
+  }, [qrOpen, status]);
 
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [retry]);
-
-  const updateConfig = <K extends keyof FeishuBridgeConfig>(key: K, value: FeishuBridgeConfig[K]) => {
-    setConfig((current) => ({ ...current, [key]: value }));
-  };
-
-  const handleSave = async () => {
-    if (saving || !savedConfig) return;
-    setSaving(true);
+  const act = async (action: string, payload?: Record<string, unknown>, success?: string) => {
+    if (busy) return;
+    setBusy(true);
     try {
-      const saved = await window.electron.saveFeishuBridgeConfig(config);
-      setConfig(saved);
-      setSavedConfig(saved);
-      toast.success('Bridge settings saved.');
+      const next = await window.electron.feishu(action, payload);
+      if (!alive.current) return;
+      setStatus(next);
+      if (success) toast.success(success);
+      return next;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save bridge settings.');
+      toast.error(error instanceof Error ? error.message : String(error));
     } finally {
-      setSaving(false);
+      if (alive.current) setBusy(false);
     }
   };
 
-  const handleToggle = async (action: 'start' | 'stop') => {
-    setToggling(true);
-    try {
-      const nextStatus =
-        action === 'start'
-          ? await window.electron.startFeishuBridge()
-          : await window.electron.stopFeishuBridge();
-      setStatus(nextStatus);
-      toast.success(action === 'start' ? 'Feishu bridge started.' : 'Feishu bridge stopped.');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update bridge status.');
-    } finally {
-      setToggling(false);
-    }
+  const startQr = async () => {
+    setQrOpen(true);
+    await act('register', { domain });
+  };
+  const cancelQr = () => {
+    setQrOpen(false);
+    void act('cancel-register');
+  };
+  const pickProject = async () => {
+    const selected = await window.electron.selectDirectory().catch(() => null);
+    if (selected) await act('set-default-cwd', { cwd: selected });
   };
 
-  const handlePickDirectory = async () => {
-    try {
-      const selected = await window.electron.selectDirectory();
-      if (selected) {
-        updateConfig('defaultCwd', selected);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to select directory.');
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="px-1 py-2 text-[12.5px] text-[var(--text-muted)]">Loading bridge settings…</div>
-    );
+  if (loadError && !status) {
+    return <div role="alert" className="text-[13px]">Could not load Feishu settings. <button className="settings-button" onClick={() => setRetry(v => v + 1)}>Retry</button></div>;
   }
+  if (!status) return <div className="px-1 py-2 text-[12.5px] text-[var(--text-muted)]">Loading Feishu settings…</div>;
 
-  if (loadError) return <div role="alert">Could not load bridge settings. <button className="settings-button" onClick={() => setRetry(value => value + 1)}>Retry</button></div>;
-  const dirty = JSON.stringify(config) !== JSON.stringify(savedConfig);
-  const isRunning = status?.running === true;
-  const isConnected = status?.connected === true;
-  const stateLabel = isRunning ? (isConnected ? 'Running · Connected' : 'Running') : 'Stopped';
-  const stateTone = isRunning
-    ? isConnected
-      ? 'text-[var(--success)]'
-      : 'text-[var(--text-primary)]'
-    : 'text-[var(--text-muted)]';
-  const stateDot = isRunning
-    ? isConnected
-      ? 'bg-[var(--success)]'
-      : 'bg-[var(--warning)]'
-    : 'bg-[var(--text-muted)]';
+  const connected = status.connection === 'connected';
+  const registration = status.registration;
+  const seconds = registration?.expiresAt ? Math.max(0, Math.ceil((registration.expiresAt - now) / 1000)) : 0;
+  const projectOptions = [
+    ...(status.defaultCwd && !status.projects.some(p => p.path === status.defaultCwd) ? [{ value: status.defaultCwd, label: status.defaultCwd.split('/').pop() || status.defaultCwd }] : []),
+    ...status.projects.map(p => ({ value: p.path, label: p.name })),
+  ];
 
   return (
-    <form onSubmit={event => { event.preventDefault(); void handleSave(); }} className="space-y-7 pb-8">
-      <fieldset disabled={saving || toggling} className="min-w-0 space-y-7">
-      <SettingsGroup title="Status">
-        <SettingsRow variant="card" label="State">
-          <span className="inline-flex items-center gap-1.5 text-[12px] font-medium">
-            <span className={`h-1.5 w-1.5 rounded-full ${stateDot}`} aria-hidden="true" />
-            <span className={stateTone}>{stateLabel}</span>
-          </span>
-        </SettingsRow>
+    <div className="space-y-7 pb-8">
+      <SettingsGroup title="Connection" description="Chat with your Aegis agents from Feishu or Lark. Each chat or topic runs its own task on this Mac.">
+        {!status.configured ? (
+          <SettingsRow variant="card" label="Connect a bot" description="Scan with Feishu to create a bot for Aegis. Only you can use it until you invite others.">
+            <button type="button" className="settings-primary-button" disabled={busy} onClick={() => void startQr()}>Connect with Feishu</button>
+          </SettingsRow>
+        ) : (
+          <>
+            <SettingsRow variant="card" label="Status" description={status.connection === 'error' ? status.error : status.botName ? `Bot: ${status.botName}` : undefined}>
+              <span className="inline-flex items-center gap-2 text-[12px] font-medium" role="status">
+                <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-[var(--success)]' : status.connection === 'error' ? 'bg-[var(--error)]' : 'bg-[var(--text-muted)]'}`} aria-hidden="true" />
+                {CONNECTION_LABELS[status.connection]}
+                {status.enabled && !connected && status.connection !== 'connecting' && <button type="button" className="settings-button" disabled={busy} onClick={() => void act('reconnect')}>Reconnect</button>}
+              </span>
+            </SettingsRow>
+            <SettingsRow variant="card" label="Allow messages from Feishu" description="Keep Aegis open and your Mac awake to receive them.">
+              <SettingsToggle checked={status.enabled} disabled={busy} ariaLabel="Allow messages from Feishu" onChange={enabled => void act('set-enabled', { enabled })} />
+            </SettingsRow>
+            {!status.hasOwner && status.claimCode && (
+              <SettingsRow variant="card" label="Claim this bot" description={`Send /claim ${status.claimCode} to the bot in a direct message to become its owner.`}>
+                <code className="text-[13px] font-medium">{status.claimCode}</code>
+              </SettingsRow>
+            )}
+            <SettingsRow variant="card" label="App" description={`${status.domain === 'lark' ? 'Lark' : 'Feishu'} · ${status.appId ?? ''}`}>
+              <button type="button" className="settings-button" disabled={busy} onClick={() => void act('forget', undefined, 'Feishu bot disconnected.')}>Disconnect</button>
+            </SettingsRow>
+          </>
+        )}
+      </SettingsGroup>
 
-        <SettingsRow variant="card" label="Controls">
+      <SettingsGroup title="New tasks" description="Agent and permissions follow your Aegis defaults. A chat can change them with /agent, or pick another project with /project.">
+        <SettingsRow variant="card" label="Default project">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handleToggle('start')}
-              disabled={toggling || isRunning || dirty}
-              title={dirty ? 'Save changes before starting' : undefined}
-              className={GHOST_BUTTON_CLASS}
-            >
-              <Play className="h-3 w-3" />
-              Start
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleToggle('stop')}
-              disabled={toggling || !isRunning}
-              className={GHOST_BUTTON_CLASS}
-            >
-              <Square className="h-3 w-3" fill="currentColor" />
-              Stop
-            </button>
+            <PreferenceSelect label="Default project" value={status.defaultCwd ?? ''} options={projectOptions} disabled={busy || !projectOptions.length} onChange={cwd => void act('set-default-cwd', { cwd })} />
+            <button type="button" className="settings-button" aria-label="Choose a folder" disabled={busy} onClick={() => void pickProject()}><FolderOpen className="h-3.5 w-3.5" /></button>
           </div>
         </SettingsRow>
+      </SettingsGroup>
 
-        <SettingsRow variant="card" label="Active bindings">
-          <span className="text-[13px] font-medium text-[var(--text-primary)]">
-            {status?.activeBindings ?? 0}
-          </span>
-        </SettingsRow>
-
-        {status?.botOpenId && status.botOpenId !== 'Unknown' ? (
-          <SettingsRow variant="card" label="Bot Open ID">
-            <span className="max-w-[220px] truncate font-mono text-[12px] text-[var(--text-muted)]">
-              {status.botOpenId}
-            </span>
-          </SettingsRow>
+      <SettingsGroup title="Who can use it" description="The bot owner always can. Invite others from Feishu with /invite @name, or /invite group in a group.">
+        {!status.allowedUsers.length && !status.allowedChats.length ? (
+          <SettingsRow variant="card" label="Only you" description={status.hasOwner ? 'Nobody else can use the bot yet.' : 'Claim the bot to become its owner.'}><span /></SettingsRow>
         ) : null}
-
-        {status?.lastError ? (
-          <SettingsRow variant="card" label="Last error" align="start">
-            <span className="max-w-[280px] truncate text-[12px] text-[var(--error)]">
-              {status.lastError}
-            </span>
+        {status.allowedUsers.map(user => (
+          <SettingsRow key={user.openId} variant="card" label={user.name || 'Feishu user'} description={user.openId}>
+            <button type="button" className="settings-button" disabled={busy} onClick={() => void act('remove-user', { openId: user.openId })}>Remove</button>
           </SettingsRow>
-        ) : null}
+        ))}
+        {status.allowedChats.map(chat => (
+          <SettingsRow key={chat.chatId} variant="card" label={chat.name || 'Feishu group'} description="Everyone in this group">
+            <button type="button" className="settings-button" disabled={busy} onClick={() => void act('remove-chat', { chatId: chat.chatId })}>Remove</button>
+          </SettingsRow>
+        ))}
       </SettingsGroup>
 
-      <SettingsGroup title="Credentials">
-        <SettingsRow
-          variant="card"
-          label="Bridge enabled"
-          description="Required before the bridge can start."
-        >
-          <SettingsToggle
-            checked={config.enabled}
-            onChange={(next) => updateConfig('enabled', next)}
-            ariaLabel="Toggle bridge enabled"
-          />
-        </SettingsRow>
+      {status.bindings.length > 0 && (
+        <SettingsGroup title="Chats with a task" description="Messages in these chats continue the task. Disconnecting makes the next message start a new one.">
+          {status.bindings.map(binding => (
+            <SettingsRow key={binding.scope} variant="card" label={binding.title} description={binding.topic ? 'Topic' : 'Chat'}>
+              <button type="button" className="settings-button" disabled={busy} onClick={() => void act('unbind', { scope: binding.scope })}>Disconnect</button>
+            </SettingsRow>
+          ))}
+        </SettingsGroup>
+      )}
 
-        <BridgeFieldRow label="App ID">
-          <input
-            aria-label="App ID"
-            value={config.appId}
-            onChange={(event) => updateConfig('appId', event.target.value)}
-            className={INPUT_CLASS}
-            placeholder="cli_xxxxxxxxxxxx"
-          />
-        </BridgeFieldRow>
-
-        <BridgeFieldRow label="App Secret">
-          <input
-            type="password"
-            aria-label="App Secret"
-            value={config.appSecret}
-            onChange={(event) => updateConfig('appSecret', event.target.value)}
-            className={INPUT_CLASS}
-            placeholder="••••••••••••••••"
-          />
-        </BridgeFieldRow>
-      </SettingsGroup>
-
-      <SettingsGroup title="New tasks">
-        <BridgeFieldRow
-          label="Default workspace"
-          description="Used when a Feishu chat starts a new session."
-        >
-          <div className="flex items-center gap-2">
-            <input
-              aria-label="Default workspace"
-            value={config.defaultCwd}
-              onChange={(event) => updateConfig('defaultCwd', event.target.value)}
-              className={`${INPUT_CLASS} flex-1`}
-              placeholder="/path/to/project"
-            />
-            <button
-              type="button"
-              onClick={() => void handlePickDirectory()}
-              className={GHOST_BUTTON_CLASS}
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              Browse
-            </button>
-          </div>
-        </BridgeFieldRow>
-
-        <SettingsRow
-          variant="card"
-          label="Runtime"
-
-        >
-          <PreferenceSelect label="Bridge runtime" value={config.provider} options={[{value:'claude',label:'Claude Code'},{value:'codex',label:'Codex'}]} onChange={value => updateConfig('provider', value as 'claude' | 'codex')} />
-        </SettingsRow>
-
-      </SettingsGroup>
       <details className="settings-disclosure">
-        <summary><ChevronDown />Advanced</summary>
-        <SettingsGroup>
-        <BridgeFieldRow
-          label="Default model"
-          description="Optional. Leave blank for runtime default."
-        >
-          <input
-            aria-label="Default model"
-            value={config.model}
-            onChange={(event) => updateConfig('model', event.target.value)}
-            className={INPUT_CLASS}
-            placeholder="e.g. claude-sonnet-4-5"
-          />
-        </BridgeFieldRow>
-
-        <BridgeFieldRow
-          label="Allowed user IDs"
-          description="Comma-separated open IDs. Leave blank to allow all."
-        >
-          <input
-            aria-label="Allowed user IDs"
-            value={config.allowedUserIds}
-            onChange={(event) => updateConfig('allowedUserIds', event.target.value)}
-            className={INPUT_CLASS}
-            placeholder="ou_xxx, ou_yyy"
-          />
-        </BridgeFieldRow>
-
-        <SettingsRow
-          variant="card"
-          label="Start on launch"
-
-        >
-          <SettingsToggle
-            checked={config.autoStart}
-            onChange={(next) => updateConfig('autoStart', next)}
-            ariaLabel="Toggle auto-start on launch"
-          />
-        </SettingsRow>
-      </SettingsGroup>
-
+        <summary><ChevronDown />Use an existing app</summary>
+        <form className="space-y-3 pt-2" onSubmit={event => { event.preventDefault(); void act('save-credentials', { appId, appSecret, domain }, 'Saved. Connecting…').then(next => { if (next) setAppSecret(''); }); }}>
+          <p className="text-[12px] leading-5 text-[var(--text-muted)]">For an app you created in the Feishu or Lark developer console. It needs bot messaging, card and long-connection event permissions.</p>
+          <label className="settings-form-field"><span className="text-[13px] font-medium">Platform</span>
+            <PreferenceSelect label="Platform" value={domain} options={[{ value: 'feishu', label: 'Feishu' }, { value: 'lark', label: 'Lark' }]} onChange={value => setDomain(value as 'feishu' | 'lark')} />
+          </label>
+          <label className="settings-form-field" data-settings-label="App ID"><span className="text-[13px] font-medium">App ID</span>
+            <input className="settings-control w-full" aria-label="App ID" placeholder="cli_xxxxxxxxxxxx" value={appId} onChange={event => setAppId(event.target.value)} disabled={busy} />
+          </label>
+          <label className="settings-form-field"><span className="text-[13px] font-medium">App Secret</span>
+            <input className="settings-control w-full" type="password" autoComplete="off" aria-label="App Secret" value={appSecret} onChange={event => setAppSecret(event.target.value)} disabled={busy} />
+          </label>
+          <div className="flex justify-end"><button className="settings-primary-button" disabled={busy || !appId.trim() || !appSecret.trim()}>Save and connect</button></div>
+        </form>
       </details>
-      </fieldset>
-      <div className="flex justify-end gap-2">
-        <button type="button" className="settings-button" disabled={saving || !dirty} onClick={() => savedConfig && setConfig(savedConfig)}>Cancel</button>
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={saving || !dirty}
-          className="settings-primary-button"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </form>
-  );
-}
 
-// Stacked label-above-input row used for text inputs inside a SettingsGroup.
-// Mirrors the `FormField` pattern elsewhere but keeps group-style hairline
-// dividers via the parent `SettingsGroup`'s `divide-y`.
-function BridgeFieldRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="settings-form-field" data-settings-label={label}>
-      <div>
-        <div className="text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
-        {description ? (
-          <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">{description}</div>
-        ) : null}
-      </div>
-      <div>{children}</div>
+      <Dialog.Root open={qrOpen} onOpenChange={open => { if (!open) cancelQr(); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/30" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] w-[380px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-5 shadow-[0_18px_44px_rgba(15,23,42,0.18)]">
+            <div className="flex items-center justify-between"><Dialog.Title className="text-[15px] font-semibold">Connect with Feishu</Dialog.Title><button className="settings-button" aria-label="Close" onClick={cancelQr}><X className="h-4 w-4" /></button></div>
+            <Dialog.Description className="mt-1 text-[12.5px] leading-5 text-[var(--text-muted)]">Scan with the Feishu or Lark app on your phone. It creates a bot for Aegis in your workspace.</Dialog.Description>
+            {registration?.state === 'error' ? (
+              <p role="alert" className="mt-4 text-[12.5px] text-[var(--error)]">{registration.error || 'Setup failed.'} <button className="settings-button" onClick={() => void startQr()}>Try again</button></p>
+            ) : (
+              <>
+                <div className="mt-4 flex h-[236px] items-center justify-center rounded-xl bg-white">{registration?.qr && seconds > 0 ? <img src={registration.qr} width={220} height={220} alt="Scan to create the Feishu bot" /> : <p className="text-[13px] text-[var(--text-muted)]">{registration?.qr ? 'Code expired.' : 'Preparing code…'}</p>}</div>
+                <p className="mt-3 text-center text-[12px] text-[var(--text-muted)]">{seconds > 0 ? `Expires in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : registration?.qr ? <button className="settings-button" onClick={() => void startQr()}>Generate new code</button> : null}</p>
+              </>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

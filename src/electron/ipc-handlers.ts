@@ -214,8 +214,7 @@ import {
   setNotificationSettings,
 } from './libs/notifications';
 import { expandClaudeSkillPrompt, listClaudeSkills } from './libs/claude-skills';
-import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
-import { feishuBridge } from './libs/feishu-bridge';
+import { captureFeishuEvent, closeFeishu, setupFeishu } from './feishu/integration';
 import { getMemoryWorkspace, saveMemoryDocument } from './libs/memory-store';
 import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus, getClaudeRuntimeStatusCached, invalidateClaudeRuntimeCache } from './libs/claude-runtime-status';
 import { selectClaudeRunnersToReap, type ClaudeRunnerSnapshot } from './libs/claude-runner-pool';
@@ -265,7 +264,6 @@ import type {
   ClaudeUsageRangeDays,
   FolderConfig,
   FontSettingsPayload,
-  FeishuBridgeConfig,
   UserProfileUpdate,
   ProviderInputReference,
   SessionTeamMode,
@@ -308,7 +306,6 @@ import { disposeTerminalTransportServer } from './libs/terminal-transport-server
 
 // === IPC 模块导入（从 ipc-handlers.ts 拆分） ===
 import { register as registerTerminal } from './ipc/terminal'
-import { register as registerFeishu } from './ipc/feishu'
 import { register as registerMemory } from './ipc/memory'
 import { register as registerFont } from './ipc/font'
 import { register as registerSkillMarket } from './ipc/skill-market'
@@ -3797,6 +3794,7 @@ function sendSessionReply(win: BrowserWindow, event: ServerEvent): void {
 
 function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
   captureRemoteEvent(event);
+  captureFeishuEvent(event);
   if (event.type === 'permission.request') {
     const row = sessions.getSession(event.payload.sessionId);
     if (row && row.hidden_from_threads !== 1) notifySessionInput(row, event.payload.toolUseId, isQuestionRequest(event.payload.toolName, event.payload.input));
@@ -4663,7 +4661,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return handleSessionContinue(mainWindow, { sessionId, prompt, ...remoteTaskPayload(provider, extras) });
     },
     stop: sessionId => handleSessionStop(mainWindow, sessionId),
-    permission: (request, decision) => handlePermissionResponse({ sessionId: request.sessionId, toolUseId: request.toolUseId, result: { behavior: decision, scope: 'once', ...(decision === 'allow' ? { updatedInput: request.input as unknown as Record<string, unknown> } : { message: 'Declined from iPhone' }) } }),
+    // No updatedInput on allow: the request input is the approval card, not the tool's arguments.
+    permission: (request, decision) => handlePermissionResponse({ sessionId: request.sessionId, toolUseId: request.toolUseId, result: { behavior: decision, scope: 'once', ...(decision === 'allow' ? {} : { message: 'Declined from iPhone' }) } }),
     hasPermission: (sessionId, toolUseId) => sessionStates.get(sessionId)?.pendingPermissions.has(toolUseId) ?? false,
   });
   attachComputerUsePreviewHost(mainWindow);
@@ -4689,18 +4688,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  feishuBridge.setHandlers({
-    startSession: async ({ title, prompt, cwd, provider, model }) => {
-      return handleSessionStart(mainWindow, { title, prompt, cwd, provider, model });
-    },
-    continueSession: async ({ sessionId, prompt, provider, model }) => {
-      return handleSessionContinue(mainWindow, { sessionId, prompt, provider, model });
-    },
-    resolvePermission: ({ sessionId, toolUseId, result }) => {
-      return handlePermissionResponse({ sessionId, toolUseId, result });
-    },
+  setupFeishu({
+    start: (payload, onCreated) => handleSessionStart(mainWindow, payload, onCreated),
+    send: (sessionId, prompt, attachments) => handleSessionContinue(mainWindow, { sessionId, prompt, attachments }),
+    stop: (sessionId) => handleSessionStop(mainWindow, sessionId),
+    respond: (sessionId, toolUseId, result) => handlePermissionResponse({ sessionId, toolUseId, result }),
   });
-  void feishuBridge.maybeAutoStart();
 
   // 启动期清算必须先于任何 runner/scheduler 启动：app 崩溃/强退后残留的
   // running session 没有任何 runner 句柄，不清算会永远卡在 running。
@@ -6530,32 +6523,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   );
 
-  ipcMainHandle('get-feishu-bridge-config', async () => {
-    return loadFeishuBridgeConfig();
-  });
-
-  ipcMainHandle('save-feishu-bridge-config', async (_event, config: FeishuBridgeConfig) => {
-    return saveFeishuBridgeConfig(config);
-  });
-
-  ipcMainHandle('get-feishu-bridge-status', async () => {
-    return feishuBridge.getStatus();
-  });
-
   ipcMainHandle('get-memory-workspace', async (_event, projectCwd?: string | null) => {
     return getMemoryWorkspace(projectCwd);
   });
 
   ipcMainHandle('save-memory-document', async (_event, filePath: string, content: string) => {
     return saveMemoryDocument(filePath, content);
-  });
-
-  ipcMainHandle('start-feishu-bridge', async () => {
-    return feishuBridge.start();
-  });
-
-  ipcMainHandle('stop-feishu-bridge', async () => {
-    return feishuBridge.stop();
   });
 
   // RPC: 本机 agent 运行时检测目录(onboarding / provider 状态)
@@ -8752,7 +8725,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     onClaudeSkillsChanged: () => flushClaudeRunners(),
   }
   registerTerminal(ipcCtx)
-  registerFeishu(ipcCtx)
   registerFont(ipcCtx)
   registerMemory(ipcCtx)
   registerSkillMarket(ipcCtx)
@@ -10656,11 +10628,6 @@ function startRunner(
             payload: { sessionId: session.id, message: attributedMessage },
           });
         }
-        // Subagent internals are persisted for the nested traces but must
-        // never surface as top-level replies in bridged chats.
-        if (shouldPersistMessage && !attributedMessage.parentToolUseId) {
-          void feishuBridge.handleSessionMessage(session.id, attributedMessage);
-        }
       }
 
       // 检查是否为 result 消息，更新状态
@@ -10961,7 +10928,6 @@ function startRunner(
         type: 'runner.error',
         payload: { message, sessionId: session.id },
       });
-      void feishuBridge.handleRunnerError(session.id, message);
 
       if (runnerHandles.get(session.id)?.handle === handle) {
         const currentEntry = runnerHandles.get(session.id);
@@ -11104,12 +11070,6 @@ function startRunner(
           toolName,
           input: input as PermissionRequestInput,
         },
-      });
-      void feishuBridge.handlePermissionRequest({
-        sessionId: permissionSessionId,
-        toolUseId,
-        toolName,
-        input: input as PermissionRequestInput,
       });
 
       // 等待用户响应
@@ -12261,6 +12221,7 @@ function broadcastFolderChanged(mainWindow: BrowserWindow): void {
 // 清理资源
 export function cleanup(): void {
   closeRemoteGateway();
+  void closeFeishu();
   ipcMain.removeAllListeners('client-event');
   automationScheduler?.stop();
   automationScheduler = null;

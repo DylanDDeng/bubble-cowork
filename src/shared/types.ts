@@ -530,25 +530,25 @@ export interface SystemFontOption {
   cssFamily: string;
 }
 
-export interface FeishuBridgeConfig {
+/** Feishu / Lark bridge state for Settings → Feishu (no secrets). */
+export interface FeishuStatus {
+  connection: 'off' | 'connecting' | 'connected' | 'reconnecting' | 'error';
+  error?: string;
   enabled: boolean;
-  appId: string;
-  appSecret: string;
-  defaultCwd: string;
-  provider: AgentProvider;
-  model: string;
-  allowedUserIds: string;
-  autoStart: boolean;
-}
-
-export interface FeishuBridgeStatus {
-  running: boolean;
-  connected: boolean;
-  botOpenId?: string;
-  lastError?: string;
-  lastInboundAt?: number;
-  lastOutboundAt?: number;
-  activeBindings: number;
+  configured: boolean;
+  appId?: string;
+  domain: 'feishu' | 'lark';
+  botName?: string;
+  hasOwner: boolean;
+  /** Shown until someone sends `/claim <code>` to the bot in a direct message. */
+  claimCode?: string;
+  defaultCwd?: string;
+  projects: { path: string; name: string }[];
+  allowedUsers: { openId: string; name?: string }[];
+  allowedChats: { chatId: string; name?: string }[];
+  bindings: { scope: string; chatId: string; topic: boolean; sessionId: string; title: string }[];
+  /** QR setup in progress: `qr` is a data URL of the code to scan. */
+  registration?: { state: 'waiting' | 'error'; qr?: string; expiresAt?: number; error?: string };
 }
 
 export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';

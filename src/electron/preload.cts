@@ -6,7 +6,6 @@ import type {
   ClaudeCompatibleProvidersConfig,
   ClaudeUsageRangeDays,
   CodexMcpServerRuntimeStatus,
-  FeishuBridgeConfig,
   FontSettingsPayload,
   GitPatchScope,
   MemoryDocument,
@@ -770,26 +769,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('expand-claude-skill-prompt', skillFilePath, skillName, userPrompt);
   },
 
-  getFeishuBridgeConfig: () => {
-    return ipcRenderer.invoke('get-feishu-bridge-config');
-  },
-  saveFeishuBridgeConfig: (config: FeishuBridgeConfig) => {
-    return ipcRenderer.invoke('save-feishu-bridge-config', config);
-  },
-  getFeishuBridgeStatus: () => {
-    return ipcRenderer.invoke('get-feishu-bridge-status');
+  feishu: (action: string, payload?: Record<string, unknown>) => {
+    return ipcRenderer.invoke('feishu', action, payload);
   },
   getMemoryWorkspace: (projectCwd?: string | null): Promise<MemoryWorkspace> => {
     return ipcRenderer.invoke('get-memory-workspace', projectCwd);
   },
   saveMemoryDocument: (filePath: string, content: string): Promise<MemoryDocument> => {
     return ipcRenderer.invoke('save-memory-document', filePath, content);
-  },
-  startFeishuBridge: () => {
-    return ipcRenderer.invoke('start-feishu-bridge');
-  },
-  stopFeishuBridge: () => {
-    return ipcRenderer.invoke('stop-feishu-bridge');
   },
 
   // 本机 agent 运行时检测

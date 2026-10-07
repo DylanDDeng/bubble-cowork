@@ -14,7 +14,7 @@ import {ConfirmDialogHost} from '/src/ui/components/ui/confirm-dialog';
 import {Toaster,toast} from 'sonner';
 import {Tooltip} from '@base-ui-components/react/tooltip';
 import '/src/ui/index.css';
-window.qa={store:useAppStore,toast,calls:[],profile:{displayName:'Test User',handle:'test'},permissions:{enabled:true,origins:{}},bridge:{enabled:true,appId:'test-app',appSecret:'fixture-secret',defaultCwd:'/tmp/example',provider:'claude',model:'',allowedUserIds:'',autoStart:false},bridgeStatus:{running:false,connected:false,activeBindings:0},cookieStatus:{importedAt:null,profileName:null,cookieCount:0,domains:[]}};
+window.qa={store:useAppStore,toast,calls:[],profile:{displayName:'Test User',handle:'test'},permissions:{enabled:true,origins:{}},feishu:{connection:'connected',enabled:true,configured:true,appId:'cli_test',domain:'feishu',botName:'Aegis',hasOwner:true,defaultCwd:'/tmp/example',projects:[{path:'/tmp/example',name:'example'}],allowedUsers:[{openId:'ou_ann',name:'Ann'}],allowedChats:[],bindings:[{scope:'oc_1',chatId:'oc_1',topic:false,sessionId:'s1',title:'Fix login'}]},cookieStatus:{importedAt:null,profileName:null,cookieCount:0,domains:[]}};
 window.electron={
  getBrowserUsePermissions:async()=>{if(qa.failBrowser)throw Error('Browser unavailable');return qa.permissions;},
  setBrowserUseEnabled:async enabled=>qa.permissions={...qa.permissions,enabled},
@@ -22,9 +22,10 @@ window.electron={
  getChromeCookieImportStatus:async()=>qa.cookieStatus,
  importChromeCookies:async input=>{qa.calls.push({type:'cookies',input});qa.cookieStatus={importedAt:Date.now(),profileName:'Work',cookieCount:4,domains:['example.test']};return {ok:true,cookies:{imported:4,discovered:4,failed:0,skippedPartitioned:0,skippedExpired:0,skippedInvalid:0}};},
  clearImportedChromeCookies:async()=>{qa.cookieStatus={importedAt:null,profileName:null,cookieCount:0,domains:[]};return {ok:true,removed:4};},
- getFeishuBridgeConfig:async()=>{if(qa.failBridge)throw Error('Bridge unavailable');return qa.bridge;},getFeishuBridgeStatus:async()=>qa.bridgeStatus,
- saveFeishuBridgeConfig:async config=>{if(qa.failSave)throw Error('Save failed');return qa.bridge=config;},
- startFeishuBridge:async()=>qa.bridgeStatus={running:true,connected:true,activeBindings:1},stopFeishuBridge:async()=>qa.bridgeStatus={running:false,connected:false,activeBindings:0},selectDirectory:async()=>'/tmp/new-project',
+ feishu:async(action,payload={})=>{if(qa.failBridge)throw Error('Bridge unavailable');const f=qa.feishu;qa.calls.push({type:'feishu',action,payload});
+  if(action==='set-enabled')f.enabled=payload.enabled;if(action==='set-default-cwd')f.defaultCwd=payload.cwd;
+  if(action==='remove-user')f.allowedUsers=f.allowedUsers.filter(u=>u.openId!==payload.openId);if(action==='unbind')f.bindings=f.bindings.filter(b=>b.scope!==payload.scope);
+  if(action==='save-credentials'){if(qa.failSave)throw Error('Save failed');f.appId=payload.appId;}return JSON.parse(JSON.stringify(f));},selectDirectory:async()=>'/tmp/new-project',
  getUserProfile:async()=>qa.profile,saveUserProfile:async profile=>qa.profile={...qa.profile,...profile},
  getBubbleProvidersConfig:async()=>({providers:[{id:'openai',name:'OpenAI',configured:true,enabled:true,hasApiKey:true,isDefault:true},{id:'google',name:'Google',configured:false,enabled:false,hasApiKey:false}],defaultProviderId:'openai'}),
  getClaudeCompatibleProviderConfig:async()=>({}),getDeepseekKeyStatus:async()=>({hasApiKey:false}),getAgentRuntimeDirectory:async()=>({checkedAt:Date.now(),entries:[]}),
@@ -70,12 +71,13 @@ app.whenReady().then(async()=>{
   await button('Import','[role=dialog]');assert.equal(await js('qa.calls.find(c=>c.type==="cookies").input.profilePath'),'/tmp/profile-2');
   await button('Clear');assert.equal(await js('qa.cookieStatus.cookieCount'),0);
   await nav('bridge');await until('!!document.querySelector("[aria-label=\\"App ID\\"]")');await shot('bridge-light');
-  await text('[aria-label="App ID"]','test-changed');await button('Cancel');assert.equal(await js('document.querySelector("[aria-label=\\"App ID\\"]").value'),'test-app');
-  await text('[aria-label="App ID"]','test-saved');await choose('Bridge runtime','codex');await button('Browse');await button('Save');
-  assert.equal(await js('qa.bridge.appId'),'test-saved');assert.equal(await js('qa.bridge.provider'),'codex');assert.equal(await js('qa.bridge.defaultCwd'),'/tmp/new-project');
-  await button('Start');assert.equal(await js('qa.bridgeStatus.running'),true);await button('Stop');
-  await text('[aria-label="App ID"]','retry-value');await js('qa.failSave=true');await button('Save');assert.equal(await js('qa.bridge.appId'),'test-saved');await js('qa.failSave=false');await button('Save');
-  await search('Allowed user IDs','Allowed user IDsBridge');assert.equal(await js('document.activeElement.dataset.settingsLabel'),'Allowed user IDs');assert.equal(await js('document.querySelector(".settings-disclosure").open'),true);
+  await click('[aria-label="Allow messages from Feishu"]');assert.equal(await js('qa.feishu.enabled'),false);
+  await click('[aria-label="Choose a folder"]');await delay(100);assert.equal(await js('qa.feishu.defaultCwd'),'/tmp/new-project');
+  await button('Remove');assert.equal(await js('qa.feishu.allowedUsers.length'),0);
+  await js('Array.from(document.querySelectorAll("main button")).filter(b=>b.textContent==="Disconnect").at(-1).click()');await delay(100);assert.equal(await js('qa.feishu.bindings.length'),0);
+  await js('document.querySelector(".settings-disclosure").open=true');await text('[aria-label="App ID"]','cli_saved');await text('[aria-label="App Secret"]','s'.repeat(20));
+  await js('qa.failSave=true');await button('Save and connect');assert.equal(await js('qa.feishu.appId'),'cli_test');await js('qa.failSave=false');await button('Save and connect');assert.equal(await js('qa.feishu.appId'),'cli_saved');
+  await search('App ID','App IDBridge');assert.equal(await js('document.activeElement.dataset.settingsLabel'),'App ID');assert.equal(await js('document.querySelector(".settings-disclosure").open'),true);
   await nav('profile');await until('!!document.querySelector("[aria-label=\\"Display name\\"]")&&!document.querySelector("[aria-label=\\"Display name\\"]").disabled');
   await text('[aria-label="Display name"]','QA Person');await button('Cancel');assert.equal(await js('qa.profile.displayName'),'Test User');await text('[aria-label="Display name"]','QA Person');await button('Save');assert.equal(await js('qa.profile.displayName'),'QA Person');await shot('profile-light');
   await nav('usage');await until('!!document.querySelector("[aria-label=\\"Usage provider\\"]")');
