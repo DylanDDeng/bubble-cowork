@@ -76,6 +76,8 @@ export class RemoteGateway {
   private permissions = new Map<string, PermissionRequestPayload>();
   private live = new Map<string, Map<string, RemoteMessage>>();
   private activePeer?: string;
+  /** The connected phone's app is off screen (switched away or locked). */
+  private peerAway = false;
   private pendingCommands = new Set<string>();
   private uploads = new Map<string, { peer: string; name: string; total: number; parts: Buffer[]; bytes: number; at: number }>();
   private uploaded = new Map<string, { peer: string; attachment: Attachment; at: number }>();
@@ -343,6 +345,7 @@ export class RemoteGateway {
       if (generation !== this.generation) throw new Error("Stale connection");
       this.channel = channel;
       this.activePeer = device.peerId;
+      this.peerAway = false;
       this.status = "connected";
       channel.send({
         type: "authenticated",
@@ -499,6 +502,10 @@ export class RemoteGateway {
           id: request.id,
           result: { serverTime: Date.now() },
         };
+      if (request.method === "presence") {
+        if (peerId === this.activePeer) this.peerAway = request.background;
+        return { type: "response", id: request.id, result: { ok: true } };
+      }
       if (request.method === "snapshot") {
         const result = this.snapshot(
           request.sessionId,
@@ -810,7 +817,9 @@ export class RemoteGateway {
   /** Tells paired phones through APNs, only while none is connected to see it live. */
   private notify(kind: "approval" | "finished" | "failed", sessionId: string) {
     const config = this.journal.state.config;
-    if (!config?.enabled || this.activePeer || this.status !== "waiting") return;
+    // A phone that is connected and on screen sees it live; one that is off screen still gets the push.
+    const away = this.status === "connected" && this.peerAway;
+    if (!config?.enabled || (this.status !== "waiting" && !away)) return;
     const session = this.runtime.sessions().find((s) => s.id === sessionId);
     if (!session || !config.projectIds.includes(session.projectId)) return;
     const key = kind + ":" + sessionId;

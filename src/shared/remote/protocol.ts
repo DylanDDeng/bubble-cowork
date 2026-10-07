@@ -41,6 +41,8 @@ export const requestSchema = z.discriminatedUnion("method", [
     })
     .strict(),
   z.object({ id, method: z.literal("command.get"), commandId: id }).strict(),
+  /** The app left or returned to the screen; while away the Mac keeps sending pushes. */
+  z.object({ id, method: z.literal("presence"), background: z.boolean() }).strict(),
   z.object({ id, method: z.literal("options") }).strict(),
   z
     .object({

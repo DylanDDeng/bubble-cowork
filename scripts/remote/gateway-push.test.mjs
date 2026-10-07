@@ -102,13 +102,26 @@ try {
   gateway.capture({ type: "session.status", payload: { sessionId: "private", status: "completed" } });
   await settle();
   assert.deepEqual(pushes.map((p) => p.body.kind), ["finished", "failed", "approval"]);
-  // While a phone is connected it sees events live, so nothing is pushed.
+  // While a phone is connected and on screen it sees events live, so nothing is pushed.
   gateway.activePeer = "phone";
+  gateway.status = "connected";
   gateway.notified.clear();
   gateway.capture({ type: "permission.request", payload: { sessionId: "shared", toolUseId: "u", toolName: "Bash", input: {} } });
   await settle();
   assert.equal(pushes.length, 3);
+  // Switched away or locked: still connected for a moment, but it needs the push.
+  assert.deepEqual((await gateway.dispatch({ id: "p1", method: "presence", background: true }, "phone")).result, { ok: true });
+  gateway.notified.clear();
+  gateway.capture({ type: "permission.request", payload: { sessionId: "shared", toolUseId: "w", toolName: "Bash", input: {} } });
+  await settle();
+  assert.equal(pushes.length, 4);
+  await gateway.dispatch({ id: "p2", method: "presence", background: false }, "phone");
+  gateway.notified.clear();
+  gateway.capture({ type: "permission.request", payload: { sessionId: "shared", toolUseId: "x", toolName: "Bash", input: {} } });
+  await settle();
+  assert.equal(pushes.length, 4);
   gateway.activePeer = undefined;
+  gateway.status = "waiting";
 
   // The relay reporting an unregistered token makes the Mac forget it.
   globalThis.fetch = async () => new Response(JSON.stringify({ unregistered: true }), { status: 200 });
@@ -116,7 +129,7 @@ try {
   gateway.capture({ type: "permission.request", payload: { sessionId: "shared", toolUseId: "v", toolName: "Bash", input: {} } });
   await settle();
   assert.equal(journal.state.devices.find((d) => d.peerId === "phone").push, undefined);
-  console.log("Gateway push: key-derived room migration, push registration, notify triggers, live-phone suppression and unregistered tokens passed");
+  console.log("Gateway push: key-derived room migration, push registration, notify triggers, live-phone suppression, off-screen presence and unregistered tokens passed");
 } finally {
   globalThis.fetch = realFetch;
   gateway.close();

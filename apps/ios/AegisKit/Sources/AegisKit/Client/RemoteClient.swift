@@ -44,6 +44,9 @@ public final class RemoteClient {
     @ObservationIgnored private var reconciling = false
     /// The first snapshot on each connection is fetched in full (the Mac may have restarted).
     @ObservationIgnored private var fullRefresh = true
+    /// Set while the app is in the background: no polls, no reconnects (the Keychain is
+    /// locked with the phone), and the Mac keeps sending push notifications.
+    @ObservationIgnored private var backgroundSince: Double?
 
     private struct Pending {
         let continuation: CheckedContinuation<JSONValue, Error>
@@ -69,6 +72,7 @@ public final class RemoteClient {
     }
 
     private static var now: Double { Date().timeIntervalSince1970 * 1000 }
+    private static let journalFile = "operations.json"
     private func cacheName(_ host: String) -> String { "cache-" + host + ".json" }
     public func draftName(_ key: String) -> String { "draft-" + (pairing?.hostPeerId ?? "") + "-" + key }
 
@@ -85,8 +89,13 @@ public final class RemoteClient {
                 snapshot = cache.snapshot
                 messagesBySession = cache.messages
             }
-            if let journal = try secrets.get("operations") {
+            if let data = files.read(Self.journalFile) {
+                operations = (try? JSONDecoder().decode([String: RemoteOperation].self, from: data)) ?? [:]
+            } else if let journal = try? secrets.get("operations") {
+                // Older builds kept it in the Keychain, which can't be written while the phone is locked.
                 operations = (try? JSONDecoder().decode([String: RemoteOperation].self, from: Data(journal.utf8))) ?? [:]
+                saveOperations()
+                try? secrets.remove("operations")
             }
             await connect()
         } catch {
@@ -135,6 +144,7 @@ public final class RemoteClient {
             }
             try? secrets.remove("pairing")
             try? secrets.remove("operations")
+            files.remove(Self.journalFile)
             pairing = nil
             snapshot = nil
             messagesBySession = [:]
@@ -257,6 +267,7 @@ public final class RemoteClient {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5))
                     guard !Task.isCancelled, let self else { return }
+                    guard self.backgroundSince == nil else { continue }
                     // The socket can stay open while the path drops everything (lossy
                     // cross-border links). Reconnect rather than wait for TCP to give up.
                     if Self.now - self.lastHeard > Self.stallTimeout * 1000 {
@@ -311,9 +322,10 @@ public final class RemoteClient {
         poll?.cancel()
         failPending(AegisError.connection("Connection lost. Checking whether it was delivered."))
         guard pairing != nil else { return }
+        guard backgroundSince == nil else { return } // foreground() reconnects
         retry = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self?.backgroundSince == nil else { return }
             await self?.connect()
         }
     }
@@ -355,7 +367,8 @@ public final class RemoteClient {
         refreshing = true
         let generation = self.generation
         let sessionId = selectedSession
-        freshness = .catchingUp
+        // Routine polls stay quiet; only the first sync on a connection shows as catching up.
+        if fullRefresh { freshness = .catchingUp }
         do {
             var params: [String: JSONValue] = ["method": "snapshot"]
             if let sessionId { params["sessionId"] = .string(sessionId) }
@@ -535,24 +548,53 @@ public final class RemoteClient {
         for (id, operation) in ordered.dropLast(100) where !operation.result.unresolved {
             operations[id] = nil
         }
-        if let data = try? JSONEncoder.aegis.encode(operations) {
-            try? secrets.set("operations", String(decoding: data, as: UTF8.self))
-        }
+        // A file readable after first unlock: commands settle while the phone is locked too.
+        if let data = try? JSONEncoder.aegis.encode(operations) { files.write(Self.journalFile, data) }
+    }
+
+    /// Called when the app returns to the foreground.
+    /// Called when the app leaves the screen (switching apps or locking). The connection
+    /// stays up while iOS lets the app run; the Mac is told so it keeps sending pushes.
+    public func background() async {
+        guard backgroundSince == nil else { return }
+        backgroundSince = Self.now
+        refreshTimer?.cancel()
+        guard connection == .connected else { return }
+        _ = try? await request(["method": "presence", "background": true], timeout: 3)
+    }
+
+    /// iOS is about to suspend the app: close cleanly so the Mac knows nobody is watching.
+    public func suspend() async {
+        guard backgroundSince != nil, pairing != nil else { return }
+        await disconnect()
     }
 
     /// Called when the app returns to the foreground.
     public func foreground() async {
+        let away = backgroundSince.map { Self.now - $0 } ?? 0
+        backgroundSince = nil
+        lastHeard = Self.now
         guard connection == .connected else {
             if pairing != nil, connection != .connecting, connection != .confirming { await connect() }
             return
         }
+        // Longer than iOS keeps a background app running: the socket is gone, so don't wait on it.
+        if away > Self.backgroundGrace * 1000 {
+            await connect()
+            return
+        }
         do {
-            _ = try await request(["method": "ping"], timeout: 3)
+            _ = try await request(["method": "presence", "background": false], timeout: 3)
             await refresh()
+        } catch AegisError.rejected {
+            await refresh() // a Mac without presence support; the connection itself is fine
         } catch {
             await connect()
         }
     }
+
+    /// How long the app keeps its connection after leaving the screen (seconds).
+    public static let backgroundGrace: Double = 25
 
     /// Re-sends commands whose outcome is unknown, oldest first. Safe to repeat: the
     /// Mac runs a commandId once and answers a repeat with the first result, or with

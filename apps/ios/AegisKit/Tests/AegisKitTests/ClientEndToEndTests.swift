@@ -81,12 +81,26 @@ import Testing
         journal["lost-1"] = op("lost-1", "Never arrived", expiresAt: now + 240_000)
         journal["late-1"] = op("late-1", "Too late", expiresAt: now - 1)
         await client.disconnect()
+        // As an older build left it: in the Keychain, which start() moves into a file.
+        files.remove("operations.json")
         try secrets.set("operations", String(decoding: try JSONEncoder().encode(journal), as: UTF8.self))
         await client.start()
         try await waitUntil { client.operations.values.allSatisfy { !$0.result.unresolved } }
         #expect(client.operations[reached.key]?.result.state == .completed)
         #expect(client.operations["lost-1"]?.result.state == .completed)
         #expect(client.operations["late-1"]?.result == CommandResult(commandId: "late-1", state: .rejected, error: "COMMAND_EXPIRED"))
+        #expect(try secrets.get("operations") == nil && files.read("operations.json") != nil)
+
+        // Off screen: no reconnects or polls; back within the grace, the same connection is reused.
+        await client.background()
+        await client.foreground()
+        #expect(client.connection == .connected)
+        // Suspended by iOS: closed cleanly, and coming back reconnects.
+        await client.background()
+        await client.suspend()
+        #expect(client.connection == .offline)
+        await client.foreground()
+        try await waitUntil { client.connection == .connected }
         // The lost one runs now (gateway.test.mjs covers that a repeat never runs twice).
         _ = try await fixture.line(containing: "fixture start claude")
 
