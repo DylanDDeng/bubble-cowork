@@ -676,7 +676,15 @@ function EffortModelPanel<T extends string>({
   }, []);
   // Restore keyboard focus after a view disappears, including model selection.
   useLayoutEffect(() => {
-    if (ready) (showingModels ? backButton : modelButton).current?.focus();
+    if (!ready) return;
+    const target = (showingModels ? backButton : modelButton).current;
+    target?.focus();
+    // Without a transition (reduced motion) the menu can pull focus to its
+    // container a frame later, as the item that had it becomes disabled.
+    const frame = requestAnimationFrame(() => {
+      if (target?.isConnected && document.activeElement !== target && !target.closest('[inert]')) target.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [showingModels, ready]);
 
   return (

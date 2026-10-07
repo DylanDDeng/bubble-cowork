@@ -79,7 +79,11 @@ app.whenReady().then(async()=>{
  };
  const close=async()=>{await key('Escape');await key('Escape');await delay(100);};
  try {
-  await win.loadURL(process.env.QA_URL);await delay(900);
+  await win.loadURL(process.env.QA_URL);
+  // A hidden window is not focused, so key events were dropped on CI; a focused page also matches real use.
+  win.webContents.debugger.attach('1.3');
+  await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled',{enabled:true});
+  await delay(900);
   assert.equal(await js('getComputedStyle(document.querySelector(\'[aria-label="Select agent and model"] [aria-hidden="true"]\')).position'),'absolute','placeholder measurement must not occupy layout space');
   const closedTrigger=await triggerRect();
   if(process.env.QA_CAPTURE){fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});const r=await js('(()=>{const r=document.querySelector(\'[aria-label="Select agent and model"]\').getBoundingClientRect();return {x:Math.floor(r.x)-8,y:Math.floor(r.y)-8,width:Math.ceil(r.width)+16,height:Math.ceil(r.height)+16};})()');fs.writeFileSync(path.join(process.env.QA_CAPTURE,'trigger-typography.png'),(await win.webContents.capturePage(r)).toPNG());}
