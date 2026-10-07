@@ -2,7 +2,7 @@ import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'child_proc
 import { existsSync, mkdirSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import path from 'path';
-import type { DevinModelConfig, DevinRuntimeStatus, DevinThoughtLevels } from '../../shared/types';
+import type { DevinModelConfig, DevinRuntimeStatus, DevinThoughtLevels, ProviderSkillDescriptor } from '../../shared/types';
 import { AcpJsonRpcClient } from './provider/acp-json-rpc-client';
 
 // The installer symlinks the CLI here (→ ~/.local/share/devin/cli/_versions/current).
@@ -43,6 +43,24 @@ function execFileText(command: string, args: string[], timeout = EXEC_TIMEOUT_MS
           return;
         }
         resolve(`${stdout || ''}${stderr || ''}`.trim());
+      }
+    );
+  });
+}
+
+/** stdout only: CLI commands with machine-readable output may warn on stderr. */
+function execFileStdout(command: string, args: string[], timeout: number, cwd?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      command,
+      args,
+      { timeout, cwd, env: buildDevinEnv(), maxBuffer: 16 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(String(stdout || ''));
       }
     );
   });
@@ -418,4 +436,91 @@ export async function getDevinModelConfig(): Promise<DevinModelConfig> {
       modelsInflight = null;
     });
   return modelsInflight;
+}
+
+// ── Skills ─────────────────────────────────────────────────────────────────
+
+const SKILLS_TIMEOUT_MS = 20_000;
+
+interface DevinSkillListing {
+  descriptor: ProviderSkillDescriptor;
+  /** No SKILL.md on disk (builtins ship inside the CLI): read via `skills show`. */
+  needsInlineContent: boolean;
+}
+
+function isWithin(child: string, parent: string | undefined): boolean {
+  if (!parent) return false;
+  const relative = path.relative(path.resolve(parent), path.resolve(child));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/**
+ * Parses `devin skills list --json`: Devin's own resolved catalog across its
+ * user, project and imported (~/.claude/skills) roots plus builtins. `name`
+ * is what follows `/` in the composer (Devin prefixes duplicates, e.g.
+ * `agents:article-score`).
+ */
+export function parseDevinSkillList(raw: string, cwd?: string): DevinSkillListing[] {
+  const parsed = JSON.parse(raw) as unknown;
+  const entries = Array.isArray(parsed) ? parsed : [];
+  const listings: DevinSkillListing[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const record = getRecord(entry);
+    const name = typeof record?.name === 'string' ? record.name.trim() : '';
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    const baseDir = typeof record?.base_dir === 'string' ? record.base_dir.trim() : '';
+    const skillFile = baseDir ? path.join(baseDir, 'SKILL.md') : '';
+    const hasFile = Boolean(skillFile) && existsSync(skillFile);
+    const builtin = record?.provider === 'Builtin';
+    const description = typeof record?.description === 'string' ? record.description.trim() : '';
+    listings.push({
+      descriptor: {
+        name,
+        path: hasFile ? skillFile : `devin-builtin:${name}`,
+        enabled: true,
+        ...(description ? { description } : {}),
+        // SkillListPane sections: Personal / Project / System.
+        scope: builtin ? 'system' : isWithin(baseDir, cwd) ? 'project' : 'user',
+      },
+      needsInlineContent: !hasFile,
+    });
+  }
+  return listings.sort((left, right) => left.descriptor.name.localeCompare(right.descriptor.name));
+}
+
+/**
+ * The body `devin skills show` prints after its `Content:` line and rule.
+ * Anchored to a line of its own: a description may contain "Content:".
+ */
+export function parseDevinSkillShowContent(raw: string): string | null {
+  const match = /^Content:[ \t]*\r?\n(?:[ \t]*[─━-]{3,}[ \t]*\r?\n)?/m.exec(raw);
+  if (!match) return null;
+  return raw.slice(match.index + match[0].length).trim() || null;
+}
+
+export async function listDevinSkills(cwd?: string): Promise<ProviderSkillDescriptor[]> {
+  const binary = await resolveDevinBinary();
+  if (!binary) {
+    throw new Error('Devin CLI was not found. Install the Devin CLI or set DEVIN_CLI_PATH.');
+  }
+  const workingDir = cwd && existsSync(cwd) ? cwd : undefined;
+  const listings = parseDevinSkillList(
+    await execFileStdout(binary, ['skills', 'list', '--json'], SKILLS_TIMEOUT_MS, workingDir),
+    workingDir
+  );
+  await Promise.all(
+    listings
+      .filter((listing) => listing.needsInlineContent)
+      .map(async (listing) => {
+        try {
+          const shown = await execFileStdout(binary, ['skills', 'show', listing.descriptor.name], SKILLS_TIMEOUT_MS, workingDir);
+          listing.descriptor.content = parseDevinSkillShowContent(shown);
+        } catch {
+          listing.descriptor.content = null;
+        }
+      })
+  );
+  return listings.map((listing) => listing.descriptor);
 }

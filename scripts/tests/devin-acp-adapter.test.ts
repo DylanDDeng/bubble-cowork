@@ -90,6 +90,23 @@ async function handle(message) {
       state.level = params.value;
     }
     send({ id, result: { configOptions: config() } });
+  } else if (method === 'session/prompt' && String(params.prompt?.[0]?.text).startsWith('ASK')) {
+    const reply = await ask('elicitation/create', {
+      mode: 'form',
+      sessionId: params.sessionId,
+      message: 'Which fruits do you like?',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          q0: { type: 'array', title: 'Fruits', description: 'Which fruits do you like?', minItems: 1, items: { anyOf: [{ const: 'Apple', title: 'Crisp' }, { const: 'Banana', title: 'Soft' }] } },
+          q1: { type: 'string', title: 'Color', description: 'Favorite color?', oneOf: [{ const: 'Red', title: 'Warm' }, { const: 'Blue', title: 'Cool' }] },
+        },
+        required: ['q0', 'q1'],
+      },
+      _meta: { 'cognition.ai/allowOther': true },
+    });
+    log({ method: 'elicitation_response', params: reply });
+    send({ id, result: { stopReason: 'end_turn', usage: { totalTokens: 1, inputTokens: 1, outputTokens: 0 } } });
   } else if (method === 'session/prompt') {
     const sid = params.sessionId;
     update(sid, { sessionUpdate: 'session_info_update', title: 'functions.read_file:0{}' });
@@ -192,7 +209,11 @@ async function main(): Promise<void> {
       startCalls.map((call) => call.method),
       ['initialize', 'session/new', 'session/set_config_option', 'session/set_mode']
     );
-    assert.deepEqual(startCalls[0].params.clientCapabilities, {}, 'Devin must run its own fs/terminal tools');
+    assert.deepEqual(
+      startCalls[0].params.clientCapabilities,
+      { elicitation: { form: {} } },
+      'no fs/terminal (Devin runs its own tools); form elicitation for its questions'
+    );
     assert.equal(startCalls[3].params.modeId, 'smart');
 
     const init = events.find((event) => event.type === 'system_init');
@@ -357,6 +378,96 @@ async function main(): Promise<void> {
     await adapter.stopAll();
   }
 
+  // ── Questions: elicitation/create ↔ AskUserQuestion card ─────────────────
+  {
+    const answerWith = async (decision: Record<string, unknown>) => {
+      resetCalls();
+      const adapter = new DevinAcpAdapter();
+      let card: Event | undefined;
+      adapter.events.on('event', (event: Event) => {
+        if (event.type === 'permission_request') {
+          card = event;
+          void adapter.respondToRequest('t5', event.requestId as string, decision as never);
+        }
+      });
+      await adapter.startSession({ threadId: 't5', cwd: dir, prompt: '' } as never);
+      await withTimeout(adapter.sendTurn({ threadId: 't5', prompt: 'ASK me' } as never), 'turn with a question');
+      await adapter.stopAll();
+      return { card, reply: readCalls().find((call) => call.method === 'elicitation_response')?.params };
+    };
+
+    const accepted = await answerWith({
+      behavior: 'allow',
+      updatedInput: { answers: { 'Which fruits do you like?': 'Apple,Durian, ripe', 'Favorite color?': 'Blue' } },
+    });
+    assert.equal(accepted.card?.toolName, 'AskUserQuestion');
+    assert.deepEqual(accepted.card?.input, {
+      questions: [
+        { question: 'Which fruits do you like?', header: 'Fruits', options: [{ label: 'Apple', description: 'Crisp' }, { label: 'Banana', description: 'Soft' }], multiSelect: true },
+        { question: 'Favorite color?', header: 'Color', options: [{ label: 'Red', description: 'Warm' }, { label: 'Blue', description: 'Cool' }] },
+      ],
+    });
+    assert.deepEqual(
+      accepted.reply,
+      { action: 'accept', content: { q0: ['Apple', 'Durian, ripe'], q1: 'Blue' } },
+      'choices map to their consts; "Other" text stays whole, commas included'
+    );
+
+    const declined = await answerWith({ behavior: 'deny', message: 'User cancelled the request' });
+    assert.deepEqual(declined.reply, { action: 'decline' });
+
+    const { parseDevinElicitation, buildDevinElicitationContent } = await import('../../src/electron/libs/provider/devin-acp-adapter');
+    assert.equal(parseDevinElicitation({ mode: 'url', url: 'https://x' }), null, 'only form mode has a UI');
+    const mixed = parseDevinElicitation({
+      message: 'Setup',
+      requestedSchema: { properties: { a: { type: 'string', title: 'Name' }, b: { type: 'boolean', title: 'Proceed?' }, c: { type: 'integer', description: 'Count?' } } },
+    })!;
+    assert.deepEqual(
+      buildDevinElicitationContent(mixed, { Name: 'Ada, Lovelace', 'Proceed?': 'Yes', 'Count?': '3' }),
+      { a: 'Ada, Lovelace', b: true, c: 3 },
+      'free text is kept whole; booleans and numbers are typed'
+    );
+  }
+
+  // ── Skill library: `devin skills list --json` / `devin skills show` ──────
+  {
+    const { parseDevinSkillList, parseDevinSkillShowContent } = await import('../../src/electron/libs/devin-cli');
+    const { mkdirSync } = await import('node:fs');
+    const project = path.join(dir, 'project');
+    const userSkill = path.join(dir, 'home', '.agents', 'skills', 'clarify');
+    const projectSkill = path.join(project, '.devin', 'skills', 'deploy');
+    mkdirSync(userSkill, { recursive: true });
+    mkdirSync(projectSkill, { recursive: true });
+    writeFileSync(path.join(userSkill, 'SKILL.md'), '# clarify');
+    writeFileSync(path.join(projectSkill, 'SKILL.md'), '# deploy');
+    const listing = parseDevinSkillList(
+      JSON.stringify([
+        { name: 'deploy', description: 'Ship it', provider: 'Devin', base_dir: projectSkill, triggers: ['user'] },
+        { name: 'clarify', description: 'Better copy', provider: 'Devin', base_dir: userSkill, triggers: ['user', 'model'] },
+        { name: 'upload-secrets', description: 'Secrets', provider: 'Builtin', base_dir: '', triggers: ['model', 'user'] },
+        { name: 'clarify', description: 'duplicate', provider: 'Claude', base_dir: userSkill },
+      ]),
+      project
+    );
+    assert.deepEqual(
+      listing.map((entry) => [entry.descriptor.name, entry.descriptor.scope, entry.descriptor.path, entry.needsInlineContent]),
+      [
+        ['clarify', 'user', path.join(userSkill, 'SKILL.md'), false],
+        ['deploy', 'project', path.join(projectSkill, 'SKILL.md'), false],
+        ['upload-secrets', 'system', 'devin-builtin:upload-secrets', true],
+      ],
+      'file-backed skills get their SKILL.md; builtins are System with inline content; duplicates collapse'
+    );
+    assert.equal(
+      parseDevinSkillShowContent(
+        'Skill: x\n\nDescription: mentions Content: inline\nTriggers: user\n\nContent:\n────────────\nBody line 1\n\nBody line 2\n'
+      ),
+      'Body line 1\n\nBody line 2',
+      'the body starts after the Content: line and its rule, not at an inline mention'
+    );
+    assert.equal(parseDevinSkillShowContent('Skill: x\nno body'), null);
+  }
+
   // ── Thinking level parsing ───────────────────────────────────────────────
   {
     const { parseDevinThoughtLevels } = await import('../../src/electron/libs/devin-cli');
@@ -381,6 +492,11 @@ async function main(): Promise<void> {
     assert.equal(devinToolName({ kind: 'execute', title: 'Ran ls' }), 'Bash', 'ACP kind is the fallback');
     assert.deepEqual(devinToolInput('Glob', { query: '**/note.txt' }), { query: '**/note.txt', pattern: '**/note.txt' });
     assert.deepEqual(devinToolInput('Bash', { command: 'ls' }), { command: 'ls' });
+    assert.equal(named('ask_user_question'), 'AskUserQuestion');
+    assert.deepEqual(
+      devinToolInput('AskUserQuestion', { questions: [{ question: 'Q?', multi_select: true, options: [{ label: 'a' }] }] }),
+      { questions: [{ question: 'Q?', options: [{ label: 'a' }], multiSelect: true }] }
+    );
   }
 
   // ── Catalog parsing: flat and grouped model selects ──────────────────────

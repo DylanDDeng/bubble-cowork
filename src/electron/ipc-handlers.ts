@@ -6209,6 +6209,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     });
   });
 
+  ipcMainHandle('devin-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'devin',
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
+    });
+  });
+
   ipcMainHandle('deepseek-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
     ensureProviderService();
     return getProviderService().listSkills({

@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
 import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { buildDevinEnv, resolveDevinBinary } from '../devin-cli';
+import { buildDevinEnv, listDevinSkills, resolveDevinBinary } from '../devin-cli';
 import { AcpJsonRpcClient, type AcpJsonRpcIncomingRequest } from './acp-json-rpc-client';
 import type {
   ProviderAdapter,
@@ -17,11 +17,15 @@ import type {
 import type {
   AcpPermissionInput,
   AcpPermissionOption,
+  AskUserQuestionInput,
   Attachment,
   DevinPermissionMode,
   PermissionResult,
   PlanStepStatus,
   ProviderComposerCapabilities,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
+  ProviderSkillDescriptor,
   StreamMessage,
 } from '../../../shared/types';
 
@@ -110,6 +114,8 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
   planMode: true,
 };
 
+const SKILLS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 const DEVIN_PERMISSION_MODES: ReadonlyArray<DevinPermissionMode> = ['accept-edits', 'smart', 'ask', 'plan', 'bypass'];
 
 /**
@@ -131,6 +137,7 @@ const DEVIN_TOOL_NAMES: Record<string, string> = {
   find_file_by_name: 'Glob',
   web_search: 'WebSearch',
   todo_write: 'TodoWrite',
+  ask_user_question: 'AskUserQuestion',
 };
 
 /** Fallback by ACP tool kind when Devin names no tool. */
@@ -245,10 +252,131 @@ export function devinToolName(update: DevinSessionUpdate): string {
   return ACP_KIND_TOOL_NAMES[getString(update.kind)] || getString(update.title) || 'DevinTool';
 }
 
+// ── Elicitation (ask_user_question) ────────────────────────────────────────
+
+interface DevinElicitationQuestion {
+  /** Property key in requestedSchema (q0, q1, …) — the reply's content key. */
+  key: string;
+  /** Unique within the request: the card returns answers keyed by it. */
+  question: string;
+  header?: string;
+  /** label = the value sent back (schema const); description = its title. */
+  options: Array<{ label: string; description?: string }>;
+  multiSelect: boolean;
+  valueType: 'string' | 'boolean' | 'number';
+}
+
+export interface DevinElicitation {
+  questions: DevinElicitationQuestion[];
+  /** `_meta["cognition.ai/allowOther"]`: answers outside the options are accepted. */
+  allowOther: boolean;
+}
+
+function schemaChoices(schema: Record<string, unknown> | null): Array<{ label: string; description?: string }> {
+  const listed = getArray(schema?.oneOf).length ? getArray(schema?.oneOf) : getArray(schema?.anyOf);
+  const choices = listed
+    .map((entry) => {
+      const record = getRecord(entry);
+      const label = record && record.const !== undefined ? String(record.const) : '';
+      const description = getString(record?.title).trim();
+      return label ? { label, ...(description && description !== label ? { description } : {}) } : null;
+    })
+    .filter((choice): choice is { label: string; description?: string } => Boolean(choice));
+  if (choices.length > 0) return choices;
+  return getArray(schema?.enum).map((value) => ({ label: String(value) }));
+}
+
+/**
+ * ACP form elicitation → card questions. Devin sends one property per
+ * question: single choice as a string with oneOf, multi-select as an array
+ * whose items list anyOf, free text as a bare string.
+ */
+export function parseDevinElicitation(params: unknown): DevinElicitation | null {
+  const record = getRecord(params);
+  if (!record || (record.mode !== undefined && record.mode !== 'form')) return null;
+  const properties = getRecord(getRecord(record.requestedSchema)?.properties);
+  if (!properties) return null;
+  const message = getString(record.message).trim();
+  const used = new Set<string>();
+  const questions: DevinElicitationQuestion[] = [];
+  for (const [key, value] of Object.entries(properties)) {
+    const schema = getRecord(value);
+    if (!schema) continue;
+    const type = getString(schema.type);
+    const title = getString(schema.title).trim();
+    let question = getString(schema.description).trim() || title || message || key;
+    if (used.has(question)) question = `${question} (${title || key})`;
+    used.add(question);
+    const multiSelect = type === 'array';
+    const options =
+      type === 'boolean'
+        ? [{ label: 'Yes' }, { label: 'No' }]
+        : schemaChoices(multiSelect ? getRecord(schema.items) : schema);
+    questions.push({
+      key,
+      question,
+      ...(title && title !== question ? { header: title } : {}),
+      options,
+      multiSelect,
+      valueType: type === 'boolean' ? 'boolean' : type === 'number' || type === 'integer' ? 'number' : 'string',
+    });
+  }
+  if (questions.length === 0) return null;
+  return { questions, allowOther: getRecord(record._meta)?.['cognition.ai/allowOther'] === true };
+}
+
+/**
+ * Card answers (keyed by question text; multi-select and "Other" text
+ * comma-joined) → the reply's typed content. Option labels are matched out
+ * of the joined string; what remains is the user's own text, kept whole so a
+ * custom answer may itself contain commas.
+ */
+export function buildDevinElicitationContent(
+  elicitation: DevinElicitation,
+  answers: Record<string, string>
+): Record<string, string | string[] | boolean | number> {
+  const content: Record<string, string | string[] | boolean | number> = {};
+  for (const question of elicitation.questions) {
+    const raw = (answers[question.question] || '').trim();
+    if (!raw) continue;
+    if (question.valueType === 'boolean') {
+      content[question.key] = /^(yes|true)$/i.test(raw);
+      continue;
+    }
+    if (question.options.length === 0) {
+      const asNumber = Number(raw);
+      content[question.key] = question.valueType === 'number' && Number.isFinite(asNumber) ? asNumber : raw;
+      continue;
+    }
+    const labels = new Set(question.options.map((option) => option.label));
+    const parts = raw.split(',').map((part) => part.trim());
+    const selected = parts.filter((part) => labels.has(part));
+    const custom = parts.filter((part) => part && !labels.has(part)).join(', ');
+    if (question.multiSelect) {
+      content[question.key] = [...selected, ...(custom && elicitation.allowOther ? [custom] : [])];
+    } else {
+      content[question.key] = custom && (elicitation.allowOther || selected.length === 0) ? custom : selected[0] ?? raw;
+    }
+  }
+  return content;
+}
+
 /** find_file_by_name takes its glob as `query`; the Glob card reads `pattern`. */
 export function devinToolInput(name: string, rawInput: Record<string, unknown>): Record<string, unknown> {
   if (name === 'Glob' && typeof rawInput.query === 'string' && rawInput.pattern === undefined) {
     return { ...rawInput, pattern: rawInput.query };
+  }
+  // ask_user_question spells Claude's multiSelect as multi_select.
+  if (name === 'AskUserQuestion' && Array.isArray(rawInput.questions)) {
+    return {
+      ...rawInput,
+      questions: rawInput.questions.map((question) => {
+        const record = getRecord(question);
+        if (!record || record.multi_select === undefined) return question;
+        const { multi_select: multiSelect, ...rest } = record;
+        return { ...rest, multiSelect: multiSelect === true };
+      }),
+    };
   }
   return rawInput;
 }
@@ -302,14 +430,19 @@ export class DevinAcpAdapter implements ProviderAdapter {
   readonly events = new EventEmitter();
 
   private sessions = new Map<string, ActiveDevinSession>();
+  private skillsCache = new Map<string, { skills: ProviderSkillDescriptor[]; fetchedAt: number }>();
+  private skillsProbes = new Map<string, Promise<ProviderSkillDescriptor[]>>();
+  /** Tool approvals and Devin's questions (elicitation/create) awaiting the UI. */
   private pendingPermissions = new Map<
     string,
     {
       threadId: string;
       rpc: AcpJsonRpcClient;
       request: AcpJsonRpcIncomingRequest;
-      options: AcpPermissionOption[];
-    }
+    } & (
+      | { kind: 'permission'; options: AcpPermissionOption[] }
+      | { kind: 'elicitation'; elicitation: DevinElicitation }
+    )
   >();
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
@@ -352,7 +485,8 @@ export class DevinAcpAdapter implements ProviderAdapter {
         protocolVersion: 1,
         clientInfo: { name: 'aegis', title: 'Aegis', version: '0.0.32' },
         // No fs/terminal: Devin then runs its own file and shell tools.
-        clientCapabilities: {},
+        // Form elicitation lets its ask_user_question tool reach the user.
+        clientCapabilities: { elicitation: { form: {} } },
       })
       .catch(fail);
 
@@ -593,10 +727,54 @@ export class DevinAcpAdapter implements ProviderAdapter {
       return;
     }
     this.pendingPermissions.delete(requestId);
+    if (pending.kind === 'elicitation') {
+      const answers = getRecord(decision.updatedInput?.answers);
+      pending.rpc.respond(
+        pending.request.id,
+        decision.behavior === 'allow' && answers
+          ? {
+              action: 'accept',
+              content: buildDevinElicitationContent(
+                pending.elicitation,
+                Object.fromEntries(Object.entries(answers).map(([key, value]) => [key, getString(value)]))
+              ),
+            }
+          : { action: 'decline' }
+      );
+      return;
+    }
     const optionId = this.resolveOptionId(decision, pending.options);
     pending.rpc.respond(pending.request.id, {
       outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' },
     });
+  }
+
+  /**
+   * Skill library listing from Devin's own resolver (`devin skills list`),
+   * which knows its user, project, imported and builtin roots. The ACP
+   * command feed carries no SKILL.md paths, so it cannot back the library.
+   * Cached per cwd; Refresh (forceReload) bypasses the cache.
+   */
+  async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
+    const cwd = input.cwd?.trim() || '';
+    const cached = this.skillsCache.get(cwd);
+    if (!input.forceReload && cached && Date.now() - cached.fetchedAt < SKILLS_CACHE_TTL_MS) {
+      return { skills: cached.skills, source: 'devin-cli', cached: true };
+    }
+    const pending = this.skillsProbes.get(cwd);
+    if (pending && !input.forceReload) {
+      return { skills: await pending, source: 'devin-cli', cached: true };
+    }
+    const probe = listDevinSkills(cwd || undefined)
+      .then((skills) => {
+        this.skillsCache.set(cwd, { skills, fetchedAt: Date.now() });
+        return skills;
+      })
+      .finally(() => {
+        if (this.skillsProbes.get(cwd) === probe) this.skillsProbes.delete(cwd);
+      });
+    this.skillsProbes.set(cwd, probe);
+    return { skills: await probe, source: 'devin-cli', cached: false };
   }
 
   getComposerCapabilities(): ProviderComposerCapabilities {
@@ -734,6 +912,14 @@ export class DevinAcpAdapter implements ProviderAdapter {
       rpc.respond(request.id, { outcome: { outcome: 'cancelled' } });
       return;
     }
+    if (request.method === 'elicitation/create') {
+      if (session && this.sessions.get(session.threadId) === session) {
+        this.handleElicitation(session, rpc, request);
+      } else {
+        rpc.respond(request.id, { action: 'cancel' });
+      }
+      return;
+    }
     // fs/* and terminal/* are not advertised, so Devin should never ask.
     rpc.respond(request.id, undefined, {
       code: -32601,
@@ -768,7 +954,7 @@ export class DevinAcpAdapter implements ProviderAdapter {
     // come from the tool_call that preceded it.
     const title = getString(toolCall.title) || known?.title || (editableCommand ? `Run ${editableCommand}` : 'Devin permission request');
     const requestId = `devin-permission:${session.threadId}:${request.id}`;
-    this.pendingPermissions.set(requestId, { threadId: session.threadId, rpc, request, options });
+    this.pendingPermissions.set(requestId, { kind: 'permission', threadId: session.threadId, rpc, request, options });
     const input: AcpPermissionInput = {
       kind: 'acp-permission',
       provider: 'devin',
@@ -791,13 +977,49 @@ export class DevinAcpAdapter implements ProviderAdapter {
     });
   }
 
+  /**
+   * Devin's ask_user_question tool arrives as a form elicitation; it maps
+   * onto the AskUserQuestion card (choices, multi-select, "Other" text).
+   */
+  private handleElicitation(session: ActiveDevinSession, rpc: AcpJsonRpcClient, request: AcpJsonRpcIncomingRequest): void {
+    const elicitation = parseDevinElicitation(request.params);
+    if (!elicitation) {
+      // Only form mode is advertised; anything else has no UI to land in.
+      rpc.respond(request.id, { action: 'decline' });
+      return;
+    }
+    const requestId = `devin-elicitation:${session.threadId}:${request.id}`;
+    this.pendingPermissions.set(requestId, { kind: 'elicitation', threadId: session.threadId, rpc, request, elicitation });
+    const input: AskUserQuestionInput = {
+      questions: elicitation.questions.map((question) => ({
+        question: question.question,
+        ...(question.header ? { header: question.header } : {}),
+        options: question.options.map((option) => ({
+          label: option.label,
+          ...(option.description ? { description: option.description } : {}),
+        })),
+        ...(question.multiSelect ? { multiSelect: true } : {}),
+      })),
+    };
+    this.emit({
+      type: 'permission_request',
+      threadId: session.threadId,
+      requestId,
+      toolName: 'AskUserQuestion',
+      input,
+    });
+  }
+
   private dismissPermissions(threadId: string): void {
     for (const [requestId, pending] of this.pendingPermissions) {
       if (pending.threadId !== threadId) continue;
       this.pendingPermissions.delete(requestId);
       this.emit({ type: 'permission_dismissed', threadId, requestId });
       try {
-        pending.rpc.respond(pending.request.id, { outcome: { outcome: 'cancelled' } });
+        pending.rpc.respond(
+          pending.request.id,
+          pending.kind === 'elicitation' ? { action: 'cancel' } : { outcome: { outcome: 'cancelled' } }
+        );
       } catch {
         // The process may already be gone.
       }
