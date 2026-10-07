@@ -63,7 +63,8 @@ app.whenReady().then(async()=>{
  const click=async selector=>{const rect=await js('(()=>{const r=document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()');win.webContents.sendInputEvent({type:'mouseDown',x:Math.round(rect.x),y:Math.round(rect.y),button:'left',clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',x:Math.round(rect.x),y:Math.round(rect.y),button:'left',clickCount:1});await delay(150);};
  const key=async keyCode=>{win.webContents.sendInputEvent({type:'keyDown',keyCode});win.webContents.sendInputEvent({type:'keyUp',keyCode});await delay(80);};
  // Store updates land a few frames after input; CI runners are slow, so poll instead of a fixed delay.
- // Home/End are idempotent, so a key press dropped by the CI runner is safely sent again.
+ // The CI runner sometimes drops a key press. A key is sent again only after a full second with no
+ // change at all, so a slow press can't be applied twice.
  // Retries refocus the slider unless the step is about focus staying there.
  const activeElement=()=>js('(()=>{const a=document.activeElement;return a?a.tagName+(a.getAttribute("aria-label")?"["+a.getAttribute("aria-label")+"]":"")+(a.type?"("+a.type+")":""):"none"})()');
  const press=async(keyCode,expr,expected,message,refocus=true)=>{let focused='';for(let attempt=0;attempt<3;attempt++){if(attempt>0&&refocus)await focusSlider();focused=await activeElement();await key(keyCode);for(let i=0;i<20;i++){if(await js(expr)===expected)return;await delay(50);}}assert.equal(await js(expr),expected,(message||keyCode)+' (focus was on '+focused+')');};
@@ -101,7 +102,7 @@ app.whenReady().then(async()=>{
   if(process.env.QA_CAPTURE){fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});fs.writeFileSync(path.join(process.env.QA_CAPTURE,'compact-picker.png'),(await win.webContents.capturePage({x:Math.floor(compactBounds.x)-5,y:Math.floor(compactBounds.y)-5,width:Math.ceil(compactBounds.width)+10,height:Math.ceil(compactBounds.height)+10})).toPNG());}
   assert.ok(await js('!!document.querySelector('+JSON.stringify(slider)+')'));
   await click(slider);await focusSlider();await press('Home','qa.efforts.codex','low','Home selects minimum from the provider catalog');
-  await key('Right');await settle('qa.efforts.codex','medium');
+  await press('Right','qa.efforts.codex','medium');
   await press('End','qa.efforts.codex','xhigh');
   await assertStable(closedTrigger);
   await settle('document.querySelector(".effort-picker-selected-effort").textContent','Extra High','toolbar effort follows keyboard selection');
@@ -188,7 +189,7 @@ app.whenReady().then(async()=>{
   await click('[aria-label="Choose model"]');await delay(250);
   await js('Array.from(document.querySelectorAll(".effort-model-view[data-view=models] [role=menuitem]")).find(e=>e.textContent==="codex model 4").click()');await delay(350);
   await click(slider);await focusSlider();await press('Home','qa.efforts.codex','high','Codex retains provider order instead of sorting tiers');
-  await key('Right');await settle('qa.efforts.codex','turbo','new provider tiers pass through unchanged');
+  await press('Right','qa.efforts.codex','turbo','new provider tiers pass through unchanged');
   await press('End','qa.efforts.codex','low');
   await key('Escape');
   assert.deepEqual(errors,[]);
