@@ -55,7 +55,8 @@ app.setPath('userData',path.join(__dirname,'profile'));
 app.commandLine.appendSwitch(process.env.QA_REDUCED==='1'?'force-prefers-reduced-motion':'force-prefers-no-reduced-motion');
 const delay = ms => new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
- const win=new BrowserWindow({width:1000,height:800,show:false});
+ // Hidden windows are throttled by default, which skips animation frames.
+ const win=new BrowserWindow({width:1000,height:800,show:false,webPreferences:{backgroundThrottling:false}});
  const errors=[];
  win.webContents.on('console-message',event=>{if(event.level==='error')errors.push(event.message);});
  const js=async code=>{try{return await win.webContents.executeJavaScript(code,true);}catch(e){throw new Error(code+' :: '+e.message);}};
@@ -121,13 +122,12 @@ app.whenReady().then(async()=>{
   assert.equal(await js('document.querySelector(\'[aria-label="Fast mode"]\').getAttribute("aria-checked")'),'true');
   await assertStable(closedTrigger);
   const initialHeight=await js('document.querySelector(".effort-model-views").getBoundingClientRect().height');
-  await js('document.querySelector(\'[aria-label="Choose model"]\').click()');await delay(70);
-  const intermediateHeight=await js('document.querySelector(".effort-model-views").getBoundingClientRect().height');
-  await delay(400);
-  const finalHeight=await js('document.querySelector(".effort-model-views").getBoundingClientRect().height');
+  // Every frame of the transition, recorded in the page: a single sample at a fixed delay misses it on slow CI runners.
+  const heights=await js('new Promise(resolve=>{const el=document.querySelector(".effort-model-views");const out=[];Array.from(document.querySelectorAll("[aria-label]")).find(e=>e.getAttribute("aria-label")==="Choose model").click();const start=performance.now();const tick=()=>{out.push(el.getBoundingClientRect().height);if(performance.now()-start<700)requestAnimationFrame(tick);else resolve(out);};requestAnimationFrame(tick);})');
+  const finalHeight=heights[heights.length-1];
   if(process.env.QA_REDUCED!=='1') {
    assert.equal(await js('matchMedia("(prefers-reduced-motion: reduce)").matches'),false);
-   assert.ok(intermediateHeight>initialHeight && intermediateHeight<finalHeight,'height animates through intermediate frames');
+   assert.ok(heights.some(h=>h>initialHeight+0.5&&h<finalHeight-0.5),'height animates through intermediate frames: '+JSON.stringify(heights.map(Math.round)));
   }
   assert.ok(await js('document.querySelector(".effort-model-views").getBoundingClientRect().height')>initialHeight);
   assert.equal(await js('document.activeElement.getAttribute("aria-label")'),'Back to reasoning');
