@@ -58,6 +58,7 @@ export interface SessionRow {
   associated_worktree_ref: string | null;
   handoff_source_provider: string | null;
   handoff_pending: number | null;
+  handoff_source_session_id: string | null;
   allowed_tools: string | null;
   last_prompt: string | null;
   todo_state: string | null;

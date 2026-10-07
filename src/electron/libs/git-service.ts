@@ -84,6 +84,12 @@ export async function hasDirtyWorkingTree(cwd: string): Promise<boolean> {
   return stdout.trim().length > 0;
 }
 
+/** `git status --short` lines for a quick read of uncommitted work. */
+export async function getShortStatus(cwd: string, timeout = 5000): Promise<string[]> {
+  const { stdout } = await runGit(cwd, ['status', '--short', '--untracked-files=normal'], timeout);
+  return stdout.split('\n').filter((line) => line.trim().length > 0);
+}
+
 async function getLatestStashSha(cwd: string): Promise<string | null> {
   try {
     const { stdout } = await runGit(cwd, ['rev-parse', '--verify', '--quiet', 'refs/stash'], 5000);

@@ -23,9 +23,14 @@ export function extractSessionLinks(text: string) {
   return result;
 }
 
+/** Runtimes that receive Aegis's read_session tool. */
+export function supportsSessionReferences(provider: string): boolean {
+  return ['claude', 'codex', 'bubble', 'pi', 'qoder', 'opencode', 'deepseek', 'grok'].includes(provider);
+}
+
 /** Keep composer and main-process capability checks identical. */
 export function getSessionReferenceCapabilityError(prompt: string, provider: string, currentSessionId?: string): string | null {
   if (!extractSessionLinks(prompt).some(link => link.sessionId !== currentSessionId)) return null;
-  if (['claude', 'codex', 'bubble', 'pi', 'qoder', 'opencode', 'deepseek', 'grok'].includes(provider)) return null;
+  if (supportsSessionReferences(provider)) return null;
   return 'Conversation references are not available with this agent runtime. Remove the reference or select another agent.';
 }

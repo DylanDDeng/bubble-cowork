@@ -82,6 +82,27 @@ export function buildSessionUserPromptSummaries(
   return summaries;
 }
 
+/**
+ * Every file path a mutating tool call touched across the whole history, in
+ * first-touch order, subagent edits included.
+ */
+export function collectChangedFilePaths(messages: StreamMessage[]): string[] {
+  const paths = new Set<string>();
+  for (const message of messages) {
+    if (message.type !== 'assistant') continue;
+    for (const block of getContentBlocks(message.message?.content)) {
+      if (!isToolUseBlock(block)) continue;
+      const name = typeof block.name === 'string' ? block.name.trim().toLowerCase() : '';
+      if (!MUTATING_TOOL_NAMES.has(name)) continue;
+      const input = isRecord(block.input) ? block.input : {};
+      for (const filePath of extractFilePaths(input)) {
+        paths.add(filePath.replaceAll('\\', '/'));
+      }
+    }
+  }
+  return [...paths];
+}
+
 const MUTATING_TOOL_NAMES = new Set([
   'write',
   'edit',

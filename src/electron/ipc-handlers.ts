@@ -17,6 +17,7 @@ import { isFullAccessMode } from '../shared/workflow';
 import type { GoalAction } from '../shared/session-goal';
 import { parseGoalInput } from '../shared/session-goal';
 import { siteRootPathCandidates } from '../shared/site-root-path';
+import { supportsSessionReferences } from '../shared/session-links';
 import { findProjectFileByName } from './libs/project-file-index';
 import { getClaudeGoalController, readClaudeGoalState, awaitClaudeGoalSet, removeClaudeGoalState } from './libs/claude-goal-manager';
 import { validateClaudeGoalObjective } from './libs/claude-goal';
@@ -39,6 +40,8 @@ import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { setupSessionLinksIPC, openSessionLink, flushSessionLink } from './ipc/session-links';
 import { appendSessionReferences } from './libs/session-reference';
+import { buildHandoffBrief, collectHandoffTurns, readHandoffWorkspace } from './libs/session-handoff';
+import { extractAssistantText, isLocalUtilityAssistantText } from './libs/transcript-text';
 import { setupSessionTitleIPC } from './ipc/session-title';
 import { setupAttachmentIPC } from './ipc/attachments';
 import { setupScreenshotIPC } from './ipc/screenshot';
@@ -2019,24 +2022,6 @@ function detectSilentSlashCommandFailure(
   return buildUnavailableSessionSlashMessage(parsed.name);
 }
 
-function extractAssistantText(message: StreamMessage): string {
-  if (message.type === 'proposed_plan') {
-    const planMarkdown = message.planMarkdown.trim();
-    return planMarkdown ? `Proposed plan:\n${planMarkdown}` : '';
-  }
-
-  if (message.type !== 'assistant' || !message.message || !Array.isArray(message.message.content)) {
-    return '';
-  }
-
-  return message.message.content
-    .filter((block): block is { type: 'text'; text: string } => block.type === 'text' && typeof block.text === 'string')
-    .map((block) => block.text.trim())
-    .filter(Boolean)
-    .join('\n\n')
-    .trim();
-}
-
 function detectLocalRunnerFailureMessage(text: string): string | null {
   const normalized = text.trim();
   if (!normalized) {
@@ -2052,16 +2037,6 @@ function detectLocalRunnerFailureMessage(text: string): string | null {
   }
 
   return null;
-}
-
-function isLocalUtilityAssistantText(text: string): boolean {
-  return (
-    text.startsWith('**Session usage**') ||
-    text.startsWith('**Context compacted**') ||
-    text.startsWith('Compacting conversation...') ||
-    text.startsWith('Failed to compact conversation') ||
-    text.includes('Aegis yet.')
-  );
 }
 
 function isInvalidThinkingBlock(block: unknown): boolean {
@@ -2216,84 +2191,6 @@ function buildHistoryTranscript(history: StreamMessage[]): string {
   return entries.join('\n\n').trim();
 }
 
-// Provider-handoff bootstrap (adapted from Synara's thread handoff): the first
-// prompt of a handoff session carries the imported transcript — recent turns
-// nearly verbatim, earlier turns as one-line bullets — inside a char budget.
-const HANDOFF_RECENT_MESSAGE_COUNT = 6;
-const HANDOFF_EARLIER_MESSAGE_CHAR_LIMIT = 320;
-const HANDOFF_RECENT_MESSAGE_CHAR_LIMIT = 2_400;
-const HANDOFF_CONTEXT_MAX_CHARS = 24_000;
-
-function truncateHandoffText(value: string, maxChars: number): string {
-  if (value.length <= maxChars) {
-    return value;
-  }
-  return `${value.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
-}
-
-function collectHandoffTranscriptEntries(
-  history: StreamMessage[]
-): Array<{ role: 'User' | 'Assistant'; text: string }> {
-  const entries: Array<{ role: 'User' | 'Assistant'; text: string }> = [];
-  for (const message of history) {
-    if (message.parentToolUseId) continue;
-    if (message.type === 'user_prompt') {
-      const prompt = message.prompt.trim();
-      if (prompt) {
-        entries.push({ role: 'User', text: prompt });
-      }
-      continue;
-    }
-    const assistantText = extractAssistantText(message);
-    if (assistantText && !isLocalUtilityAssistantText(assistantText)) {
-      entries.push({ role: 'Assistant', text: assistantText });
-    }
-  }
-  return entries;
-}
-
-function buildHandoffContextText(params: {
-  history: StreamMessage[];
-  title: string;
-  sourceProvider: string;
-  maxChars?: number;
-}): string | null {
-  const entries = collectHandoffTranscriptEntries(params.history);
-  if (entries.length === 0) {
-    return null;
-  }
-
-  const earlier = entries.slice(0, -HANDOFF_RECENT_MESSAGE_COUNT);
-  const recent = entries.slice(-HANDOFF_RECENT_MESSAGE_COUNT);
-  const sections: string[] = [
-    `This conversation was handed off from ${params.sourceProvider}. Continue the work with full awareness of the context below.`,
-    `Original conversation title: ${params.title}`,
-  ];
-
-  if (earlier.length > 0) {
-    sections.push(
-      'Earlier conversation summary:\n' +
-        earlier
-          .map(
-            (entry) =>
-              `- ${entry.role}: ${truncateHandoffText(entry.text.replace(/\s+/g, ' ').trim(), HANDOFF_EARLIER_MESSAGE_CHAR_LIMIT)}`
-          )
-          .join('\n')
-    );
-  }
-
-  sections.push(
-    'Most recent messages:\n' +
-      recent
-        .map(
-          (entry) => `${entry.role}:\n${truncateHandoffText(entry.text.trim(), HANDOFF_RECENT_MESSAGE_CHAR_LIMIT)}`
-        )
-        .join('\n\n')
-  );
-
-  const joined = sections.join('\n\n').trim();
-  return truncateHandoffText(joined, Math.max(0, params.maxChars ?? HANDOFF_CONTEXT_MAX_CHARS));
-}
 
 function buildLatestEditSummaryPrompt(history: StreamMessage[]): string {
   const transcript = buildHistoryTranscript(history);
@@ -2587,6 +2484,18 @@ async function bootstrapOpenCodeSessionFromHistory(params: {
 function extractSummaryContent(text: string): string {
   const match = text.match(/<summary>([\s\S]*?)<\/summary>/i);
   return (match ? match[1] : text).trim();
+}
+
+// The brief links the source conversation; if it was deleted or hidden since,
+// the handoff session's own copied transcript is the fallback.
+function resolveHandoffReferenceSessionId(session: import('./types').SessionRow): string {
+  const source = session.handoff_source_session_id ? sessions.getSession(session.handoff_source_session_id) : null;
+  return source && !source.hidden_from_threads ? source.id : session.id;
+}
+
+function readHandoffGoal(session: import('./types').SessionRow): { objective: string; status: string } | null {
+  const goal = session.handoff_source_session_id ? getCachedSessionGoal(session.handoff_source_session_id)?.goal : null;
+  return goal ? { objective: goal.displayObjective ?? goal.objective, status: goal.status } : null;
 }
 
 function buildRecentConversationContext(history: StreamMessage[]): string {
@@ -5465,8 +5374,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   // Provider handoff: sessions are locked to one agent; switching creates a
-  // new session for the target provider that imports the transcript and
-  // injects it as context on the first prompt (Synara-style thread handoff).
+  // new session for the target provider with the transcript copied for
+  // display, and the first prompt carries a handoff brief (libs/session-handoff).
   ipcMainHandle(
     'session-handoff',
     async (
@@ -5484,7 +5393,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
           return { ok: false as const, message: 'Pick a different agent to hand off to.' };
         }
         const history = sessions.getSessionHistory(source.id);
-        if (collectHandoffTranscriptEntries(history).length === 0) {
+        if (collectHandoffTurns(history).length === 0) {
           return {
             ok: false as const,
             message: 'Send a message first — there is no conversation to hand off yet.',
@@ -5509,9 +5418,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         });
 
         // Copy the transcript so the handoff pane shows the conversation; the
-        // pending flag makes the first prompt carry it as <handoff_context>.
+        // pending flag makes the first prompt carry the brief as <handoff_context>.
         sessions.copySessionHistory(source.id, handoff.id);
-        sessions.setSessionHandoff(handoff.id, sourceProvider);
+        sessions.setSessionHandoff(handoff.id, sourceProvider, source.id);
 
         const row = sessions.getSession(handoff.id);
         if (!row) {
@@ -9715,14 +9624,19 @@ async function handleSessionContinueImpl(
   if (planImplementationPrompt) {
     effectiveRunnerPrompt = planImplementationPrompt;
   }
-  // First prompt of a provider-handoff session: inject the imported transcript
-  // so the new agent starts with the prior conversation's context.
+  // First prompt of a provider-handoff session: inject the handoff brief so
+  // the new agent knows where the work stands and how to read the rest.
   const handoffContextText =
     session.handoff_pending === 1
-      ? buildHandoffContextText({
+      ? buildHandoffBrief({
           history: historyBeforeContinue,
           title: session.title,
           sourceProvider: session.handoff_source_provider || previousProvider,
+          referenceSessionId: supportsSessionReferences(nextProvider)
+            ? resolveHandoffReferenceSessionId(session)
+            : null,
+          goal: readHandoffGoal(session),
+          workspace: await readHandoffWorkspace(session.cwd),
         })
       : null;
   if (handoffContextText) {

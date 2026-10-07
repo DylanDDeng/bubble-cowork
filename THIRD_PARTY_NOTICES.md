@@ -8,15 +8,13 @@ terms in addition to Aegis's own MIT License.
 
 Repository: https://github.com/Emanuele-web04/synara
 
-Portions of Aegis's in-app browser, provider-adapter architecture, and
-provider-handoff implementation were adapted from Synara, which was originally
-published under the name dpcode.
+Portions of Aegis's in-app browser and provider-adapter architecture were
+adapted from Synara, which was originally published under the name dpcode.
 
 The affected areas include:
 
 - the Electron in-app browser manager, browser state, and browser panel logic;
-- the provider-adapter architecture and related runtime integration patterns;
-- the context-carrying provider handoff implementation.
+- the provider-adapter architecture and related runtime integration patterns.
 
 Synara is distributed under the MIT License:
 
