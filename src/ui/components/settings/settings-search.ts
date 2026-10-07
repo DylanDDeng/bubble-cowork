@@ -6,6 +6,7 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   {tab: 'shortcuts', label: 'Keyboard shortcuts', keywords: 'keymap hotkey bindings 快捷键 键盘'},
   ...SHORTCUT_COMMANDS.map(c => ({tab: 'shortcuts' as const, label: c.title, id: `shortcut:${c.id}`, keywords: 'keyboard shortcut keymap 快捷键'})),
   ...[
+    ['connections', 'Connections', 'iphone mobile pairing devices remote 手机 移动端 配对 连接 远程'],
     ['general', 'General', 'preferences 通用'], ['profile', 'Profile', 'account avatar name 个人资料 头像'], ['appearance', 'Appearance', 'theme 外观'],
     ['browser', 'Browser', 'cookies browsing 浏览器'], ['providers', 'Providers', 'api key models 模型 密钥'],
     ['mcp', 'MCP Servers', 'tools 工具'], ['usage', 'Usage', 'cost tokens 费用 用量'], ['bridge', 'Bridge', 'channels remote 远程'],
