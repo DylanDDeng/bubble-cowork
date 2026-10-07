@@ -97,8 +97,8 @@ app.whenReady().then(async()=>{
   await key('Right');await settle('qa.efforts.codex','medium');
   await key('End');await settle('qa.efforts.codex','xhigh');
   await assertStable(closedTrigger);
-  assert.equal(await js('document.querySelector(".effort-picker-selected-effort").textContent'),'Extra High','toolbar effort follows keyboard selection');
-  assert.equal(await js('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")'),'Extra High');
+  await settle('document.querySelector(".effort-picker-selected-effort").textContent','Extra High','toolbar effort follows keyboard selection');
+  await settle('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")','Extra High');
   // Real mouse drag previews while held and commits on release.
   const r=await js('(()=>{const r=document.querySelector('+JSON.stringify(slider)+').getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};})()');
   win.webContents.sendInputEvent({type:'mouseDown',x:Math.round(r.x+r.w-14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});
@@ -112,11 +112,11 @@ app.whenReady().then(async()=>{
   await settle('qa.efforts.codex','high','focused wheel advances one discrete tier');
   win.webContents.sendInputEvent({type:'mouseDown',x:Math.round(r.x+r.w-14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});
   win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(r.x+14),y:Math.round(r.y+r.h/2),movementX:-r.w,movementY:0});await delay(150);
-  assert.equal(await js('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")'),'Low');
-  assert.equal(await js('document.querySelector(".effort-picker-selected-effort").textContent'),'Low','toolbar follows drag preview before commit');
+  await settle('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")','Low');
+  await settle('document.querySelector(".effort-picker-selected-effort").textContent','Low','toolbar follows drag preview before commit');
   await js('document.querySelector('+JSON.stringify(slider)+').dispatchEvent(new PointerEvent("pointercancel",{pointerId:1,bubbles:true}))');await delay(100);
   await settle('qa.efforts.codex','high','pointer cancel discards preview');
-  assert.equal(await js('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")'),'High');
+  await settle('document.querySelector('+JSON.stringify(slider)+').getAttribute("aria-valuetext")','High');
   win.webContents.sendInputEvent({type:'mouseUp',x:Math.round(r.x+14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});await delay(100);
   await click(slider);await focusSlider();await key('Home');await settle('qa.efforts.codex','low');
   await click('[aria-label="Reset reasoning to default"]');await settle('qa.efforts.codex','high');
