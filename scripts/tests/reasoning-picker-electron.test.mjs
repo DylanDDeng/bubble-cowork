@@ -64,7 +64,9 @@ app.whenReady().then(async()=>{
  const key=async keyCode=>{win.webContents.sendInputEvent({type:'keyDown',keyCode});win.webContents.sendInputEvent({type:'keyUp',keyCode});await delay(80);};
  // Store updates land a few frames after input; CI runners are slow, so poll instead of a fixed delay.
  // Home/End are idempotent, so a key press dropped by the CI runner is safely sent again.
- const press=async(keyCode,expr,expected,message)=>{for(let attempt=0;attempt<3;attempt++){await key(keyCode);for(let i=0;i<20;i++){if(await js(expr)===expected)return;await delay(50);}}assert.equal(await js(expr),expected,message);};
+ // Retries refocus the slider unless the step is about focus staying there.
+ const activeElement=()=>js('(()=>{const a=document.activeElement;return a?a.tagName+(a.getAttribute("aria-label")?"["+a.getAttribute("aria-label")+"]":"")+(a.type?"("+a.type+")":""):"none"})()');
+ const press=async(keyCode,expr,expected,message,refocus=true)=>{let focused='';for(let attempt=0;attempt<3;attempt++){if(attempt>0&&refocus)await focusSlider();focused=await activeElement();await key(keyCode);for(let i=0;i<20;i++){if(await js(expr)===expected)return;await delay(50);}}assert.equal(await js(expr),expected,(message||keyCode)+' (focus was on '+focused+')');};
  const settle=async(expr,expected,message)=>{let value;for(let i=0;i<60;i++){value=await js(expr);if(value===expected)break;await delay(50);}assert.equal(value,expected,message);};
  const slider='.effort-model-view:not([inert]) input[type=range]';
  // The click can land while the menu is still settling (seen on CI); keys must go to the slider.
@@ -111,7 +113,7 @@ app.whenReady().then(async()=>{
   await settle('qa.efforts.codex','xhigh','drag preview does not write configuration');
   win.webContents.sendInputEvent({type:'mouseUp',x:Math.round(r.x+14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});await delay(200);
   await settle('qa.efforts.codex','low','drag release commits');
-  await press('End','qa.efforts.codex','xhigh','keyboard remains on slider after dragging');
+  await press('End','qa.efforts.codex','xhigh','keyboard remains on slider after dragging',false);
   await js('document.querySelector('+JSON.stringify(slider)+').dispatchEvent(new WheelEvent("wheel",{deltaY:30,cancelable:true,bubbles:true}))');await delay(100);
   await settle('qa.efforts.codex','high','focused wheel advances one discrete tier');
   win.webContents.sendInputEvent({type:'mouseDown',x:Math.round(r.x+r.w-14),y:Math.round(r.y+r.h/2),button:'left',clickCount:1});
