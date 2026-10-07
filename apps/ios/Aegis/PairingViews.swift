@@ -22,9 +22,9 @@ struct WelcomeView: View {
             .padding(.top, 40)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("Work on your Mac,\nfrom anywhere.").font(.system(size: 32, weight: .bold)).tracking(-0.8)
+                Text("Work on your Mac,\nfrom anywhere.").font(.app(32, weight: .bold)).tracking(-0.8)
                 Text("Follow running tasks, answer approvals and start new work while your Mac does the heavy lifting.")
-                    .font(.system(size: 17)).foregroundStyle(Color.text2)
+                    .font(.app(17)).foregroundStyle(Color.text2)
             }
             .padding(.horizontal, 28)
             .padding(.top, 30)
@@ -34,7 +34,7 @@ struct WelcomeView: View {
                 Button("Connect your Mac") { model.pairOpen = true }
                     .buttonStyle(PillButtonStyle(kind: .primary, height: 56))
                 Label("End-to-end encrypted · Code stays on your Mac", systemImage: "lock")
-                    .font(.system(size: 13)).foregroundStyle(Color.text2)
+                    .font(.app(13)).foregroundStyle(Color.text2)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
@@ -45,13 +45,13 @@ struct WelcomeView: View {
     private func preview(icon: String? = nil, spinner: Bool = false, tint: Color = Color.text1, tintBg: Color = Color.fill2, caption: String, title: String) -> some View {
         HStack(spacing: 12) {
             Group {
-                if spinner { ProgressView() } else { Image(systemName: icon ?? "circle").font(.system(size: 16, weight: .semibold)).foregroundStyle(tint) }
+                if spinner { ProgressView() } else { Image(systemName: icon ?? "circle").font(.app(16, weight: .semibold)).foregroundStyle(tint) }
             }
             .frame(width: 34, height: 34)
             .background(tintBg, in: .circle)
             VStack(alignment: .leading, spacing: 2) {
-                Text(caption).font(.system(size: 12, weight: .medium)).foregroundStyle(Color.text2)
-                Text(title).font(.system(size: 15, weight: .semibold))
+                Text(caption).font(.app(12, weight: .medium)).foregroundStyle(Color.text2)
+                Text(title).font(.app(15, weight: .semibold))
             }
             Spacer(minLength: 0)
         }
@@ -70,10 +70,10 @@ struct PairSheet: View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Text("Connect your Mac").font(.system(size: 22, weight: .bold))
+                Text("Connect your Mac").font(.app(22, weight: .bold))
                 Spacer()
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.system(size: 14, weight: .bold)).foregroundStyle(Color.text2)
+                    Image(systemName: "xmark").font(.app(14, weight: .bold)).foregroundStyle(Color.text2)
                         .frame(width: 32, height: 32).background(Color.fill2, in: .circle)
                 }
                 .buttonStyle(.plain)
@@ -90,7 +90,7 @@ struct PairSheet: View {
                     .disabled(model.busy)
                 HStack(spacing: 12) {
                     Rectangle().fill(Color.hair).frame(height: 0.5)
-                    Text("or paste a link").font(.system(size: 13)).foregroundStyle(Color.text3).fixedSize()
+                    Text("or paste a link").font(.app(13)).foregroundStyle(Color.text3).fixedSize()
                     Rectangle().fill(Color.hair).frame(height: 0.5)
                 }
             }
@@ -98,7 +98,7 @@ struct PairSheet: View {
                 Image(systemName: "link").foregroundStyle(Color.text3)
                 TextField("aegis://pair#…", text: $model.pairText, axis: .vertical)
                     .lineLimit(1...3)
-                    .font(.system(size: 15))
+                    .font(.app(15))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 Button {
@@ -114,10 +114,10 @@ struct PairSheet: View {
             .background(Color.fill2, in: .rect(cornerRadius: 16))
             if !model.notice.isEmpty || !model.client.error.isEmpty {
                 Text(model.notice.isEmpty ? model.client.error : model.notice)
-                    .font(.system(size: 13)).foregroundStyle(Color.danger)
+                    .font(.app(13)).foregroundStyle(Color.danger)
             }
             Text("Pairing codes expire after 2 minutes.")
-                .font(.system(size: 13)).foregroundStyle(Color.text2).frame(maxWidth: .infinity)
+                .font(.app(13)).foregroundStyle(Color.text2).frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
@@ -137,8 +137,8 @@ struct PairSheet: View {
 
     private func step(_ n: Int, _ text: Text) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text("\(n)").font(.system(size: 13, weight: .semibold)).frame(width: 24, height: 24).background(Color.fill2, in: .circle)
-            text.font(.system(size: 15))
+            Text("\(n)").font(.app(13, weight: .semibold)).frame(width: 24, height: 24).background(Color.fill2, in: .circle)
+            text.font(.app(15))
         }
     }
 }
@@ -184,25 +184,25 @@ struct ConfirmOnMacView: View {
         VStack(spacing: 20) {
             ZStack {
                 Circle().strokeBorder(Color.hair, lineWidth: 1).frame(width: 96, height: 96).opacity(pulse ? 1 : 0.3)
-                Image(systemName: "laptopcomputer").font(.system(size: 30)).frame(width: 72, height: 72).background(Color.fill2, in: .circle)
+                Image(systemName: "laptopcomputer").font(.app(30)).frame(width: 72, height: 72).background(Color.fill2, in: .circle)
             }
             .onAppear { withAnimation(.easeInOut(duration: 1).repeatForever()) { pulse = true } }
-            Text("Confirm on your Mac").font(.system(size: 26, weight: .bold))
+            Text("Confirm on your Mac").font(.app(26, weight: .bold))
             (Text("Aegis on ") + Text(model.client.pairing?.name ?? "your Mac").bold().foregroundStyle(Color.text1)
              + Text(" is asking to allow this iPhone. Check that the device ID on your Mac ends with:"))
-                .font(.system(size: 16)).foregroundStyle(Color.text2).multilineTextAlignment(.center)
+                .font(.app(16)).foregroundStyle(Color.text2).multilineTextAlignment(.center)
             Text(tail.isEmpty ? "…" : "\(tail.prefix(4)) \(tail.dropFirst(4))")
-                .font(.system(size: 26, weight: .semibold, design: .monospaced)).tracking(3)
+                .font(.app(26, weight: .semibold, design: .monospaced)).tracking(3)
                 .padding(.horizontal, 22).padding(.vertical, 16)
                 .background(Color.fill2, in: .rect(cornerRadius: 22))
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text("Waiting for your Mac…")
             }
-            .font(.system(size: 13)).foregroundStyle(Color.text2)
+            .font(.app(13)).foregroundStyle(Color.text2)
             Spacer()
             VStack(spacing: 12) {
-                Text("Doesn’t match? Cancel and pair again.").font(.system(size: 13)).foregroundStyle(Color.text3)
+                Text("Doesn’t match? Cancel and pair again.").font(.app(13)).foregroundStyle(Color.text3)
                 Button("Cancel") { Task { await model.client.disconnect(forget: true) } }
                     .buttonStyle(PillButtonStyle(kind: .secondary, height: 52))
                     .background(Color.fill2, in: .capsule)

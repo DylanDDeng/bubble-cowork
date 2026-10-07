@@ -16,19 +16,19 @@ struct ProjectsPage: View {
                     let latest = own.map(\.updatedAt).max()
                     NavigationLink(value: AppModel.Route.project(p.id)) {
                         HStack(spacing: 14) {
-                            Image(systemName: "folder").font(.system(size: 19)).frame(width: 42, height: 42).background(Color.fill2, in: .rect(cornerRadius: 13))
+                            Image(systemName: "folder").font(.app(19)).frame(width: 42, height: 42).background(Color.fill2, in: .rect(cornerRadius: 13))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(p.name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                                Text(p.name).font(.app(16, weight: .semibold)).lineLimit(1)
                                 HStack(spacing: 6) {
                                     if running > 0 { ProgressView().controlSize(.mini) }
                                     Text((running > 0 ? "\(running) running · " : "") + "\(own.count) \(own.count == 1 ? "task" : "tasks")"
                                          + (running == 0 && latest != nil ? " · \(relativeTime(latest!))" : ""))
                                 }
-                                .font(.system(size: 13)).foregroundStyle(Color.text2)
+                                .font(.app(13)).foregroundStyle(Color.text2)
                             }
                             Spacer(minLength: 4)
                             if waiting > 0 {
-                                Text("\(waiting) need you").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.warn)
+                                Text("\(waiting) need you").font(.app(12, weight: .semibold)).foregroundStyle(Color.warn)
                                     .padding(.horizontal, 8).padding(.vertical, 3).background(Color.warnBg, in: .capsule)
                             }
                         }
@@ -41,7 +41,7 @@ struct ProjectsPage: View {
                 }
             } footer: {
                 Label("Only projects you share from Aegis on your Mac appear here. Change access in Settings → Connections on the Mac.", systemImage: "lock")
-                    .font(.system(size: 13))
+                    .font(.app(13))
             }
         }
         .searchable(text: $query, prompt: "Search projects")
@@ -49,8 +49,8 @@ struct ProjectsPage: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
-                    Text("Projects").font(.system(size: 16, weight: .semibold))
-                    Text("Shared from \(model.macName)").font(.system(size: 12)).foregroundStyle(Color.text2)
+                    Text("Projects").font(.app(16, weight: .semibold))
+                    Text("Shared from \(model.macName)").font(.app(12)).foregroundStyle(Color.text2)
                 }
             }
         }
@@ -71,11 +71,11 @@ struct ProjectPage: View {
         List {
             Section {
                 HStack(spacing: 14) {
-                    Image(systemName: "folder").font(.system(size: 24)).frame(width: 52, height: 52).background(Color.fill2, in: .rect(cornerRadius: 16))
+                    Image(systemName: "folder").font(.app(24)).frame(width: 52, height: 52).background(Color.fill2, in: .rect(cornerRadius: 16))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(project?.name ?? "Project").font(.system(size: 26, weight: .bold)).lineLimit(1)
+                        Text(project?.name ?? "Project").font(.app(26, weight: .bold)).lineLimit(1)
                         Text("\(own.count) \(own.count == 1 ? "task" : "tasks") · shared from \(model.macName)")
-                            .font(.system(size: 13)).foregroundStyle(Color.text2)
+                            .font(.app(13)).foregroundStyle(Color.text2)
                     }
                 }
                 .listRowBackground(Color.clear)
@@ -91,8 +91,8 @@ struct ProjectPage: View {
                                 HStack(spacing: 10) {
                                     SessionGlyph(provider: s.provider, from: s.handoffSourceProvider)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(s.title.isEmpty ? "Untitled task" : s.title).font(.system(size: 16, weight: .medium)).lineLimit(1)
-                                        Text(s.isRunning ? "Running" : relativeTime(s.updatedAt)).font(.system(size: 13)).foregroundStyle(Color.text2)
+                                        Text(s.title.isEmpty ? "Untitled task" : s.title).font(.app(16, weight: .medium)).lineLimit(1)
+                                        Text(s.isRunning ? "Running" : relativeTime(s.updatedAt)).font(.app(13)).foregroundStyle(Color.text2)
                                     }
                                     Spacer(minLength: 4)
                                     let trailing = SessionTrailing(session: s, waiting: model.permissions.first { $0.sessionId == s.id })
@@ -127,22 +127,22 @@ struct SettingsPage: View {
         List {
             Section {
                 HStack(spacing: 14) {
-                    Image(systemName: "laptopcomputer").font(.system(size: 22)).frame(width: 48, height: 48).background(Color.fill2, in: .circle)
+                    Image(systemName: "laptopcomputer").font(.app(22)).frame(width: 48, height: 48).background(Color.fill2, in: .circle)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(model.macName).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                        Text(model.macName).font(.app(17, weight: .semibold)).lineLimit(1)
                         HStack(spacing: 6) {
                             StatusDot(online: model.ready)
                             Text("\(model.environmentLabel) · \(model.client.connection == .connected ? "Connected" : model.connectionText)")
                                 .lineLimit(1)
                         }
-                        .font(.system(size: 13)).foregroundStyle(Color.text2)
+                        .font(.app(13)).foregroundStyle(Color.text2)
                     }
                     Spacer(minLength: 8)
                     HStack(spacing: 4) {
                         Image(systemName: "lock")
                         Text("Encrypted")
                     }
-                    .font(.system(size: 12)).foregroundStyle(Color.text2).fixedSize()
+                    .font(.app(12)).foregroundStyle(Color.text2).fixedSize()
                 }
                 .padding(.vertical, 4)
                 .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
@@ -179,7 +179,7 @@ struct SettingsPage: View {
                 Text("Clears this iPhone’s saved tasks and drafts. To revoke access, remove this iPhone in Aegis on your Mac.")
             }
             Section {
-                Text("Aegis for iOS · Preview 0.2").font(.system(size: 12)).foregroundStyle(Color.text3)
+                Text("Aegis for iOS · Preview 0.2").font(.app(12)).foregroundStyle(Color.text3)
                     .frame(maxWidth: .infinity).listRowBackground(Color.clear)
             }
         }
@@ -206,21 +206,21 @@ struct ApprovalSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "apple.terminal").font(.system(size: 19, weight: .semibold)).foregroundStyle(Color.warn)
+                    Image(systemName: "apple.terminal").font(.app(19, weight: .semibold)).foregroundStyle(Color.warn)
                         .frame(width: 44, height: 44).background(Color.warnBg, in: .circle)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(permission.canApprove ? "Allow \(permission.toolName)?" : "Handle this on your Mac")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.app(20, weight: .semibold))
                         Text(session.map { "\(providerLabel($0.provider)) · \($0.title)" } ?? permission.toolName)
-                            .font(.system(size: 13)).foregroundStyle(Color.text2).lineLimit(1)
+                            .font(.app(13)).foregroundStyle(Color.text2).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
                 if let request {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(request.label).font(.system(size: 13, weight: .medium)).foregroundStyle(Color.text3)
+                        Text(request.label).font(.app(13, weight: .medium)).foregroundStyle(Color.text3)
                         ScrollView {
-                            Text(request.body).font(.system(size: 13.5, design: .monospaced)).textSelection(.enabled)
+                            Text(request.body).font(.app(13.5, design: .monospaced)).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.vertical, 12)
                         }
                         .frame(maxHeight: 260)
@@ -243,7 +243,7 @@ struct ApprovalSheet: View {
                          : permission.canApprove ? "Allows this request only. Your project’s permission settings stay the same."
                          : "Questions, plans and computer use need Aegis on your Mac. You can still deny it here.")
                 } icon: { Image(systemName: "lock") }
-                    .font(.system(size: 13)).foregroundStyle(Color.text2)
+                    .font(.app(13)).foregroundStyle(Color.text2)
                 HStack(spacing: 8) {
                     Button("Deny") { Task { await model.decide(permission, "deny") } }
                         .buttonStyle(PillButtonStyle(kind: .secondary, height: 52))
@@ -271,9 +271,9 @@ struct ApprovalSheet: View {
         HStack {
             Text(key).foregroundStyle(Color.text2)
             Spacer(minLength: 12)
-            Text(value).fontWeight(.medium).font(mono ? .system(size: 13, design: .monospaced) : .system(size: 14)).lineLimit(1)
+            Text(value).fontWeight(.medium).font(mono ? .app(13, design: .monospaced) : .app(14)).lineLimit(1)
         }
-        .font(.system(size: 14))
+        .font(.app(14))
         .padding(.horizontal, 14).padding(.vertical, 11)
     }
 }
@@ -299,12 +299,12 @@ struct Banners: View {
                     Image(systemName: "exclamationmark.circle")
                     Text(notice).frame(maxWidth: .infinity, alignment: .leading)
                     Button { model.dismissNotice() } label: {
-                        Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).frame(width: 30, height: 30)
+                        Image(systemName: "xmark").font(.app(12, weight: .bold)).frame(width: 30, height: 30)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss")
                 }
-                .font(.system(size: 13.5, weight: .medium))
+                .font(.app(13.5, weight: .medium))
                 .foregroundStyle(Color.danger)
                 .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 6)
                 .glassEffect(.regular, in: .rect(cornerRadius: 20))
@@ -321,13 +321,13 @@ struct Banners: View {
             Image(systemName: icon).foregroundStyle(Color.text3)
             Text(text).frame(maxWidth: .infinity, alignment: .leading)
             Button(action, action: run)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.app(13, weight: .semibold))
                 .foregroundStyle(Color.text1)
                 .padding(.horizontal, 12).frame(height: 30)
                 .background(Color.fill2, in: .capsule)
                 .buttonStyle(.plain)
         }
-        .font(.system(size: 13.5, weight: .medium))
+        .font(.app(13.5, weight: .medium))
         .padding(.leading, 14).padding(.trailing, 6).frame(minHeight: 40)
         .glassEffect(.regular, in: .capsule)
         .transition(.move(edge: .top).combined(with: .opacity))

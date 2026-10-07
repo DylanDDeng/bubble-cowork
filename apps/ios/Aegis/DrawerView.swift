@@ -34,13 +34,13 @@ struct SessionTrailing: View {
     var body: some View {
         if let waiting {
             Text(waiting.canApprove ? "Approve" : "On Mac")
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.warn)
+                .font(.app(12, weight: .semibold)).foregroundStyle(Color.warn)
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .background(Color.warnBg, in: .capsule)
         } else if session.isRunning {
             ProgressView().controlSize(.small)
         } else if session.isFailed {
-            Text("Failed").font(.system(size: 12, weight: .medium)).foregroundStyle(Color.danger)
+            Text("Failed").font(.app(12, weight: .medium)).foregroundStyle(Color.danger)
         }
     }
 }
@@ -62,7 +62,7 @@ struct DrawerView: View {
                 .frame(height: 42)
                 .background(Color.fill2, in: .capsule)
                 Button { model.openHome() } label: {
-                    Image(systemName: "square.and.pencil").font(.system(size: 17, weight: .medium)).foregroundStyle(Color.ink).frame(width: 42, height: 42)
+                    Image(systemName: "square.and.pencil").font(.app(17, weight: .medium)).foregroundStyle(Color.ink).frame(width: 42, height: 42)
                 }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .circle)
@@ -79,7 +79,7 @@ struct DrawerView: View {
                         row(icon: "folder", label: "Projects", count: model.projects.count, chevron: true) { model.push(.projects) }
                     }
                     ForEach(groupSessions(filtered, model.permissions), id: \.title) { group in
-                        Text(group.title).font(.system(size: 13, weight: .medium)).foregroundStyle(Color.text3)
+                        Text(group.title).font(.app(13, weight: .medium)).foregroundStyle(Color.text3)
                             .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 6)
                         ForEach(group.items) { s in
                             Button { model.open(session: s.id) } label: {
@@ -88,7 +88,7 @@ struct DrawerView: View {
                                     Text(s.title.isEmpty ? "Untitled task" : s.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                                     SessionTrailing(session: s, waiting: model.permissions.first { $0.sessionId == s.id })
                                 }
-                                .font(.system(size: 15, weight: model.currentSessionId == s.id ? .medium : .regular))
+                                .font(.app(15, weight: model.currentSessionId == s.id ? .medium : .regular))
                                 .padding(.horizontal, 10)
                                 .frame(minHeight: 40)
                                 .background(model.currentSessionId == s.id ? Color.fill2 : .clear, in: .rect(cornerRadius: 12))
@@ -98,7 +98,7 @@ struct DrawerView: View {
                         }
                     }
                     if !q.isEmpty && filtered.isEmpty {
-                        Text("No matching tasks.").font(.system(size: 14)).foregroundStyle(Color.text2).padding(10)
+                        Text("No matching tasks.").font(.app(14)).foregroundStyle(Color.text2).padding(10)
                     }
                 }
                 .padding(.horizontal, 8)
@@ -108,14 +108,14 @@ struct DrawerView: View {
 
             Button { model.push(.settings) } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "laptopcomputer").font(.system(size: 17)).frame(width: 38, height: 38).background(Color.fill2, in: .circle)
+                    Image(systemName: "laptopcomputer").font(.app(17)).frame(width: 38, height: 38).background(Color.fill2, in: .circle)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(model.macName).font(.system(size: 15, weight: .semibold))
+                        Text(model.macName).font(.app(15, weight: .semibold))
                         HStack(spacing: 5) {
                             StatusDot(online: model.ready)
                             Text("\(model.environmentLabel) · \(model.connectionText)")
                         }
-                        .font(.system(size: 12)).foregroundStyle(Color.text2)
+                        .font(.app(12)).foregroundStyle(Color.text2)
                     }
                     Spacer()
                     Image(systemName: "gearshape").foregroundStyle(Color.text3)
@@ -134,12 +134,12 @@ struct DrawerView: View {
     private func row(icon: String, label: String, count: Int? = nil, chevron: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: icon).font(.system(size: 16)).frame(width: 22)
+                Image(systemName: icon).font(.app(16)).frame(width: 22)
                 Text(label).frame(maxWidth: .infinity, alignment: .leading)
-                if let count { Text("\(count)").font(.system(size: 13)).foregroundStyle(Color.text3) }
-                if chevron { Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.text3) }
+                if let count { Text("\(count)").font(.app(13)).foregroundStyle(Color.text3) }
+                if chevron { Image(systemName: "chevron.right").font(.app(12, weight: .semibold)).foregroundStyle(Color.text3) }
             }
-            .font(.system(size: 15))
+            .font(.app(15))
             .padding(.horizontal, 10)
             .frame(minHeight: 40)
             .contentShape(Rectangle())

@@ -29,16 +29,16 @@ private struct Disclosure: View {
             withAnimation(.snappy(duration: 0.25)) { open.toggle() }
         } label: {
             HStack(spacing: 6) {
-                if let icon { Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Color.text3) }
+                if let icon { Image(systemName: icon).font(.app(13)).foregroundStyle(Color.text3) }
                 (Text(label) + Text(detail ?? "").foregroundStyle(Color.text3))
                     .lineLimit(1)
                     .shimmer(active)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.app(11, weight: .semibold))
                     .foregroundStyle(Color.text3)
                     .rotationEffect(.degrees(open ? 90 : 0))
             }
-            .font(.system(size: 14))
+            .font(.app(14))
             .foregroundStyle(Color.text2)
             .contentShape(Rectangle())
         }
@@ -50,24 +50,22 @@ private struct Disclosure: View {
 /// Turn-level disclosure ("Worked for 1m 12s").
 struct WorkBlockView: View {
     let work: WorkBlock
-    @State private var open: Bool
-
-    init(work: WorkBlock) {
-        self.work = work
-        _open = State(initialValue: work.defaultExpanded)
-    }
+    /// Only a tap sets this; otherwise it follows the default, which collapses the
+    /// trace once the turn finishes (as on the desktop).
+    @State private var choice: Bool?
+    private var open: Bool { choice ?? work.defaultExpanded }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let label = work.label {
                 VStack(alignment: .leading, spacing: 8) {
-                    Disclosure(label: label, open: $open)
+                    Disclosure(label: label, open: Binding { open } set: { choice = $0 })
                     Rectangle().fill(Color.hair).frame(height: 0.5)
                 }
             }
             if let stopped = work.stoppedLabel {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(stopped).font(.system(size: 14)).foregroundStyle(Color.text2)
+                    Text(stopped).font(.app(14)).foregroundStyle(Color.text2)
                     Rectangle().fill(Color.hair).frame(height: 0.5)
                 }
             }
@@ -84,18 +82,19 @@ struct WorkBlockView: View {
                                 if inProgress { ProgressView().controlSize(.mini) }
                                 Text(label)
                             }
-                            .font(.system(size: 14)).foregroundStyle(Color.text2)
+                            .font(.app(14)).foregroundStyle(Color.text2)
                         case .stages(let stageGroup):
                             StageGroupView(group: stageGroup)
                         }
                     }
                     if work.working {
-                        Text("Working").font(.system(size: 14)).shimmer()
+                        Text("Working").font(.app(14)).shimmer()
                     }
                 }
                 .transition(.opacity)
             }
         }
+        .animation(.snappy(duration: 0.25), value: work.defaultExpanded)
     }
 }
 
@@ -110,7 +109,7 @@ private struct ThinkingRow: View {
             Disclosure(label: label, open: $open, active: active)
             if open {
                 Text(text)
-                    .font(.system(size: 14))
+                    .font(.app(14))
                     .foregroundStyle(Color.text2)
                     .lineSpacing(3)
                     .padding(.leading, 12)
@@ -123,12 +122,8 @@ private struct ThinkingRow: View {
 
 private struct StageGroupView: View {
     let group: StageGroup
-    @State private var open: Bool
-
-    init(group: StageGroup) {
-        self.group = group
-        _open = State(initialValue: group.defaultOpen)
-    }
+    @State private var choice: Bool?
+    private var open: Bool { choice ?? group.defaultOpen }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -136,7 +131,7 @@ private struct StageGroupView: View {
                 Disclosure(
                     label: group.headerLabel,
                     detail: group.failed > 0 ? " (\(group.failed) failed)" : nil,
-                    open: $open,
+                    open: Binding { open } set: { choice = $0 },
                     active: group.headerActive,
                     icon: group.thinking ? nil : stageSymbol(group.headerIcon)
                 )
@@ -153,7 +148,7 @@ private struct StageGroupView: View {
                 }
             }
             if !group.showHeader && group.thinking {
-                Text("Thinking").font(.system(size: 14)).shimmer()
+                Text("Thinking").font(.app(14)).shimmer()
             }
         }
     }
@@ -161,24 +156,20 @@ private struct StageGroupView: View {
 
 private struct StageRow: View {
     let stage: Stage
-    @State private var open: Bool
-
-    init(stage: Stage) {
-        self.stage = stage
-        _open = State(initialValue: stage.defaultOpen)
-    }
+    @State private var choice: Bool?
+    private var open: Bool { choice ?? stage.defaultOpen }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
-                withAnimation(.snappy(duration: 0.25)) { open.toggle() }
+                withAnimation(.snappy(duration: 0.25)) { choice = !open }
             } label: {
                 HStack(spacing: 8) {
                     if stage.status == "pending" {
                         ProgressView().controlSize(.mini).frame(width: 15)
                     } else {
                         Image(systemName: stageSymbol(stage.icon))
-                            .font(.system(size: 13))
+                            .font(.app(13))
                             .foregroundStyle(stage.status == "waiting" ? Color.warn : Color.text3)
                             .frame(width: 15)
                     }
@@ -189,17 +180,17 @@ private struct StageRow: View {
                     if stage.icon == "edit", stage.addedLines + stage.removedLines > 0 {
                         DiffCounts(added: stage.addedLines, removed: stage.removedLines)
                     }
-                    if stage.status == "error" { Image(systemName: "exclamationmark.circle").font(.system(size: 12)).foregroundStyle(Color.danger) }
-                    if stage.status == "waiting" { Image(systemName: "exclamationmark.shield").font(.system(size: 12)).foregroundStyle(Color.warn) }
-                    if stage.status == "interrupted" { Image(systemName: "circle.dashed").font(.system(size: 12)).foregroundStyle(Color.text3) }
+                    if stage.status == "error" { Image(systemName: "exclamationmark.circle").font(.app(12)).foregroundStyle(Color.danger) }
+                    if stage.status == "waiting" { Image(systemName: "exclamationmark.shield").font(.app(12)).foregroundStyle(Color.warn) }
+                    if stage.status == "interrupted" { Image(systemName: "circle.dashed").font(.app(12)).foregroundStyle(Color.text3) }
                     if stage.expandable && stage.status != "waiting" {
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.app(11, weight: .semibold))
                             .foregroundStyle(Color.text3)
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
-                .font(.system(size: 14))
+                .font(.app(14))
                 .padding(.vertical, 3)
                 .contentShape(Rectangle())
             }
@@ -212,7 +203,7 @@ private struct StageRow: View {
                             InlineEditDiff(stage: stage, file: file)
                         } else {
                             HStack(spacing: 8) {
-                                Text(file.name).font(.system(size: 12.5, design: .monospaced)).lineLimit(1)
+                                Text(file.name).font(.app(12.5, design: .monospaced)).lineLimit(1)
                                 if file.addedLines + file.removedLines > 0 { DiffCounts(added: file.addedLines, removed: file.removedLines) }
                             }
                             .foregroundStyle(Color.text2)
@@ -247,11 +238,11 @@ private struct InlineEditDiff: View {
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    Image(systemName: "doc.text").font(.system(size: 12)).foregroundStyle(Color.text3)
-                    Text(file.name).font(.system(size: 12.5, weight: .medium, design: .monospaced)).foregroundStyle(Color.text1).lineLimit(1)
+                    Image(systemName: "doc.text").font(.app(12)).foregroundStyle(Color.text3)
+                    Text(file.name).font(.app(12.5, weight: .medium, design: .monospaced)).foregroundStyle(Color.text1).lineLimit(1)
                     Spacer(minLength: 4)
                     DiffCounts(added: file.addedLines, removed: file.removedLines)
-                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.text3)
+                    Image(systemName: "chevron.right").font(.app(10, weight: .semibold)).foregroundStyle(Color.text3)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 8)
                 if !lines.isEmpty {
@@ -262,14 +253,14 @@ private struct InlineEditDiff: View {
                                 Text(line.type == "add" ? "+" : line.type == "del" ? "−" : " ").frame(width: 16)
                                 Text(line.text).lineLimit(1)
                             }
-                            .font(.system(size: 11.5, design: .monospaced))
+                            .font(.app(11.5, design: .monospaced))
                             .foregroundStyle(line.type == "add" ? Color.add : line.type == "del" ? Color.del : Color.text2)
                             .frame(maxWidth: .infinity, minHeight: 18, alignment: .leading)
                             .background(line.type == "add" ? Color.addBg : line.type == "del" ? Color.delBg : .clear)
                         }
                         if hidden > 0 {
                             Text("\(hidden) more \(hidden == 1 ? "line" : "lines")")
-                                .font(.system(size: 11.5)).foregroundStyle(Color.text3)
+                                .font(.app(11.5)).foregroundStyle(Color.text3)
                                 .padding(.horizontal, 10).padding(.vertical, 5)
                         }
                     }
@@ -310,7 +301,7 @@ private struct OutputBlock: View {
     var body: some View {
         ScrollView {
             Text(text)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.app(12, design: .monospaced))
                 .foregroundStyle(isError ? Color.danger : Color.text1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -331,7 +322,7 @@ struct DiffCounts: View {
             Text("+\(added)").foregroundStyle(Color.add)
             Text("−\(removed)").foregroundStyle(Color.del)
         }
-        .font(.system(size: 12.5, design: .monospaced))
+        .font(.app(12.5, design: .monospaced))
         .fixedSize()
     }
 }
@@ -343,12 +334,12 @@ private struct SubagentsView: View {
         if let board = stage.board {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 13))
+                    Image(systemName: "point.3.connected.trianglepath.dotted").font(.app(13))
                     Text(board.title).lineLimit(1)
                     Spacer(minLength: 4)
-                    Text(board.meta).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.text3)
+                    Text(board.meta).font(.app(11, design: .monospaced)).foregroundStyle(Color.text3)
                 }
-                .font(.system(size: 13, weight: .medium))
+                .font(.app(13, weight: .medium))
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .background(Color.fill2)
                 ForEach(stage.lanes) { lane in
@@ -372,11 +363,11 @@ private struct LaneRow: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 if let provider = lane.provider { ProviderGlyph(provider: provider, size: 13) } else {
-                    Image(systemName: "cpu").font(.system(size: 12)).foregroundStyle(Color.text3)
+                    Image(systemName: "cpu").font(.app(12)).foregroundStyle(Color.text3)
                 }
                 Text(lane.label).lineLimit(1)
             }
-            .font(.system(size: 13))
+            .font(.app(13))
             .foregroundStyle(Color.text2)
             .padding(.horizontal, 10).padding(.vertical, 3)
             .background(Color.fill2, in: .capsule)
@@ -384,9 +375,9 @@ private struct LaneRow: View {
             Spacer(minLength: 4)
             if lane.status == "running" {
                 HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("running") }
-                    .font(.system(size: 12)).foregroundStyle(Color.text3)
+                    .font(.app(12)).foregroundStyle(Color.text3)
             } else {
-                Text(lane.status).font(.system(size: 12)).foregroundStyle(lane.status == "failed" ? Color.danger : Color.text3)
+                Text(lane.status).font(.app(12)).foregroundStyle(lane.status == "failed" ? Color.danger : Color.text3)
             }
         }
     }

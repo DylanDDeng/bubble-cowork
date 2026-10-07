@@ -3,13 +3,15 @@ import SwiftUI
 
 struct SessionView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.pageWidth) private var pageWidth
     let sessionId: String
 
     @State private var rendered = SessionModel.empty
     /// The inputs `rendered` was built from. Rendering is async, so anything placed next
     /// to it (pending bubbles, the copy button) must follow these, not the newest data.
     @State private var shown = RenderKey(messages: [], running: false, status: "")
-    @State private var position = ScrollPosition(edge: .bottom)
+    private static let bottomID = "session-bottom"
+    @State private var scroller = ScrollHandle()
     @State private var atBottom = true
     @State private var copied = false
     @State private var loadingOlder = false
@@ -47,6 +49,9 @@ struct SessionView: View {
     }
 
     var body: some View {
+        // A reader, not a ScrollPosition binding: the binding keeps saying "bottom" after
+        // the user scrolls, so asking for the bottom again changed nothing and never scrolled.
+        ScrollViewReader { proxy in
         ScrollView {
             // A plain stack on purpose: LazyVStack re-estimates off-screen row
             // heights, and with bottom anchoring and rows whose height changes
@@ -61,13 +66,13 @@ struct SessionView: View {
                             loadingOlder = false
                         }
                     }
-                    .font(.system(size: 13)).foregroundStyle(Color.text2)
+                    .font(.app(13)).foregroundStyle(Color.text2)
                     .frame(maxWidth: .infinity)
                     .disabled(loadingOlder)
                 }
                 if messages.isEmpty {
                     Text(model.ready ? "Loading messages…" : "Messages update when your Mac is back.")
-                        .font(.system(size: 14)).foregroundStyle(Color.text2)
+                        .font(.app(14)).foregroundStyle(Color.text2)
                         .frame(maxWidth: .infinity).padding(.vertical, 40)
                 }
                 ForEach(rendered.items) { item in
@@ -83,7 +88,7 @@ struct SessionView: View {
                 }
                 // The Mac took it and the turn is starting; the next snapshot brings the real row.
                 if !shown.running, pending.contains(where: { [.completed, .accepted].contains($0.result.state) }) {
-                    Text("Working").font(.system(size: 14)).shimmer()
+                    Text("Working").font(.app(14)).shimmer()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 ForEach(permissions) { permission in
@@ -91,8 +96,8 @@ struct SessionView: View {
                 }
                 if !shown.running, pending.isEmpty, session?.isFailed == true {
                     VStack(alignment: .leading, spacing: 6) {
-                        Label("Turn failed", systemImage: "exclamationmark.circle").font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.danger)
-                        Text("Details are in Aegis on your Mac.").font(.system(size: 14))
+                        Label("Turn failed", systemImage: "exclamationmark.circle").font(.app(14, weight: .semibold)).foregroundStyle(Color.danger)
+                        Text("Details are in Aegis on your Mac.").font(.app(14))
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,7 +115,7 @@ struct SessionView: View {
                         }
                     } label: {
                         Image(systemName: copied ? "checkmark" : "square.on.square")
-                            .font(.system(size: 15))
+                            .font(.app(15))
                             .foregroundStyle(Color.text2)
                             .frame(width: 36, height: 36)
                             .contentShape(Rectangle())
@@ -123,8 +128,9 @@ struct SessionView: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .padding(.bottom, 16)
+            Color.clear.frame(height: 1).id(Self.bottomID)
+                .background(ScrollViewProbe(handle: scroller))
         }
-        .scrollPosition($position)
         .defaultScrollAnchor(.top, for: .alignment)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .scrollDismissesKeyboard(.interactively)
@@ -146,15 +152,37 @@ struct SessionView: View {
             let follow = atBottom
             rendered = next
             shown = key
-            if follow { position.scrollTo(edge: .bottom) }
+            if follow { scrollToBottom(proxy, animated: false) }
         }
         .onChange(of: model.sendTick) {
-            withAnimation { position.scrollTo(edge: .bottom) }
+            scrollToBottom(proxy, animated: true)
+        }
+        // Over the conversation, inside the composer's inset so it sits just above it.
+        // It used to hang off the composer with an offset, outside its own frame, so
+        // taps fell through to the list. An overlay also leaves the scroll geometry
+        // that decides whether it shows untouched (changing that looped forever).
+        .overlay(alignment: .bottom) {
+            Group {
+                if !atBottom && !rendered.items.isEmpty {
+                    Button {
+                        Haptics.tap()
+                        scroller.scrollToBottom(animated: true)
+                    } label: {
+                        Image(systemName: "arrow.down").font(.app(17, weight: .semibold)).foregroundStyle(Color.ink).frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("Jump to latest")
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+            }
+            .padding(.bottom, 12)
+            .animation(.smooth(duration: 0.2), value: atBottom)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 10) {
                 if running && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Draft saved · send it after this turn").font(.system(size: 12.5)).foregroundStyle(Color.text2)
+                    Text("Draft saved · send it after this turn").font(.app(12.5)).foregroundStyle(Color.text2)
                 }
                 if let session {
                     Composer(
@@ -170,49 +198,31 @@ struct SessionView: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 6)
-            // An overlay, not part of the inset: showing it must not change the
-            // scroll geometry that decides whether it shows (that looped forever).
-            .overlay(alignment: .top) {
-                Group {
-                    if !atBottom && !rendered.items.isEmpty {
-                        Button {
-                            withAnimation { position.scrollTo(edge: .bottom) }
-                        } label: {
-                            Image(systemName: "arrow.down").font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.ink).frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular.interactive(), in: .circle)
-                        .accessibilityLabel("Jump to latest")
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                    }
-                }
-                .offset(y: -56)
-                .animation(.smooth(duration: 0.2), value: atBottom)
-            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { SidebarButton() }
             // Title sits next to the sidebar button, without a glass background.
             ToolbarItem(placement: .topBarLeading) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(session?.title ?? "Task").font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                    Text(session?.title ?? "Task").font(.app(16, weight: .semibold)).lineLimit(1)
                     HStack(spacing: 5) {
                         Text(model.projects.first { $0.id == session?.projectId }?.name ?? "Project")
                         Text("·").foregroundStyle(Color.text3)
-                        if model.client.connection == .connected && model.client.freshness != .current {
+                        let connecting = [.connecting, .confirming].contains(model.client.connection)
+                        if connecting || (model.client.connection == .connected && model.client.freshness != .current) {
                             ProgressView().controlSize(.mini)
                         } else {
                             StatusDot(online: model.ready)
                         }
-                        Text(model.macName + (model.client.connection != .connected ? " offline" : ""))
+                        Text(model.macName + (model.client.connection == .offline ? " offline" : ""))
                     }
-                    .font(.system(size: 12))
+                    .font(.app(12))
                     .foregroundStyle(Color.text2)
                     .lineLimit(1)
                 }
                 // Toolbar items size to their minimum; give the title the room
                 // between the sidebar button and the trailing capsule.
-                .frame(width: max(120, UIScreen.main.bounds.width - 224), alignment: .leading)
+                .frame(width: max(120, pageWidth - 224), alignment: .leading)
                 .padding(.leading, 4)
             }
             .sharedBackgroundVisibility(.hidden)
@@ -237,6 +247,14 @@ struct SessionView: View {
                 }
             }
         }
+        }
+    }
+
+    /// SwiftUI's scroll-to-id after content changes, then the scroll view itself on the next
+    /// pass: on some iOS releases the SwiftUI call alone silently did nothing.
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
+        if animated { withAnimation { proxy.scrollTo(Self.bottomID, anchor: .bottom) } } else { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+        DispatchQueue.main.async { scroller.scrollToBottom(animated: animated) }
     }
 
     private var isUserLast: Bool {
@@ -255,14 +273,14 @@ struct UserBubble: View {
                 HStack(spacing: 6) {
                     ForEach(attachments) { a in
                         Label(a.name, systemImage: a.image ? "photo" : "doc")
-                            .font(.system(size: 12.5)).foregroundStyle(Color.text2).lineLimit(1)
+                            .font(.app(12.5)).foregroundStyle(Color.text2).lineLimit(1)
                             .padding(.horizontal, 10).frame(height: 28)
                             .overlay(Capsule().strokeBorder(Color.hair, lineWidth: 0.5))
                     }
                 }
             }
             Text(prompt)
-                .font(.system(size: 16))
+                .font(.app(15))
                 .lineSpacing(3)
                 .textSelection(.enabled)
                 .padding(.horizontal, 16).padding(.vertical, 10)
@@ -286,7 +304,7 @@ private struct ItemView: View {
             MarkdownView(text: markdown, streaming: streaming)
         case .plan(_, let markdown):
             VStack(alignment: .leading, spacing: 8) {
-                Text("Proposed plan").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.text2)
+                Text("Proposed plan").font(.app(13, weight: .semibold)).foregroundStyle(Color.text2)
                 MarkdownView(text: markdown)
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
@@ -298,7 +316,7 @@ private struct ItemView: View {
         case .activity(_, let steps):
             LegacyActivity(steps: steps)
         case .working(_, let label):
-            Text(label).font(.system(size: 14)).shimmer()
+            Text(label).font(.app(14)).shimmer()
         }
     }
 }
@@ -314,14 +332,14 @@ private struct LegacyActivity: View {
             } label: {
                 HStack(spacing: 6) {
                     Text("\(steps.count) \(steps.count == 1 ? "step" : "steps")")
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0))
+                    Image(systemName: "chevron.right").font(.app(11, weight: .semibold)).rotationEffect(.degrees(open ? 90 : 0))
                 }
-                .font(.system(size: 14)).foregroundStyle(Color.text2)
+                .font(.app(14)).foregroundStyle(Color.text2)
             }
             .buttonStyle(.plain)
             if open {
                 ForEach(steps) { step in
-                    Text(step.detail).font(.system(size: 12, design: .monospaced))
+                    Text(step.detail).font(.app(12, design: .monospaced))
                         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.code, in: .rect(cornerRadius: 12))
                 }
@@ -343,10 +361,10 @@ private struct ChangesCard: View {
                 withAnimation(.snappy(duration: 0.2)) { open.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    Text("\(files.count) \(files.count == 1 ? "file" : "files") changed").font(.system(size: 14, weight: .semibold))
+                    Text("\(files.count) \(files.count == 1 ? "file" : "files") changed").font(.app(14, weight: .semibold))
                     DiffCounts(added: files.reduce(0) { $0 + $1.additions }, removed: files.reduce(0) { $0 + $1.deletions })
                     Spacer()
-                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.text3)
+                    Image(systemName: "chevron.down").font(.app(12, weight: .semibold)).foregroundStyle(Color.text3)
                         .rotationEffect(.degrees(open ? 0 : -90))
                 }
                 .padding(.horizontal, 14).padding(.vertical, 12)
@@ -358,7 +376,7 @@ private struct ChangesCard: View {
                     Divider().overlay(Color.hair)
                     Button { onOpen(file.path) } label: {
                         HStack(spacing: 10) {
-                            Text(file.path).font(.system(size: 13)).lineLimit(1).truncationMode(.head)
+                            Text(file.path).font(.app(13)).lineLimit(1).truncationMode(.head)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             DiffCounts(added: file.additions, removed: file.deletions)
                         }
@@ -372,9 +390,9 @@ private struct ChangesCard: View {
                     HStack {
                         Text(files.count > shown ? "View \(files.count - shown) more \(files.count - shown == 1 ? "file" : "files")" : "Review changes")
                         Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "chevron.right").font(.app(12, weight: .semibold))
                     }
-                    .font(.system(size: 13)).foregroundStyle(Color.text2)
+                    .font(.app(13)).foregroundStyle(Color.text2)
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .contentShape(Rectangle())
                 }
@@ -418,7 +436,7 @@ private struct OpStatus: View {
                 .foregroundStyle(Color.text2)
             }
         }
-        .font(.system(size: 12.5))
+        .font(.app(12.5))
     }
 }
 
@@ -437,9 +455,9 @@ struct ApprovalCard: View {
                         Text("Approval needed").fontWeight(.semibold)
                         Text("· \(permission.toolName)").foregroundStyle(Color.text2)
                     }
-                    .font(.system(size: 14))
+                    .font(.app(14))
                     Text(summary.isEmpty ? permission.toolName : summary)
-                        .font(.system(size: 13, design: .monospaced)).lineLimit(1)
+                        .font(.app(13, design: .monospaced)).lineLimit(1)
                         .padding(.horizontal, 12).padding(.vertical, 10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.page, in: .rect(cornerRadius: 12))
@@ -454,12 +472,12 @@ struct ApprovalCard: View {
                 .background(Color.fill2, in: .rect(cornerRadius: 22))
             } else {
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "laptopcomputer").font(.system(size: 16))
+                    Image(systemName: "laptopcomputer").font(.app(16))
                         .frame(width: 34, height: 34).background(Color.fill2, in: .circle)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(deskTitle).font(.system(size: 14, weight: .semibold))
+                        Text(deskTitle).font(.app(14, weight: .semibold))
                         Text("This request can’t be answered from iPhone yet. Open Aegis on your Mac to continue.")
-                            .font(.system(size: 13.5)).foregroundStyle(Color.text2)
+                            .font(.app(13.5)).foregroundStyle(Color.text2)
                         HStack(spacing: 8) {
                             Button("View request") { model.approval = permission }.buttonStyle(PillButtonStyle(kind: .secondary))
                             Button("Deny") { Task { await model.decide(permission, "deny") } }
@@ -491,12 +509,63 @@ struct PillButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 15, weight: .semibold))
+            .font(.app(15, weight: .semibold))
             .frame(maxWidth: .infinity)
             .frame(height: height)
             .foregroundStyle(kind == .primary ? Color.onInk : Color.text1)
             .background(kind == .primary ? Color.ink : Color.page, in: .capsule)
             .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
+    }
+}
+
+/// The UIScrollView behind a SwiftUI ScrollView. Jumping to the end goes through it
+/// directly; SwiftUI's own scroll calls didn't move the list on some iOS versions.
+@MainActor final class ScrollHandle {
+    weak var scrollView: UIScrollView?
+
+    func scrollToBottom(animated: Bool) {
+        guard let scroll = scrollView else { return }
+        scroll.layoutIfNeeded()
+        let insets = scroll.adjustedContentInset
+        let bottom = max(-insets.top, scroll.contentSize.height - scroll.bounds.height + insets.bottom)
+        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: bottom), animated: animated)
+    }
+}
+
+/// An invisible view inside the scroll content that finds the enclosing UIScrollView.
+private struct ScrollViewProbe: UIViewRepresentable {
+    let handle: ScrollHandle
+
+    func makeUIView(context: Context) -> Probe {
+        let view = Probe()
+        view.handle = handle
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: Probe, context: Context) {
+        view.handle = handle
+        view.attach()
+    }
+
+    final class Probe: UIView {
+        weak var handle: ScrollHandle?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            attach()
+        }
+
+        func attach() {
+            var view = superview
+            while let current = view {
+                if let scroll = current as? UIScrollView {
+                    handle?.scrollView = scroll
+                    return
+                }
+                view = current.superview
+            }
+        }
     }
 }

@@ -37,6 +37,10 @@ final class AppModel {
     var screen: Screen = .home
     var path: [Route] = []
     var drawerOpen = false
+    /// Wide layout (an unfolded iPhone Duo): the sidebar is docked beside the page.
+    var wideLayout = false
+    /// The docked sidebar, hidden with the sidebar button.
+    var sidebarHidden = false
     var approval: RemotePermission?
     var pairOpen = false
     var pairText = ""
@@ -118,8 +122,14 @@ final class AppModel {
 
     func reloadCatalogs() async {
         for provider in agentProviders {
-            catalogs[provider] = await core.catalog(provider: provider, options: client.agentOptions)
+            catalogs[provider] = await core.catalog(provider: provider, options: client.agentOptions, extraModels: sessionModels[provider] ?? [])
         }
+    }
+
+    /// Models the Mac's sessions run on, per provider; the catalog resolves these too.
+    var sessionModels: [String: [String]] {
+        Dictionary(grouping: sessions.compactMap { s in s.settings?.model.map { (s.provider, $0) } }, by: \.0)
+            .mapValues { Array(Set($0.map(\.1))).sorted() }
     }
 
     // MARK: Settings for the composer
@@ -331,6 +341,54 @@ final class AppModel {
                 "requestId": .string(permission.requestId), "decision": .string(decision),
             ])
             self.approval = nil
+        }
+    }
+
+    // MARK: Background
+
+    @ObservationIgnored private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var backgroundTimer: Task<Void, Never>?
+
+    /// Off screen (another app, or locked): keep the connection for a short grace so a
+    /// quick switch back needs no reconnect, then close it cleanly before iOS suspends us.
+    func beginBackground() {
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Aegis connection") { [weak self] in
+            // iOS wants the task ended before this handler returns; the close is best effort.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                Task { await self.client.suspend() }
+                self.endBackground()
+            }
+        }
+        Task { await client.background() }
+        backgroundTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(RemoteClient.backgroundGrace))
+            guard !Task.isCancelled else { return }
+            self?.finishBackground()
+        }
+    }
+
+    func endBackground() {
+        backgroundTimer?.cancel()
+        backgroundTimer = nil
+        if backgroundTask != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+            backgroundTask = .invalid
+        }
+    }
+
+    private func finishBackground() {
+        let task = backgroundTask
+        guard task != .invalid else { return }
+        backgroundTimer?.cancel()
+        backgroundTimer = nil
+        Task {
+            await client.suspend()
+            if backgroundTask == task {
+                UIApplication.shared.endBackgroundTask(task)
+                backgroundTask = .invalid
+            }
         }
     }
 

@@ -49,6 +49,8 @@ export interface AgentCatalog {
   defaultEffortFor(model: string): string | null;
   effortLabel(effort: string): string;
   fastFor(model: string): boolean;
+  /** Display name for a model that isn't in `models` (a session's own model). */
+  labelFor?(model: string): string;
   permissionModes: PermissionChoice[];
   defaultPermission: string;
   supportsPlan: boolean;
@@ -67,6 +69,7 @@ export function catalogFor(provider: string, options?: RemoteAgentOptions): Agen
     return {
       provider,
       models: values.map((name) => ({ value: name, label: formatCodexModelLabel(name, meta(name)?.label) })),
+      labelFor: (name) => formatCodexModelLabel(name, meta(name)?.label),
       defaultModel,
       // Codex tiers keep the catalog's own order, as on the desktop.
       effortsFor: (model) => (meta(model)?.supportedReasoningLevels ?? []).map((l) => l.effort).filter(Boolean),
@@ -179,6 +182,7 @@ export function catalogFor(provider: string, options?: RemoteAgentOptions): Agen
     defaultModel: "",
     effortsFor: () => [...CLAUDE_REASONING_EFFORT_OPTIONS],
     defaultEffortFor: () => null,
+    labelFor: (model) => formatClaudeModelLabel(model),
     effortLabel: (e) => CLAUDE_REASONING_EFFORT_LABELS[e as keyof typeof CLAUDE_REASONING_EFFORT_LABELS] ?? e,
     fastFor: () => false,
     permissionModes: visible(CLAUDE_PERMISSION_MODE_OPTIONS),

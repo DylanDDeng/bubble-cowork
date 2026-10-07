@@ -19,9 +19,9 @@ struct HomeView: View {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.mini)
                             Text("\(runningCount) \(runningCount == 1 ? "task" : "tasks") running")
-                            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                            Image(systemName: "chevron.right").font(.app(12, weight: .semibold))
                         }
-                        .font(.system(size: 14)).foregroundStyle(Color.text2)
+                        .font(.app(14)).foregroundStyle(Color.text2)
                         .padding(.horizontal, 14).frame(height: 34)
                     }
                     .buttonStyle(.plain)
@@ -76,13 +76,13 @@ struct HomeView: View {
                         .foregroundStyle(Color.text1)
                 }
             }
-            .font(.system(size: 27))
+            .font(.app(27))
             .multilineTextAlignment(.center)
         } else {
             Text(model.projects.isEmpty && model.paired && model.snapshot != nil
                  ? "No projects are shared with this iPhone. Share one from your Mac."
                  : "What should we build?")
-                .font(.system(size: model.projects.isEmpty && model.snapshot != nil ? 17 : 27))
+                .font(.app(model.projects.isEmpty && model.snapshot != nil ? 17 : 27))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(model.projects.isEmpty && model.snapshot != nil ? Color.text2 : Color.text1)
         }
@@ -97,7 +97,7 @@ private struct NeedsCards: View {
     var body: some View {
         if !model.permissions.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Needs you · \(model.permissions.count)").font(.system(size: 13, weight: .medium)).foregroundStyle(Color.text2)
+                Text("Needs you · \(model.permissions.count)").font(.app(13, weight: .medium)).foregroundStyle(Color.text2)
                     .padding(.horizontal, 6)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -127,11 +127,11 @@ private struct NeedsCards: View {
         let question = p.toolName.lowercased().contains("question")
         return VStack(alignment: .leading, spacing: 3) {
             Label(question ? "Question" : p.canApprove ? "Approval" : "Needs your Mac", systemImage: question ? "questionmark" : "checkmark.shield")
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.warn)
+                .font(.app(12, weight: .semibold)).foregroundStyle(Color.warn)
             Text(model.sessions.first { $0.id == p.sessionId }?.title ?? "Task")
-                .font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                .font(.app(15, weight: .semibold)).lineLimit(1)
             Text("\(p.toolName) · \(summaries[p.requestId] ?? "")")
-                .font(.system(size: 13)).foregroundStyle(Color.text2).lineLimit(1)
+                .font(.app(13)).foregroundStyle(Color.text2).lineLimit(1)
         }
         .padding(.horizontal, 15).padding(.vertical, 13)
         .frame(width: 252, alignment: .leading)
@@ -174,12 +174,12 @@ private struct ContextRows: View {
 
     private func row(icon: String, value: String, @ViewBuilder detail: () -> some View) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).font(.system(size: 15)).frame(width: 20)
+            Image(systemName: icon).font(.app(15)).frame(width: 20)
             Text(value).foregroundStyle(Color.text1)
-            detail().font(.system(size: 13)).foregroundStyle(Color.text3)
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.text3)
+            detail().font(.app(13)).foregroundStyle(Color.text3)
+            Image(systemName: "chevron.up.chevron.down").font(.app(11, weight: .semibold)).foregroundStyle(Color.text3)
         }
-        .font(.system(size: 15))
+        .font(.app(15))
         .foregroundStyle(Color.text2)
         .padding(.horizontal, 6)
         .frame(height: 38)

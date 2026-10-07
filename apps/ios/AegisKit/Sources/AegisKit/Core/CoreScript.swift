@@ -86,10 +86,13 @@ public final class CoreScript: @unchecked Sendable {
     private struct CatalogInput: Encodable {
         let provider: String
         let options: JSONValue?
+        let extraModels: [String]
     }
 
-    public func catalog(provider: String, options: JSONValue?) async -> AgentCatalog {
-        (try? await run { try self.call("catalog", CatalogInput(provider: provider, options: options), as: AgentCatalog.self) })
+    /// `extraModels`: models existing sessions use, so their options and labels resolve
+    /// even when the Mac's list doesn't carry them.
+    public func catalog(provider: String, options: JSONValue?, extraModels: [String] = []) async -> AgentCatalog {
+        (try? await run { try self.call("catalog", CatalogInput(provider: provider, options: options, extraModels: extraModels), as: AgentCatalog.self) })
             ?? .placeholder(provider)
     }
 

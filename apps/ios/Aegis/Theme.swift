@@ -1,5 +1,15 @@
 import SwiftUI
 
+extension Font {
+    /// App text: `size` is the point size at the default text size, scaled with the
+    /// iPhone's Text Size setting (Settings › Display & Brightness › Text Size).
+    static func app(_ size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        // Bounded so the largest accessibility sizes don't break fixed-height controls.
+        let scaled = UIFontMetrics.default.scaledValue(for: size)
+        return .system(size: min(max(scaled, size * 0.8), size * 1.6), weight: weight, design: design)
+    }
+}
+
 // Design tokens from the approved design canvas:
 // neutral ink palette, one indigo accent, iOS 26 Liquid Glass surfaces.
 extension Color {
@@ -38,7 +48,7 @@ extension Color {
 }
 
 extension Font {
-    static let mono = Font.system(size: 13, design: .monospaced)
+    static let mono = Font.app(13, design: .monospaced)
 }
 
 /// Provider marks, same artwork as the desktop ProviderIcon (template SVGs in the asset catalog).
@@ -64,7 +74,7 @@ struct ProviderGlyph: View {
                 .frame(width: size, height: size)
         } else {
             Text(String(providerLabel(provider).prefix(1)))
-                .font(.system(size: size * 0.62, weight: .semibold))
+                .font(.app(size * 0.62, weight: .semibold))
                 .frame(width: size, height: size)
                 .background(Color.fill3, in: .rect(cornerRadius: 4))
         }
@@ -80,7 +90,7 @@ struct SessionGlyph: View {
         if let from, from != provider {
             HStack(spacing: 2) {
                 ProviderGlyph(provider: from)
-                Image(systemName: "arrow.right").font(.system(size: 8, weight: .bold)).foregroundStyle(Color.text3)
+                Image(systemName: "arrow.right").font(.app(8, weight: .bold)).foregroundStyle(Color.text3)
                 ProviderGlyph(provider: provider)
             }
             .accessibilityElement(children: .ignore)
@@ -131,6 +141,7 @@ struct StatusDot: View {
 
 enum Haptics {
     static func tap() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+    static func select() { UISelectionFeedbackGenerator().selectionChanged() }
     static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
     static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
 }

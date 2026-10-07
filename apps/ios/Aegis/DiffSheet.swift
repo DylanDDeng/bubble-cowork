@@ -75,7 +75,7 @@ struct DiffSheet: View {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 1) {
                         Text(tab == 0 ? "\(review.files.count) \(review.files.count == 1 ? "file" : "files") changed" : "Files")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.app(17, weight: .semibold))
                         if tab == 0 { DiffCounts(added: review.additions, removed: review.deletions) }
                     }
                 }
@@ -138,7 +138,7 @@ struct PillSegments: View {
                     withAnimation(.snappy(duration: 0.25)) { selection = index }
                 } label: {
                     Text(title)
-                        .font(.system(size: 15, weight: selection == index ? .semibold : .medium))
+                        .font(.app(15, weight: selection == index ? .semibold : .medium))
                         .foregroundStyle(Color.text1)
                         .frame(maxWidth: .infinity)
                         .frame(height: 34)
@@ -174,16 +174,16 @@ private struct DiffFileSection: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                    Text(name).font(.app(15, weight: .semibold)).lineLimit(1)
                     if !directory.isEmpty {
-                        Text(directory).font(.system(size: 12.5)).foregroundStyle(Color.text2).lineLimit(1).truncationMode(.head)
+                        Text(directory).font(.app(12.5)).foregroundStyle(Color.text2).lineLimit(1).truncationMode(.head)
                     }
                 }
                 Spacer(minLength: 8)
                 DiffCounts(added: file.additions, removed: file.deletions)
                 if let onOpen {
                     Button(action: onOpen) {
-                        Image(systemName: "arrow.up.right.square").font(.system(size: 16, weight: .medium)).foregroundStyle(Color.text1)
+                        Image(systemName: "arrow.up.right.square").font(.app(16, weight: .medium)).foregroundStyle(Color.text1)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open \(name)")
@@ -200,13 +200,13 @@ private struct DiffFileSection: View {
                     }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                        Image(systemName: "chevron.down").font(.app(10, weight: .bold))
                             .rotationEffect(.degrees(open ? 0 : -90))
                         Text(hunk.range)
                         Spacer()
                         DiffCounts(added: hunk.additions, removed: hunk.deletions)
                     }
-                    .font(.system(size: 13))
+                    .font(.app(13))
                     .foregroundStyle(Color.text2)
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(Color.page)
@@ -254,7 +254,7 @@ struct CodeRow: View {
                 .padding(.leading, 10).padding(.trailing, 10).padding(.vertical, 3)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.system(size: 13, design: .monospaced))
+        .font(.app(13, design: .monospaced))
         .lineSpacing(2)
         .background(added ? Color.addBg : removed ? Color.delBg : Color.page)
         .textSelection(.enabled)
@@ -288,7 +288,7 @@ private struct ProjectFilesView: View {
                     }
                 } else {
                     tree("", depth: 0)
-                    if let error { Text(error).font(.system(size: 13)).foregroundStyle(Color.danger).padding(20) }
+                    if let error { Text(error).font(.app(13)).foregroundStyle(Color.danger).padding(20) }
                 }
             }
             .padding(.bottom, 80)
@@ -304,7 +304,7 @@ private struct ProjectFilesView: View {
                         .buttonStyle(.plain)
                 }
             }
-            .font(.system(size: 17))
+            .font(.app(17))
             .padding(.horizontal, 18).frame(height: 50)
             .glassEffect(.regular.interactive(), in: .capsule)
             .padding(.horizontal, 16).padding(.bottom, 8)
@@ -351,15 +351,15 @@ private struct ProjectFilesView: View {
             }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.text3)
+                Image(systemName: "chevron.right").font(.app(12, weight: .semibold)).foregroundStyle(Color.text3)
                     .rotationEffect(.degrees(open ? 90 : 0))
                     .opacity(isDir ? 1 : 0)
                     .frame(width: 12)
-                Image(systemName: isDir ? "folder" : "doc.text").font(.system(size: 17)).foregroundStyle(Color.text1).frame(width: 22)
+                Image(systemName: isDir ? "folder" : "doc.text").font(.app(17)).foregroundStyle(Color.text1).frame(width: 22)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(entry.name).font(.system(size: 17)).lineLimit(1)
+                    Text(entry.name).font(.app(17)).lineLimit(1)
                     if showPath, entry.path.contains("/") {
-                        Text((entry.path as NSString).deletingLastPathComponent).font(.system(size: 12)).foregroundStyle(Color.text2).lineLimit(1).truncationMode(.head)
+                        Text((entry.path as NSString).deletingLastPathComponent).font(.app(12)).foregroundStyle(Color.text2).lineLimit(1).truncationMode(.head)
                     }
                 }
                 Spacer(minLength: 4)
@@ -396,7 +396,7 @@ private struct FilePreview: View {
                             CodeRow(number: String(index + 1), text: line, kind: "ctx", language: language, digits: String(lines.count).count)
                         }
                         if content.truncated {
-                            Text("Showing the first 512 KB.").font(.system(size: 12)).foregroundStyle(Color.text2).padding(14)
+                            Text("Showing the first 512 KB.").font(.app(12)).foregroundStyle(Color.text2).padding(14)
                         }
                     }
                     .padding(.bottom, 24)

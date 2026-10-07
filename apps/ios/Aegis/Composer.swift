@@ -39,7 +39,7 @@ struct Composer: View {
             if !expanded { attachMenu }
             TextField(placeholder, text: Binding(get: { model.draft }, set: { model.draft = $0 }), axis: .vertical)
                 .lineLimit(expanded ? 1...7 : 1...1)
-                .font(.system(size: 17))
+                .font(.app(16))
                 .padding(.horizontal, expanded ? 6 : 2)
                 .padding(.top, expanded ? 2 : 0)
                 .focused($focused)
@@ -49,7 +49,7 @@ struct Composer: View {
                     attachMenu
                     Menu { permissionItems } label: {
                         Image(systemName: r.isFullAccess ? "shield.slash" : "shield")
-                            .font(.system(size: 17, weight: .medium))
+                            .font(.app(17, weight: .medium))
                             .foregroundStyle(r.isFullAccess ? Color.danger : Color.text2)
                             .frame(width: 36, height: 36)
                             .contentShape(Circle())
@@ -59,7 +59,7 @@ struct Composer: View {
                     if r.plan {
                         Menu { permissionItems } label: {
                             Label("Plan", systemImage: "checklist")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.app(13, weight: .semibold))
                                 .foregroundStyle(Color.ink)
                                 .padding(.horizontal, 10)
                                 .frame(height: 30)
@@ -76,11 +76,11 @@ struct Composer: View {
             } else {
                 // Settings that change what the agent may do stay visible.
                 if r.isFullAccess {
-                    Image(systemName: "shield.slash").font(.system(size: 15, weight: .medium)).foregroundStyle(Color.danger)
+                    Image(systemName: "shield.slash").font(.app(15, weight: .medium)).foregroundStyle(Color.danger)
                         .frame(width: 28).accessibilityLabel("Full access")
                 }
                 if r.plan {
-                    Image(systemName: "checklist").font(.system(size: 15, weight: .medium)).foregroundStyle(Color.text2)
+                    Image(systemName: "checklist").font(.app(15, weight: .medium)).foregroundStyle(Color.text2)
                         .frame(width: 28).accessibilityLabel("Plan first")
                 }
                 sendButton
@@ -146,7 +146,7 @@ struct Composer: View {
             Button("Files", systemImage: "doc") { files = true }
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 19, weight: .medium))
+                .font(.app(19, weight: .medium))
                 .foregroundStyle(Color.ink)
                 .frame(width: 36, height: 36)
                 .contentShape(Circle())
@@ -184,19 +184,17 @@ struct Composer: View {
     private var modelChip: some View {
         Button { picker = true } label: {
             HStack(spacing: 4) {
-                if choosesAgent {
-                    ProviderGlyph(provider: catalog.provider, size: 14).foregroundStyle(Color.ink).padding(.trailing, 1)
-                }
+                ProviderGlyph(provider: catalog.provider, size: 14).foregroundStyle(Color.ink).padding(.trailing, 1)
                 if r.fast {
-                    Image(systemName: "bolt.fill").font(.system(size: 11)).foregroundStyle(Color.accent)
+                    Image(systemName: "bolt.fill").font(.app(11)).foregroundStyle(Color.accent)
                 }
                 Text(r.modelLabel).foregroundStyle(Color.ink).lineLimit(1)
                 if let effort = r.effortLabel {
                     Text(effort).foregroundStyle(Color.text3).lineLimit(1).fixedSize()
                 }
-                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(Color.text3)
+                Image(systemName: "chevron.down").font(.app(10, weight: .bold)).foregroundStyle(Color.text3)
             }
-            .font(.system(size: 13.5))
+            .font(.app(13.5))
             .padding(.horizontal, 8)
             .frame(height: 36)
             .contentShape(Capsule())
@@ -216,7 +214,7 @@ struct Composer: View {
             Task { running ? await model.stop() : await model.send() }
         } label: {
             Image(systemName: running ? "stop.fill" : "arrow.up")
-                .font(.system(size: running ? 11 : 16, weight: .bold))
+                .font(.app(running ? 11 : 16, weight: .bold))
                 .foregroundStyle(enabled ? Color.onInk : Color.page)
                 .frame(width: 34, height: 34)
                 .background(Circle().fill(enabled ? Color.ink : Color.inkOff))
@@ -242,7 +240,7 @@ private struct AttachmentStrip: View {
                                 if item.uploading {
                                     ZStack {
                                         RoundedRectangle(cornerRadius: 16).fill(.black.opacity(0.38))
-                                        Text("\(Int(item.progress * 100))%").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                                        Text("\(Int(item.progress * 100))%").font(.app(12, weight: .semibold)).foregroundStyle(.white)
                                     }
                                 }
                             }
@@ -252,7 +250,7 @@ private struct AttachmentStrip: View {
                             .overlay(alignment: .topTrailing) {
                                 Button { model.removeAttachment(item.id) } label: {
                                     Image(systemName: "xmark")
-                                        .font(.system(size: 9, weight: .heavy))
+                                        .font(.app(9, weight: .heavy))
                                         .foregroundStyle(Color.onInk)
                                         .frame(width: 22, height: 22)
                                         .background(Circle().fill(Color.ink))
@@ -267,10 +265,10 @@ private struct AttachmentStrip: View {
                 .padding(.trailing, 6)
             }
             if let failed = model.attachments.first(where: { $0.error != nil }) {
-                Text("\(failed.name): \(failed.error ?? "")").font(.system(size: 12)).foregroundStyle(Color.danger)
+                Text("\(failed.name): \(failed.error ?? "")").font(.app(12)).foregroundStyle(Color.danger)
             } else if model.attachments.contains(where: \.uploading) {
                 Label("Uploading to your Mac · send unlocks when done", systemImage: "arrow.up.circle")
-                    .font(.system(size: 12)).foregroundStyle(Color.text2)
+                    .font(.app(12)).foregroundStyle(Color.text2)
             }
         }
         .padding(.horizontal, 6)
@@ -283,8 +281,8 @@ private struct AttachmentStrip: View {
             ZStack {
                 Color.fill3
                 VStack(spacing: 2) {
-                    Image(systemName: "doc").font(.system(size: 18))
-                    Text(item.name).font(.system(size: 9.5)).lineLimit(1)
+                    Image(systemName: "doc").font(.app(18))
+                    Text(item.name).font(.app(9.5)).lineLimit(1)
                 }
                 .foregroundStyle(Color.text2)
                 .padding(4)
@@ -330,25 +328,27 @@ struct ModelPicker: View {
 
     private var compact: some View {
         VStack(spacing: 10) {
-            if choosesAgent {
-                Button { page = .agents } label: {
-                    HStack(spacing: 10) {
-                        ProviderGlyph(provider: catalog.provider, size: 16)
-                            .foregroundStyle(Color.text1)
-                            .frame(width: 30, height: 30)
-                            .background(Color.fill3, in: .rect(cornerRadius: 8))
-                        Text(providerLabel(catalog.provider)).font(.system(size: 15, weight: .medium)).foregroundStyle(Color.text1)
-                        Spacer(minLength: 4)
-                        Text("Agent").font(.system(size: 13)).foregroundStyle(Color.text3)
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(Color.text3)
+            // A running conversation keeps its agent: the row shows it without the way to change it.
+            Button { page = .agents } label: {
+                HStack(spacing: 10) {
+                    ProviderGlyph(provider: catalog.provider, size: 16)
+                        .foregroundStyle(Color.text1)
+                        .frame(width: 30, height: 30)
+                        .background(Color.fill3, in: .rect(cornerRadius: 8))
+                    Text(providerLabel(catalog.provider)).font(.app(15, weight: .medium)).foregroundStyle(Color.text1)
+                    Spacer(minLength: 4)
+                    Text("Agent").font(.app(13)).foregroundStyle(Color.text3)
+                    if choosesAgent {
+                        Image(systemName: "chevron.right").font(.app(11, weight: .bold)).foregroundStyle(Color.text3)
                     }
-                    .padding(.horizontal, 4)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Agent: \(providerLabel(catalog.provider))")
-                Divider().overlay(Color.hair)
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .allowsHitTesting(choosesAgent)
+            .accessibilityLabel("Agent: \(providerLabel(catalog.provider))")
+            Divider().overlay(Color.hair)
             HStack(alignment: .top, spacing: 0) {
                 Group {
                     if r.fastAvailable {
@@ -366,12 +366,12 @@ struct ModelPicker: View {
                     VStack(spacing: 1) {
                         HStack(spacing: 3) {
                             Text(r.efforts.isEmpty ? r.modelLabel : (r.effortLabel ?? "Default"))
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.app(15, weight: .semibold))
                                 .foregroundStyle(Color.accent)
-                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Color.text3)
+                            Image(systemName: "chevron.right").font(.app(10, weight: .bold)).foregroundStyle(Color.text3)
                         }
                         if !r.efforts.isEmpty {
-                            Text(r.modelLabel).font(.system(size: 12)).foregroundStyle(Color.text2).lineLimit(1)
+                            Text(r.modelLabel).font(.app(12)).foregroundStyle(Color.text2).lineLimit(1)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -393,14 +393,14 @@ struct ModelPicker: View {
                 .frame(width: 32)
             }
             if r.efforts.isEmpty {
-                Text("This model has no reasoning options.").font(.system(size: 12)).foregroundStyle(Color.text3)
+                Text("This model has no reasoning options.").font(.app(12)).foregroundStyle(Color.text3)
             } else {
                 if r.efforts.count > 1 {
-                    Slider(value: $index, in: 0...Double(r.efforts.count - 1), step: 1)
-                        .tint(Color.accent)
+                    StepSlider(index: $index, count: r.efforts.count, valueLabel: r.effortLabel ?? "Default")
                         // No effort chosen and no model default: the Mac decides.
                         .opacity(r.shownEffort == nil ? 0.45 : 1)
                         .accessibilityLabel("Reasoning")
+                        .padding(.horizontal, 4)
                         .onChange(of: index) { _, value in
                             let effort = r.efforts[min(r.efforts.count - 1, max(0, Int(value.rounded())))]
                             if effort.value != r.shownEffort { set { $0.effort = effort.value } }
@@ -411,7 +411,7 @@ struct ModelPicker: View {
                         if offset > 0 { Spacer(minLength: 2) }
                         Button(effort.label) { set { $0.effort = effort.value } }
                             .buttonStyle(.plain)
-                            .font(.system(size: 11.5, weight: effort.value == r.shownEffort ? .semibold : .regular))
+                            .font(.app(11.5, weight: effort.value == r.shownEffort ? .semibold : .regular))
                             .foregroundStyle(effort.value == r.shownEffort ? Color.accent : Color.text3)
                     }
                 }
@@ -428,14 +428,14 @@ struct ModelPicker: View {
             backButton("Models")
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Color.text3)
-                TextField("Search models", text: $query).font(.system(size: 15))
+                TextField("Search models", text: $query).font(.app(15))
             }
             .padding(.horizontal, 12)
             .frame(height: 38)
             .background(Color.fill2, in: .rect(cornerRadius: 12))
             if items.isEmpty {
                 Text(catalog.models.isEmpty ? "Loading models from your Mac…" : "No matching models.")
-                    .font(.system(size: 12)).foregroundStyle(Color.text3).padding(8)
+                    .font(.app(12)).foregroundStyle(Color.text3).padding(8)
             } else {
                 ScrollView {
                     VStack(spacing: 2) {
@@ -451,13 +451,13 @@ struct ModelPicker: View {
                             } label: {
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 1) {
-                                        Text(item.label).font(.system(size: 15.5, weight: .medium)).lineLimit(1)
+                                        Text(item.label).font(.app(15.5, weight: .medium)).lineLimit(1)
                                         if let description = item.description {
-                                            Text(description).font(.system(size: 12.5)).foregroundStyle(Color.text2).lineLimit(1)
+                                            Text(description).font(.app(12.5)).foregroundStyle(Color.text2).lineLimit(1)
                                         }
                                     }
                                     Spacer(minLength: 0)
-                                    if selected { Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)) }
+                                    if selected { Image(systemName: "checkmark").font(.app(14, weight: .semibold)) }
                                 }
                                 .padding(.horizontal, 10)
                                 .frame(minHeight: 46)
@@ -476,8 +476,8 @@ struct ModelPicker: View {
     private func backButton(_ title: String) -> some View {
         Button { page = .settings } label: {
             HStack(spacing: 8) {
-                Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.text3)
-                Text(title).font(.system(size: 15, weight: .medium))
+                Image(systemName: "chevron.left").font(.app(13, weight: .semibold)).foregroundStyle(Color.text3)
+                Text(title).font(.app(15, weight: .medium))
             }
             .frame(height: 36)
             .contentShape(Rectangle())
@@ -502,11 +502,11 @@ struct ModelPicker: View {
                             .frame(width: 32, height: 32)
                             .background(Color.fill3, in: .rect(cornerRadius: 9))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(providerLabel(p)).font(.system(size: 15.5, weight: .medium)).foregroundStyle(Color.text1)
-                            Text(model.describe(p)).font(.system(size: 12.5)).foregroundStyle(Color.text2).lineLimit(1)
+                            Text(providerLabel(p)).font(.app(15.5, weight: .medium)).foregroundStyle(Color.text1)
+                            Text(model.describe(p)).font(.app(12.5)).foregroundStyle(Color.text2).lineLimit(1)
                         }
                         Spacer(minLength: 8)
-                        if selected { Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)) }
+                        if selected { Image(systemName: "checkmark").font(.app(14, weight: .semibold)) }
                     }
                     .padding(.horizontal, 10)
                     .frame(minHeight: 52)
@@ -517,9 +517,65 @@ struct ModelPicker: View {
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
             Text("Uses the agents and sign-ins configured in Aegis on your Mac.")
-                .font(.system(size: 12)).foregroundStyle(Color.text3)
+                .font(.app(12)).foregroundStyle(Color.text3)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 10).padding(.top, 4)
+        }
+    }
+}
+
+/// The reasoning slider from the design: a 32 pt capsule filled up to a white knob,
+/// with a dot at each stop. Drag or tap snaps to the nearest stop.
+struct StepSlider: View {
+    @Binding var index: Double
+    let count: Int
+    let valueLabel: String
+
+    private let knob: CGFloat = 32
+
+    var body: some View {
+        GeometryReader { geo in
+            let span = max(1, geo.size.width - knob)
+            let step = span / CGFloat(max(1, count - 1))
+            let current = min(Double(count - 1), max(0, index.rounded()))
+            let x = knob / 2 + step * CGFloat(current)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.text1.opacity(0.1))
+                    .overlay(Capsule().strokeBorder(Color.hair, lineWidth: 0.5))
+                Capsule().fill(Color.accent).frame(width: x + knob / 2)
+                ForEach(0..<count, id: \.self) { stop in
+                    Circle()
+                        .fill(Double(stop) <= current ? Color.white.opacity(0.45) : Color.text1.opacity(0.25))
+                        .frame(width: 5, height: 5)
+                        .position(x: knob / 2 + step * CGFloat(stop), y: knob / 2)
+                }
+                Circle().fill(Color.white)
+                    .overlay(Circle().strokeBorder(Color.black.opacity(0.04), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
+                    .frame(width: knob, height: knob)
+                    .position(x: x, y: knob / 2)
+            }
+            .frame(height: knob)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                let stop = ((drag.location.x - knob / 2) / step).rounded()
+                let next = Double(min(CGFloat(count - 1), max(0, stop)))
+                if next != current {
+                    Haptics.select()
+                    withAnimation(.snappy(duration: 0.18)) { index = next }
+                }
+            })
+        }
+        .frame(height: 40)
+        .accessibilityElement()
+        .accessibilityValue(valueLabel)
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: index = min(Double(count - 1), index.rounded() + 1)
+            case .decrement: index = max(0, index.rounded() - 1)
+            @unknown default: break
+            }
         }
     }
 }

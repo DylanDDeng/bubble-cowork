@@ -5,7 +5,7 @@ import SwiftUI
 struct MarkdownView: View {
     let text: String
     var streaming = false
-    var font: Font = .system(size: 16)
+    var font: Font = .app(15)
 
     var body: some View {
         let blocks = MarkdownBlocks.parse(text)
@@ -162,16 +162,16 @@ private struct BlockView: View {
         switch block {
         case .paragraph(let text):
             HStack(alignment: .lastTextBaseline, spacing: 6) {
-                Text(styled(text)).font(font).lineSpacing(4).textSelection(.enabled)
+                Text(styled(text)).font(font).lineSpacing(3.5).textSelection(.enabled)
                 if trailingDot { StreamDot() }
             }
         case .heading(let level, let text):
             Text(styled(text))
-                .font(.system(size: [22, 20, 18, 16, 16, 16][min(max(level - 1, 0), 5)], weight: .semibold))
+                .font(.app([20, 18, 17, 15, 15, 15][min(max(level - 1, 0), 5)], weight: .semibold))
                 .padding(.top, 6)
         case .code(let code, _):
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(code).font(.system(size: 13, design: .monospaced)).lineSpacing(3).textSelection(.enabled)
+                Text(code).font(.app(13, design: .monospaced)).lineSpacing(3).textSelection(.enabled)
                     .padding(.horizontal, 14).padding(.vertical, 12)
             }
             .background(Color.code, in: .rect(cornerRadius: 14))
@@ -214,7 +214,7 @@ private struct BlockView: View {
 
     private func cell(_ text: AttributedString, bold: Bool) -> some View {
         Text(styled(text))
-            .font(.system(size: 14, weight: bold ? .semibold : .regular))
+            .font(.app(14, weight: bold ? .semibold : .regular))
             .padding(.horizontal, 10).padding(.vertical, 6)
             .frame(maxWidth: 260, alignment: .leading)
             .overlay(Rectangle().strokeBorder(Color.hair, lineWidth: 0.25))
@@ -225,7 +225,7 @@ private struct BlockView: View {
         var text = text
         for run in text.runs {
             if let intent = run.inlinePresentationIntent, intent.contains(.code) {
-                text[run.range].font = .system(size: 14, design: .monospaced)
+                text[run.range].font = .app(14, design: .monospaced)
                 text[run.range].backgroundColor = Color.fill2
             }
             if run.link != nil {

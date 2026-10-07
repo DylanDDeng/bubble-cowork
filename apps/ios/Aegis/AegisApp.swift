@@ -8,9 +8,23 @@ struct AegisApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView().environment(model)
+            TextSizeRoot { RootView().environment(model) }
         }
     }
+}
+
+/// Sizes come from `Font.app`, which reads the Text Size setting when evaluated;
+/// rebuilding on a change applies a new setting everywhere at once.
+private struct TextSizeRoot<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var textSize
+    @ViewBuilder let content: Content
+
+    var body: some View { content.id(textSize) }
+}
+
+private struct CatalogKey: Equatable {
+    let options: JSONValue?
+    let models: [String: [String]]
 }
 
 struct RootView: View {
@@ -43,11 +57,17 @@ struct RootView: View {
                 model.open(session: id)
             }
         }
-        .task(id: model.client.agentOptions) { await model.reloadCatalogs() }
+        .task(id: CatalogKey(options: model.client.agentOptions, models: model.sessionModels)) { await model.reloadCatalogs() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            switch phase {
+            case .active:
+                model.endBackground()
                 Task { await model.client.foreground() }
                 Task { await model.refreshNotifications() }
+            case .background:
+                model.beginBackground()
+            default:
+                break
             }
         }
         .onOpenURL { url in
@@ -60,12 +80,100 @@ struct RootView: View {
     }
 }
 
-/// ChatGPT-style shell: the sidebar sits behind the page, which slides aside.
+/// Width of the page column, for toolbar layout that can't size itself.
+struct PageWidthKey: EnvironmentKey { static let defaultValue: CGFloat = 390 }
+extension EnvironmentValues {
+    var pageWidth: CGFloat {
+        get { self[PageWidthKey.self] }
+        set { self[PageWidthKey.self] = newValue }
+    }
+}
+
+/// Picks the layout from the window's width: an unfolded iPhone Duo docks the
+/// sidebar beside the page; a phone-sized window keeps the slide-over drawer.
 private struct MainShell: View {
     @Environment(AppModel.self) private var model
-    @GestureState private var drag: CGFloat = 0
+    /// Wide enough for a 320 pt sidebar beside a phone-sized page.
+    static let wideWidth: CGFloat = 700
+    static let dockedWidth: CGFloat = 320
 
-    private var width: CGFloat { min(UIScreen.main.bounds.width * 0.82, 330) }
+    var body: some View {
+        GeometryReader { geo in
+            let wide = geo.size.width >= Self.wideWidth
+            Group {
+                if wide {
+                    DockedShell(pageWidth: geo.size.width - (model.sidebarHidden ? 0 : Self.dockedWidth))
+                } else {
+                    DrawerShell(screenWidth: geo.size.width)
+                }
+            }
+            .onAppear { model.wideLayout = wide }
+            .onChange(of: wide) { _, wide in
+                model.wideLayout = wide
+                model.drawerOpen = false
+            }
+        }
+        .sheet(item: Bindable(model).approval) { ApprovalSheet(permission: $0) }
+        .sheet(item: Bindable(model).diffReview) { DiffSheet(review: $0) }
+    }
+}
+
+/// The page with its navigation stack, shared by both layouts.
+private struct PageStack: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        NavigationStack(path: $model.path) {
+            content
+                .navigationBarTitleDisplayMode(.inline)
+                .overlay(alignment: .top) { Banners().padding(.top, 4) }
+                .navigationDestination(for: AppModel.Route.self) { route in
+                    switch route {
+                    case .projects: ProjectsPage()
+                    case .project(let id): ProjectPage(projectId: id)
+                    case .settings: SettingsPage()
+                    }
+                }
+        }
+        .background(Color.page)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch model.screen {
+        case .home: HomeView()
+        case .session(let id): SessionView(sessionId: id).id(id)
+        }
+    }
+}
+
+/// Unfolded: sidebar and page side by side, like the desktop.
+private struct DockedShell: View {
+    @Environment(AppModel.self) private var model
+    let pageWidth: CGFloat
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if !model.sidebarHidden {
+                DrawerView()
+                    .frame(width: MainShell.dockedWidth)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                Rectangle().fill(Color.hair).frame(width: 0.5).ignoresSafeArea()
+            }
+            PageStack()
+                .environment(\.pageWidth, pageWidth)
+        }
+        .animation(.interpolatingSpring(duration: 0.32, bounce: 0), value: model.sidebarHidden)
+    }
+}
+
+/// ChatGPT-style shell: the sidebar sits behind the page, which slides aside.
+private struct DrawerShell: View {
+    @Environment(AppModel.self) private var model
+    @GestureState private var drag: CGFloat = 0
+    let screenWidth: CGFloat
+
+    private var width: CGFloat { min(screenWidth * 0.82, 330) }
 
     var body: some View {
         @Bindable var model = model
@@ -78,19 +186,8 @@ private struct MainShell: View {
                 .offset(x: -width * 0.3 * (1 - progress))
                 .opacity(Double(progress))
 
-            NavigationStack(path: $model.path) {
-                content
-                    .navigationBarTitleDisplayMode(.inline)
-                    .overlay(alignment: .top) { Banners().padding(.top, 4) }
-                    .navigationDestination(for: AppModel.Route.self) { route in
-                        switch route {
-                        case .projects: ProjectsPage()
-                        case .project(let id): ProjectPage(projectId: id)
-                        case .settings: SettingsPage()
-                        }
-                    }
-            }
-            .background(Color.page)
+            PageStack()
+            .environment(\.pageWidth, screenWidth)
             .overlay {
                 Color.black.opacity(0.2 * Double(progress))
                     .ignoresSafeArea()
@@ -106,19 +203,10 @@ private struct MainShell: View {
             .simultaneousGesture(model.path.isEmpty ? drawerGesture : nil)
         }
         .animation(.interpolatingSpring(duration: 0.32, bounce: 0), value: model.drawerOpen)
-        .sheet(item: $model.approval) { ApprovalSheet(permission: $0) }
-        .sheet(item: $model.diffReview) { DiffSheet(review: $0) }
         .onChange(of: model.drawerOpen) { _, open in
             if open { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
         }
         .ignoresSafeArea(.keyboard, edges: model.drawerOpen ? .bottom : [])
-    }
-
-    @ViewBuilder private var content: some View {
-        switch model.screen {
-        case .home: HomeView()
-        case .session(let id): SessionView(sessionId: id).id(id)
-        }
     }
 
     /// Edge swipe opens the sidebar; a left swipe closes it.
@@ -141,10 +229,12 @@ private struct MainShell: View {
 struct SidebarButton: View {
     @Environment(AppModel.self) private var model
     var body: some View {
-        Button { model.drawerOpen = true } label: {
+        Button {
+            if model.wideLayout { model.sidebarHidden.toggle() } else { model.drawerOpen = true }
+        } label: {
             MenuGlyph().stroke(Color.ink, style: StrokeStyle(lineWidth: 1.7, lineCap: .round)).frame(width: 21, height: 21)
         }
-        .accessibilityLabel("Open sidebar")
+        .accessibilityLabel(model.wideLayout ? (model.sidebarHidden ? "Show sidebar" : "Hide sidebar") : "Open sidebar")
     }
 }
 

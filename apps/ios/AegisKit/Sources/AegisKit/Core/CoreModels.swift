@@ -204,6 +204,8 @@ public struct AgentCatalog: Decodable, Equatable, Sendable {
     public let models: [Model]
     public let defaultModel: String
     public let perModel: [String: ModelOptions]
+    /// Display names for models sessions use that aren't in `models`.
+    public var labels: [String: String]? = nil
     public let permissionModes: [PermissionMode]
     public let defaultPermission: String
     public let supportsPlan: Bool
@@ -247,7 +249,7 @@ extension AgentCatalog {
         let permissionMode = permissionModes.contains { $0.mode == settings.permissionMode } ? settings.permissionMode! : defaultPermission
         return ResolvedSettings(
             model: model,
-            modelLabel: choice?.label ?? (model.isEmpty ? "Default" : model),
+            modelLabel: choice?.label ?? labels?[model] ?? (model.isEmpty ? "Default" : model),
             compatibleProviderId: choice?.compatibleProviderId,
             efforts: options.efforts,
             effort: effort,

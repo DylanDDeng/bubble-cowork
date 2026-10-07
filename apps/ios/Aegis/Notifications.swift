@@ -15,6 +15,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    /// Phone-sized screens stay portrait; a large one (an unfolded iPhone Duo) turns
+    /// with the device. Info.plist lists every orientation this can return.
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        guard let bounds = window?.windowScene?.screen.bounds else { return .portrait }
+        return min(bounds.width, bounds.height) >= 600 ? .allButUpsideDown : .portrait
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         Task { @MainActor in AppDelegate.model?.setPushToken(hex) }
@@ -95,7 +102,7 @@ struct NotificationsSection: View {
                         Text("Notifications").foregroundStyle(Color.text1)
                         Spacer()
                         Text("Off in Settings").foregroundStyle(Color.text3)
-                        Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.text3)
+                        Image(systemName: "arrow.up.right").font(.app(12, weight: .semibold)).foregroundStyle(Color.text3)
                     }
                 }
             default:

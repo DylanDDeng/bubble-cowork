@@ -190,3 +190,14 @@ test("MiMo catalog: models and variant levels from the Mac, plan as a mode", () 
 test("errors come back as values", () => {
   assert.ok(JSON.parse(context.AegisCore.renderSession("not json")).error);
 });
+
+test("a session's own model resolves even when the Mac's list doesn't carry it", () => {
+  const options = { claude: { defaultModel: null, options: ["claude-sonnet-4-6"], compatible: [] } };
+  const c = call("catalog", { provider: "claude", options, extraModels: ["claude-opus-5-5"] });
+  assert.equal(c.labels["claude-opus-5-5"], "Opus 5.5");
+  assert.ok(c.perModel["claude-opus-5-5"].efforts.length > 0);
+  // It is not offered in the picker list for new tasks.
+  assert.ok(!c.models.some((m) => m.value === "claude-opus-5-5"));
+  // Listed models are not duplicated into labels.
+  assert.deepEqual(call("catalog", { provider: "claude", options, extraModels: ["claude-sonnet-4-6"] }).labels, {});
+});
