@@ -228,7 +228,13 @@ export function createRelay({
           return;
         }
         room = rooms.get(auth.room);
-        if (!room || !equal(room.token, auth.token) || room.phone) return reject("Connection rejected");
+        if (!room || !equal(room.token, auth.token)) return reject("Connection rejected");
+        if (room.phone) {
+          // The phone reconnected before its old, stalled socket timed out here.
+          // Dropping that one also restarts the Mac's side; the phone retries in a moment.
+          room.phone.terminate();
+          return reject("Replaced");
+        }
         role = "phone";
         room.phone = socket;
         room.host.send(JSON.stringify({ type: "peer" }));

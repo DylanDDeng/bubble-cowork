@@ -290,7 +290,7 @@ struct Banners: View {
             }
             if model.unresolvedCount > 0 {
                 let n = model.unresolvedCount
-                banner(icon: "arrow.clockwise", text: "\(n) \(n == 1 ? "action is" : "actions are") awaiting confirmation", action: "Check") {
+                banner(icon: "arrow.clockwise", text: "\(n) \(n == 1 ? "action is" : "actions are") on the way to your Mac", action: "Retry") {
                     Task { await model.client.reconcile() }
                 }
             }

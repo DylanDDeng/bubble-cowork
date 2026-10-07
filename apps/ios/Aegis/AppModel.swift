@@ -276,7 +276,7 @@ final class AppModel {
             let pending = self.client.operations.values.contains { op in
                 op.result.unresolved && (sessionId != nil ? op.sessionId == sessionId : op.method == "create")
             }
-            if pending { throw AegisError.message("Check the previous action’s result before sending again.") }
+            if pending { throw AegisError.message("Your previous message is still on its way to your Mac.") }
             if sessionId == nil, self.selectedProject == nil { throw AegisError.message("Choose a project first.") }
             if !self.attachmentsReady { throw AegisError.message("Wait for attachments to finish uploading.") }
             let ids = self.attachments.compactMap(\.attachmentId)
@@ -310,7 +310,9 @@ final class AppModel {
                     ? "This task is already running on your Mac. Your message is kept as a draft."
                     : (result.error ?? "Your Mac didn’t accept this.")
             default:
-                self.notice = "Your Mac is confirming this. Don’t send it again."
+                // Kept in the journal and re-sent until the Mac answers; the bubble shows "Sending…".
+                self.draft = ""
+                self.attachments = []
             }
         }
     }

@@ -156,11 +156,16 @@ public struct RemoteAttachment: Codable, Equatable, Sendable {
 }
 
 /// A journaled mutation (create/send/stop/permission) and what the Mac said about it.
+/// How long the Mac accepts a command after the phone made it (ms).
+public let remoteCommandLifetime: Double = 300_000
+
 public struct RemoteOperation: Codable, Equatable, Sendable {
     public var request: JSONValue
     public var result: CommandResult
 
     public var method: String? { request["method"]?.stringValue }
+    /// When the phone made it, on the Mac's clock.
+    public var sentAt: Double? { request["expiresAt"]?.numberValue.map { $0 - remoteCommandLifetime } }
     public var sessionId: String? { request["sessionId"]?.stringValue }
     public var prompt: String? { request["prompt"]?.stringValue }
 }

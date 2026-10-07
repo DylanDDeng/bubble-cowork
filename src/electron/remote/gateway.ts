@@ -219,6 +219,24 @@ export class RemoteGateway {
     });
     this.socket = socket;
     socket.binaryType = "arraybuffer";
+    // A lossy or stalled path can leave the socket open but silent. The relay
+    // answers pings, so a quiet 10 s means reconnect instead of waiting on TCP.
+    let alive = true;
+    const heartbeat = setInterval(() => {
+      if (!alive) {
+        socket.terminate();
+        return;
+      }
+      alive = false;
+      if (socket.readyState === WebSocket.OPEN) socket.ping();
+    }, 10000);
+    socket.on("pong", () => {
+      alive = true;
+    });
+    socket.on("message", () => {
+      alive = true;
+    });
+    socket.on("close", () => clearInterval(heartbeat));
     socket.on("open", () =>
       socket.send(
         JSON.stringify({
@@ -340,8 +358,12 @@ export class RemoteGateway {
         )
           throw new Error("Revoked");
         // Controls remain responsive while a provider starts or handles a prompt.
-        if (this.pendingCommands.size >= 32)
-          throw new Error("Too many requests");
+        // Too many at once is answered per request; it must not read as a revoked pairing.
+        if (this.pendingCommands.size >= 32) {
+          const id = typeof (data as any)?.id === "string" ? (data as any).id.slice(0, 160) : "";
+          channel.send({ type: "response", id, error: "TOO_MANY_REQUESTS" });
+          continue;
+        }
         void this.dispatch(data, channel.peerId)
           .then((result) => {
             if (generation === this.generation) channel.send(result);
@@ -477,16 +499,22 @@ export class RemoteGateway {
           id: request.id,
           result: { serverTime: Date.now() },
         };
-      if (request.method === "snapshot")
+      if (request.method === "snapshot") {
+        const result = this.snapshot(
+          request.sessionId,
+          request.before,
+          request.historyRevision,
+        );
+        // Polls repeat every few seconds; an unchanged snapshot is not worth resending.
         return {
           type: "response",
           id: request.id,
-          result: this.snapshot(
-            request.sessionId,
-            request.before,
-            request.historyRevision,
-          ),
+          result:
+            request.knownRevision && request.knownRevision === result.revision && request.before === undefined
+              ? { unchanged: true, revision: result.revision, serverTime: result.serverTime }
+              : result,
         };
+      }
       if (request.method === "push.register") {
         const { deviceToken, topic, environment } = request;
         this.journal.update((s) => {

@@ -36,6 +36,8 @@ export const requestSchema = z.discriminatedUnion("method", [
       sessionId: id.optional(),
       before: z.number().int().nonnegative().optional(),
       historyRevision: id.optional(),
+      /** The snapshot revision the phone already has; an equal one comes back as `unchanged`. */
+      knownRevision: id.optional(),
     })
     .strict(),
   z.object({ id, method: z.literal("command.get"), commandId: id }).strict(),

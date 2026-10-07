@@ -37,6 +37,13 @@ public final class RemoteClient {
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var refreshAgain = false
     @ObservationIgnored private var serverOffset: Double = 0
+    /// When the Mac last said anything; polls answer every few seconds, so silence means a stalled path.
+    @ObservationIgnored private var lastHeard: Double = 0
+    /// Commands on the wire right now; a resend waits until the earlier attempt settles.
+    @ObservationIgnored private var inFlight = Set<String>()
+    @ObservationIgnored private var reconciling = false
+    /// The first snapshot on each connection is fetched in full (the Mac may have restarted).
+    @ObservationIgnored private var fullRefresh = true
 
     private struct Pending {
         let continuation: CheckedContinuation<JSONValue, Error>
@@ -200,6 +207,7 @@ public final class RemoteClient {
             try await channel.sendJSON(.object(auth))
             for try await body in channel.messages {
                 guard generation == self.generation else { break }
+                lastHeard = Self.now
                 guard let message = try? JSONDecoder().decode(JSONValue.self, from: body) else { continue }
                 if try await handle(message, generation: generation) { break }
             }
@@ -239,6 +247,8 @@ public final class RemoteClient {
                 pairing = offer
                 try? secrets.set("pairing", String(decoding: try JSONEncoder.aegis.encode(offer), as: UTF8.self))
             }
+            lastHeard = Self.now
+            fullRefresh = true
             Task { await refresh() }
             Task { await reconcile() }
             Task { await loadOptions() }
@@ -247,7 +257,16 @@ public final class RemoteClient {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5))
                     guard !Task.isCancelled, let self else { return }
+                    // The socket can stay open while the path drops everything (lossy
+                    // cross-border links). Reconnect rather than wait for TCP to give up.
+                    if Self.now - self.lastHeard > Self.stallTimeout * 1000 {
+                        Task { await self.connect() }
+                        return
+                    }
                     Task { await self.refresh() }
+                    if self.operations.values.contains(where: \.result.unresolved) {
+                        Task { await self.reconcile() }
+                    }
                     Task { await self.reconcile() }
                 }
             }
@@ -301,6 +320,8 @@ public final class RemoteClient {
 
     // MARK: Requests
 
+    static let stallTimeout: Double = 15
+
     public func request(_ payload: [String: JSONValue], timeout: TimeInterval = 20) async throws -> JSONValue {
         guard connection == .connected, let channel else { throw AegisError.connection("Your Mac isn’t connected") }
         let id = (payload["commandId"]?.stringValue) ?? UUID().uuidString.lowercased()
@@ -338,8 +359,16 @@ public final class RemoteClient {
         do {
             var params: [String: JSONValue] = ["method": "snapshot"]
             if let sessionId { params["sessionId"] = .string(sessionId) }
-            var state = try await request(params).decode(RemoteSnapshot.self)
-            if generation == self.generation, sessionId == selectedSession {
+            let known = !fullRefresh && snapshot?.sessionId == sessionId ? snapshot?.revision : nil
+            if let known { params["knownRevision"] = .string(known) }
+            let response = try await request(params)
+            if response["unchanged"] == .bool(true), response["revision"]?.stringValue == known {
+                if generation == self.generation, sessionId == selectedSession {
+                    freshness = .current
+                    error = ""
+                }
+            } else if generation == self.generation, sessionId == selectedSession {
+                var state = try response.decode(RemoteSnapshot.self)
                 snapshot = state
                 let allowed = Set(state.sessions.map(\.id))
                 messagesBySession = messagesBySession.filter { allowed.contains($0.key) }
@@ -356,6 +385,7 @@ public final class RemoteClient {
                 }
                 freshness = .current
                 error = ""
+                fullRefresh = false
                 if let host = pairing?.hostPeerId, let data = try? JSONEncoder().encode(Cache(snapshot: state, messages: messagesBySession)) {
                     files.write(cacheName(host), data)
                 }
@@ -465,31 +495,38 @@ public final class RemoteClient {
         return try result.decode(RemoteAttachment.self)
     }
 
-    /// Journals, then sends a create/send/stop/permission command. The journal
-    /// lets the phone ask the Mac what happened if the reply is lost.
+    /// Journals, then sends a create/send/stop/permission command. If no answer
+    /// comes back (lossy network, reconnect), the command stays in the journal as
+    /// `.unknown` and `reconcile()` re-sends it until the Mac answers.
     @discardableResult
     public func mutate(_ payload: [String: JSONValue]) async throws -> CommandResult {
         let commandId = UUID().uuidString.lowercased()
         var request = payload
         request["id"] = .string(commandId)
         request["commandId"] = .string(commandId)
-        request["expiresAt"] = .number((Self.now + serverOffset + 300_000).rounded())
+        request["expiresAt"] = .number((Self.now + serverOffset + remoteCommandLifetime).rounded())
         operations[commandId] = RemoteOperation(request: .object(request), result: CommandResult(commandId: commandId, state: .unknown))
         saveOperations()
+        inFlight.insert(commandId)
+        defer { inFlight.remove(commandId) }
         do {
-            let result = try await self.request(request).decode(CommandResult.self)
-            operations[commandId]?.result = result
-            saveOperations()
+            let result = try await self.request(request, timeout: 10).decode(CommandResult.self)
+            settle(commandId, result)
             Task { await refresh() }
             return result
+        } catch AegisError.rejected(let code) where code != "TOO_MANY_REQUESTS" {
+            settle(commandId, CommandResult(commandId: commandId, state: .rejected, error: code))
+            throw AegisError.rejected(code)
         } catch {
-            if case AegisError.rejected(let code) = error {
-                operations[commandId]?.result = CommandResult(commandId: commandId, state: .rejected, error: code)
-                saveOperations()
-            }
-            self.error = error.localizedDescription
-            throw error
+            // Not lost: the journal keeps it and reconcile() delivers it.
+            return operations[commandId]?.result ?? CommandResult(commandId: commandId, state: .unknown)
         }
+    }
+
+    private func settle(_ commandId: String, _ result: CommandResult) {
+        guard operations[commandId]?.result.unresolved == true else { return }
+        operations[commandId]?.result = result
+        saveOperations()
     }
 
     private func saveOperations() {
@@ -517,17 +554,31 @@ public final class RemoteClient {
         }
     }
 
-    /// Asks the Mac about commands whose outcome is unknown.
+    /// Re-sends commands whose outcome is unknown, oldest first. Safe to repeat: the
+    /// Mac runs a commandId once and answers a repeat with the first result, or with
+    /// COMMAND_EXPIRED when it never arrived within its lifetime.
     public func reconcile() async {
-        for (id, operation) in operations where operation.result.unresolved {
+        guard connection == .connected, !reconciling else { return }
+        reconciling = true
+        defer { reconciling = false }
+        let waiting = operations
+            .filter { $0.value.result.unresolved && !inFlight.contains($0.key) }
+            .sorted { ($0.value.request["expiresAt"]?.numberValue ?? 0) < ($1.value.request["expiresAt"]?.numberValue ?? 0) }
+        var delivered = false
+        for (id, operation) in waiting {
+            guard case .object(let request) = operation.request else { continue }
+            inFlight.insert(id)
+            defer { inFlight.remove(id) }
             do {
-                let result = try await request(["method": "command.get", "commandId": .string(id)]).decode(CommandResult.self)
-                if operations[id]?.result.unresolved == true { operations[id]?.result = result }
+                settle(id, try await self.request(request, timeout: 10).decode(CommandResult.self))
+                delivered = true
+            } catch AegisError.rejected(let code) where code != "TOO_MANY_REQUESTS" {
+                settle(id, CommandResult(commandId: id, state: .rejected, error: code))
             } catch {
                 break
             }
         }
-        saveOperations()
+        if delivered { await refresh() }
     }
 
     public func clearError() { error = "" }

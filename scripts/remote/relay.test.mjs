@@ -112,6 +112,40 @@ await withRelay({}, async (port) => {
   second.close();
 });
 
+// A phone reconnecting while its stalled socket is still held: the stale one is dropped,
+// the Mac is told to recreate its tunnel, and the phone's next attempt gets in.
+await withRelay({}, async (port) => {
+  const id = await createIdentity();
+  const route = token();
+  const host = await open(port);
+  const registered = next(host, "registered");
+  const room = hostAuth(host, id.privateKey, { token: route });
+  await registered;
+  const stale = await open(port);
+  const stalePeer = next(stale, "peer");
+  stale.send(JSON.stringify({ role: "phone", room, token: route }));
+  await stalePeer;
+  const staleClosed = next(stale, "never");
+  const hostClosed = next(host, "never");
+  const retry = await open(port);
+  const refused = next(retry);
+  retry.send(JSON.stringify({ role: "phone", room, token: route }));
+  assert.deepEqual(await refused, { closed: 1008, reason: "Replaced" });
+  assert.equal((await staleClosed).closed, 1006);
+  assert.deepEqual(await hostClosed, { closed: 1012, reason: "Recreate encrypted connection" });
+  // The Mac re-registers, then the phone is let in.
+  const again = await open(port);
+  const reRegistered = next(again, "registered");
+  hostAuth(again, id.privateKey, { token: route });
+  await reRegistered;
+  const phone = await open(port);
+  const peer = next(phone, "peer");
+  phone.send(JSON.stringify({ role: "phone", room, token: route }));
+  assert.equal((await peer).type, "peer");
+  phone.close();
+  again.close();
+});
+
 // Per-IP connection cap.
 await withRelay({ maxPerIp: 2 }, async (port) => {
   const a = await open(port);

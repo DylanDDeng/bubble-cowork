@@ -6,6 +6,9 @@ struct SessionView: View {
     let sessionId: String
 
     @State private var rendered = SessionModel.empty
+    /// The inputs `rendered` was built from. Rendering is async, so anything placed next
+    /// to it (pending bubbles, the copy button) must follow these, not the newest data.
+    @State private var shown = RenderKey(messages: [], running: false, status: "")
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var atBottom = true
     @State private var copied = false
@@ -23,15 +26,24 @@ struct SessionView: View {
         let status: String
     }
 
-    /// Sends the Mac hasn't recorded yet, shown with their delivery state.
+    /// Sends not yet in the loaded history, shown with their delivery state. A delivered
+    /// one stays until the next snapshot brings it in, so the bubble never blinks out.
     private var pendingSends: [(id: String, prompt: String, result: CommandResult)] {
-        model.client.operations.compactMap { id, op in
-            guard op.method == "send", op.sessionId == sessionId, op.result.state != .completed, let prompt = op.prompt,
-                  !messages.contains(where: { $0.role == "user" && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == prompt.trimmingCharacters(in: .whitespacesAndNewlines) })
-            else { return nil }
+        let now = Date().timeIntervalSince1970 * 1000
+        return model.client.operations.compactMap { id, op in
+            guard op.method == "send", op.sessionId == sessionId, let prompt = op.prompt else { return nil }
+            let sentAt = op.sentAt ?? 0
+            let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Only a matching message recorded after this send counts: an earlier "OK" is not this one.
+            let recorded = shown.messages.contains {
+                $0.role == "user" && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == text && ($0.at ?? .infinity) >= sentAt - 5000
+            }
+            if recorded { return nil }
+            // Bounded, so a delivered send outside the loaded page can't linger.
+            if op.result.state == .completed, now - sentAt > 120_000 { return nil }
             return (id, prompt, op.result)
         }
-        .sorted { $0.id < $1.id }
+        .sorted { (model.client.operations[$0.id]?.sentAt ?? 0) < (model.client.operations[$1.id]?.sentAt ?? 0) }
     }
 
     var body: some View {
@@ -61,17 +73,23 @@ struct SessionView: View {
                 ForEach(rendered.items) { item in
                     ItemView(item: item, sessionId: sessionId)
                 }
-                ForEach(pendingSends, id: \.id) { pending in
+                let pending = pendingSends
+                ForEach(pending, id: \.id) { send in
                     VStack(alignment: .trailing, spacing: 6) {
-                        UserBubble(prompt: pending.prompt)
-                        OpStatus(result: pending.result)
+                        UserBubble(prompt: send.prompt)
+                        OpStatus(result: send.result)
                     }
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                // The Mac took it and the turn is starting; the next snapshot brings the real row.
+                if !shown.running, pending.contains(where: { [.completed, .accepted].contains($0.result.state) }) {
+                    Text("Working").font(.system(size: 14)).shimmer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 ForEach(permissions) { permission in
                     ApprovalCard(permission: permission)
                 }
-                if !running, session?.isFailed == true {
+                if !shown.running, pending.isEmpty, session?.isFailed == true {
                     VStack(alignment: .leading, spacing: 6) {
                         Label("Turn failed", systemImage: "exclamationmark.circle").font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.danger)
                         Text("Details are in Aegis on your Mac.").font(.system(size: 14))
@@ -80,8 +98,8 @@ struct SessionView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.dangerBg, in: .rect(cornerRadius: 20))
                 }
-                if !running, session?.isFailed != true, let answer = rendered.lastAnswerText, !answer.isEmpty,
-                   !messages.isEmpty, !isUserLast {
+                if !shown.running, pending.isEmpty, session?.isFailed != true, let answer = rendered.lastAnswerText, !answer.isEmpty,
+                   !shown.messages.isEmpty, !isUserLast {
                     Button {
                         UIPasteboard.general.string = answer
                         copied = true
@@ -122,9 +140,12 @@ struct SessionView: View {
             else if !atBottom, distance < 80 { atBottom = true }
         }
         .task(id: RenderKey(messages: messages, running: running, status: session?.status ?? "")) {
-            let next = await model.core.renderSession(messages: messages, running: running, status: session?.status ?? "")
+            let key = RenderKey(messages: messages, running: running, status: session?.status ?? "")
+            let next = await model.core.renderSession(messages: key.messages, running: key.running, status: key.status)
+            guard !Task.isCancelled else { return }
             let follow = atBottom
             rendered = next
+            shown = key
             if follow { position.scrollTo(edge: .bottom) }
         }
         .onChange(of: model.sendTick) {
@@ -368,22 +389,33 @@ private struct OpStatus: View {
     @Environment(AppModel.self) private var model
     let result: CommandResult
 
+    static func reason(_ code: String?) -> String {
+        switch code {
+        case "COMMAND_EXPIRED": "Couldn’t reach your Mac in time"
+        case "SESSION_BUSY": "The task was already running"
+        case nil: "Rejected by your Mac"
+        default: code!
+        }
+    }
+
     var body: some View {
         Group {
             switch result.state {
             case .rejected:
-                Label("Not sent · \(result.error ?? "Rejected by your Mac")", systemImage: "exclamationmark.circle")
+                Label("Not sent · \(Self.reason(result.error))", systemImage: "exclamationmark.circle")
                     .foregroundStyle(Color.warn)
             case .accepted:
                 HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Accepted by your Mac") }
                     .foregroundStyle(Color.text2)
+            case .completed:
+                EmptyView()
             default:
+                // Re-sent automatically until the Mac answers.
                 HStack(spacing: 6) {
-                    Label("Couldn’t confirm delivery", systemImage: "exclamationmark.circle")
-                    Button("Check") { Task { await model.client.reconcile() } }
-                        .fontWeight(.semibold).underline()
+                    ProgressView().controlSize(.mini)
+                    Text(model.ready ? "Sending…" : "Sends when your Mac is back")
                 }
-                .foregroundStyle(Color.warn)
+                .foregroundStyle(Color.text2)
             }
         }
         .font(.system(size: 12.5))

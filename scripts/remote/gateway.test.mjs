@@ -151,6 +151,16 @@ try {
       .result.state,
     "completed",
   );
+  // The phone re-sends a command it never got an answer for: the Mac answers with
+  // the first result and runs nothing again.
+  assert.equal((await request(create)).result.state, "completed");
+  assert.equal(starts, 1);
+  // Polls that already have the current snapshot get a short "unchanged" answer.
+  const full = (await request({ method: "snapshot", sessionId: "visible" })).result;
+  const same = (await request({ method: "snapshot", sessionId: "visible", knownRevision: full.revision })).result;
+  assert.deepEqual(Object.keys(same).sort(), ["revision", "serverTime", "unchanged"]);
+  assert.equal(same.revision, full.revision);
+  assert.ok((await request({ method: "snapshot", sessionId: "visible", knownRevision: "stale" })).result.sessions);
   assert.equal(
     (
       await request(
