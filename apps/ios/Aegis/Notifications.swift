@@ -51,12 +51,30 @@ extension AppModel {
 
     func setPushToken(_ hex: String) {
         guard client.environment != .fixture, let topic = Bundle.main.bundleIdentifier else { return }
-        client.push = PushRegistration(
-            deviceToken: hex,
-            topic: topic,
-            environment: client.environment == .production ? "production" : "development"
-        )
+        client.push = PushRegistration(deviceToken: hex, topic: topic, environment: Self.apnsEnvironment)
     }
+
+    /// The APNs environment this install's tokens belong to. It follows the signing
+    /// profile, not the build configuration: a Release build installed from Xcode is
+    /// development-signed and gets sandbox tokens; App Store and TestFlight builds have
+    /// no embedded profile and use production.
+    static let apnsEnvironment: String = {
+        #if targetEnvironment(simulator)
+        return "development"
+        #else
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .isoLatin1),
+              let start = text.range(of: "<?xml"),
+              let end = text.range(of: "</plist>"),
+              let plist = try? PropertyListSerialization.propertyList(
+                  from: Data(text[start.lowerBound..<end.upperBound].utf8), format: nil) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any],
+              let environment = entitlements["aps-environment"] as? String
+        else { return "production" }
+        return environment
+        #endif
+    }()
 }
 
 /// Settings row: what notifications do and how to turn them on.

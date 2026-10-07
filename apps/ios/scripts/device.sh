@@ -20,7 +20,8 @@ import json, sys
 devices = json.load(open(sys.argv[1]))["result"]["devices"]
 for d in devices:
     hw = d.get("hardwareProperties", {})
-    if hw.get("platform") == "iOS" and d.get("connectionProperties", {}).get("pairingState") == "paired":
+    conn = d.get("connectionProperties", {})
+    if hw.get("platform") == "iOS" and hw.get("reality") == "physical" and conn.get("pairingState") == "paired" and conn.get("tunnelState") != "unavailable":
         print(hw["udid"]); break
 ' "$LIST")
   rm -f "$LIST"
