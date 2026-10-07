@@ -52,7 +52,6 @@ import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { OpenCodeContextIndicator } from './OpenCodeContextIndicator';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
-import * as Dialog from './ui/dialog';
 import { PROVIDERS } from '../utils/provider';
 import type { AgentProvider } from '../types';
 import {
@@ -391,8 +390,7 @@ export function PromptInput({
   // Sessions are locked to their agent once a conversation exists — switching
   // goes through an explicit handoff that carries the transcript to a new
   // session for the target provider (Synara-style thread handoff).
-  const [handoffTarget, setHandoffTarget] = useState<AgentProvider | null>(null);
-  const [handoffBusy, setHandoffBusy] = useState(false);
+  const handoffBusyRef = useRef(false);
   const sessionProviderLocked = Boolean(
     activeSession &&
       !activeSession.isDraft &&
@@ -400,15 +398,43 @@ export function PromptInput({
       activeSession.provider &&
       (activeSession.messages.length > 0 || activeSession.hydrated === false)
   );
+  const providerLabel = useCallback(
+    (provider: AgentProvider | null | undefined) =>
+      PROVIDERS.find((entry) => entry.id === provider)?.label || provider || 'the agent',
+    []
+  );
+  const requestHandoff = useCallback(
+    async (target: AgentProvider) => {
+      if (!activeSession || handoffBusyRef.current) {
+        return;
+      }
+      const confirmed = await confirmDialog({
+        title: `Hand off to ${providerLabel(target)}?`,
+        description: `This conversation is locked to ${providerLabel(activeSession.provider)}. Handing off creates a new session for ${providerLabel(target)} that carries the conversation over — your next message will include the context so the new agent can continue the work.`,
+        confirmLabel: 'Hand off',
+        tone: 'default',
+      });
+      if (!confirmed || handoffBusyRef.current) {
+        return;
+      }
+      handoffBusyRef.current = true;
+      try {
+        await handoffSessionToProvider(activeSession.id, target);
+      } finally {
+        handoffBusyRef.current = false;
+      }
+    },
+    [activeSession, handoffSessionToProvider, providerLabel]
+  );
   const handleAgentChange = useCallback(
     (nextProvider: AgentProvider) => {
       if (sessionProviderLocked && activeSession?.provider && nextProvider !== activeSession.provider) {
-        setHandoffTarget(nextProvider);
+        void requestHandoff(nextProvider);
         return;
       }
       agentSelection.selectAgent(nextProvider);
     },
-    [activeSession?.provider, agentSelection, sessionProviderLocked]
+    [activeSession?.provider, agentSelection, requestHandoff, sessionProviderLocked]
   );
   const handleModelChange = useCallback(
     (option: ComposerModelOption, targetProvider: AgentProvider = runtimeProvider) => {
@@ -417,12 +443,12 @@ export function PromptInput({
         activeSession?.provider &&
         targetProvider !== activeSession.provider
       ) {
-        setHandoffTarget(targetProvider);
+        void requestHandoff(targetProvider);
         return;
       }
       agentSelection.selectModel(option, targetProvider);
     },
-    [activeSession?.provider, agentSelection, runtimeProvider, sessionProviderLocked]
+    [activeSession?.provider, agentSelection, requestHandoff, runtimeProvider, sessionProviderLocked]
   );
   const handleAgentConfigurationChange = useCallback(
     (change: ComposerAgentConfigurationChange) => {
@@ -431,29 +457,12 @@ export function PromptInput({
         activeSession?.provider &&
         change.provider !== activeSession.provider
       ) {
-        setHandoffTarget(change.provider);
+        void requestHandoff(change.provider);
         return;
       }
       agentSelection.selectAgentConfiguration(change);
     },
-    [activeSession?.provider, agentSelection, sessionProviderLocked]
-  );
-  const confirmHandoff = useCallback(async () => {
-    if (!activeSession || !handoffTarget || handoffBusy) {
-      return;
-    }
-    setHandoffBusy(true);
-    try {
-      await handoffSessionToProvider(activeSession.id, handoffTarget);
-      setHandoffTarget(null);
-    } finally {
-      setHandoffBusy(false);
-    }
-  }, [activeSession, handoffBusy, handoffSessionToProvider, handoffTarget]);
-  const providerLabel = useCallback(
-    (provider: AgentProvider | null | undefined) =>
-      PROVIDERS.find((entry) => entry.id === provider)?.label || provider || 'the agent',
-    []
+    [activeSession?.provider, agentSelection, requestHandoff, sessionProviderLocked]
   );
   const selectedModelLabel = agentSelection.selectedModelLabel;
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
@@ -1398,49 +1407,6 @@ export function PromptInput({
   return (
     <div className="bg-transparent" data-composer-empty={!prompt && attachments.length === 0}>
       <div className="mx-auto max-w-4xl">
-        <Dialog.Root
-          open={handoffTarget !== null}
-          onOpenChange={(open) => {
-            if (!open && !handoffBusy) {
-              setHandoffTarget(null);
-            }
-          }}
-        >
-          <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 z-[110] bg-black/50" />
-            <Dialog.Content className="fixed top-1/2 left-1/2 z-[120] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-6 shadow-xl">
-              <Dialog.Title className="mb-3 text-lg font-semibold">
-                Hand off to {providerLabel(handoffTarget)}?
-              </Dialog.Title>
-              <Dialog.Description className="mb-5 text-sm leading-relaxed text-[var(--text-secondary)]">
-                This conversation is locked to {providerLabel(activeSession?.provider)}. Handing off
-                creates a new session for {providerLabel(handoffTarget)} that carries the
-                conversation over — your next message will include the context so the new agent can
-                continue the work.
-              </Dialog.Description>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  disabled={handoffBusy}
-                  onClick={() => setHandoffTarget(null)}
-                  className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={handoffBusy}
-                  onClick={() => {
-                    void confirmHandoff();
-                  }}
-                  className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  {handoffBusy ? 'Handing off…' : 'Hand off'}
-                </button>
-              </div>
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
         {queuedMessages.length > 0 ? (
           // Codex-Desktop-style queue bar: a card tucked BEHIND the composer
           // (the composer's top edge overlaps its extra bottom padding), one
