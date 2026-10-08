@@ -34,7 +34,6 @@ const journal = new RemoteJournal(join(dir, "state"), (x) => x, (x) => x);
 journal.update((s) => {
   s.config = {
     enabled: true,
-    projectIds: ["allowed"],
     relay: `ws://127.0.0.1:${port}/`,
     // A pre-v2 config: random room, no registration token needed by an open relay.
     room: "0".repeat(32),
@@ -94,12 +93,10 @@ try {
   gateway.capture({ type: "session.status", payload: { sessionId: "shared", status: "completed" } });
   await settle();
   assert.equal(pushes.length, 1);
-  // Failures and approvals have their own kinds; hidden projects never notify.
+  // Failures and approvals have their own kinds.
   gateway.capture({ type: "session.status", payload: { sessionId: "shared", status: "running" } });
   gateway.capture({ type: "session.status", payload: { sessionId: "shared", status: "error" } });
   gateway.capture({ type: "permission.request", payload: { sessionId: "shared", toolUseId: "t", toolName: "Bash", input: {} } });
-  gateway.capture({ type: "session.status", payload: { sessionId: "private", status: "running" } });
-  gateway.capture({ type: "session.status", payload: { sessionId: "private", status: "completed" } });
   await settle();
   assert.deepEqual(pushes.map((p) => p.body.kind), ["finished", "failed", "approval"]);
   // While a phone is connected and on screen it sees events live, so nothing is pushed.

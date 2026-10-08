@@ -14,7 +14,6 @@ interface Status {
   defaultRelay?: string;
   relayError?: string;
   projects: { id: string; name: string }[];
-  projectIds: string[];
   devices: { peerId: string; name: string; push?: unknown }[];
 }
 interface Pairing { url: string; qr: string; expiresAt: number }
@@ -27,7 +26,6 @@ export function RemoteCompanionSettings() {
   const [status, setStatus] = useState<Status>();
   const [relay, setRelay] = useState('');
   const [token, setToken] = useState('');
-  const [selected, setSelected] = useState<string[]>([]);
   const [pair, setPair] = useState<Pairing>();
   const [dialog, setDialog] = useState<'setup' | 'pair' | null>(null);
   const [error, setError] = useState('');
@@ -109,7 +107,6 @@ export function RemoteCompanionSettings() {
   };
   const openSetup = () => {
     setRelay(status?.relay && status.relay !== status.defaultRelay ? status.relay : '');
-    setSelected(status?.projectIds ?? []);
     setToken(''); setError(''); setDialog('setup');
   };
   const closeDialog = () => {
@@ -158,7 +155,6 @@ export function RemoteCompanionSettings() {
         <dl>
           <div><dt>Data source</dt><dd>{status.environment === 'development' ? 'Aegis Dev' : 'Aegis'}</dd></div>
           <div><dt>Relay server</dt><dd>{status.relay || status.defaultRelay || 'Not configured'}{status.relayError ? ` · ${status.relayError}` : ''}</dd></div>
-          <div><dt>Shared projects</dt><dd>{status.projectIds.length ? status.projectIds.map(id => status.projects.find(project => project.id === id)?.name ?? 'Unavailable project').join(', ') : 'None'}</dd></div>
         </dl>
         {!status.enabled && !!status.devices.length && <p className="connections-note">Setting up again replaces the previous connection. You’ll need to pair your devices again.</p>}
       </details>}
@@ -169,13 +165,9 @@ export function RemoteCompanionSettings() {
         <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/30" />
         <Dialog.Content className="connections-dialog">
           <div className="connections-dialog-header"><Dialog.Title>{dialog === 'setup' ? 'Set up iPhone access' : 'Pair your iPhone'}</Dialog.Title><button className="settings-button" aria-label="Close pairing" disabled={busy} onClick={closeDialog}><X className="h-4 w-4" /></button></div>
-          <Dialog.Description className="connections-dialog-description">{dialog === 'setup' ? 'Choose the projects your iPhone can access.' : 'Open Aegis on your iPhone and scan this code. Then approve the connection on this Mac.'}</Dialog.Description>
+          <Dialog.Description className="connections-dialog-description">{dialog === 'setup' ? 'Your iPhone will see all your projects and conversations.' : 'Open Aegis on your iPhone and scan this code. Then approve the connection on this Mac.'}</Dialog.Description>
           {error && <p role="alert" className="connections-error">{error}</p>}
-          {dialog === 'setup' && <form onSubmit={event => { event.preventDefault(); void act('configure', { relay: relay.trim(), token: token.trim(), projectIds: selected }); }}>
-            <fieldset className="connections-projects"><legend>Projects your iPhone can access</legend>
-              {status?.projects.map(project => <label key={project.id}><input type="checkbox" disabled={busy} checked={selected.includes(project.id)} onChange={event => setSelected(ids => event.target.checked ? [...ids, project.id] : ids.filter(id => id !== project.id))} />{project.name}</label>)}
-              {!status?.projects.length && <p>Create a conversation in a desktop project first.</p>}
-            </fieldset>
+          {dialog === 'setup' && <form onSubmit={event => { event.preventDefault(); void act('configure', { relay: relay.trim(), token: token.trim() }); }}>
             <details className="settings-disclosure connections-details" open={!!relay}>
               <summary><ChevronDown />Custom relay</summary>
               <p className="connections-note">Leave empty to use the Aegis relay. It only forwards end-to-end encrypted data.</p>
@@ -183,7 +175,7 @@ export function RemoteCompanionSettings() {
               <label className="connections-field">Registration token (optional)<input className="settings-control" type="password" autoComplete="off" minLength={32} maxLength={128} value={token} onChange={event => setToken(event.target.value)} disabled={busy || !relay.trim()} /></label>
             </details>
             {!!status?.devices.length && <p className="connections-note">This replaces your previous connection. Existing devices will need to pair again.</p>}
-            <div className="connections-dialog-actions"><button type="button" className="settings-button" disabled={busy} onClick={closeDialog}>Cancel</button><button className="settings-primary-button" disabled={busy || !selected.length || (!!token.trim() && token.trim().length < 32)}>{busy ? 'Connecting…' : 'Enable access'}</button></div>
+            <div className="connections-dialog-actions"><button type="button" className="settings-button" disabled={busy} onClick={closeDialog}>Cancel</button><button className="settings-primary-button" disabled={busy || (!!token.trim() && token.trim().length < 32)}>{busy ? 'Connecting…' : 'Enable access'}</button></div>
           </form>}
           {dialog === 'pair' && pair && <>
             <div className="connections-qr">{seconds > 0 ? <img src={pair.qr} width={220} height={220} alt="Scan to pair your iPhone" /> : <div className="connections-expired"><Monitor /><p>Pairing code expired</p><button className="settings-primary-button" disabled={busy || !ready} onClick={() => void act('pair')}>Generate new code</button></div>}</div>

@@ -35,6 +35,7 @@ const sessions = [
     title: "Refactor stream batching",
     provider: "codex",
     handoffSourceProvider: "claude",
+    pinned: true,
     status: "idle",
     updatedAt: Date.now() - 6 * minute,
     runId: null,
@@ -236,7 +237,7 @@ gateway = new RemoteGateway(
   ),
   runtime,
 );
-await gateway.configure(`ws://127.0.0.1:${fixturePort}`, token, ["project", "site"]);
+await gateway.configure(`ws://127.0.0.1:${fixturePort}`, token);
 await new Promise((r) => setTimeout(r, 400));
 gateway.capture({
   type: "stream.user_prompt",

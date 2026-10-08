@@ -87,7 +87,7 @@ const journal = new RemoteJournal(
   (x) => x,
 );
 journal.update((s) => {
-  s.config = { enabled: true, projectIds: ["allowed"] };
+  s.config = { enabled: true };
   s.devices = [{ peerId: "phone", name: "test", pairedAt: 1 }];
 });
 const gateway = new RemoteGateway(journal, runtime);
@@ -104,12 +104,13 @@ try {
     (await request({ method: "snapshot" }, "attacker")).error,
     "UNAUTHORIZED",
   );
+  // A paired phone sees every project and session the desktop lists.
   const snapshot = (await request({ method: "snapshot" })).result;
-  assert.equal(snapshot.sessions.length, 1);
-  assert.equal(snapshot.projects.length, 1);
-  assert.equal(snapshot.sessions[0].id, "visible");
+  assert.deepEqual(snapshot.sessions.map((s) => s.id).sort(), ["secret", "visible"]);
+  assert.equal(snapshot.projects.length, 2);
+  assert.ok((await request({ method: "snapshot", sessionId: "secret" })).result.messages);
   assert.equal(
-    (await request({ method: "snapshot", sessionId: "secret" })).error,
+    (await request({ method: "snapshot", sessionId: "unknown" })).error,
     "SCOPE_DENIED",
   );
   assert.equal(
@@ -121,7 +122,7 @@ try {
       await request(
         command({
           method: "create",
-          projectId: "hidden",
+          projectId: "unknown",
           provider: "claude",
           prompt: "x",
         }),
@@ -288,7 +289,7 @@ try {
   assert.equal((await files({ method: "files.read", projectId: "allowed", path: "escape.txt" })).error, "SCOPE_DENIED");
   assert.equal((await files({ method: "files.read", projectId: "allowed", path: ".env" })).error, "SCOPE_DENIED");
   assert.equal((await files({ method: "files.read", projectId: "allowed", path: "missing.ts" })).error, "NOT_FOUND");
-  assert.equal((await files({ method: "files.list", projectId: "hidden" })).error, "SCOPE_DENIED");
+  assert.equal((await files({ method: "files.list", projectId: "unknown" })).error, "SCOPE_DENIED");
   assert.equal((await files({ method: "files.list", projectId: "allowed" }, "attacker")).error, "UNAUTHORIZED");
   assert.deepEqual((await files({ method: "files.search", projectId: "allowed", query: "APP" })).result.map((e) => e.path), ["src/app.ts"]);
   // Phone settings map onto the desktop composer's payload fields.

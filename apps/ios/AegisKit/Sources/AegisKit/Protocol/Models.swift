@@ -63,7 +63,10 @@ public struct RemoteSession: Codable, Equatable, Hashable, Identifiable, Sendabl
     public let runId: String?
     public let handoffSourceProvider: String?
     public let settings: RemoteTaskSettings?
+    /// Pinned in the desktop sidebar.
+    public let pinned: Bool?
 
+    public var isPinned: Bool { pinned == true }
     public var isRunning: Bool { runId != nil || status == "running" || status == "stopping" }
     public var isFailed: Bool { status == "error" || status == "failed" }
 }

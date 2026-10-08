@@ -221,6 +221,8 @@ export interface RemoteSession {
   handoffSourceProvider?: string | null;
   /** The session's current agent settings, used as follow-up defaults. */
   settings?: RemoteTaskSettings;
+  /** Pinned in the desktop sidebar. */
+  pinned?: boolean;
 }
 export interface RemoteMessage {
   id: string;

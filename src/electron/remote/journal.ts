@@ -18,7 +18,8 @@ export interface RemoteConfig {
   registrationToken?: string;
   identity: string;
   peerId: string;
-  projectIds: string[];
+  /** Older configs limited the phone to these projects; every project is shared now. */
+  projectIds?: string[];
   enabled: boolean;
 }
 export interface RemoteDevice {

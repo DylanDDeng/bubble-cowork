@@ -163,14 +163,17 @@ export function setupRemoteIPC(
       projects: listProjects,
       options: agentOptions,
       attach: (name, data) => importAttachmentBytes(name, data),
-      sessions: () =>
-        sessions
+      sessions: () => {
+        // The desktop sidebar's list: archived sessions stay off the phone too.
+        const organization = sessions.getSessionOrganization().sessions;
+        return sessions
           .listSessions()
           .filter(
             (s) =>
               s.hidden_from_threads !== 1 &&
               !!s.cwd &&
-              s.session_origin === "aegis",
+              s.session_origin === "aegis" &&
+              !organization[s.id]?.archived,
           )
           .map((s) => ({
             id: s.id,
@@ -181,6 +184,7 @@ export function setupRemoteIPC(
             updatedAt: s.updated_at,
             runId: null,
             handoffSourceProvider: s.handoff_source_provider,
+            pinned: s.pinned === 1,
             settings: {
               model: s.model || undefined,
               compatibleProviderId: s.compatible_provider_id || undefined,
@@ -189,15 +193,16 @@ export function setupRemoteIPC(
               permissionMode: (s.provider === "codex" ? s.codex_permission_mode : s.provider === "claude" ? s.claude_access_mode : null) || undefined,
               plan: (s.provider === "codex" ? s.codex_execution_mode : s.provider === "claude" ? s.claude_execution_mode : null) === "plan" || undefined,
             },
-          })),
+          }));
+      },
       history: (id) => projectMessages(sessions.getSessionHistory(id)),
       confirm: async (name, peerId) => {
         const result = await dialog.showMessageBox(window, {
           type: "question",
-          title: "连接 iPhone",
-          message: `允许“${name}”远程访问已选择的项目？`,
-          detail: `请核对手机上的设备身份：\n${peerId}\n\n允许后可读取会话、发任务、停止及处理一次性审批。`,
-          buttons: ["拒绝", "允许此设备"],
+          title: "Connect iPhone",
+          message: `Allow “${name}” to use Aegis on this Mac?`,
+          detail: `Check that your iPhone shows this device ID:\n${peerId}\n\nOnce allowed, it can see all your projects and sessions, start and stop tasks, and answer one-time approvals.`,
+          buttons: ["Don’t Allow", "Allow This iPhone"],
           defaultId: 0,
           cancelId: 0,
         });
@@ -220,22 +225,12 @@ export function setupRemoteIPC(
                 relay: "",
                 defaultRelay: defaultRelay(),
                 projects: listProjects().map(({ id, name }) => ({ id, name })),
-                projectIds: [],
                 devices: [],
               };
         case "configure":
-          if (
-            typeof payload?.relay !== "string" ||
-            typeof payload?.token !== "string" ||
-            !Array.isArray(payload?.projectIds) ||
-            payload.projectIds.some((p: unknown) => typeof p !== "string")
-          )
+          if (typeof payload?.relay !== "string" || typeof payload?.token !== "string")
             throw new Error("Invalid remote configuration");
-          return get().configure(
-            payload.relay,
-            payload.token,
-            payload.projectIds,
-          );
+          return get().configure(payload.relay, payload.token);
         case "pair": {
           const offer = get().pairing();
           const url =

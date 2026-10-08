@@ -1,18 +1,41 @@
 import AegisKit
 import SwiftUI
 
-/// Sidebar order: needs you, running, then recency buckets.
-func groupSessions(_ sessions: [RemoteSession], _ permissions: [RemotePermission], now: Date = Date()) -> [(title: String, items: [RemoteSession])] {
+/// One sidebar section: "Needs you", "Pinned", or a project with its sessions.
+struct SidebarSection: Identifiable {
+    enum Kind: Equatable { case waiting, pinned, project(RemoteProject?) }
+    let id: String
+    let kind: Kind
+    let items: [RemoteSession]
+}
+
+/// Sidebar order, like the desktop grouped by project: sessions waiting on you,
+/// pinned ones, then each project (most recently active first). A session shows
+/// once, in the first section it belongs to.
+func sidebarSections(_ sessions: [RemoteSession], projects: [RemoteProject], permissions: [RemotePermission]) -> [SidebarSection] {
     let waiting = Set(permissions.map(\.sessionId))
-    let calendar = Calendar.current
-    let today = calendar.startOfDay(for: now).timeIntervalSince1970 * 1000
-    let day = 86_400_000.0
-    var groups: [(String, [RemoteSession])] = [("Needs you", []), ("Running", []), ("Today", []), ("Yesterday", []), ("Previous 7 days", []), ("Earlier", [])]
-    for s in sessions.sorted(by: { $0.updatedAt > $1.updatedAt }) {
-        let index = waiting.contains(s.id) ? 0 : s.isRunning ? 1 : s.updatedAt >= today ? 2 : s.updatedAt >= today - day ? 3 : s.updatedAt >= today - 7 * day ? 4 : 5
-        groups[index].1.append(s)
+    let recent = sessions.sorted { $0.updatedAt > $1.updatedAt }
+    let needsYou = recent.filter { waiting.contains($0.id) }
+    let pinned = recent.filter { $0.isPinned && !waiting.contains($0.id) }
+    let rest = recent.filter { !$0.isPinned && !waiting.contains($0.id) }
+    var sections: [SidebarSection] = []
+    if !needsYou.isEmpty { sections.append(SidebarSection(id: "waiting", kind: .waiting, items: needsYou)) }
+    if !pinned.isEmpty { sections.append(SidebarSection(id: "pinned", kind: .pinned, items: pinned)) }
+    var order: [String] = []
+    var byProject: [String: [RemoteSession]] = [:]
+    for session in rest {
+        if byProject[session.projectId] == nil { order.append(session.projectId) }
+        byProject[session.projectId, default: []].append(session)
     }
-    return groups.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1) }
+    // Projects without sessions left to show still appear, so a new task can start there.
+    for project in projects where byProject[project.id] == nil && !order.contains(project.id) {
+        order.append(project.id)
+        byProject[project.id] = []
+    }
+    for id in order {
+        sections.append(SidebarSection(id: "project-" + id, kind: .project(projects.first { $0.id == id }), items: byProject[id] ?? []))
+    }
+    return sections
 }
 
 func relativeTime(_ ms: Double, now: Date = Date()) -> String {
@@ -48,10 +71,15 @@ struct SessionTrailing: View {
 struct DrawerView: View {
     @Environment(AppModel.self) private var model
     @State private var query = ""
+    /// Projects the user folded; remembered across launches.
+    @AppStorage("aegis-sidebar-collapsed") private var collapsedRaw = ""
+    @State private var expanded: Set<String> = []
+
+    private static let previewCount = 5
+    private var collapsed: Set<String> { Set(collapsedRaw.split(separator: "\n").map(String.init)) }
 
     var body: some View {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let filtered = q.isEmpty ? model.sessions : model.sessions.filter { $0.title.lowercased().contains(q) }
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 HStack(spacing: 8) {
@@ -75,30 +103,15 @@ struct DrawerView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     if q.isEmpty {
-                        row(icon: "square.and.pencil", label: "New task") { model.openHome() }
-                        row(icon: "folder", label: "Projects", count: model.projects.count, chevron: true) { model.push(.projects) }
-                    }
-                    ForEach(groupSessions(filtered, model.permissions), id: \.title) { group in
-                        Text(group.title).font(.app(13, weight: .medium)).foregroundStyle(Color.text3)
-                            .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 6)
-                        ForEach(group.items) { s in
-                            Button { model.open(session: s.id) } label: {
-                                HStack(spacing: 10) {
-                                    SessionGlyph(provider: s.provider, from: s.handoffSourceProvider)
-                                    Text(s.title.isEmpty ? "Untitled task" : s.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                                    SessionTrailing(session: s, waiting: model.permissions.first { $0.sessionId == s.id })
-                                }
-                                .font(.app(15, weight: model.currentSessionId == s.id ? .medium : .regular))
-                                .padding(.horizontal, 10)
-                                .frame(minHeight: 40)
-                                .background(model.currentSessionId == s.id ? Color.fill2 : .clear, in: .rect(cornerRadius: 12))
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                        ForEach(sidebarSections(model.sessions, projects: model.projects, permissions: model.permissions)) { section in
+                            sectionView(section)
                         }
-                    }
-                    if !q.isEmpty && filtered.isEmpty {
-                        Text("No matching tasks.").font(.app(14)).foregroundStyle(Color.text2).padding(10)
+                    } else {
+                        let found = model.sessions.filter { $0.title.lowercased().contains(q) }.sorted { $0.updatedAt > $1.updatedAt }
+                        ForEach(found) { s in sessionRow(s, project: projectName(s.projectId)) }
+                        if found.isEmpty {
+                            Text("No matching tasks.").font(.app(14)).foregroundStyle(Color.text2).padding(10)
+                        }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -131,19 +144,101 @@ struct DrawerView: View {
         .background(Color.page)
     }
 
-    private func row(icon: String, label: String, count: Int? = nil, chevron: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon).font(.app(16)).frame(width: 22)
-                Text(label).frame(maxWidth: .infinity, alignment: .leading)
-                if let count { Text("\(count)").font(.app(13)).foregroundStyle(Color.text3) }
-                if chevron { Image(systemName: "chevron.right").font(.app(12, weight: .semibold)).foregroundStyle(Color.text3) }
+    @ViewBuilder private func sectionView(_ section: SidebarSection) -> some View {
+        switch section.kind {
+        case .waiting:
+            sectionTitle("Needs you")
+            ForEach(section.items) { s in sessionRow(s, project: projectName(s.projectId)) }
+        case .pinned:
+            sectionTitle("Pinned")
+            ForEach(section.items) { s in sessionRow(s, project: projectName(s.projectId)) }
+        case .project(let project):
+            let id = section.id
+            let folded = collapsed.contains(id)
+            let showAll = expanded.contains(id)
+            HStack(spacing: 8) {
+                Button { toggleCollapsed(id) } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: folded ? "folder" : "folder.fill").font(.app(14)).foregroundStyle(Color.text2).frame(width: 18)
+                        Text(project?.name ?? "Other").font(.app(14, weight: .semibold)).lineLimit(1)
+                        Image(systemName: "chevron.right").font(.app(10, weight: .bold)).foregroundStyle(Color.text3)
+                            .rotationEffect(.degrees(folded ? 0 : 90))
+                        Spacer(minLength: 4)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(project?.name ?? "Other"), \(section.items.count) tasks")
+                .accessibilityValue(folded ? "Collapsed" : "Expanded")
+                if let project {
+                    Button {
+                        model.projectId = project.id
+                        model.openHome()
+                    } label: {
+                        Image(systemName: "plus").font(.app(13, weight: .semibold)).foregroundStyle(Color.text2).frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New task in \(project.name)")
+                }
             }
-            .font(.app(15))
+            .padding(.leading, 10)
+            .padding(.top, 14)
+            .padding(.bottom, 2)
+            if !folded {
+                let shown = showAll ? section.items : Array(section.items.prefix(Self.previewCount))
+                ForEach(shown) { s in sessionRow(s, project: nil) }
+                if section.items.isEmpty {
+                    Text("No tasks yet").font(.app(13)).foregroundStyle(Color.text3).padding(.horizontal, 10).padding(.vertical, 6)
+                } else if section.items.count > Self.previewCount {
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            if showAll { expanded.remove(id) } else { expanded.insert(id) }
+                        }
+                    } label: {
+                        Text(showAll ? "Show less" : "Show \(section.items.count - Self.previewCount) more")
+                            .font(.app(13)).foregroundStyle(Color.text2)
+                            .padding(.horizontal, 10).frame(minHeight: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title).font(.app(13, weight: .medium)).foregroundStyle(Color.text3)
+            .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 6)
+    }
+
+    /// `project`: shown under the title where sessions from several projects mix.
+    private func sessionRow(_ s: RemoteSession, project: String?) -> some View {
+        Button { model.open(session: s.id) } label: {
+            HStack(spacing: 10) {
+                SessionGlyph(provider: s.provider, from: s.handoffSourceProvider)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(s.title.isEmpty ? "Untitled task" : s.title).lineLimit(1)
+                    if let project {
+                        Text(project).font(.app(12)).foregroundStyle(Color.text3).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                SessionTrailing(session: s, waiting: model.permissions.first { $0.sessionId == s.id })
+            }
+            .font(.app(15, weight: model.currentSessionId == s.id ? .medium : .regular))
             .padding(.horizontal, 10)
             .frame(minHeight: 40)
+            .background(model.currentSessionId == s.id ? Color.fill2 : .clear, in: .rect(cornerRadius: 12))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func projectName(_ id: String) -> String? { model.projects.first { $0.id == id }?.name }
+
+    private func toggleCollapsed(_ id: String) {
+        var set = collapsed
+        if set.contains(id) { set.remove(id) } else { set.insert(id) }
+        withAnimation(.snappy(duration: 0.2)) { collapsedRaw = set.sorted().joined(separator: "\n") }
     }
 }

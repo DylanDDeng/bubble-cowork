@@ -102,16 +102,11 @@ export class RemoteGateway {
       defaultRelay: defaultRelay(),
       relayError: this.relayError,
       projects: this.runtime.projects().map(({ id, name }) => ({ id, name })),
-      projectIds: this.journal.state.config?.projectIds ?? [],
       devices: this.journal.state.devices,
     };
   }
   /** An empty relay means the public Aegis relay; the token is only for self-hosted relays. */
-  async configure(
-    relay: string | undefined,
-    registrationToken: string | undefined,
-    projectIds: string[],
-  ) {
+  async configure(relay: string | undefined, registrationToken: string | undefined) {
     const url = new URL(relay?.trim() || defaultRelay());
     if (
       url.protocol !== "wss:" &&
@@ -126,9 +121,6 @@ export class RemoteGateway {
     registrationToken = registrationToken?.trim() || undefined;
     if (registrationToken && (registrationToken.length < 32 || registrationToken.length > 128))
       throw new Error("Invalid relay registration token");
-    const allowed = new Set(this.runtime.projects().map((p) => p.id));
-    if (!projectIds.length || projectIds.some((id) => !allowed.has(id)))
-      throw new Error("Select valid projects");
     this.close();
     const identity = await this.crypto().createIdentity();
     this.journal.update((s) => {
@@ -139,7 +131,6 @@ export class RemoteGateway {
         routeToken: randomBytes(32).toString("hex"),
         identity: identity.privateKey,
         peerId: identity.peerId,
-        projectIds,
         enabled: true,
       };
       s.devices = [];
@@ -383,13 +374,10 @@ export class RemoteGateway {
       channel.close();
     }
   }
+  /** Paired phones see every project and session the desktop sidebar lists. */
   private allowedSession(sessionId: string) {
     const session = this.runtime.sessions().find((s) => s.id === sessionId);
-    if (
-      !session ||
-      !this.journal.state.config?.projectIds.includes(session.projectId)
-    )
-      throw new Error("SCOPE_DENIED");
+    if (!session) throw new Error("SCOPE_DENIED");
     return session;
   }
   private runId(id: string) {
@@ -404,10 +392,8 @@ export class RemoteGateway {
     before?: number,
     expectedHistoryRevision?: string,
   ) {
-    const allowed = this.journal.state.config?.projectIds ?? [];
     const sessions = this.runtime
       .sessions()
-      .filter((s) => allowed.includes(s.projectId))
       .map((s) => ({ ...s, runId: this.runId(s.id) }));
     const visible = new Set(sessions.map((s) => s.id));
     const permissions: RemotePermission[] = [];
@@ -460,7 +446,6 @@ export class RemoteGateway {
     const state = {
       projects: this.runtime
         .projects()
-        .filter((p) => allowed.includes(p.id))
         .map(({ id, name, isRepo }) => ({ id, name, isRepo })),
       sessions,
       permissions,
@@ -544,8 +529,6 @@ export class RemoteGateway {
         request.method === "files.search" ||
         request.method === "files.read"
       ) {
-        if (!this.journal.state.config.projectIds.includes(request.projectId))
-          throw new Error("SCOPE_DENIED");
         const project = this.runtime.projects().find((p) => p.id === request.projectId);
         if (!project) throw new Error("SCOPE_DENIED");
         let result;
@@ -610,7 +593,7 @@ export class RemoteGateway {
       }
       if (
         request.method === "create" &&
-        !this.journal.state.config.projectIds.includes(request.projectId)
+        !this.runtime.projects().some((p) => p.id === request.projectId)
       )
         throw new Error("SCOPE_DENIED");
       if ("runId" in request && request.runId !== this.runId(request.sessionId))
@@ -821,7 +804,7 @@ export class RemoteGateway {
     const away = this.status === "connected" && this.peerAway;
     if (!config?.enabled || (this.status !== "waiting" && !away)) return;
     const session = this.runtime.sessions().find((s) => s.id === sessionId);
-    if (!session || !config.projectIds.includes(session.projectId)) return;
+    if (!session) return;
     const key = kind + ":" + sessionId;
     const now = Date.now();
     if (now - (this.notified.get(key) ?? 0) < 60000) return;
