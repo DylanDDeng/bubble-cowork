@@ -58,6 +58,7 @@ struct RootView: View {
             }
         }
         .task(id: CatalogKey(options: model.client.agentOptions, models: model.sessionModels)) { await model.reloadCatalogs() }
+        .onChange(of: model.sessions, initial: true) { model.saveNotificationTitles() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:

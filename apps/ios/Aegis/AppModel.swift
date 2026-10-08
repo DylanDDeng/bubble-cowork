@@ -392,8 +392,26 @@ final class AppModel {
         }
     }
 
+    // MARK: Notification titles
+
+    @ObservationIgnored private var savedTitles: [String: NotificationTitles.Entry]?
+
+    /// Mirrors the sidebar's titles into the App Group for the notification extension.
+    func saveNotificationTitles() {
+        let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        let entries = Dictionary(
+            sessions.map { ($0.id, NotificationTitles.Entry(title: $0.title.isEmpty ? "Untitled task" : $0.title, project: names[$0.projectId])) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard entries != savedTitles else { return }
+        savedTitles = entries
+        NotificationTitles.save(entries)
+    }
+
     func removeMac() async {
         await client.disconnect(forget: true)
+        savedTitles = [:]
+        NotificationTitles.save([:])
         drafts = [:]
         path = []
         screen = .home

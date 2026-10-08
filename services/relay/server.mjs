@@ -11,10 +11,11 @@ const equal = (a, b) =>
   a.length === b.length &&
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const HEX64 = /^[a-f0-9]{64}$/;
+/** Notification titles: the event. The Mac's name goes in the body. */
 const PUSH_TEXT = {
-  approval: "A task needs your approval",
-  finished: "A task finished",
-  failed: "A task failed",
+  approval: "Approval needed",
+  finished: "Task finished",
+  failed: "Task failed",
 };
 
 /** Fixed-window counter keyed by IP or host key. */
@@ -113,10 +114,14 @@ export function createRelay({
         collapseId: body.sessionId ? `${body.kind}:${body.sessionId}` : undefined,
         payload: {
           aps: {
-            alert: { title: body.machineName || "Aegis", body: PUSH_TEXT[body.kind] },
+            alert: { title: PUSH_TEXT[body.kind], body: body.machineName ? `On ${body.machineName}` : "On your Mac" },
             sound: "default",
+            // The app's notification extension swaps in the task's title from the
+            // phone's own cache; the relay and APNs never see it.
+            "mutable-content": 1,
             ...(body.sessionId ? { "thread-id": body.sessionId } : {}),
           },
+          kind: body.kind,
           ...(body.sessionId ? { sessionId: body.sessionId } : {}),
         },
       });

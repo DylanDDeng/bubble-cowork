@@ -111,7 +111,7 @@ struct NotificationsSection: View {
         } header: {
             Text("Notifications")
         } footer: {
-            Text("Get notified when a task needs your approval or finishes while this app is closed. Notifications say what happened, not what the agent wrote.")
+            Text("Get notified when a task needs your approval or finishes while this app is closed. Notifications name the task and what happened, never what the agent wrote.")
         }
     }
 }

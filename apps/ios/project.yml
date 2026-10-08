@@ -18,8 +18,10 @@ targets:
     platform: iOS
     sources:
       - path: Aegis
+      - path: Shared
     dependencies:
       - package: AegisKit
+      - target: AegisNotifications
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
@@ -36,14 +38,49 @@ targets:
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: $(AEGIS_BUNDLE_ID).dev
+          AEGIS_APP_GROUP: group.$(AEGIS_BUNDLE_ID).dev
           AEGIS_APS_ENVIRONMENT: development
           AEGIS_DISPLAY_NAME: Aegis Dev
           AEGIS_URL_SCHEME: aegis-dev
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: $(AEGIS_BUNDLE_ID)
+          AEGIS_APP_GROUP: group.$(AEGIS_BUNDLE_ID)
           AEGIS_APS_ENVIRONMENT: production
           AEGIS_DISPLAY_NAME: Aegis
           AEGIS_URL_SCHEME: aegis
+  # Fills in a task's title on pushes from the app's local cache.
+  AegisNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NotificationService
+      - path: Shared
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: Aegis Notifications
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_NAME: AegisNotifications
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: NotificationService/NotificationService.entitlements
+        SKIP_INSTALL: YES
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: $(AEGIS_BUNDLE_ID).dev.notifications
+          AEGIS_APP_GROUP: group.$(AEGIS_BUNDLE_ID).dev
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: $(AEGIS_BUNDLE_ID).notifications
+          AEGIS_APP_GROUP: group.$(AEGIS_BUNDLE_ID)
 schemes:
   Aegis:
     build:

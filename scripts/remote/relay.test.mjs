@@ -194,7 +194,8 @@ await withRelay({ apns: fakeApns, pushesPerHour: 3 }, async (port) => {
   assert.equal(sent.length, 1);
   assert.equal(sent[0].collapseId, "approval:session-1");
   assert.deepEqual(sent[0].payload, {
-    aps: { alert: { title: "Test Mac", body: "A task needs your approval" }, sound: "default", "thread-id": "session-1" },
+    aps: { alert: { title: "Approval needed", body: "On Test Mac" }, sound: "default", "mutable-content": 1, "thread-id": "session-1" },
+    kind: "approval",
     sessionId: "session-1",
   });
   // Replayed nonce, tampered body, someone else's key, bad topic.
