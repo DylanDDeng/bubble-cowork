@@ -348,8 +348,8 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-window-shell-state');
   },
 
-  setTheme: (theme: 'light' | 'dark' | 'system') => {
-    return ipcRenderer.invoke('set-theme', theme);
+  setTheme: (theme: 'light' | 'dark' | 'system', look?: { variant: 'light' | 'dark'; background: string }) => {
+    return ipcRenderer.invoke('set-theme', theme, look);
   },
 
   getUiResumeState: (): Promise<UiResumeState | null> => {

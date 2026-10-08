@@ -8,6 +8,7 @@ import { setupIPCHandlers, cleanup } from './ipc-handlers';
 import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
 import { registerDesignModeIpc } from './design-mode-ipc';
 import { browserManager } from './browserManager';
+import { setPageBackgrounds } from './browser/page-view';
 import {
   assertTrustedIpcSender,
   isDev,
@@ -258,8 +259,14 @@ function requestProjectEditorFlush(
   });
 }
 
+// The renderer reports each variant's page background once it has applied a
+// theme, so new and resized windows paint the theme color instead of a
+// generic one before the UI draws.
+const themedBackgrounds: Partial<Record<'light' | 'dark', string>> = {};
+
 function getMainWindowBackgroundColor(): string {
-  return nativeTheme.shouldUseDarkColors ? '#111214' : '#ffffff';
+  const variant = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  return themedBackgrounds[variant] ?? (variant === 'dark' ? '#111214' : '#ffffff');
 }
 
 function getWindowShellState(win: BrowserWindow): { rounded: boolean } {
@@ -1091,8 +1098,11 @@ app.whenReady().then(() => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return win ? getWindowShellState(win) : { rounded: process.platform === 'darwin' };
   });
-  ipcMainHandle('set-theme', async (_event, theme: 'light' | 'dark' | 'system') => {
+  ipcMainHandle('set-theme', async (_event, theme: 'light' | 'dark' | 'system', look?: { variant?: unknown; background?: unknown }) => {
     nativeTheme.themeSource = theme;
+    const background = typeof look?.background === 'string' && /^#[0-9a-f]{6}$/i.test(look.background) ? look.background : null;
+    if (background && (look?.variant === 'light' || look?.variant === 'dark')) themedBackgrounds[look.variant] = background;
+    setPageBackgrounds(themedBackgrounds);
     mainWindow?.setBackgroundColor(getMainWindowBackgroundColor());
     browserManager.applyThemeBackground();
     return { ok: true };

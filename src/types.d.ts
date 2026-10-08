@@ -183,7 +183,7 @@ declare global {
     remoteCompanion: (action: string, payload?: unknown) => Promise<any>;
     getAppVersion: () => Promise<string>;
     getWindowShellState: () => Promise<{ rounded: boolean }>;
-    setTheme: (theme: 'light' | 'dark' | 'system') => Promise<{ ok: boolean }>;
+    setTheme: (theme: 'light' | 'dark' | 'system', look?: { variant: 'light' | 'dark'; background: string }) => Promise<{ ok: boolean }>;
     getUiResumeState: () => Promise<UiResumeState | null>;
     getUiResumeStateSync: () => UiResumeState | null;
     saveUiResumeState: (state: UiResumeState) => Promise<{ ok: boolean }>;

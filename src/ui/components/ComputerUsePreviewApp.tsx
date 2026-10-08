@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Monitor } from './icons';
 import { sendEvent } from '../hooks/useIPC';
-import { applyThemePreferences, DEFAULT_THEME_STATE, DEFAULT_UI_FONT_FAMILY } from '../theme/themes';
+import { DEFAULT_APPEARANCE, DEFAULT_UI_FONT_FAMILY, renderAppearance } from '../theme/themes';
 import { ComputerUseFilmstrip, ComputerUseSelectedFrame, useComputerUseFramePreviews } from './ComputerUseFilmstrip';
 import type { ComputerUsePreviewSnapshot } from '../../shared/computer-use';
 
@@ -9,12 +9,7 @@ export function ComputerUsePreviewApp() {
   const [snapshot, setSnapshot] = useState<ComputerUsePreviewSnapshot | null>(null);
 
   useEffect(() => {
-    applyThemePreferences({
-      themeMode: 'system',
-      themeState: DEFAULT_THEME_STATE,
-      uiFontFamily: DEFAULT_UI_FONT_FAMILY,
-      chatCodeFontFamily: '',
-    });
+    renderAppearance({ mode: 'system', state: DEFAULT_APPEARANCE, uiFontFamily: DEFAULT_UI_FONT_FAMILY });
     let cancelled = false;
     void window.electron.getComputerUsePreviewState().then((state) => {
       if (!cancelled) setSnapshot(state);

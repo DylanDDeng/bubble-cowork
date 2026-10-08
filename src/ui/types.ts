@@ -5,7 +5,7 @@ export type SettingsTab = 'connections' | 'mcp' | 'general' | 'shortcuts' | 'app
 /** Agent runtime whose MCP servers the settings pane is showing. */
 export type McpSettingsRuntime = 'claude' | 'codex' | 'opencode' | 'kimi' | 'qoder' | 'bubble' | 'deepseek';
 
-import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
+import type { ThemeRecipe, ThemeTypefaces, ThemeMode, ThemeChoice, AppearanceState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
 import type {
   AgentProvider,
@@ -180,7 +180,7 @@ export type {
 
 // 主题类型
 export type Theme = ThemeMode;
-export type { ChromeTheme, ThemeFonts, ThemePack, ThemeState, ThemeVariant };
+export type { ThemeRecipe, ThemeTypefaces, ThemeChoice, AppearanceState, ThemeVariant };
 export type ChatLayoutMode = 'single' | 'split';
 export type ChatPaneId = 'primary' | 'secondary';
 export type WorkspaceSurface = 'chat' | 'terminal';
@@ -517,7 +517,7 @@ export interface AppState {
   folderConfigs: FolderConfig[];
   // 主题
   theme: Theme;
-  themeState: ThemeState;
+  themeState: AppearanceState;
   uiFontFamily: string;
   chatCodeFontFamily: string;
   // 皮肤壁纸:skinImage 是 userData/skins 里的文件名(持久化),
@@ -688,10 +688,10 @@ export interface AppActions {
   setFolderConfigs: (configs: FolderConfig[]) => void;
   // 主题 Actions
   setTheme: (theme: Theme) => void;
-  setThemeState: (themeState: ThemeState) => void;
-  updateThemeVariant: (variant: ThemeVariant, patch: Partial<ChromeTheme>) => void;
+  setThemeState: (themeState: AppearanceState) => void;
+  updateThemeVariant: (variant: ThemeVariant, patch: Partial<ThemeRecipe>) => void;
   setThemeVariantCodeThemeId: (variant: ThemeVariant, codeThemeId: string) => void;
-  setThemeVariantFonts: (variant: ThemeVariant, patch: Partial<ThemeFonts>) => void;
+  setThemeVariantFonts: (variant: ThemeVariant, patch: Partial<ThemeTypefaces>) => void;
   resetThemeVariant: (variant: ThemeVariant) => void;
   setUiFontFamily: (value: string) => void;
   setChatCodeFontFamily: (value: string) => void;

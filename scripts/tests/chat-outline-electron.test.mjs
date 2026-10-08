@@ -12,10 +12,10 @@ import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {ChatOutlineRail} from '/src/ui/components/ChatOutlineRail';
 import {useAppPreferences} from '/src/ui/store/useAppPreferences';
-import {applyThemePreferences,DEFAULT_THEME_STATE} from '/src/ui/theme/themes';
+import {renderAppearance,DEFAULT_APPEARANCE} from '/src/ui/theme/themes';
 import '/src/ui/index.css';
 window.electron={getSessionUserPrompts:async()=>[]};
-const theme=mode=>applyThemePreferences({themeMode:mode,themeState:DEFAULT_THEME_STATE,uiFontFamily:'system-ui',chatCodeFontFamily:'monospace'});
+const theme=mode=>renderAppearance({mode,state:DEFAULT_APPEARANCE,uiFontFamily:'system-ui',codeFontFamily:'monospace'});
 theme('light');
 const prompts=Array.from({length:24},(_,i)=>({createdAt:1000+i,text:i===0?'Short prompt':i===23?'Attachment changes':'Review the outline interaction — turn '+(i+1),
  replyText:i===0?'Done.':'The preview stays attached to the selected message while the nearby ticks expand smoothly. Move between messages to explore the conversation.',

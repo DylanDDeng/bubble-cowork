@@ -1,6 +1,7 @@
 import { buildTerminalRuntimeKey, type TerminalEvent } from '../../shared/terminal';
 import { ManagedTerminal, type TerminalEnvironment, type TerminalSpec, type TerminalView } from './managed-terminal';
 import { browserClock, type Clock } from './terminal-streams';
+import { THEME_APPLIED_EVENT } from '../theme/themes';
 
 export type { TerminalHooks, TerminalSpec, TerminalView } from './managed-terminal';
 
@@ -105,15 +106,21 @@ export class TerminalHost {
     }
   };
 
+  private readonly restyle = () => {
+    for (const terminal of this.terminals.values()) terminal.restyle();
+  };
+
   private listen(): void {
     if (this.stopListening) return;
     const unsubscribe = this.bridge().onEvent(this.dispatch);
     window.addEventListener('focus', this.recover);
     document.addEventListener('visibilitychange', this.recover);
+    window.addEventListener(THEME_APPLIED_EVENT, this.restyle);
     this.stopListening = () => {
       unsubscribe();
       window.removeEventListener('focus', this.recover);
       document.removeEventListener('visibilitychange', this.recover);
+      window.removeEventListener(THEME_APPLIED_EVENT, this.restyle);
     };
   }
 

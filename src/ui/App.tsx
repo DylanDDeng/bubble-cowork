@@ -87,7 +87,7 @@ import { useActiveEnvironmentContext } from './components/environment/useActiveE
 import { useGitEnvironment } from './components/environment/useGitEnvironment';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
-import { applyThemePreferences } from './theme/themes';
+import { renderAppearance } from './theme/themes';
 import { extractLatestSuccessfulHtmlArtifactFromLatestTurn } from './utils/artifacts';
 import { extractGeneratedMediaFromMessages } from './utils/generated-media';
 import { openGeneratedMediaInFilesPanel } from './components/GeneratedMediaGallery';
@@ -1003,12 +1003,7 @@ export function App() {
   }, [sessionStatusFingerprint, activeSessionId, openRightUtilityTab]);
 
   useEffect(() => {
-    applyThemePreferences({
-      themeMode: theme,
-      themeState,
-      uiFontFamily,
-      chatCodeFontFamily,
-    });
+    renderAppearance({ mode: theme, state: themeState, uiFontFamily, codeFontFamily: chatCodeFontFamily });
   }, [chatCodeFontFamily, theme, themeState, uiFontFamily]);
 
   // Global error notification

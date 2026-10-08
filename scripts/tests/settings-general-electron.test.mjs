@@ -12,14 +12,14 @@ import {Tooltip} from '@base-ui-components/react/tooltip';
 import {Toaster} from 'sonner';
 import {Settings} from '/src/ui/components/settings/Settings';
 import {AppearancePreferences} from '/src/ui/components/AppearancePreferences';
-import {createThemeShareString,resolveThemePack} from '/src/ui/theme/themes';
+import {exportTheme,choiceFor} from '/src/ui/theme/themes';
 import {PromptInput} from '/src/ui/components/PromptInput';
 import {EnvironmentEditorPicker} from '/src/ui/components/environment/EnvironmentHub';
 import {useAppStore} from '/src/ui/store/useAppStore';
 import {useAppPreferences,subscribeAppPreferences} from '/src/ui/store/useAppPreferences';
 import {useComposerQueueStore} from '/src/ui/store/useComposerQueueStore';
 import '/src/ui/index.css';
-window.qa={share:()=>createThemeShareString('light',resolveThemePack(useAppStore.getState().themeState,'light')),store:useAppStore,prefs:useAppPreferences,queue:useComposerQueueStore,calls:[]};
+window.qa={share:()=>exportTheme('light',choiceFor(useAppStore.getState().themeState,'light')),store:useAppStore,prefs:useAppPreferences,queue:useComposerQueueStore,calls:[]};
 window.electron={...window.preferenceBridge,
  getSystemFonts:async()=>['Arial','Menlo','Georgia'],
  getSystemFontFamilies:async()=>['Arial','Menlo','Georgia'].map(family=>({family,faces:['Regular','Bold'].map(style=>({family,style,fullName:family+(style==='Regular'?'':' '+style),postscriptName:family==='Menlo'?'Menlo-'+style:family+(style==='Regular'?'':'-'+style)}))})),

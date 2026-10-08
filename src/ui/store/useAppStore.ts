@@ -1,4 +1,3 @@
-import { consolidateThemeFonts } from '../theme/themes';
 import { useWorkflowStore } from './useWorkflowStore';
 import { useSessionOrganizationStore, changeSessionOrganization } from './useSessionOrganizationStore';
 import { create } from 'zustand';
@@ -43,22 +42,23 @@ import type {
   McpSettingsRuntime,
   FolderConfig,
   Theme,
-  ThemeFonts,
-  ThemeState,
+  ThemeTypefaces,
+  AppearanceState,
   ThemeVariant,
-  ChromeTheme,
+  ThemeRecipe,
   WorkspaceChannel,
   SessionTeamMode,
   McpServerStatus,
 } from '../types';
 import {
-  DEFAULT_THEME_STATE,
-  applyThemePreferences,
-  normalizeThemeState,
-  resetThemeVariant as resetThemeVariantState,
-  setThemeCodeThemeId,
-  setThemePackFonts,
-  updateThemePack,
+  DEFAULT_APPEARANCE,
+  applyPreset,
+  migrateLegacyFonts,
+  normalizeAppearance,
+  patchRecipe,
+  patchTypefaces,
+  renderAppearance,
+  resetVariant,
 } from '../theme/themes';
 import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkflowPromptKind } from '../../shared/types';
 import {
@@ -125,11 +125,11 @@ function applyAppearance({
   chatCodeFontFamily,
 }: {
   theme: Theme;
-  themeState: ThemeState;
+  themeState: AppearanceState;
   uiFontFamily: string;
   chatCodeFontFamily: string;
 }) {
-  applyThemePreferences({ themeMode: theme, themeState, uiFontFamily, chatCodeFontFamily });
+  renderAppearance({ mode: theme, state: themeState, uiFontFamily, codeFontFamily: chatCodeFontFamily });
 }
 
 type Store = AppState & AppActions;
@@ -1005,7 +1005,7 @@ export const useAppStore = create<Store>()(
       folderConfigs: [],
       // 主题
       theme: 'system' as const,
-      themeState: DEFAULT_THEME_STATE,
+      themeState: DEFAULT_APPEARANCE,
       uiFontFamily: '',
       chatCodeFontFamily: '',
       // 皮肤壁纸
@@ -2608,35 +2608,35 @@ export const useAppStore = create<Store>()(
   },
 
   setThemeState: (themeState) => {
-    const normalized = normalizeThemeState(themeState);
+    const normalized = normalizeAppearance(themeState);
     set({ themeState: normalized });
     const { theme, uiFontFamily, chatCodeFontFamily } = get();
     applyAppearance({ theme, themeState: normalized, uiFontFamily, chatCodeFontFamily });
   },
 
   updateThemeVariant: (variant, patch) => {
-    const nextThemeState = updateThemePack(get().themeState, variant, patch);
+    const nextThemeState = patchRecipe(get().themeState, variant, patch);
     set({ themeState: nextThemeState });
     const { theme, uiFontFamily, chatCodeFontFamily } = get();
     applyAppearance({ theme, themeState: nextThemeState, uiFontFamily, chatCodeFontFamily });
   },
 
   setThemeVariantCodeThemeId: (variant, codeThemeId) => {
-    const nextThemeState = setThemeCodeThemeId(get().themeState, variant, codeThemeId);
+    const nextThemeState = applyPreset(get().themeState, variant, codeThemeId);
     set({ themeState: nextThemeState });
     const { theme, uiFontFamily, chatCodeFontFamily } = get();
     applyAppearance({ theme, themeState: nextThemeState, uiFontFamily, chatCodeFontFamily });
   },
 
   setThemeVariantFonts: (variant, patch) => {
-    const nextThemeState = setThemePackFonts(get().themeState, variant, patch);
+    const nextThemeState = patchTypefaces(get().themeState, variant, patch);
     set({ themeState: nextThemeState });
     const { theme, uiFontFamily, chatCodeFontFamily } = get();
     applyAppearance({ theme, themeState: nextThemeState, uiFontFamily, chatCodeFontFamily });
   },
 
   resetThemeVariant: (variant) => {
-    const nextThemeState = resetThemeVariantState(get().themeState, variant);
+    const nextThemeState = resetVariant(get().themeState, variant);
     set({ themeState: nextThemeState });
     const { theme, uiFontFamily, chatCodeFontFamily } = get();
     applyAppearance({ theme, themeState: nextThemeState, uiFontFamily, chatCodeFontFamily });
@@ -2734,7 +2734,7 @@ export const useAppStore = create<Store>()(
           terminalDrawerOpen?: boolean;
           terminalDrawerHeight?: number;
           theme?: Theme;
-          themeState?: ThemeState;
+          themeState?: AppearanceState;
           uiFontFamily?: string;
           chatCodeFontFamily?: string;
           skinImage?: string | null;
@@ -2742,8 +2742,8 @@ export const useAppStore = create<Store>()(
           draftSessions?: Record<string, SessionView>;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
-        const themeState = consolidateThemeFonts(
-          normalizeThemeState(persisted?.themeState || currentState.themeState),
+        const themeState = migrateLegacyFonts(
+          normalizeAppearance(persisted?.themeState || currentState.themeState),
           persisted?.uiFontFamily ?? '', persisted?.chatCodeFontFamily ?? ''
         );
         const uiFontFamily = '';

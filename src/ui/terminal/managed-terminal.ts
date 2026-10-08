@@ -175,11 +175,17 @@ export class ManagedTerminal {
     if (!wasPresenting) this.xterm.focus();
   }
 
+  /** Re-reads colors and font from the app theme. */
+  restyle(): void {
+    if (this.destroyed) return;
+    this.xterm.options.theme = terminalPalette();
+    this.xterm.options.fontFamily = terminalFontStack();
+  }
+
   update(spec: TerminalSpec): void {
     const reconnect = spec.cwd !== this.spec.cwd || spec.agent !== this.spec.agent;
     this.spec = spec;
-    this.xterm.options.theme = terminalPalette();
-    this.xterm.options.fontFamily = terminalFontStack();
+    this.restyle();
     if (!reconnect) return;
     this.openSerial += 1;
     this.connection = 'idle';

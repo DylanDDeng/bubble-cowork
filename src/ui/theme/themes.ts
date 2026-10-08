@@ -1,1145 +1,278 @@
 import type { SystemFontFace } from '../../shared/system-fonts';
+import { isHexColor } from './color';
+import { DEFAULT_PRESET_ID, findPreset, PRESET_ALIASES, presetsFor } from './theme-presets';
+import {
+  DEFAULT_UI_FONT_FAMILY,
+  deriveThemeTokens,
+  LEGACY_DEFAULT_UI_FONT_FAMILY,
+  LOCAL_FACE_PREFIX,
+  type FontOverrides,
+} from './theme-tokens';
 import type {
-  ChromeTheme,
-  CodeThemeOption,
-  ThemeFonts,
+  AppearanceState,
+  ThemeChoice,
   ThemeMode,
-  ThemeSemanticColors,
-  ThemeSharePayload,
-  ThemePack,
-  ThemeState,
+  ThemePreset,
+  ThemeRecipe,
+  ThemeSignals,
+  ThemeTypefaces,
   ThemeVariant,
 } from './theme-types';
 
-type RgbColor = {
-  red: number;
-  green: number;
-  blue: number;
-};
+export { DEFAULT_UI_FONT_FAMILY, LEGACY_DEFAULT_UI_FONT_FAMILY } from './theme-tokens';
 
-type ThemeSeedPatch = Partial<
-  Pick<ChromeTheme, 'accent' | 'contrast' | 'ink' | 'opaqueWindows' | 'surface'>
-> & {
-  fonts?: Partial<ThemeFonts>;
-  semanticColors?: Partial<ThemeSemanticColors>;
-};
+/**
+ * Appearance state: one preset + recipe per variant, the edits the settings
+ * page makes to it, share strings, and applying the result to the document.
+ */
 
-const BLACK: RgbColor = { red: 0, green: 0, blue: 0 };
-const WHITE: RgbColor = { red: 255, green: 255, blue: 255 };
-const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-const THEME_SHARE_PREFIX = 'codex-theme-v1:';
-const TRANSITION_CLASS = 'no-transitions';
+const SHARE_PREFIX = 'aegis-theme-v1:';
+/** Strings copied from earlier Aegis builds and from Codex use this format. */
+const FOREIGN_SHARE_PREFIX = 'codex-theme-v1:';
+const VARIANTS: readonly ThemeVariant[] = ['light', 'dark'];
 
-const SURFACE_UNDER_BASE_ALPHA: Record<ThemeVariant, number> = {
-  dark: 0.16,
-  // Light main canvas (--bg-primary) used to be nudged toward ink (~#F5F5F5).
-  // Keep it as the theme's pure surface (pure white for the default theme) so
-  // the chat/content area matches the in-app browser. The contrast slider still
-  // darkens it via SURFACE_UNDER_CONTRAST_STEP; the sidebar has its own surface.
-  light: 0,
-};
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
-const SURFACE_UNDER_CONTRAST_STEP: Record<ThemeVariant, number> = {
-  dark: 0.0015,
-  light: 0.0012,
-};
-
-const PANEL_BASE_ALPHA: Record<ThemeVariant, number> = {
-  dark: 0.03,
-  light: 0.18,
-};
-
-const PANEL_CONTRAST_STEP: Record<ThemeVariant, number> = {
-  dark: 0.03,
-  light: 0.008,
-};
-
-const BASE_DISPLAY_FONT =
-  'ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, Cambria, "Times New Roman", Times, serif';
-export const LEGACY_DEFAULT_UI_FONT_FAMILY =
-  '"IBM Plex Serif Var", "IBM Plex Serif", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif';
-export const DEFAULT_UI_FONT_FAMILY =
-  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif';
-const BASE_UI_FONT = DEFAULT_UI_FONT_FAMILY;
-/** Carry legacy global overrides into both theme slots before removing them. */
-export function consolidateThemeFonts(themeState: ThemeState, uiFont: string, codeFont: string): ThemeState {
-  const ui = uiFont.trim();
-  const code = codeFont.trim();
-  const patch: Partial<ThemeFonts> = {};
-  if (ui && ui !== DEFAULT_UI_FONT_FAMILY && ui !== LEGACY_DEFAULT_UI_FONT_FAMILY) patch.ui = ui;
-  if (code) patch.code = code;
-  if (!Object.keys(patch).length) return themeState;
-  return setThemePackFonts(setThemePackFonts(themeState, 'light', patch), 'dark', patch);
+/** A preset id the variant supports; unknown or unsupported ids fall back to the default. */
+export function presetIdFor(value: unknown, variant: ThemeVariant): string {
+  const raw = (text(value) ?? '').toLowerCase();
+  const id = PRESET_ALIASES[raw] ?? raw;
+  return findPreset(id)?.variants[variant] ? id : DEFAULT_PRESET_ID;
 }
-const BASE_MONO_FONT =
-  '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
-export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
-  { id: 'codex', label: 'Codex', variants: ['light', 'dark'] },
-  { id: 'absolutely', label: 'Absolutely', variants: ['light', 'dark'] },
-  { id: 'dp-code', label: 'Harbor', variants: ['light', 'dark'] },
-  { id: 'linear', label: 'Linear', variants: ['light', 'dark'] },
-  { id: 'notion', label: 'Notion', variants: ['light', 'dark'] },
-  { id: 'github', label: 'GitHub', variants: ['light', 'dark'] },
-  { id: 'catppuccin', label: 'Catppuccin', variants: ['light', 'dark'] },
-  { id: 'everforest', label: 'Everforest', variants: ['light', 'dark'] },
-  { id: 'rose-pine', label: 'Rose Pine', variants: ['light', 'dark'] },
-  { id: 'tokyo-night', label: 'Tokyo Night', variants: ['dark'] },
-  { id: 'raycast', label: 'Raycast', variants: ['light', 'dark'] },
-  { id: 'vercel', label: 'Vercel', variants: ['light', 'dark'] },
-  { id: 'spotify', label: 'Spotify', variants: ['light', 'dark'] },
-  { id: 'arc', label: 'Arc', variants: ['light', 'dark'] },
-] as const;
+/** The recipe a preset defines for a variant (the default preset's when it has none). */
+export function presetRecipe(presetId: string, variant: ThemeVariant): ThemeRecipe {
+  const recipe = findPreset(presetIdFor(presetId, variant))?.variants[variant] ?? findPreset(DEFAULT_PRESET_ID)!.variants[variant]!;
+  return cloneRecipe(recipe);
+}
 
-const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, ChromeTheme>>> = {
-  codex: {
-    dark: {
-      accent: '#0169cc',
-      contrast: 60,
-      fonts: { code: null, ui: null },
-      ink: '#fcfcfc',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#00a240',
-        diffRemoved: '#e02e2a',
-        skill: '#b06dff',
-      },
-      surface: '#111111',
-    },
-    light: {
-      accent: '#0169cc',
-      contrast: 45,
-      fonts: { code: null, ui: null },
-      ink: '#0d0d0d',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#00a240',
-        diffRemoved: '#ba2623',
-        skill: '#751ed9',
-      },
-      surface: '#ffffff',
-    },
-  },
-  absolutely: {
-    dark: {
-      accent: '#cc7d5e',
-      contrast: 60,
-      fonts: { code: null, ui: null },
-      ink: '#f9f9f7',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#00c853',
-        diffRemoved: '#ff5f38',
-        skill: '#cc7d5e',
-      },
-      surface: '#2d2d2b',
-    },
-    light: {
-      accent: '#cc7d5e',
-      contrast: 45,
-      fonts: { code: null, ui: null },
-      ink: '#2d2d2b',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#00c853',
-        diffRemoved: '#ff5f38',
-        skill: '#cc7d5e',
-      },
-      surface: '#f9f9f7',
-    },
-  },
-  'dp-code': {
-    dark: {
-      accent: '#4fb0c6',
-      contrast: 72,
-      fonts: { code: null, ui: null },
-      ink: '#eef4f7',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#54c690',
-        diffRemoved: '#f06a6f',
-        skill: '#8f86ff',
-      },
-      surface: '#0f161b',
-    },
-    light: {
-      accent: '#1f8aa0',
-      contrast: 58,
-      fonts: { code: null, ui: null },
-      ink: '#1b2730',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#1f9a63',
-        diffRemoved: '#cf4c57',
-        skill: '#6b63e8',
-      },
-      surface: '#f6fbfc',
-    },
-  },
-  linear: {
-    dark: {
-      accent: '#606acc',
-      contrast: 68,
-      fonts: { code: null, ui: 'Inter' },
-      ink: '#e3e4e6',
-      opaqueWindows: true,
-      semanticColors: {
-        diffAdded: '#69c967',
-        diffRemoved: '#ff7e78',
-        skill: '#c2a1ff',
-      },
-      surface: '#0f0f11',
-    },
-    light: {
-      accent: '#5566d9',
-      contrast: 52,
-      fonts: { code: null, ui: 'Inter' },
-      ink: '#17181c',
-      opaqueWindows: true,
-      semanticColors: {
-        diffAdded: '#00a240',
-        diffRemoved: '#ba2623',
-        skill: '#6a63ff',
-      },
-      surface: '#f8f8fb',
-    },
-  },
-  notion: {
-    dark: {
-      accent: '#3183d8',
-      contrast: 60,
-      fonts: { code: null, ui: null },
-      ink: '#d9d9d8',
-      opaqueWindows: true,
-      semanticColors: {
-        diffAdded: '#4ec9b0',
-        diffRemoved: '#fa423e',
-        skill: '#3183d8',
-      },
-      surface: '#191919',
-    },
-    light: {
-      accent: '#3183d8',
-      contrast: 45,
-      fonts: { code: null, ui: null },
-      ink: '#37352f',
-      opaqueWindows: true,
-      semanticColors: {
-        diffAdded: '#008000',
-        diffRemoved: '#a31515',
-        skill: '#0000ff',
-      },
-      surface: '#ffffff',
-    },
-  },
-  github: {
-    dark: {
-      accent: '#58a6ff',
-      contrast: 58,
-      fonts: { code: null, ui: null },
-      ink: '#f0f6fc',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#3fb950',
-        diffRemoved: '#f85149',
-        skill: '#bc8cff',
-      },
-      surface: '#0d1117',
-    },
-    light: {
-      accent: '#0969da',
-      contrast: 44,
-      fonts: { code: null, ui: null },
-      ink: '#1f2328',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#1a7f37',
-        diffRemoved: '#cf222e',
-        skill: '#8250df',
-      },
-      surface: '#ffffff',
-    },
-  },
-  catppuccin: {
-    dark: {
-      accent: '#cba6f7',
-      contrast: 60,
-      fonts: { code: null, ui: null },
-      ink: '#cdd6f4',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#a6e3a1',
-        diffRemoved: '#f38ba8',
-        skill: '#cba6f7',
-      },
-      surface: '#1e1e2e',
-    },
-    light: {
-      accent: '#8839ef',
-      contrast: 45,
-      fonts: { code: null, ui: null },
-      ink: '#4c4f69',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#40a02b',
-        diffRemoved: '#d20f39',
-        skill: '#8839ef',
-      },
-      surface: '#eff1f5',
-    },
-  },
-  everforest: {
-    dark: {
-      accent: '#a7c080',
-      contrast: 60,
-      fonts: { code: null, ui: null },
-      ink: '#d3c6aa',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#a7c080',
-        diffRemoved: '#e67e80',
-        skill: '#d699b6',
-      },
-      surface: '#2d353b',
-    },
-    light: {
-      accent: '#8da101',
-      contrast: 44,
-      fonts: { code: null, ui: null },
-      ink: '#5c6a72',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#6f894e',
-        diffRemoved: '#c85552',
-        skill: '#9d6fca',
-      },
-      surface: '#fdf6e3',
-    },
-  },
-  'rose-pine': {
-    dark: {
-      accent: '#ea9a97',
-      contrast: 60,
-      fonts: { code: null, ui: null },
-      ink: '#e0def4',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#9ccfd8',
-        diffRemoved: '#908caa',
-        skill: '#c4a7e7',
-      },
-      surface: '#232136',
-    },
-    light: {
-      accent: '#d7827e',
-      contrast: 45,
-      fonts: { code: null, ui: null },
-      ink: '#575279',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#56949f',
-        diffRemoved: '#b4637a',
-        skill: '#907aa9',
-      },
-      surface: '#faf4ed',
-    },
-  },
-  'tokyo-night': {
-    dark: {
-      accent: '#7aa2f7',
-      contrast: 70,
-      fonts: { code: null, ui: null },
-      ink: '#c0caf5',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#9ece6a',
-        diffRemoved: '#f7768e',
-        skill: '#bb9af7',
-      },
-      surface: '#1a1b26',
-    },
-  },
-  raycast: {
-    dark: {
-      accent: '#ff6363',
-      contrast: 60,
-      fonts: { code: '"JetBrains Mono"', ui: 'Inter' },
-      ink: '#fefefe',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#59d499',
-        diffRemoved: '#ff6363',
-        skill: '#cf2f98',
-      },
-      surface: '#101010',
-    },
-    light: {
-      accent: '#ff6363',
-      contrast: 45,
-      fonts: { code: '"JetBrains Mono"', ui: 'Inter' },
-      ink: '#030303',
-      opaqueWindows: false,
-      semanticColors: {
-        diffAdded: '#006b4f',
-        diffRemoved: '#b12424',
-        skill: '#9a1b6e',
-      },
-      surface: '#ffffff',
-    },
-  },
-  // Brand-inspired palettes. Light Spotify uses a darker green for readable links;
-  // Arc interprets its customizable tinted chrome rather than a fixed official theme.
-  spotify: {
-    dark: {
-      accent: '#1ed760',
-      contrast: 60,
-      fonts: { code: null, ui: null },
-      ink: '#ffffff',
-      opaqueWindows: true,
-      semanticColors: { diffAdded: '#1ed760', diffRemoved: '#f3727f', skill: '#c4a0ff' },
-      surface: '#121212',
-    },
-    light: {
-      accent: '#087f36',
-      contrast: 45,
-      fonts: { code: null, ui: null },
-      ink: '#191414',
-      opaqueWindows: true,
-      semanticColors: { diffAdded: '#087f36', diffRemoved: '#c42b40', skill: '#7543b5' },
-      surface: '#ffffff',
-    },
-  },
-  arc: {
-    dark: {
-      accent: '#b6a4ff',
-      contrast: 55,
-      fonts: { code: null, ui: null },
-      ink: '#f4f0ff',
-      opaqueWindows: false,
-      semanticColors: { diffAdded: '#7bdcb5', diffRemoved: '#ff97ac', skill: '#c4adff' },
-      surface: '#242136',
-    },
-    light: {
-      accent: '#5145cd',
-      contrast: 40,
-      fonts: { code: null, ui: null },
-      ink: '#29243d',
-      opaqueWindows: false,
-      semanticColors: { diffAdded: '#197354', diffRemoved: '#bd3658', skill: '#7945b5' },
-      surface: '#f0edfa',
-    },
-  },
-  vercel: {
-    dark: {
-      accent: '#ffffff',
-      contrast: 72,
-      fonts: { code: '"Geist Mono"', ui: 'Geist' },
-      ink: '#f5f5f5',
-      opaqueWindows: true,
-      semanticColors: {
-        diffAdded: '#40c977',
-        diffRemoved: '#ff7b72',
-        skill: '#8b5cf6',
-      },
-      surface: '#000000',
-    },
-    light: {
-      accent: '#111111',
-      contrast: 55,
-      fonts: { code: '"Geist Mono"', ui: 'Geist' },
-      ink: '#171717',
-      opaqueWindows: true,
-      semanticColors: {
-        diffAdded: '#159d6c',
-        diffRemoved: '#d1435b',
-        skill: '#6d28d9',
-      },
-      surface: '#ffffff',
-    },
-  },
-};
+export function availablePresets(variant: ThemeVariant): ThemePreset[] {
+  return presetsFor(variant);
+}
 
-export const DEFAULT_CHROME_THEME_BY_VARIANT: Record<ThemeVariant, ChromeTheme> = {
-  dark: {
-    accent: '#339cff',
-    contrast: 60,
-    fonts: { code: null, ui: null },
-    ink: '#ffffff',
-    opaqueWindows: false,
-    semanticColors: {
-      diffAdded: '#40c977',
-      diffRemoved: '#fa423e',
-      skill: '#ad7bf9',
-    },
-    surface: '#181818',
-  },
-  light: {
-    accent: '#339cff',
-    contrast: 45,
-    fonts: { code: null, ui: null },
-    ink: '#1a1c1f',
-    opaqueWindows: false,
-    semanticColors: {
-      diffAdded: '#00a240',
-      diffRemoved: '#ba2623',
-      skill: '#924ff7',
-    },
-    surface: '#ffffff',
-  },
-};
+function cloneRecipe(recipe: ThemeRecipe): ThemeRecipe {
+  return { ...recipe, fonts: { ...recipe.fonts }, semanticColors: { ...recipe.semanticColors } };
+}
 
-export const DEFAULT_THEME_STATE: ThemeState = {
-  chromeThemes: {
-    dark: getCodeThemeSeed('codex', 'dark'),
-    light: getCodeThemeSeed('codex', 'light'),
-  },
-  codeThemeIds: {
-    dark: 'codex',
-    light: 'codex',
-  },
-};
+/** A picked face only applies while its family is still the role's first font. */
+function keptFace(face: unknown, family: string | null): SystemFontFace | null {
+  if (!isRecord(face) || !family) return null;
+  const { family: faceFamily, fullName, postscriptName } = face;
+  if (![faceFamily, fullName, postscriptName].every((field) => typeof field === 'string' && field)) return null;
+  const leading = family.split(',')[0].trim().replace(/^["']|["']$/g, '');
+  if (leading.toLowerCase() !== String(faceFamily).toLowerCase()) return null;
+  return {
+    family: String(faceFamily),
+    fullName: String(fullName),
+    postscriptName: String(postscriptName),
+    style: typeof face.style === 'string' ? face.style : 'Regular',
+  };
+}
 
-export function resolveThemeMode(themeMode: ThemeMode): ThemeVariant {
-  if (themeMode === 'system') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+function normalizeTypefaces(value: unknown): ThemeTypefaces {
+  const fonts = isRecord(value) ? value : {};
+  const result: ThemeTypefaces = { ui: text(fonts.ui), code: text(fonts.code) };
+  if (typeof fonts.content === 'string') result.content = text(fonts.content);
+  for (const role of ['ui', 'content', 'code'] as const) {
+    const face = keptFace(fonts[`${role}Face`], text(fonts[role]));
+    if (face) result[`${role}Face`] = face;
   }
-  return themeMode;
+  return result;
 }
 
-export function getAvailableCodeThemes(variant: ThemeVariant): readonly CodeThemeOption[] {
-  return CODE_THEME_OPTIONS.filter((option) => option.variants.includes(variant));
+function normalizeSignals(value: unknown, fallback: ThemeSignals): ThemeSignals {
+  const signals = isRecord(value) ? value : {};
+  const pick = (key: keyof ThemeSignals) => (isHexColor(signals[key]) ? String(signals[key]).toLowerCase() : fallback[key]);
+  return { diffAdded: pick('diffAdded'), diffRemoved: pick('diffRemoved'), skill: pick('skill') };
 }
 
-export function getCodeThemeSeed(codeThemeId: string, variant: ThemeVariant): ChromeTheme {
-  const normalizedCodeThemeId = normalizeCodeThemeId(codeThemeId, variant);
-  const seeded = THEME_SEED_CATALOG[normalizedCodeThemeId]?.[variant];
-  return normalizeChromeTheme(seeded, variant);
+/** Fills every missing or invalid field from `fallback` (the variant's default preset unless given). */
+export function normalizeRecipe(value: unknown, variant: ThemeVariant, fallback = presetRecipe(DEFAULT_PRESET_ID, variant)): ThemeRecipe {
+  const input = isRecord(value) ? value : {};
+  const color = (key: 'surface' | 'ink' | 'accent') => (isHexColor(input[key]) ? String(input[key]).toLowerCase() : fallback[key]);
+  const contrast = typeof input.contrast === 'number' && Number.isFinite(input.contrast) ? input.contrast : fallback.contrast;
+  return {
+    surface: color('surface'),
+    ink: color('ink'),
+    accent: color('accent'),
+    accentPreset: input.accentPreset === 'default' ? 'default' : input.accentPreset === 'custom' ? 'custom' : undefined,
+    contrast: Math.round(Math.min(100, Math.max(0, contrast))),
+    fonts: normalizeTypefaces(input.fonts),
+    opaqueWindows: typeof input.opaqueWindows === 'boolean' ? input.opaqueWindows : fallback.opaqueWindows,
+    semanticColors: normalizeSignals(input.semanticColors, fallback.semanticColors),
+  };
 }
 
-export function normalizeThemeState(value: unknown): ThemeState {
+export function normalizeAppearance(value: unknown): AppearanceState {
   const state = isRecord(value) ? value : {};
-  const chromeThemes = isRecord(state.chromeThemes) ? state.chromeThemes : {};
-  const codeThemeIds = isRecord(state.codeThemeIds) ? state.codeThemeIds : {};
-
-  return {
-    chromeThemes: {
-      dark: normalizeChromeTheme(chromeThemes.dark, 'dark'),
-      light: normalizeChromeTheme(chromeThemes.light, 'light'),
-    },
-    codeThemeIds: {
-      dark: normalizeCodeThemeId(codeThemeIds.dark, 'dark'),
-      light: normalizeCodeThemeId(codeThemeIds.light, 'light'),
-    },
-  };
-}
-
-export function resolveThemePack(themeState: ThemeState, variant: ThemeVariant): ThemePack {
-  return {
-    codeThemeId: normalizeCodeThemeId(themeState.codeThemeIds[variant], variant),
-    theme: normalizeChromeTheme(themeState.chromeThemes[variant], variant),
-  };
-}
-
-export function updateThemePack(
-  themeState: ThemeState,
-  variant: ThemeVariant,
-  patch: Partial<ChromeTheme>
-): ThemeState {
-  return {
-    ...themeState,
-    chromeThemes: {
-      ...themeState.chromeThemes,
-      [variant]: normalizeChromeTheme(
-        mergeThemeSeedPatch(resolveThemePack(themeState, variant).theme, patch),
-        variant
-      ),
-    },
-  };
-}
-
-export function setThemePackFonts(
-  themeState: ThemeState,
-  variant: ThemeVariant,
-  patch: Partial<ThemeFonts>
-): ThemeState {
-  return updateThemePack(themeState, variant, {
-    fonts: {
-      ...resolveThemePack(themeState, variant).theme.fonts,
-      ...patch,
-    },
-  });
-}
-
-export function setThemeCodeThemeId(
-  themeState: ThemeState,
-  variant: ThemeVariant,
-  codeThemeId: string
-): ThemeState {
-  const normalized = normalizeCodeThemeId(codeThemeId, variant);
-  const seed = getCodeThemeSeed(normalized, variant);
-  const previous = resolveThemePack(themeState, variant).theme;
-
-  return {
-    chromeThemes: {
-      ...themeState.chromeThemes,
-      [variant]: normalizeChromeTheme(
-        mergeThemeSeedPatch(previous, {
-          accent: seed.accent,
-          contrast: seed.contrast,
-          ink: seed.ink,
-          opaqueWindows: seed.opaqueWindows,
-          semanticColors: seed.semanticColors,
-          surface: seed.surface,
-        }),
-        variant
-      ),
-    },
-    codeThemeIds: {
-      ...themeState.codeThemeIds,
-      [variant]: normalized,
-    },
-  };
-}
-
-export function resetThemeVariant(themeState: ThemeState, variant: ThemeVariant): ThemeState {
-  return {
-    chromeThemes: {
-      ...themeState.chromeThemes,
-      [variant]: getCodeThemeSeed(DEFAULT_THEME_STATE.codeThemeIds[variant], variant),
-    },
-    codeThemeIds: {
-      ...themeState.codeThemeIds,
-      [variant]: DEFAULT_THEME_STATE.codeThemeIds[variant],
-    },
-  };
-}
-
-export function areThemePacksEqual(left: ThemePack, right: ThemePack): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-export function createThemeShareString(variant: ThemeVariant, pack: ThemePack): string {
-  return `${THEME_SHARE_PREFIX}${JSON.stringify({
-    codeThemeId: pack.codeThemeId,
-    theme: pack.theme,
-    variant,
-  })}`;
-}
-
-export function parseThemeShareString(value: string): ThemeSharePayload {
-  const normalized = value.trim();
-  if (!normalized.startsWith(THEME_SHARE_PREFIX)) {
-    throw new Error('Theme share string must start with codex-theme-v1:');
+  const recipes = isRecord(state.chromeThemes) ? state.chromeThemes : {};
+  const presets = isRecord(state.codeThemeIds) ? state.codeThemeIds : {};
+  const result = { chromeThemes: {}, codeThemeIds: {} } as AppearanceState;
+  for (const variant of VARIANTS) {
+    result.codeThemeIds[variant] = presetIdFor(presets[variant], variant);
+    result.chromeThemes[variant] = normalizeRecipe(recipes[variant], variant);
   }
+  return result;
+}
 
-  const payloadText = normalized.slice(THEME_SHARE_PREFIX.length);
+export const DEFAULT_APPEARANCE: AppearanceState = normalizeAppearance({
+  chromeThemes: { light: presetRecipe(DEFAULT_PRESET_ID, 'light'), dark: presetRecipe(DEFAULT_PRESET_ID, 'dark') },
+  codeThemeIds: { light: DEFAULT_PRESET_ID, dark: DEFAULT_PRESET_ID },
+});
+
+export function resolveThemeMode(mode: ThemeMode): ThemeVariant {
+  if (mode !== 'system') return mode;
+  return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+export function choiceFor(state: AppearanceState, variant: ThemeVariant): ThemeChoice {
+  return {
+    presetId: presetIdFor(state.codeThemeIds?.[variant], variant),
+    recipe: normalizeRecipe(state.chromeThemes?.[variant], variant),
+  };
+}
+
+function withVariant(state: AppearanceState, variant: ThemeVariant, recipe: ThemeRecipe, presetId?: string): AppearanceState {
+  return {
+    chromeThemes: { ...state.chromeThemes, [variant]: recipe },
+    codeThemeIds: { ...state.codeThemeIds, [variant]: presetId ?? presetIdFor(state.codeThemeIds?.[variant], variant) },
+  };
+}
+
+/** Merges a partial edit into one variant's recipe; fonts and signals merge key by key. */
+export function patchRecipe(state: AppearanceState, variant: ThemeVariant, patch: Partial<ThemeRecipe>): AppearanceState {
+  const current = choiceFor(state, variant).recipe;
+  const merged = {
+    ...current,
+    ...patch,
+    fonts: { ...current.fonts, ...patch.fonts },
+    semanticColors: { ...current.semanticColors, ...patch.semanticColors },
+  };
+  return withVariant(state, variant, normalizeRecipe(merged, variant, current));
+}
+
+export function patchTypefaces(state: AppearanceState, variant: ThemeVariant, patch: Partial<ThemeTypefaces>): AppearanceState {
+  return patchRecipe(state, variant, { fonts: { ...choiceFor(state, variant).recipe.fonts, ...patch } });
+}
+
+/** Switches a variant to a preset's colors, keeping the user's fonts. */
+export function applyPreset(state: AppearanceState, variant: ThemeVariant, presetId: string): AppearanceState {
+  const id = presetIdFor(presetId, variant);
+  const current = choiceFor(state, variant).recipe;
+  const next = presetRecipe(id, variant);
+  return withVariant(state, variant, { ...next, fonts: current.fonts, accentPreset: current.accentPreset ?? next.accentPreset }, id);
+}
+
+export function resetVariant(state: AppearanceState, variant: ThemeVariant): AppearanceState {
+  return withVariant(state, variant, presetRecipe(DEFAULT_PRESET_ID, variant), DEFAULT_PRESET_ID);
+}
+
+/** Moves the old app-wide font overrides into both variants, once. */
+export function migrateLegacyFonts(state: AppearanceState, uiFont: string, codeFont: string): AppearanceState {
+  const patch: Partial<ThemeTypefaces> = {};
+  const ui = uiFont.trim();
+  if (ui && ui !== DEFAULT_UI_FONT_FAMILY && ui !== LEGACY_DEFAULT_UI_FONT_FAMILY) patch.ui = ui;
+  if (codeFont.trim()) patch.code = codeFont.trim();
+  if (!Object.keys(patch).length) return state;
+  return patchTypefaces(patchTypefaces(state, 'light', patch), 'dark', patch);
+}
+
+// ===== Share strings =====
+
+export function exportTheme(variant: ThemeVariant, choice: ThemeChoice): string {
+  return SHARE_PREFIX + JSON.stringify({ variant, preset: choice.presetId, recipe: choice.recipe });
+}
+
+function readPayload(body: string): Record<string, unknown> {
+  let decoded = body.trim();
+  if (decoded.startsWith('%7B') || decoded.startsWith('%7b')) {
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      // Not URI-encoded after all.
+    }
+  }
   let payload: unknown;
   try {
-    payload = JSON.parse(payloadText);
+    payload = JSON.parse(decoded);
   } catch {
-    throw new Error('Theme share string does not contain valid JSON.');
+    throw new Error('This theme string is not valid JSON.');
   }
-
-  if (!isRecord(payload)) {
-    throw new Error('Theme share string must encode an object.');
-  }
-
-  const variant = payload.variant === 'dark' ? 'dark' : payload.variant === 'light' ? 'light' : null;
-  if (!variant) {
-    throw new Error('Theme share variant must be light or dark.');
-  }
-
-  return {
-    codeThemeId: normalizeCodeThemeId(payload.codeThemeId, variant),
-    theme: normalizeChromeTheme(payload.theme, variant),
-    variant,
-  };
+  if (!isRecord(payload)) throw new Error('This theme string must describe an object.');
+  return payload;
 }
 
-export function importThemeShareString(
-  themeState: ThemeState,
-  targetVariant: ThemeVariant,
-  value: string
-): ThemeState {
-  const payload = parseThemeShareString(value);
-  if (payload.variant !== targetVariant) {
-    throw new Error(`Expected a ${targetVariant} theme string, received ${payload.variant}.`);
+/** Reads a theme string from Aegis or Codex into a variant. */
+export function parseTheme(value: string): { variant: ThemeVariant; choice: ThemeChoice } {
+  const trimmed = value.trim();
+  const ours = trimmed.startsWith(SHARE_PREFIX);
+  if (!ours && !trimmed.startsWith(FOREIGN_SHARE_PREFIX)) {
+    throw new Error(`Paste a theme string starting with ${SHARE_PREFIX} or ${FOREIGN_SHARE_PREFIX}`);
   }
-
-  return {
-    chromeThemes: {
-      ...themeState.chromeThemes,
-      [targetVariant]: payload.theme,
-    },
-    codeThemeIds: {
-      ...themeState.codeThemeIds,
-      [targetVariant]: payload.codeThemeId,
-    },
-  };
+  const payload = readPayload(trimmed.slice(ours ? SHARE_PREFIX.length : FOREIGN_SHARE_PREFIX.length));
+  const variant = payload.variant === 'light' || payload.variant === 'dark' ? payload.variant : null;
+  if (!variant) throw new Error('The theme string must be for light or dark.');
+  const presetId = presetIdFor(ours ? payload.preset : payload.codeThemeId, variant);
+  return { variant, choice: { presetId, recipe: normalizeRecipe(ours ? payload.recipe : payload.theme, variant, presetRecipe(presetId, variant)) } };
 }
 
-export function applyThemePreferences({
-  themeMode,
-  themeState,
-  uiFontFamily,
-  chatCodeFontFamily,
-}: {
-  themeMode: ThemeMode;
-  themeState: ThemeState;
-  uiFontFamily: string;
-  chatCodeFontFamily: string;
-}) {
-  const root = document.documentElement;
-  const resolvedMode = resolveThemeMode(themeMode);
-  const pack = resolveThemePack(themeState, resolvedMode);
-  for (const key of ['uiFace', 'contentFace', 'codeFace'] as const) registerThemeFontFace(pack.theme.fonts[key]);
-  const variables = buildThemeVariables(pack, resolvedMode, uiFontFamily, chatCodeFontFamily);
+export function importTheme(state: AppearanceState, variant: ThemeVariant, value: string): AppearanceState {
+  const parsed = parseTheme(value);
+  if (parsed.variant !== variant) throw new Error(`This is a ${parsed.variant} theme; paste it into the ${parsed.variant} theme instead.`);
+  return withVariant(state, variant, parsed.choice.recipe, parsed.choice.presetId);
+}
 
-  root.classList.add(TRANSITION_CLASS);
-  root.classList.toggle('dark', resolvedMode === 'dark');
-  root.dataset.themeMode = themeMode;
-  root.dataset.themeVariant = resolvedMode;
-  root.dataset.codeThemeId = pack.codeThemeId;
-  root.dataset.windowMaterial = pack.theme.opaqueWindows ? 'opaque' : 'translucent';
+// ===== Applying to the document =====
 
-  for (const [name, value] of Object.entries(variables)) {
-    root.style.setProperty(name, value);
-  }
+export function themeVariables(choice: ThemeChoice, variant: ThemeVariant, overrides: FontOverrides = {}): Record<string, string> {
+  return deriveThemeTokens(choice.recipe, variant, overrides);
+}
 
-  if (typeof window !== 'undefined' && typeof window.electron?.setTheme === 'function') {
-    void window.electron.setTheme(themeMode).catch(() => undefined);
-  }
+const registeredFaces = new Set<string>();
 
-  root.offsetHeight;
-  requestAnimationFrame(() => {
-    root.classList.remove(TRANSITION_CLASS);
+function registerLocalFace(face: SystemFontFace | undefined): void {
+  if (!face || typeof FontFace === 'undefined' || registeredFaces.has(face.postscriptName)) return;
+  registeredFaces.add(face.postscriptName);
+  const font = new FontFace(LOCAL_FACE_PREFIX + face.postscriptName, `local(${JSON.stringify(face.postscriptName)}), local(${JSON.stringify(face.fullName)})`);
+  document.fonts.add(font);
+  font.load().catch(() => {
+    document.fonts.delete(font);
+    registeredFaces.delete(face.postscriptName);
   });
 }
 
-export function getThemePreviewPalette(themeState: ThemeState, variant: ThemeVariant): string[] {
-  const pack = resolveThemePack(themeState, variant);
-  return [pack.theme.surface, pack.theme.ink, pack.theme.accent, pack.theme.semanticColors.skill];
-}
+/** Fired on window after a different appearance lands, for parts that paint outside CSS (terminals). */
+export const THEME_APPLIED_EVENT = 'aegis:theme-applied';
 
-export function buildThemeVariables(
-  pack: ThemePack,
-  variant: ThemeVariant,
-  uiFontFamily: string,
-  chatCodeFontFamily: string
-): Record<string, string> {
-  const theme = buildComputedTheme(pack.theme, variant);
-  const controlBackground = variant === 'light'
-    ? mixHex(pack.theme.surface, pack.theme.ink, 0.06 + theme.contrast * 0.05)
-    : mixHex(pack.theme.surface, '#ffffff', 0.09 + theme.contrast * 0.04);
-  const elevatedPrimary = variant === 'light'
-    ? mixHex(pack.theme.surface, pack.theme.ink, 0.08 + theme.contrast * 0.08)
-    : mixHex(pack.theme.surface, '#ffffff', 0.16 + theme.contrast * 0.12);
-  const elevatedSecondary = variant === 'light'
-    ? mixHex(pack.theme.surface, pack.theme.ink, 0.04 + theme.contrast * 0.05)
-    : mixHex(pack.theme.surface, '#ffffff', 0.08 + theme.contrast * 0.08);
-  const panel = buildPanelBackground(theme);
-  const surfaceUnder = buildSurfaceUnder(pack.theme, theme.surface, theme.ink, variant);
-  const accentLight = variant === 'light'
-    ? formatRgba(parseHexColor(pack.theme.accent), 0.12 + theme.contrast * 0.03)
-    : formatRgba(parseHexColor(pack.theme.accent), 0.16 + theme.contrast * 0.03);
-  const border = formatRgba(theme.ink, variant === 'light' ? 0.08 + theme.contrast * 0.04 : 0.1 + theme.contrast * 0.04);
-  const borderLight = formatRgba(theme.ink, variant === 'light' ? 0.04 + theme.contrast * 0.02 : 0.05 + theme.contrast * 0.02);
-  const textSecondary = formatRgba(theme.ink, 0.72 + theme.contrast * 0.08);
-  const textMuted = formatRgba(theme.ink, 0.48 + theme.contrast * 0.12);
-  const popoverBackground = variant === 'light'
-    ? formatOpaqueRgb(mixRgb(parseHexColor(panel), WHITE, 0.22))
-    : formatOpaqueRgb(mixRgb(parseHexColor(panel), WHITE, 0.08));
-  const appCanvas = variant === 'light'
-    ? mixHex(surfaceUnder, pack.theme.ink, 0.045 + theme.contrast * 0.035)
-    : mixHex(surfaceUnder, '#000000', 0.22 + theme.contrast * 0.05);
-  const workbenchSurface = variant === 'light'
-    ? mixHex(pack.theme.surface, '#ffffff', 0.76)
-    : mixHex(panel, '#ffffff', 0.035 + theme.contrast * 0.035);
-  const contextPanelSurface = variant === 'light'
-    ? mixHex(panel, '#ffffff', 0.2)
-    : mixHex(panel, '#ffffff', 0.02 + theme.contrast * 0.02);
-  // The sidebar shares the chrome plate so the two read as one continuous
-  // surface — any tone difference at their seam shows up as a fake divider.
-  const chromeBg =
-    variant === 'light'
-      ? mixHex(pack.theme.surface, pack.theme.ink, 0.045)
-      : mixHex(pack.theme.surface, '#ffffff', 0.045);
-  const sidebarBase = chromeBg;
-  const sidebarSurface = pack.theme.opaqueWindows
-    ? sidebarBase
-    : `color-mix(in srgb, ${sidebarBase} 72%, transparent)`;
-  const sidebarItemHover = formatRgba(theme.ink, variant === 'light' ? 0.05 : 0.08);
-  const sidebarItemActive = formatRgba(theme.ink, variant === 'light' ? 0.08 : 0.13);
-  const accentForeground = getReadableTextColor(pack.theme.accent);
-  const userBubbleBg = '#EBEBEB';
-  const userBubbleText = '#111214';
-  const uiFont = normalizeFontFamily(uiFontFamily) || themeFontFamily(pack.theme.fonts.ui, pack.theme.fonts.uiFace) || BASE_UI_FONT;
-  const monoFont =
-    normalizeFontFamily(chatCodeFontFamily) ||
-    themeFontFamily(pack.theme.fonts.code, pack.theme.fonts.codeFace) ||
-    BASE_MONO_FONT;
-  const skillChipColor = parseHexColor(pack.theme.accent);
-  const commandChipBackground = variant === 'light'
-    ? formatRgba(parseHexColor(pack.theme.accent), 0.1)
-    : formatRgba(theme.ink, 0.06 + theme.contrast * 0.03);
-  const commandChipBorder = variant === 'light'
-    ? formatRgba(parseHexColor(pack.theme.accent), 0.18)
-    : formatRgba(theme.ink, 0.12 + theme.contrast * 0.03);
-  const mentionChipBackground = variant === 'light'
-    ? formatRgba(parseHexColor(pack.theme.accent), 0.08)
-    : formatRgba(parseHexColor(pack.theme.accent), 0.14);
-  const mentionChipBorder = variant === 'light'
-    ? formatRgba(parseHexColor(pack.theme.accent), 0.12)
-    : formatRgba(parseHexColor(pack.theme.accent), 0.2);
-  const skillChipBackground = variant === 'light'
-    ? formatRgba(skillChipColor, 0.09)
-    : formatRgba(skillChipColor, 0.16);
-  const skillChipBorder = variant === 'light'
-    ? formatRgba(skillChipColor, 0.24)
-    : formatRgba(skillChipColor, 0.28);
-  const skillChipText = variant === 'light'
-    ? pack.theme.accent
-    : mixHex(pack.theme.accent, '#ffffff', 0.18);
-  const linkChipText = variant === 'light'
-    ? pack.theme.accent
-    : mixHex(pack.theme.accent, '#ffffff', 0.18);
+let lastApplied = '';
+let lastSentToMain = '';
 
-  return {
-    '--bg-primary': surfaceUnder,
-    // The window "base plate" the content card floats on — one step away
-    // from the surface so the card reads as raised in every theme pack.
-    '--app-chrome-bg': chromeBg,
-    '--bg-secondary': panel,
-    '--bg-tertiary': elevatedSecondary,
-    '--text-primary': pack.theme.ink,
-    '--text-secondary': textSecondary,
-    '--text-muted': textMuted,
-    '--accent': pack.theme.accent,
-    '--accent-hover': mixHex(pack.theme.accent, variant === 'light' ? '#000000' : '#ffffff', 0.12),
-    '--accent-light': accentLight,
-    '--accent-foreground': accentForeground,
-    '--success': pack.theme.semanticColors.diffAdded,
-    '--error': pack.theme.semanticColors.diffRemoved,
-    '--warning': variant === 'dark' ? '#f5b44a' : '#d97706',
-    '--border': border,
-    '--tool-pending': variant === 'dark' ? '#f5b44a' : '#d97706',
-    '--tool-running': pack.theme.accent,
-    '--tool-success': pack.theme.semanticColors.diffAdded,
-    '--tool-error': pack.theme.semanticColors.diffRemoved,
-    '--code-inline-bg': elevatedSecondary,
-    '--code-inline-border': borderLight,
-    '--code-inline-text': textSecondary,
-    '--code-block-bg': elevatedPrimary,
-    '--code-block-header-bg': elevatedPrimary,
-    '--code-block-border': border,
-    '--code-block-text': pack.theme.ink,
-    '--code-copy-bg': variant === 'dark' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
-    '--code-copy-hover': variant === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(17, 24, 39, 0.05)',
-    '--code-token-comment': textMuted,
-    '--code-token-keyword': pack.theme.semanticColors.skill,
-    '--code-token-string': pack.theme.semanticColors.diffAdded,
-    '--code-token-function': pack.theme.accent,
-    '--code-token-number': variant === 'dark' ? '#f6c177' : '#d97706',
-    '--code-token-operator': textSecondary,
-    '--code-token-variable': pack.theme.ink,
-    '--user-bubble-bg': userBubbleBg,
-    '--user-bubble-text': userBubbleText,
-    '--user-bubble-border': 'transparent',
-    '--user-bubble-shadow': 'none',
-    '--tree-item-hover': variant === 'light' ? 'rgba(17, 24, 39, 0.05)' : 'rgba(255, 255, 255, 0.05)',
-    '--tree-item-active': accentLight,
-    '--tree-item-border': borderLight,
-    '--tree-file-accent-bg': accentLight,
-    '--tree-file-accent-border': border,
-    '--tree-file-accent-fg': pack.theme.accent,
-    '--tree-file-media-bg': variant === 'light'
-      ? formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.08)
-      : formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.12),
-    '--tree-file-media-border': border,
-    '--tree-file-media-fg': pack.theme.semanticColors.skill,
-    '--tree-file-warm-bg': variant === 'light'
-      ? 'rgba(251, 146, 60, 0.12)'
-      : 'rgba(245, 158, 11, 0.12)',
-    '--tree-file-warm-border': border,
-    '--tree-file-warm-fg': variant === 'dark' ? '#f6c177' : '#dd6b20',
-    '--tree-file-neutral-bg': elevatedSecondary,
-    '--tree-file-neutral-border': border,
-    '--tree-file-neutral-fg': textSecondary,
-    '--preview-surface': panel,
-    '--sidebar-item-hover': sidebarItemHover,
-    '--sidebar-item-active': sidebarItemActive,
-    '--sidebar-item-border': borderLight,
-    '--app-canvas': appCanvas,
-    '--workbench-surface': workbenchSurface,
-    '--workbench-surface-muted': variant === 'light'
-      ? 'rgba(17, 24, 39, 0.035)'
-      : 'rgba(255, 255, 255, 0.035)',
-    '--workbench-radius': '22px',
-    '--workbench-outer-padding': '8px',
-    '--workbench-gap': '10px',
-    '--workbench-inset-shadow': variant === 'light'
-      ? 'inset 0 0 0 1px rgba(17, 24, 39, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.86)'
-      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.045)',
-    '--workbench-shadow': variant === 'light'
-      ? '0 1px 1px rgba(17, 24, 39, 0.025), 0 18px 50px -38px rgba(17, 24, 39, 0.58), 0 10px 26px -24px rgba(17, 24, 39, 0.42)'
-      : '0 1px 1px rgba(0, 0, 0, 0.22), 0 22px 60px -38px rgba(0, 0, 0, 0.78), 0 10px 28px -24px rgba(0, 0, 0, 0.68)',
-    '--context-panel-surface': contextPanelSurface,
-    '--context-panel-radius': '18px',
-    '--context-panel-shadow': variant === 'light'
-      ? 'inset 0 0 0 1px rgba(17, 24, 39, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 14px 42px -34px rgba(17, 24, 39, 0.5)'
-      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 18px 52px -36px rgba(0, 0, 0, 0.78)',
-    '--panel-soft-divider': variant === 'light' ? 'rgba(17, 24, 39, 0.075)' : 'rgba(255, 255, 255, 0.075)',
-    '--composer-surface': variant === 'light'
-      ? mixHex(workbenchSurface, '#ffffff', 0.66)
-      : mixHex(workbenchSurface, '#ffffff', 0.04),
-    '--composer-border': variant === 'light' ? 'rgba(17, 24, 39, 0.07)' : 'rgba(255, 255, 255, 0.075)',
-    '--composer-border-focus': variant === 'light' ? 'rgba(17, 24, 39, 0.13)' : 'rgba(255, 255, 255, 0.15)',
-    '--composer-shadow': variant === 'light'
-      ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.82), 0 16px 44px -34px rgba(17, 24, 39, 0.58)'
-      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.035), 0 18px 48px -34px rgba(0, 0, 0, 0.74)',
-    '--composer-shadow-focus': variant === 'light'
-      ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.9), 0 18px 52px -32px rgba(17, 24, 39, 0.62)'
-      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.055), 0 20px 56px -32px rgba(0, 0, 0, 0.82)',
-    '--border-focus': variant === 'light'
-      ? formatRgba(parseHexColor(pack.theme.accent), 0.45)
-      : formatRgba(parseHexColor(pack.theme.accent), 0.52),
-    '--popover-bg': popoverBackground,
-    // Tooltips sit on the opposite plate from the surface they annotate.
-    '--tooltip-bg': pack.theme.ink,
-    '--tooltip-fg': pack.theme.surface,
-    '--tooltip-fg-muted': formatRgba(parseHexColor(pack.theme.surface), 0.64),
-    '--popover-border': borderLight,
-    '--popover-ring': variant === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(255, 255, 255, 0.04)',
-    '--popover-radius': '14px',
-    '--popover-shadow': variant === 'light'
-      ? '0 0 0 1px rgba(17, 24, 39, 0.03), 0 1px 2px rgba(15, 18, 25, 0.04), 0 14px 36px -12px rgba(15, 18, 25, 0.18)'
-      : '0 0 0 1px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3), 0 18px 44px -12px rgba(0, 0, 0, 0.55)',
-    '--popover-shadow-lg': variant === 'light'
-      ? '0 0 0 1px rgba(17, 24, 39, 0.04), 0 2px 4px rgba(15, 18, 25, 0.05), 0 24px 56px -14px rgba(15, 18, 25, 0.22)'
-      : '0 0 0 1px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.35), 0 28px 64px -14px rgba(0, 0, 0, 0.65)',
-    '--app-shell-background': appCanvas,
-    '--app-sidebar-surface': sidebarSurface,
-    '--app-sidebar-shadow': variant === 'dark'
-      ? 'inset 0 1px 0 rgba(255,255,255,0.025)'
-      : 'inset 0 1px 0 rgba(0,0,0,0.03)',
-    '--app-sidebar-backdrop-filter': pack.theme.opaqueWindows ? 'none' : 'blur(8px) saturate(135%)',
-    '--composer-chip-bg': commandChipBackground,
-    '--composer-chip-border': commandChipBorder,
-    '--composer-chip-text': pack.theme.ink,
-    '--composer-skill-chip-bg': skillChipBackground,
-    '--composer-skill-chip-border': skillChipBorder,
-    '--composer-skill-chip-text': skillChipText,
-    '--composer-mention-chip-bg': mentionChipBackground,
-    '--composer-mention-chip-border': mentionChipBorder,
-    '--composer-mention-chip-text': pack.theme.accent,
-    '--composer-link-chip-text': linkChipText,
-    '--font-sans': uiFont,
-    '--font-content': themeFontFamily(pack.theme.fonts.content, pack.theme.fonts.contentFace) || uiFont,
-    '--font-mono': monoFont,
-    '--font-serif': BASE_DISPLAY_FONT,
-  };
-}
+export function renderAppearance(input: { mode: ThemeMode; state: AppearanceState; uiFontFamily?: string; codeFontFamily?: string }): void {
+  const variant = resolveThemeMode(input.mode);
+  const choice = choiceFor(input.state, variant);
+  const variables = themeVariables(choice, variant, { ui: input.uiFontFamily, code: input.codeFontFamily });
+  const signature = JSON.stringify([input.mode, variant, variables]);
+  if (signature === lastApplied) return;
+  lastApplied = signature;
 
-function buildComputedTheme(theme: ChromeTheme, variant: ThemeVariant) {
-  return {
-    contrast: normalizeContrast(theme.contrast, variant),
-    ink: parseHexColor(theme.ink),
-    surface: parseHexColor(theme.surface),
-    variant,
-  };
-}
+  for (const role of ['uiFace', 'contentFace', 'codeFace'] as const) registerLocalFace(choice.recipe.fonts[role]);
+  const root = document.documentElement;
+  // Jump straight to the new colors instead of animating every themed property.
+  root.classList.add('no-transitions');
+  root.classList.toggle('dark', variant === 'dark');
+  root.dataset.themeMode = input.mode;
+  root.dataset.themeVariant = variant;
+  for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value);
+  void root.offsetHeight;
+  requestAnimationFrame(() => root.classList.remove('no-transitions'));
+  window.dispatchEvent(new Event(THEME_APPLIED_EVENT));
 
-function buildSurfaceUnder(
-  theme: ChromeTheme,
-  surface: RgbColor,
-  ink: RgbColor,
-  variant: ThemeVariant
-): string {
-  const baseline = DEFAULT_CHROME_THEME_BY_VARIANT[variant].contrast;
-  const mixAmount =
-    SURFACE_UNDER_BASE_ALPHA[variant] +
-    (theme.contrast - baseline) * SURFACE_UNDER_CONTRAST_STEP[variant];
-  return variant === 'light'
-    ? mixHex(formatHex(surface), formatHex(ink), mixAmount)
-    : mixHex(formatHex(surface), '#000000', mixAmount);
-}
-
-function buildPanelBackground(theme: ReturnType<typeof buildComputedTheme>): string {
-  const anchor = theme.variant === 'light' ? WHITE : theme.ink;
-  return mixHex(
-    formatHex(theme.surface),
-    formatHex(anchor),
-    PANEL_BASE_ALPHA[theme.variant] + theme.contrast * PANEL_CONTRAST_STEP[theme.variant]
-  );
-}
-
-function normalizeContrast(value: number, variant: ThemeVariant): number {
-  const baseline = DEFAULT_CHROME_THEME_BY_VARIANT[variant].contrast;
-  if (value <= baseline) {
-    return value / 100;
+  const background = variables['--bg-primary'];
+  const forMain = `${input.mode}:${variant}:${background}`;
+  if (forMain !== lastSentToMain && typeof window.electron?.setTheme === 'function') {
+    lastSentToMain = forMain;
+    void window.electron.setTheme(input.mode, { variant, background }).catch(() => undefined);
   }
-  return baseline / 100 + ((value - baseline) / 100) * 1.4;
-}
-
-function normalizeChromeTheme(value: unknown, variant: ThemeVariant): ChromeTheme {
-  const fallback = DEFAULT_CHROME_THEME_BY_VARIANT[variant];
-  const theme = isRecord(value) ? value : {};
-
-  return {
-    accent: normalizeHexColor(theme.accent) ?? fallback.accent,
-    contrast: normalizeStoredContrast(theme.contrast, fallback.contrast),
-    fonts: normalizeThemeFonts(theme.fonts),
-    ...(theme.accentPreset === 'default' ? { accentPreset: 'default' as const } : {}),
-    ink: normalizeHexColor(theme.ink) ?? fallback.ink,
-    opaqueWindows:
-      theme.opaqueWindows === true || theme.opaqueWindows === false
-        ? theme.opaqueWindows
-        : fallback.opaqueWindows,
-    semanticColors: normalizeSemanticColors(theme.semanticColors, fallback.semanticColors),
-    surface: normalizeHexColor(theme.surface) ?? fallback.surface,
-  };
-}
-
-function normalizeThemeFonts(value: unknown): ThemeFonts {
-  const fonts = isRecord(value) ? value : {};
-  return {
-    ui: normalizeFontFamily(typeof fonts.ui === 'string' ? fonts.ui : null),
-    code: normalizeFontFamily(typeof fonts.code === 'string' ? fonts.code : null),
-    ...(typeof fonts.content === 'string' ? { content: normalizeFontFamily(fonts.content) } : {}),
-    ...Object.fromEntries(['uiFace', 'contentFace', 'codeFace'].flatMap(key => {
-      const face = fonts[key];
-      if (!isRecord(face) || !['family', 'fullName', 'postscriptName'].every(field => typeof face[field] === 'string' && (face[field] as string).length > 0)) return [];
-      const fontKey = key.replace('Face', '');
-      if (normalizeFontFamily(fonts[fontKey] as string | null)?.split(',')[0].replace(/^["']|["']$/g, '').toLowerCase() !== (face.family as string).toLowerCase()) return [];
-      return [[key, { family: face.family, fullName: face.fullName, postscriptName: face.postscriptName, style: typeof face.style === 'string' ? face.style : 'Regular' }]];
-    })),
-  };
-}
-
-function normalizeSemanticColors(
-  value: unknown,
-  fallback: ThemeSemanticColors
-): ThemeSemanticColors {
-  const semanticColors = isRecord(value) ? value : {};
-  return {
-    diffAdded: normalizeHexColor(semanticColors.diffAdded) ?? fallback.diffAdded,
-    diffRemoved: normalizeHexColor(semanticColors.diffRemoved) ?? fallback.diffRemoved,
-    skill: normalizeHexColor(semanticColors.skill) ?? fallback.skill,
-  };
-}
-
-function normalizeCodeThemeId(value: unknown, variant: ThemeVariant): string {
-  const codeThemeId =
-    typeof value === 'string' ? value.trim().toLowerCase() : DEFAULT_THEME_STATE.codeThemeIds[variant];
-  const available = getAvailableCodeThemes(variant).some((option) => option.id === codeThemeId);
-  return available ? codeThemeId : DEFAULT_THEME_STATE.codeThemeIds[variant];
-}
-
-function normalizeStoredContrast(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return fallback;
-  }
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function normalizeHexColor(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const normalized = value.trim();
-  return HEX_COLOR_RE.test(normalized) ? normalized.toLowerCase() : null;
-}
-
-function normalizeFontFamily(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : null;
-}
-
-function mergeThemeSeedPatch(theme: ChromeTheme, patch: Partial<ChromeTheme>): ChromeTheme {
-  const nextPatch = patch as ThemeSeedPatch;
-  return {
-    ...theme,
-    ...nextPatch,
-    fonts: {
-      ...theme.fonts,
-      ...(nextPatch.fonts ?? {}),
-    },
-    semanticColors: {
-      ...theme.semanticColors,
-      ...(nextPatch.semanticColors ?? {}),
-    },
-  };
-}
-
-function parseHexColor(hex: string): RgbColor {
-  const normalized = normalizeHexColor(hex);
-  if (!normalized) {
-    return { ...WHITE };
-  }
-
-  return {
-    red: parseInt(normalized.slice(1, 3), 16),
-    green: parseInt(normalized.slice(3, 5), 16),
-    blue: parseInt(normalized.slice(5, 7), 16),
-  };
-}
-
-function formatHex(color: RgbColor): string {
-  return `#${toHex(color.red)}${toHex(color.green)}${toHex(color.blue)}`;
-}
-
-function toHex(value: number): string {
-  return clampChannel(value).toString(16).padStart(2, '0');
-}
-
-function clampChannel(value: number): number {
-  return Math.max(0, Math.min(255, Math.round(value)));
-}
-
-function mixHex(fromHex: string, toHex: string, amount: number): string {
-  return formatHex(mixRgb(parseHexColor(fromHex), parseHexColor(toHex), amount));
-}
-
-function mixRgb(from: RgbColor, to: RgbColor, amount: number): RgbColor {
-  const clamped = Math.max(0, Math.min(1, amount));
-  return {
-    red: from.red + (to.red - from.red) * clamped,
-    green: from.green + (to.green - from.green) * clamped,
-    blue: from.blue + (to.blue - from.blue) * clamped,
-  };
-}
-
-function formatRgba(color: RgbColor, alpha: number): string {
-  const clamped = Math.max(0, Math.min(1, alpha));
-  return `rgba(${clampChannel(color.red)}, ${clampChannel(color.green)}, ${clampChannel(color.blue)}, ${clamped.toFixed(3)})`;
-}
-
-function formatOpaqueRgb(color: RgbColor): string {
-  return `rgb(${clampChannel(color.red)}, ${clampChannel(color.green)}, ${clampChannel(color.blue)})`;
-}
-
-function getReadableTextColor(hex: string): string {
-  const color = parseHexColor(hex);
-  const luminance = (0.299 * color.red + 0.587 * color.green + 0.114 * color.blue) / 255;
-  return luminance > 0.6 ? '#111111' : '#fcfcfc';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function themeFontFamily(family: string | null | undefined, face?: SystemFontFace): string | null {
-  const normalized = normalizeFontFamily(family ?? null);
-  return normalized && face ? `${JSON.stringify(`Aegis local ${face.postscriptName}`)}, ${normalized}` : normalized;
-}
-const registeredFontFaces = new Set<string>();
-function registerThemeFontFace(face?: SystemFontFace) {
-  if (!face || typeof FontFace === 'undefined' || registeredFontFaces.has(face.postscriptName)) return;
-  registeredFontFaces.add(face.postscriptName);
-  const font = new FontFace(`Aegis local ${face.postscriptName}`, `local(${JSON.stringify(face.postscriptName)}), local(${JSON.stringify(face.fullName)})`);
-  document.fonts.add(font);
-  void font.load().catch(() => { document.fonts.delete(font); registeredFontFaces.delete(face.postscriptName); });
 }

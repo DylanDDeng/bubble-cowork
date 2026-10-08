@@ -14,15 +14,15 @@ import { BrowserUseSettings } from './BrowserUseSettings';
 import { MCP_RUNTIMES, McpSettingsContent } from './McpSettings';
 import { ProviderIcon } from '../AgentModelPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
-import { ThemePackEditor } from './ThemePackEditor';
+import { ThemeEditorCard } from './ThemeEditorCard';
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
 import { GeneralSettingsContent, PreferenceSelect } from './GeneralSettingsContent';
 import { ProfileSettingsGroup } from './ProfileSettingsGroup';
 import { sendEvent } from '../../hooks/useIPC';
 import { Search } from '../icons';
 import { toast } from 'sonner';
-import type { ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
-import { consolidateThemeFonts, resolveThemeMode, resolveThemePack } from '../../theme/themes';
+import type { ThemeRecipe, Theme, ThemeTypefaces, AppearanceState, ThemeVariant } from '../../types';
+import { choiceFor, migrateLegacyFonts, resolveThemeMode } from '../../theme/themes';
 
 const SETTINGS_TABS = {
   general: {
@@ -137,7 +137,7 @@ export function Settings() {
 
   useEffect(() => {
     if (!uiFontFamily && !chatCodeFontFamily) return;
-    setThemeState(consolidateThemeFonts(themeState, uiFontFamily, chatCodeFontFamily));
+    setThemeState(migrateLegacyFonts(themeState, uiFontFamily, chatCodeFontFamily));
     setUiFontFamily('');
     setChatCodeFontFamily('');
   }, [uiFontFamily, chatCodeFontFamily, themeState, setThemeState, setUiFontFamily, setChatCodeFontFamily]);
@@ -365,16 +365,16 @@ function AppearanceSettingsContent({
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
-  themeState: ThemeState;
-  setThemeState: (themeState: ThemeState) => void;
-  updateThemeVariant: (variant: ThemeVariant, patch: Partial<ChromeTheme>) => void;
+  themeState: AppearanceState;
+  setThemeState: (themeState: AppearanceState) => void;
+  updateThemeVariant: (variant: ThemeVariant, patch: Partial<ThemeRecipe>) => void;
   setThemeVariantCodeThemeId: (variant: ThemeVariant, codeThemeId: string) => void;
-  setThemeVariantFonts: (variant: ThemeVariant, patch: Partial<ThemeFonts>) => void;
+  setThemeVariantFonts: (variant: ThemeVariant, patch: Partial<ThemeTypefaces>) => void;
   resetThemeVariant: (variant: ThemeVariant) => void;
 }) {
   const resolvedMode = resolveThemeMode(theme);
-  const lightTheme = resolveThemePack(themeState, 'light');
-  const darkTheme = resolveThemePack(themeState, 'dark');
+  const lightTheme = choiceFor(themeState, 'light');
+  const darkTheme = choiceFor(themeState, 'dark');
   const skinImageData = useAppStore((s) => s.skinImageData);
   const skinOpacity = useAppStore((s) => s.skinOpacity);
   const setSkinImage = useAppStore((s) => s.setSkinImage);
@@ -478,7 +478,7 @@ function AppearanceSettingsContent({
       </SettingsGroup>
 
       <div className="space-y-5">
-        <ThemePackEditor
+        <ThemeEditorCard
           variant="light"
           mode={theme}
           isActive={resolvedMode === 'light'}
@@ -490,7 +490,7 @@ function AppearanceSettingsContent({
           onFontPatch={(patch) => setThemeVariantFonts('light', patch)}
           onImportThemeString={setThemeState}
         />
-        <ThemePackEditor
+        <ThemeEditorCard
           variant="dark"
           mode={theme}
           isActive={resolvedMode === 'dark'}

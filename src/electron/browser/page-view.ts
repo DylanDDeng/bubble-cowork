@@ -20,9 +20,17 @@ export interface PageViewEvents {
   crashed(): void;
 }
 
+let themed: Partial<Record<'light' | 'dark', string>> = {};
+
+/** The app theme's page backgrounds, as last reported by the renderer. */
+export function setPageBackgrounds(backgrounds: Partial<Record<'light' | 'dark', string>>): void {
+  themed = { ...backgrounds };
+}
+
 /** Matches the app's primary background so unpainted areas don't flash white. */
 export function pageBackground(): string {
-  return nativeTheme.shouldUseDarkColors ? '#0E0E0E' : '#ffffff';
+  const variant = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  return themed[variant] ?? (variant === 'dark' ? '#0e0e0e' : '#ffffff');
 }
 
 /**
