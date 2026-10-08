@@ -3,20 +3,14 @@ import { createNativeSessionReader, createNativeStartWorkflow } from './session-
 import type { BubbleContentPart } from './provider/bubble-sdk-loader';
 
 export const BUBBLE_SESSION_TOOL = 'read_session';
-const installed = new WeakSet<object>();
 
-/** Register the host reader outside MCP's interactive/destructive permission gate.
- * The pinned SDK patch retains native Plan read-only checks and explicit deny rules. */
-export function installBubbleSessionReader(instance: object): void {
-  if (installed.has(instance)) return;
-  const sdk = instance as { registerHostTool?: (tool: object) => void };
-  if (typeof sdk.registerHostTool !== 'function') {
-    throw new Error('This Bubble SDK cannot register the Aegis conversation reader. Reinstall dependencies to apply the host patch.');
-  }
-  sdk.registerHostTool(createNativeSessionReader());
+/** Aegis host tools, passed to every Bubble turn (`runTurn({ hostTools })`).
+ * The read-only conversation reader runs ungated, like builtin Read in Plan
+ * mode; start_workflow is an action, so Bubble gates it like an MCP tool.
+ * Bubble withholds host tools from subagents. */
+export function bubbleHostTools(): object[] {
   // The workflow entry (start_workflow); member sessions are refused at call time.
-  sdk.registerHostTool(createNativeStartWorkflow());
-  installed.add(instance);
+  return [createNativeSessionReader(), createNativeStartWorkflow()];
 }
 
 export function assertBubbleSessionReader(prompt: string | BubbleContentPart[], tools: string[], currentSessionId: string): void {

@@ -1,4 +1,3 @@
-import { installBubbleSessionReader } from '../bubble-session-reader';
 /**
  * Bubble SDK loader.
  *
@@ -150,6 +149,8 @@ export type BubbleRunTurnOptions = {
   planExitMode?: 'default' | 'bypassPermissions';
   onProjectTrust?: (request: BubbleProjectTrustRequest) => Promise<boolean>;
   onPlanApproval?: (planMarkdown: string) => Promise<boolean>;
+  /** Turn-scoped host tools (Bubble ToolRegistryEntry objects); see bubbleHostTools(). */
+  hostTools?: object[];
 };
 
 export type BubbleSessionSummary = {
@@ -350,7 +351,6 @@ export async function getBubbleSdk(defaultCwd?: string): Promise<BubbleSdkInstan
   if (!sdkInstancePromise) {
     sdkInstancePromise = loadBubbleSdk().then(({ BubbleSdk }) => {
       const instance = new BubbleSdk(defaultCwd ? { defaultCwd } : undefined);
-      installBubbleSessionReader(instance);
       sdkInstance = instance;
       return instance;
     }).catch(error => {

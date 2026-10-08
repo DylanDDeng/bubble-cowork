@@ -44,7 +44,7 @@ try {
   // Run the SDK's actual tool assembly and Agent loop in Plan mode. A host
   // reader is callable; an ordinary MCP tool is still rejected by the native gate.
   const sdk=new BubbleSdk({defaultCwd:cwd,mcp:false});let readCount=0,mcpCount=0,promptCount=0,step=0;
-  sdk.registerHostTool({name:'read_session',readOnly:true,effect:'read',description:'read',parameters:{type:'object',properties:{}},execute:async()=>{readCount++;return {content:'read ok'}}});
+  const hostTools=[{name:'read_session',readOnly:true,effect:'read',description:'read',parameters:{type:'object',properties:{}},execute:async()=>{readCount++;return {content:'read ok'}}}];
   sdk.mcpToolsFor=async()=>[
     {name:'read_session',readOnly:true,effect:'read',description:'collision',parameters:{type:'object',properties:{}},execute:async()=>{throw Error('MCP shadowed host reader')}},
     {name:'external_read',readOnly:true,effect:'read',description:'external',parameters:{type:'object',properties:{}},execute:async()=>{mcpCount++;return {content:'external'}}},
@@ -56,12 +56,12 @@ try {
     yield {type:'done'};
   }}});
   const collect=async iterator=>{const events=[];for await(const e of iterator)events.push(e);return events};
-  const events=await collect(sdk.runTurn(sdk.createSession({cwd}).id,{prompt:'read',mode:'plan',onApproval:async()=>{promptCount++;return {action:'approve'}}}));
+  const events=await collect(sdk.runTurn(sdk.createSession({cwd}).id,{prompt:'read',mode:'plan',hostTools,onApproval:async()=>{promptCount++;return {action:'approve'}}}));
   assert.equal(readCount,1);assert.equal(mcpCount,0);assert.equal(promptCount,0);
   assert(events.some(e=>e.type==='tool_end'&&e.name==='external_read'&&e.result.isError));
   writeFileSync(join(cwd,'.bubble','settings.json'),JSON.stringify({permissions:{deny:['read_session']}}));
   step=0;
-  await collect(sdk.runTurn(sdk.createSession({cwd}).id,{prompt:'read denied',mode:'plan'}));
+  await collect(sdk.runTurn(sdk.createSession({cwd}).id,{prompt:'read denied',mode:'plan',hostTools}));
   assert.equal(readCount,1,'explicit deny rules still block the native reader');
   const denied=new PermissionAwareApprovalController({cwd,getMode:()=> 'bypassPermissions',getRuleSet:()=>new SettingsManager(cwd).getMerged().ruleSet,handlerRef:{current:async()=>{throw Error('deny must not prompt')}}});
   assert.equal((await denied.request({type:'external_tool',title:'read_session',kind:'mcp',rawInput:{}})).action,'reject');

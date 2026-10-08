@@ -1,12 +1,16 @@
 // Aegis host compatibility for the pinned Bubble SDK. Re-run on install/build;
 // fail on upstream drift rather than silently shipping an unpatched runtime.
+// Host tools are upstream since 0.0.60 (turn-scoped `hostTools` on runTurn).
+// Patched here: repeatable, serialized project trust; explicit deny rules for
+// read-only host tools; and a host tool shadowing a same-named MCP tool
+// instead of failing the turn.
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export async function patchBubbleSdk(root) {
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-  if (pkg.version !== '0.0.59') throw new Error(`Review Bubble host patch for SDK ${pkg.version}`);
+  if (pkg.version !== '0.0.60') throw new Error(`Review Bubble host patch for SDK ${pkg.version}`);
   const jsPath = path.join(root, 'dist/sdk/index.js');
   const typesPath = path.join(root, 'dist/sdk/index.d.ts');
   let js = await readFile(jsPath, 'utf8');
@@ -16,15 +20,8 @@ export async function patchBubbleSdk(root) {
     if (source.split(before).length !== 2) throw new Error('Bubble SDK host patch no longer matches upstream');
     return source.replace(before, after);
   };
-  // Steps whose output a later step rewrites are skipped once that later form is present.
-  const hostToolsGated = js.includes('return tool.requiresApproval ? gateMcpTools([hosted], approvalController)[0] : hosted;');
-  if (!js.includes('    hostTools = new Map();')) js = replace(js, '    projectTrustAsked = new Set();', `    // Aegis: serialize trust per folder; cancellation never consumes future prompts.
-    projectTrustPending = new Map();
-    hostTools = new Map();
-    registerHostTool(tool) {
-        if (!tool.readOnly || tool.effect !== "read") throw new Error("Host tools must be read-only");
-        this.hostTools.set(tool.name, tool);
-    }`);
+  js = replace(js, '    projectTrustAsked = new Set();', `    // Aegis: serialize trust per folder; cancellation never consumes future prompts.
+    projectTrustPending = new Map();`);
   js = replace(js,
     'import { isRepoConfigTrusted, mergedRepoCapabilities, readRepoSettings, trustRepoConfig, }',
     'import { isRepoConfigTrusted, mergedRepoCapabilities, readRepoSettings, trustRepoConfig, repoConfigFingerprint, }');
@@ -74,51 +71,32 @@ export async function patchBubbleSdk(root) {
         await awaitWithAbort(operation, signal);
     }
 ` + js.slice(finish);
-  if (!hostToolsGated) js = replace(js,
-    '            tools.push(...gateMcpTools(await awaitWithAbort(this.mcpToolsFor(cwd), abortSignal), approvalController));',
-    `            const mcpTools = await awaitWithAbort(this.mcpToolsFor(cwd), abortSignal);
-            tools.push(...gateMcpTools(mcpTools.filter(tool => !this.hostTools.has(tool.name)), approvalController));
-            // Native host readers use the same read-only Plan gate as builtin
-            // Read, while explicit deny rules remain authoritative.
-            tools.push(...Array.from(this.hostTools.values(), tool => ({
-                ...tool,
-                execute: (args, ctx) => {
-                    const rule = approvalController.checkRules({ tool: tool.name });
-                    if (rule.decision === "deny") return Promise.resolve({ content: "Blocked by deny rule: " + rule.rule?.source, isError: true });
-                    return tool.execute(args, ctx);
-                },
-            })));`);
-  // Host actions (not readers) are gated like MCP tools, so they follow the
-  // session's permission mode and stay out of Plan mode (readOnly false).
   js = replace(js,
-    '        if (!tool.readOnly || tool.effect !== "read") throw new Error("Host tools must be read-only");',
-    '        if ((!tool.readOnly || tool.effect !== "read") && tool.requiresApproval !== true) throw new Error("Host tools must be read-only or require approval");');
-  if (!hostToolsGated) js = replace(js,
-    `            tools.push(...Array.from(this.hostTools.values(), tool => ({
-                ...tool,
-                execute: (args, ctx) => {
-                    const rule = approvalController.checkRules({ tool: tool.name });
-                    if (rule.decision === "deny") return Promise.resolve({ content: "Blocked by deny rule: " + rule.rule?.source, isError: true });
-                    return tool.execute(args, ctx);
-                },
-            })));`,
-    `            tools.push(...Array.from(this.hostTools.values(), tool => {
-                const hosted = {
-                    ...tool,
+    `            tools.push(...gateMcpTools(await awaitWithAbort(this.mcpToolsFor(cwd), abortSignal), approvalController));
+            const hostTools = options.hostTools ?? [];`,
+    `            const hostTools = options.hostTools ?? [];
+            // Aegis: a host tool shadows a same-named MCP tool instead of failing the turn.
+            const hostToolNames = new Set(hostTools.map(tool => tool.name));
+            tools.push(...gateMcpTools((await awaitWithAbort(this.mcpToolsFor(cwd), abortSignal)).filter(tool => !hostToolNames.has(tool.name)), approvalController));`);
+  js = replace(js,
+    '                tools.push(...(tool.readOnly ? [guarded] : gateMcpTools([guarded], approvalController)));',
+    `                // Aegis: read-only host tools skip the approval prompt, like builtin
+                // Read in Plan mode, but explicit deny rules still bind them.
+                const ruleChecked = {
+                    ...guarded,
                     execute: (args, ctx) => {
                         const rule = approvalController.checkRules({ tool: tool.name });
                         if (rule.decision === "deny") return Promise.resolve({ content: "Blocked by deny rule: " + rule.rule?.source, isError: true });
-                        return tool.execute(args, ctx);
+                        return guarded.execute(args, ctx);
                     },
                 };
-                return tool.requiresApproval ? gateMcpTools([hosted], approvalController)[0] : hosted;
-            }));`);
-  types = replace(types, '    private readonly projectTrustAsked;', '    private readonly projectTrustPending;\n    private readonly hostTools;\n    registerHostTool(tool: import("../types.js").ToolRegistryEntry): void;');
+                tools.push(...(tool.readOnly ? [ruleChecked] : gateMcpTools([guarded], approvalController)));`);
+  types = replace(types, '    private readonly projectTrustAsked;', '    private readonly projectTrustPending;');
   await writeFile(jsPath, js);
   await writeFile(typesPath, types);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await patchBubbleSdk(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../node_modules/@bubblebrain-ai/bubble'));
-  console.log('Bubble SDK host patch applied (host tools and repeatable project trust)');
+  console.log('Bubble SDK host patch applied (project trust, host tool deny rules and MCP shadowing)');
 }

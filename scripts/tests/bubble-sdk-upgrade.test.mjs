@@ -141,7 +141,7 @@ try {
   assert.equal(stopped.executions(),0);
   assert.equal(isRepoConfigTrusted(stopped.cwd,readRepoSettings(stopped.cwd)),false);
   assert(stopped.events.some(e=>e.type==='permission_dismissed'));
-  console.log('Bubble SDK 0.0.59: real turns, trust allow/deny/stop, MCP approval, plan exit, context/billing and rewind anchors passed');
+  console.log('Bubble SDK upgrade: real turns, trust allow/deny/stop, MCP approval, plan exit, context/billing and rewind anchors passed');
 } finally {
   loader.getBubbleSdk=originalSdk;
   if(previousHome===undefined)delete process.env.BUBBLE_HOME;else process.env.BUBBLE_HOME=previousHome;
