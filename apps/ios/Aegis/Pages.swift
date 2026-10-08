@@ -156,11 +156,19 @@ struct SettingsPage: View {
                     }
                 }
                 .disabled(model.busy)
+                Button { model.pairOpen = true } label: {
+                    HStack {
+                        Text("Pair again").foregroundStyle(Color.text1)
+                        Spacer()
+                        Image(systemName: "qrcode.viewfinder").foregroundStyle(Color.text3)
+                    }
+                }
+                .disabled(model.busy)
                 NavigationLink(value: AppModel.Route.projects) {
-                    LabeledContent("Projects shared with this iPhone", value: "\(model.projects.count)")
+                    LabeledContent("Projects", value: "\(model.projects.count)")
                 }
             } footer: {
-                Text("Your Mac needs to stay awake and online. Closing the Aegis window doesn’t stop running tasks; project access is managed on the Mac.")
+                Text("Your Mac needs to stay awake and online. Closing the Aegis window doesn’t stop running tasks. This iPhone sees every project in Aegis on your Mac.")
             }
             NotificationsSection()
             Section("Appearance") {

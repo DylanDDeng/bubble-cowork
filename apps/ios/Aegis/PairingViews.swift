@@ -116,6 +116,10 @@ struct PairSheet: View {
                 Text(model.notice.isEmpty ? model.client.error : model.notice)
                     .font(.app(13)).foregroundStyle(Color.danger)
             }
+            if model.paired {
+                Text("This replaces the current connection to \(model.macName).")
+                    .font(.app(13)).foregroundStyle(Color.text2)
+            }
             Text("Pairing codes expire after 2 minutes.")
                 .font(.app(13)).foregroundStyle(Color.text2).frame(maxWidth: .infinity)
         }

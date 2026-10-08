@@ -41,9 +41,11 @@ struct RootView: View {
             } else {
                 WelcomeView()
                     .overlay(alignment: .top) { Banners().padding(.top, 8) }
-                    .sheet(isPresented: $model.pairOpen) { PairSheet() }
             }
         }
+        // Reachable while paired too (Settings › Pair again, or a pairing link), so a
+        // broken or replaced pairing never strands the phone.
+        .sheet(isPresented: $model.pairOpen) { PairSheet() }
         .tint(Color.text1)
         .preferredColorScheme(model.theme == "dark" ? .dark : model.theme == "light" ? .light : nil)
         .task {
@@ -74,7 +76,7 @@ struct RootView: View {
         .onOpenURL { url in
             // A pairing link pre-fills the sheet; connecting stays a deliberate tap.
             let value = url.absoluteString
-            guard value.hasPrefix("aegis://pair#") || value.hasPrefix("aegis-dev://pair#"), !model.paired else { return }
+            guard value.hasPrefix("aegis://pair#") || value.hasPrefix("aegis-dev://pair#") else { return }
             model.pairText = value
             model.pairOpen = true
         }

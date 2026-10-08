@@ -168,10 +168,13 @@ struct SessionView: View {
                         Haptics.tap()
                         scroller.scrollToBottom(animated: true)
                     } label: {
-                        Image(systemName: "arrow.down").font(.app(17, weight: .semibold)).foregroundStyle(Color.ink).frame(width: 30, height: 30)
+                        Image(systemName: "arrow.down").font(.app(17, weight: .semibold)).foregroundStyle(Color.ink)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
+                    // Plain glass like the other round buttons; the system .glass style adds a gray fill.
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel("Jump to latest")
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
