@@ -357,6 +357,7 @@ private struct ChangesCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The header sits on its own gray, so the rows below need no line under it.
             Button {
                 withAnimation(.snappy(duration: 0.2)) { open.toggle() }
             } label: {
@@ -367,39 +368,51 @@ private struct ChangesCard: View {
                     Image(systemName: "chevron.down").font(.app(12, weight: .semibold)).foregroundStyle(Color.text3)
                         .rotationEffect(.degrees(open ? 0 : -90))
                 }
-                .padding(.horizontal, 14).padding(.vertical, 12)
+                .padding(.horizontal, 14).padding(.vertical, 11)
+                .background(Color.fill2)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             if open {
-                ForEach(Array(files.prefix(shown).enumerated()), id: \.offset) { _, file in
-                    Divider().overlay(Color.hair)
+                // Each file opens its diff; there is no separate "review" row.
+                ForEach(Array(files.prefix(shown).enumerated()), id: \.offset) { index, file in
+                    if index > 0 { rule }
                     Button { onOpen(file.path) } label: {
                         HStack(spacing: 10) {
                             Text(file.path).font(.app(13)).lineLimit(1).truncationMode(.head)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             DiffCounts(added: file.additions, removed: file.deletions)
+                            Image(systemName: "chevron.right").font(.app(11, weight: .semibold)).foregroundStyle(Color.text3)
                         }
                         .padding(.horizontal, 14).padding(.vertical, 10)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
-                Divider().overlay(Color.hair)
-                Button { onOpen(nil) } label: {
-                    HStack {
-                        Text(files.count > shown ? "View \(files.count - shown) more \(files.count - shown == 1 ? "file" : "files")" : "Review changes")
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.app(12, weight: .semibold))
+                if files.count > shown {
+                    rule
+                    Button { onOpen(nil) } label: {
+                        HStack {
+                            Text("View \(files.count - shown) more \(files.count - shown == 1 ? "file" : "files")")
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.app(11, weight: .semibold)).foregroundStyle(Color.text3)
+                        }
+                        .font(.app(13)).foregroundStyle(Color.text2)
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .contentShape(Rectangle())
                     }
-                    .font(.app(13)).foregroundStyle(Color.text2)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
-        .background(Color.fill2, in: .rect(cornerRadius: 18))
+        .background(Color.page)
+        .clipShape(.rect(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.hair, lineWidth: 0.5))
+    }
+
+    /// A faint inset line between rows (the system separator read as too strong).
+    private var rule: some View {
+        Rectangle().fill(Color.hair).frame(height: 0.5).padding(.leading, 14)
     }
 }
 
