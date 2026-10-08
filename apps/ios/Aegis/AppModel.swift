@@ -155,6 +155,34 @@ final class AppModel {
         return r.modelLabel + (r.effortLabel.map { " · \($0)" } ?? "")
     }
 
+    // MARK: Commands and skills ("/" and "$" menus)
+
+    /// The composer's menu is showing; Home makes room for it above the keyboard.
+    var commandMenuOpen = false
+
+    /// Lists by scope: a session's, or a new task's in a project for an agent.
+    private(set) var capabilityLists: [String: JSONValue] = [:]
+    @ObservationIgnored private var capabilityFetched: [String: Date] = [:]
+
+    var capabilityScope: String {
+        currentSessionId.map { "session:" + $0 } ?? "project:\(selectedProject?.id ?? ""):\(provider)"
+    }
+
+    /// Fetches the current scope's list at most every 30 s (skills change on disk).
+    /// A Mac on an older Aegis answers with an error; the menu stays closed then.
+    func loadCapabilities() async {
+        let scope = capabilityScope
+        guard ready, Date().timeIntervalSince(capabilityFetched[scope] ?? .distantPast) > 30 else { return }
+        let session = currentSession
+        guard session != nil || selectedProject != nil else { return }
+        capabilityFetched[scope] = Date()
+        if let list = try? await client.capabilities(
+            provider: session?.provider ?? provider, sessionId: session?.id,
+            projectId: session == nil ? selectedProject?.id : nil) {
+            capabilityLists[scope] = list
+        }
+    }
+
     // MARK: Drafts (files, written on every change)
 
     private var draftKey: String { client.draftName(currentSessionId ?? "new") }

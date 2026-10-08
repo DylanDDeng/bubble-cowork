@@ -1,4 +1,4 @@
-import { captureRemoteEvent, setupRemoteIPC, closeRemoteGateway, remoteTaskPayload } from './remote/integration';
+import { captureRemoteEvent, setupRemoteIPC, closeRemoteGateway, remoteTaskPayload, codexReferences } from './remote/integration';
 import {
   getWorkflowSessionPolicy,
   observeTurnMessage,
@@ -4687,14 +4687,19 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
   sessions.initialize();
   setupRemoteIPC(mainWindow, {
-    start: (project, provider, prompt, extras) => handleSessionStart(mainWindow, {
+    start: async (project, provider, prompt, extras) => handleSessionStart(mainWindow, {
       cwd: project.path, projectCwd: project.path, provider, prompt, title: prompt.slice(0, 60), skipTitleGeneration: true,
       envMode: 'local', createIsolatedWorkspace: extras?.worktree || undefined, scope: 'project', teamMode: 'solo', teamId: null,
       ...remoteTaskPayload(provider, extras),
+      ...(provider === 'codex' ? await codexReferences(prompt, project.path) : {}),
     }),
-    send: (sessionId, prompt, extras) => {
-      const provider = sessions.getSession(sessionId)?.provider || 'claude';
-      return handleSessionContinue(mainWindow, { sessionId, prompt, ...remoteTaskPayload(provider, extras) });
+    send: async (sessionId, prompt, extras) => {
+      const session = sessions.getSession(sessionId);
+      const provider = session?.provider || 'claude';
+      return handleSessionContinue(mainWindow, {
+        sessionId, prompt, ...remoteTaskPayload(provider, extras),
+        ...(provider === 'codex' && session?.cwd ? await codexReferences(prompt, session.cwd) : {}),
+      });
     },
     stop: sessionId => handleSessionStop(mainWindow, sessionId),
     // No updatedInput on allow: the request input is the approval card, not the tool's arguments.

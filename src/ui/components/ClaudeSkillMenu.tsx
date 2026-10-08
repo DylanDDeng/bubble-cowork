@@ -16,225 +16,31 @@ import {
   Zap,
 } from './icons';
 import type { LucideIcon } from './icons';
-import type { ClaudeSlashSuggestion, ClaudeSlashCommand } from '../utils/claude-slash';
+import type { ClaudeSlashSuggestion } from '../utils/claude-slash';
+import {
+  commandGlyph,
+  commandTitle,
+  groupSuggestions,
+  skillScopeLabel,
+  type SlashCommandGlyph,
+} from '../utils/slash-menu';
 
-interface MenuGroup {
-  id: string;
-  label: string | null;
-  suggestions: Array<{ suggestion: ClaudeSlashSuggestion; index: number }>;
-}
-
-function commandTitle(command: ClaudeSlashCommand): string {
-  switch (command.name) {
-    case 'clear':
-      return 'Clear';
-    case 'compact':
-      return 'Compact Context';
-    case 'context':
-    case 'session-info':
-      return 'Session Info';
-    case 'cost':
-    case 'usage':
-      return 'Cost';
-    case 'details':
-      return 'Details';
-    case 'editor':
-      return 'Editor';
-    case 'exit':
-      return 'Exit';
-    case 'export':
-      return 'Export';
-    case 'fast':
-      return 'Fast Mode';
-    case 'fork':
-      return 'Fork';
-    case 'help':
-    case 'docs':
-      return 'Help';
-    case 'init':
-      return 'Init';
-    case 'model':
-    case 'models':
-    case 'effort':
-      return 'Model';
-    case 'always-approve':
-    case 'auto':
-    case 'yolo':
-      return 'Permissions';
-    case 'new':
-      return 'New Thread';
-    case 'plan':
-    case 'view-plan':
-    case 'show-plan':
-      return 'Plan Mode';
-    case 'review':
-    case 'code-review':
-      return 'Code Review';
-    case 'sessions':
-      return 'Sessions';
-    case 'share':
-      return 'Share';
-    case 'status':
-      return 'Status';
-    case 'subagents':
-    case 'config-agents':
-    case 'personas':
-      return 'Subagents';
-    case 'thinking':
-      return 'Thinking';
-    case 'imagine':
-    case 'imagine-video':
-      return 'Imagine';
-    case 'memory':
-    case 'flush':
-    case 'dream':
-    case 'remember':
-      return 'Memory';
-    case 'plugins':
-    case 'marketplace':
-    case 'skills':
-    case 'mcps':
-    case 'hooks':
-    case 'hooks-list':
-    case 'hooks-trust':
-    case 'hooks-untrust':
-    case 'hooks-add':
-    case 'hooks-remove':
-    case 'reload-plugins':
-      return 'Extensions';
-    case 'rewind':
-      return 'Rewind';
-    case 'goal':
-      return 'Goal';
-    case 'loop':
-      return 'Automation';
-    default:
-      return command.name
-        .split(/[-_]/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ');
-  }
-}
-
-function commandIcon(command: ClaudeSlashCommand): LucideIcon {
-  switch (command.name) {
-    case 'clear':
-      return Trash2;
-    case 'compact':
-    case 'rewind':
-      return RotateCcw;
-    case 'cost':
-    case 'status':
-    case 'usage':
-    case 'context':
-    case 'session-info':
-      return CircleGauge;
-    case 'fast':
-    case 'always-approve':
-    case 'auto':
-    case 'yolo':
-      return Zap;
-    case 'fork':
-      return GitFork;
-    case 'model':
-    case 'models':
-    case 'effort':
-      return Brain;
-    case 'plan':
-    case 'view-plan':
-    case 'show-plan':
-    case 'loop':
-      return ListTodo;
-    case 'goal':
-      return Target;
-    case 'review':
-    case 'code-review':
-      return Bug;
-    case 'subagents':
-    case 'config-agents':
-    case 'personas':
-      return Workflow;
-    case 'plugins':
-    case 'marketplace':
-    case 'skills':
-    case 'mcps':
-    case 'hooks':
-    case 'hooks-list':
-    case 'hooks-trust':
-    case 'hooks-untrust':
-    case 'hooks-add':
-    case 'hooks-remove':
-    case 'reload-plugins':
-      return Plug;
-    case 'help':
-    case 'docs':
-    case 'release-notes':
-      return BookOpenText;
-    case 'memory':
-    case 'flush':
-    case 'dream':
-    case 'remember':
-      return Brain;
-    case 'default':
-    case 'new':
-      return MessageSquare;
-    default:
-      return Terminal;
-  }
-}
-
-function skillScopeLabel(source: string | undefined): string {
-  if (source === 'plugin') return 'Plugin';
-  if (source === 'project') return 'Project';
-  return 'Personal';
-}
-
-function getGroupId(suggestion: ClaudeSlashSuggestion): string {
-  if (suggestion.kind === 'command') {
-    return suggestion.command.source === 'default' ? 'built-in' : 'provider';
-  }
-
-  if (suggestion.skill.source === 'plugin') return 'plugins';
-  if (suggestion.skill.source === 'project') return 'project-skills';
-  return 'global-skills';
-}
-
-const GROUP_LABELS: Record<string, string> = {
-  'built-in': 'Built-in',
-  provider: 'Provider',
-  plugins: 'Plugins',
-  'project-skills': 'Project Skills',
-  'global-skills': 'Global Skills',
+const COMMAND_ICONS: Record<SlashCommandGlyph, LucideIcon> = {
+  clear: Trash2,
+  rewind: RotateCcw,
+  usage: CircleGauge,
+  fast: Zap,
+  fork: GitFork,
+  brain: Brain,
+  plan: ListTodo,
+  goal: Target,
+  review: Bug,
+  agents: Workflow,
+  plugin: Plug,
+  help: BookOpenText,
+  thread: MessageSquare,
+  terminal: Terminal,
 };
-
-const GROUP_ORDER = ['built-in', 'provider', 'plugins', 'project-skills', 'global-skills'];
-
-function groupSuggestions(suggestions: ClaudeSlashSuggestion[]): MenuGroup[] {
-  const buckets = new Map<string, MenuGroup>();
-
-  suggestions.forEach((suggestion, index) => {
-    const id = getGroupId(suggestion);
-    const existing = buckets.get(id);
-    if (existing) {
-      existing.suggestions.push({ suggestion, index });
-      return;
-    }
-
-    buckets.set(id, {
-      id,
-      label: GROUP_LABELS[id] || null,
-      suggestions: [{ suggestion, index }],
-    });
-  });
-
-  return Array.from(buckets.values()).sort((left, right) => {
-    const leftIndex = GROUP_ORDER.indexOf(left.id);
-    const rightIndex = GROUP_ORDER.indexOf(right.id);
-    return (leftIndex === -1 ? GROUP_ORDER.length : leftIndex) -
-      (rightIndex === -1 ? GROUP_ORDER.length : rightIndex);
-  });
-}
 
 function suggestionKey(suggestion: ClaudeSlashSuggestion): string {
   if (suggestion.kind === 'command') {
@@ -286,7 +92,7 @@ export function ClaudeSkillMenu({
                 ? suggestion.skill.source === 'plugin'
                   ? Plug
                   : SkillStack
-                : commandIcon(suggestion.command);
+                : COMMAND_ICONS[commandGlyph(suggestion.command)];
               const title =
                 isSkill
                   ? suggestion.skill.title || suggestion.skill.name.replace(/^\//, '')

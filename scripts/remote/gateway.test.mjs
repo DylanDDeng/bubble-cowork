@@ -78,6 +78,7 @@ const runtime = {
   },
   hasPermission: () => pending,
   confirm: async () => true,
+  capabilities: async (provider, cwd, sessionId) => ({ commands: [{ name: "compact", description: provider }], skills: [], cwd, sessionId }),
   options: async () => ({ codex: { defaultModel: "m", defaultReasoningEffort: null, options: ["m"], availableModels: [] } }),
   attach: async (name, data) => ({ id: "a1", path: "/tmp/" + name, name, size: data.byteLength, mimeType: "image/png", kind: "image" }),
 };
@@ -277,6 +278,15 @@ try {
     if (r.error) tooLarge = r.error;
   }
   assert.equal(tooLarge, "ATTACHMENT_TOO_LARGE");
+  // Composer commands: a session answers for its own agent and project.
+  const caps = (await request({ method: "capabilities", provider: "codex", sessionId: "visible" })).result;
+  assert.deepEqual([caps.commands[0].description, caps.cwd, caps.sessionId], ["claude", projectDir, "visible"]);
+  const fresh = (await request({ method: "capabilities", provider: "codex", projectId: "allowed" })).result;
+  assert.deepEqual([fresh.commands[0].description, fresh.sessionId], ["codex", undefined]);
+  assert.equal((await request({ method: "capabilities", provider: "codex", sessionId: "missing" })).error, "SCOPE_DENIED");
+  assert.equal((await request({ method: "capabilities", provider: "codex", projectId: "unknown" })).error, "SCOPE_DENIED");
+  assert.equal((await request({ method: "capabilities", provider: "codex" })).error, "SCOPE_DENIED");
+  assert.equal((await request({ method: "capabilities", provider: "codex", projectId: "allowed" }, "attacker")).error, "UNAUTHORIZED");
   // Read-only project files: scoped, no dot entries, no escapes.
   const files = (data, peer) => request(data, peer);
   const root = (await files({ method: "files.list", projectId: "allowed" })).result;

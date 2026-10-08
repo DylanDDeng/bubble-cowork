@@ -427,6 +427,14 @@ public final class RemoteClient {
         if let options = try? await request(["method": "options"]) { agentOptions = options }
     }
 
+    /// Slash commands and skills for a session, or for a new task in a project.
+    public func capabilities(provider: String, sessionId: String?, projectId: String?) async throws -> JSONValue {
+        var params: [String: JSONValue] = ["method": "capabilities", "provider": .string(provider)]
+        if let sessionId { params["sessionId"] = .string(sessionId) }
+        if let projectId { params["projectId"] = .string(projectId) }
+        return try await request(params)
+    }
+
     // MARK: Notifications
 
     /// This app's APNs registration; the Mac gets it after every authentication.

@@ -11,24 +11,12 @@ struct HomeView: View {
         @Bindable var model = model
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            VStack(spacing: 16) {
-                Image("aegis-mark").resizable().renderingMode(.template).frame(width: 52, height: 52).foregroundStyle(Color.text1.opacity(0.3))
-                heading
-                if runningCount > 0 {
-                    Button { model.drawerOpen = true } label: {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.mini)
-                            Text("\(runningCount) \(runningCount == 1 ? "task" : "tasks") running")
-                            Image(systemName: "chevron.right").font(.app(12, weight: .semibold))
-                        }
-                        .font(.app(14)).foregroundStyle(Color.text2)
-                        .padding(.horizontal, 14).frame(height: 34)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                }
+            // Gives way when the composer needs the room above the keyboard
+            // (the command menu, a long draft, a small phone).
+            ViewThatFits(in: .vertical) {
+                intro
+                Color.clear.frame(height: 0)
             }
-            .padding(.horizontal, 32)
             Spacer(minLength: 0)
             Spacer(minLength: 0)
         }
@@ -37,7 +25,7 @@ struct HomeView: View {
         .onTapGesture { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
-                NeedsCards()
+                if !model.commandMenuOpen { NeedsCards() }
                 ContextRows()
                 Composer(
                     catalog: model.catalog(model.provider),
@@ -55,6 +43,28 @@ struct HomeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { SidebarButton() }
         }
+    }
+
+    /// The desktop's new-thread heading, and what is running.
+    private var intro: some View {
+        VStack(spacing: 16) {
+            Image("aegis-mark").resizable().renderingMode(.template).frame(width: 52, height: 52).foregroundStyle(Color.text1.opacity(0.3))
+            heading
+            if runningCount > 0 {
+                Button { model.drawerOpen = true } label: {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.mini)
+                        Text("\(runningCount) \(runningCount == 1 ? "task" : "tasks") running")
+                        Image(systemName: "chevron.right").font(.app(12, weight: .semibold))
+                    }
+                    .font(.app(14)).foregroundStyle(Color.text2)
+                    .padding(.horizontal, 14).frame(height: 34)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .capsule)
+            }
+        }
+        .padding(.horizontal, 32)
     }
 
     /// Same wording as the desktop new-thread heading.

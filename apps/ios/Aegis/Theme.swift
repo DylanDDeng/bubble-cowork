@@ -36,6 +36,8 @@ extension Color {
     static let inkOff = dynamic(0xd4d4d8, 0x3a3a3e)
     static let code = dynamic(0xf6f6f7, 0x18181a)
     static let warn = dynamic(0xa84a06, 0xf5a524)
+    /// The desktop's Full Access orange (`--warning`).
+    static let fullAccess = dynamic(0xd97706, 0xfbbf24)
     static let warnBg = dynamic(0xf59e0b, 0xf59e0b, lightAlpha: 0.13, darkAlpha: 0.15)
     static let danger = dynamic(0xc4271c, 0xff6b5e)
     static let dangerBg = dynamic(0xdc2626, 0xff5046, lightAlpha: 0.07, darkAlpha: 0.12)

@@ -22,6 +22,7 @@ struct Composer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var files = false
     @State private var camera = false
+    @State private var menu: ComposerMenu?
 
     private var r: ResolvedSettings { catalog.resolve(settings) }
     private var expanded: Bool { focused || picker || !model.draft.isEmpty || !model.attachments.isEmpty }
@@ -35,6 +36,7 @@ struct Composer: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 2))
         layout {
+            if expanded, let menu { CommandMenu(menu: menu, pick: pick) }
             if expanded && !model.attachments.isEmpty { AttachmentStrip() }
             if !expanded { attachMenu }
             TextField(placeholder, text: Binding(get: { model.draft }, set: { model.draft = $0 }), axis: .vertical)
@@ -48,12 +50,12 @@ struct Composer: View {
                 HStack(spacing: 2) {
                     attachMenu
                     Menu { permissionItems } label: {
-                        Image(systemName: r.isFullAccess ? "shield.slash" : "shield")
-                            .font(.app(17, weight: .medium))
-                            .foregroundStyle(r.isFullAccess ? Color.danger : Color.text2)
+                        PermissionGlyph(permission: r.permission, size: 20)
                             .frame(width: 36, height: 36)
                             .contentShape(Circle())
                     }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
                     .menuOrder(.fixed)
                     .accessibilityLabel("Permissions: \(r.permission?.label ?? "Default")")
                     if r.plan {
@@ -65,6 +67,8 @@ struct Composer: View {
                                 .frame(height: 30)
                                 .background(Color.fill2, in: .capsule)
                         }
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
                         .menuOrder(.fixed)
                         .padding(.leading, 2)
                         .accessibilityLabel("Plan first is on")
@@ -76,8 +80,8 @@ struct Composer: View {
             } else {
                 // Settings that change what the agent may do stay visible.
                 if r.isFullAccess {
-                    Image(systemName: "shield.slash").font(.app(15, weight: .medium)).foregroundStyle(Color.danger)
-                        .frame(width: 28).accessibilityLabel("Full access")
+                    PermissionGlyph(permission: r.permission, size: 18)
+                        .frame(width: 28).accessibilityLabel(r.permission?.label ?? "Full access")
                 }
                 if r.plan {
                     Image(systemName: "checklist").font(.app(15, weight: .medium)).foregroundStyle(Color.text2)
@@ -92,6 +96,15 @@ struct Composer: View {
         .onTapGesture { focused = true }
         .padding(.horizontal, expanded ? 0 : 14)
         .animation(.smooth(duration: 0.32), value: expanded)
+        .task(id: MenuKey(draft: model.draft, scope: model.capabilityScope, list: model.capabilityLists[model.capabilityScope],
+                          plan: catalog.supportsPlan, ready: model.ready)) {
+            await updateMenu()
+        }
+        // Refreshed on focus, so "/" opens with a current list.
+        .task(id: expanded && model.ready ? model.capabilityScope : nil) {
+            if expanded { await model.loadCapabilities() }
+        }
+        .onDisappear { model.commandMenuOpen = false }
         .photosPicker(isPresented: $photos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -115,6 +128,56 @@ struct Composer: View {
                 }
             }
             .ignoresSafeArea()
+        }
+    }
+
+    // MARK: "/" and "$" menu
+
+    private struct MenuKey: Equatable {
+        let draft: String
+        let scope: String
+        let list: JSONValue?
+        let plan: Bool
+        /// Lists load once connected; a draft restored at launch waits for that.
+        let ready: Bool
+    }
+
+    /// A draft that starts with "/" or "$" (after any @mentions) opens the menu.
+    private func updateMenu() async {
+        let draft = model.draft
+        guard draft.contains(where: { $0 == "/" || $0 == "$" }) else { setMenu(nil); return }
+        let scope = model.capabilityScope
+        if model.capabilityLists[scope] == nil { await model.loadCapabilities() }
+        // Nothing to list yet (still connecting, or an older Mac): typed commands still go through.
+        guard let list = model.capabilityLists[scope] else { setMenu(nil); return }
+        let next = await CoreScript.shared.composerMenu(provider: catalog.provider, draft: draft,
+                                                        capabilities: list, supportsPlan: catalog.supportsPlan)
+        guard !Task.isCancelled else { return }
+        setMenu(next)
+    }
+
+    private func setMenu(_ next: ComposerMenu?) {
+        guard next != menu else { return }
+        withAnimation(.smooth(duration: 0.2)) {
+            menu = next
+            model.commandMenuOpen = next != nil
+        }
+    }
+
+    private func pick(_ item: ComposerMenu.Item) {
+        Haptics.select()
+        switch item.action {
+        case "plan":
+            var next = settings
+            next.plan = true
+            onSettings(next)
+            model.draft = item.draft
+        case "model":
+            model.draft = item.draft
+            picker = true
+        default:
+            model.draft = item.draft
+            if item.submit { Task { await model.send() } }
         }
     }
 
@@ -151,6 +214,10 @@ struct Composer: View {
                 .frame(width: 36, height: 36)
                 .contentShape(Circle())
         }
+        // The default style puts a rounded-square platter behind the icon while the
+        // menu opens and closes, which lingered after a dismiss.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuOrder(.fixed)
         .accessibilityLabel("Add photos or files")
     }
@@ -158,7 +225,7 @@ struct Composer: View {
     @ViewBuilder private var permissionItems: some View {
         Section("Permissions · \(providerLabel(catalog.provider))") {
             ForEach(catalog.permissionModes, id: \.mode) { mode in
-                Button(role: mode.isFullAccess ? .destructive : nil) {
+                Button {
                     var next = settings
                     next.permissionMode = mode.mode
                     onSettings(next)
@@ -604,6 +671,133 @@ struct CameraPicker: UIViewControllerRepresentable {
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.onDone(nil)
             parent.dismiss()
+        }
+    }
+}
+
+/// The desktop composer's permission mark: a shield with a check for the gated
+/// modes, the enclosed-exclamation shield in orange for Full Access, and red for
+/// modes the provider marks dangerous.
+struct PermissionGlyph: View {
+    let permission: AgentCatalog.PermissionMode?
+    let size: CGFloat
+
+    var body: some View {
+        let tone = permission?.tone
+        let color = tone == "full-access" ? Color.fullAccess : tone == "danger" ? Color.danger : Color.text2
+        Group {
+            if tone == "full-access" {
+                FullAccessShield(lineWidth: 1.65 * size / 20)
+            } else {
+                Image(systemName: "checkmark.shield").font(.system(size: size * 0.85, weight: .medium))
+            }
+        }
+        .foregroundStyle(color)
+        .frame(width: size, height: size)
+    }
+}
+
+/// FullAccessPermissionIcon.tsx, drawn on its 20-unit grid.
+private struct FullAccessShield: View {
+    let lineWidth: CGFloat
+
+    var body: some View {
+        GeometryReader { geo in
+            let u = min(geo.size.width, geo.size.height) / 20
+            let p = { (x: CGFloat, y: CGFloat) in CGPoint(x: x * u, y: y * u) }
+            ZStack {
+                Path { path in
+                    path.move(to: p(10, 3.05))
+                    path.addCurve(to: p(16.5, 5.09), control1: p(12.34, 3.81), control2: p(14.55, 4.39))
+                    path.addLine(to: p(16.5, 8.32))
+                    path.addCurve(to: p(10, 16.35), control1: p(16.5, 11.74), control2: p(14.14, 14.4))
+                    path.addCurve(to: p(3.5, 8.32), control1: p(5.86, 14.4), control2: p(3.5, 11.74))
+                    path.addLine(to: p(3.5, 5.09))
+                    path.addCurve(to: p(10, 3.05), control1: p(5.45, 4.39), control2: p(7.66, 3.81))
+                    path.closeSubpath()
+                    path.move(to: p(10, 6.25))
+                    path.addLine(to: p(10, 10.4))
+                }
+                .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+                Path { $0.addEllipse(in: CGRect(origin: p(9.15, 12), size: CGSize(width: 1.7 * u, height: 1.7 * u))) }
+                    .fill()
+            }
+        }
+    }
+}
+
+/// The desktop composer's command and skill menu, above the text field.
+private struct CommandMenu: View {
+    let menu: ComposerMenu
+    let pick: (ComposerMenu.Item) -> Void
+    @State private var height: CGFloat = 0
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if menu.groups.isEmpty {
+                    Text(menu.emptyMessage).font(.app(13)).foregroundStyle(Color.text3)
+                        .padding(.horizontal, 8).padding(.vertical, 10)
+                }
+                ForEach(Array(menu.groups.enumerated()), id: \.element.id) { index, group in
+                    if index > 0 { Rectangle().fill(Color.hair).frame(height: 0.5).padding(.vertical, 4) }
+                    if let label = group.label {
+                        Text(label).font(.app(12)).foregroundStyle(Color.text3)
+                            .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 2)
+                    }
+                    ForEach(group.items) { item in row(item) }
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        // As tall as its rows, up to three and a half so the cut row says it scrolls.
+        .frame(height: min(height, 196))
+        .accessibilityLabel(menu.title)
+    }
+
+    private func row(_ item: ComposerMenu.Item) -> some View {
+        Button { pick(item) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: Self.symbol(item.glyph))
+                    .font(.app(14, weight: .medium)).foregroundStyle(Color.text2)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title).font(.app(15, weight: .medium)).foregroundStyle(Color.ink).lineLimit(1)
+                    if let detail = item.detail {
+                        Text(detail).font(.app(12.5)).foregroundStyle(Color.text2).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                Text(item.meta).font(.app(12)).foregroundStyle(Color.text3).lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(item.detail ?? "")
+    }
+
+    /// SF Symbols for the desktop menu's icons (slash-menu.ts glyphs).
+    static func symbol(_ glyph: String) -> String {
+        switch glyph {
+        case "clear": "trash"
+        case "rewind": "arrow.counterclockwise"
+        case "usage": "gauge.with.dots.needle.33percent"
+        case "fast": "bolt"
+        case "fork": "arrow.triangle.branch"
+        case "brain": "brain"
+        case "plan": "checklist"
+        case "goal": "target"
+        case "review": "ladybug"
+        case "agents": "point.3.connected.trianglepath.dotted"
+        case "plugin": "powerplug"
+        case "help": "book"
+        case "thread": "bubble.left"
+        case "skill": "square.stack.3d.up"
+        default: "terminal"
         }
     }
 }

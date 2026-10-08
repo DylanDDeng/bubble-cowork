@@ -2,6 +2,7 @@
 // returns JSON strings; failures come back as {"error": "..."} instead of throwing.
 import type { RemoteAgentOptions, RemoteMessage } from "../../../src/shared/remote/protocol";
 import { catalogFor } from "./agents";
+import { composerMenu } from "./composer";
 import { describeRequest, parsePatch, requestSummary } from "./patch";
 import { renderSession } from "./session";
 
@@ -56,6 +57,7 @@ const api = {
     renderSession(input.messages, input.running, input.status),
   ),
   catalog: guard(catalog),
+  composerMenu: guard(composerMenu),
   parsePatch: guard((input: { patch: string }) => parsePatch(input.patch)),
   describeRequest: guard((input: { detail: string }) => ({
     ...describeRequest(input.detail),

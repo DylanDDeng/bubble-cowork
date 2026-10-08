@@ -19,6 +19,8 @@ import { getBubbleModelConfig } from "../libs/bubble-settings";
 import { getDevinModelConfig, getDevinThoughtLevels } from "../libs/devin-cli";
 import { getMimoModelConfig } from "../libs/mimo-cli";
 import { importAttachmentBytes } from "../libs/file-attachments";
+import { composerCapabilities } from "./capabilities";
+export { codexReferences } from "./capabilities";
 
 /** Devin's catalog with thinking levels per model (both cached by devin-cli). */
 async function devinOptions(): Promise<RemoteAgentOptions["devin"] | null> {
@@ -162,6 +164,11 @@ export function setupRemoteIPC(
       environment: app.isPackaged ? "production" : "development",
       projects: listProjects,
       options: agentOptions,
+      capabilities: (provider, projectPath, sessionId) => {
+        // A worktree session's own folder holds its project skills.
+        const cwd = (sessionId && sessions.getSession(sessionId)?.cwd) || projectPath;
+        return composerCapabilities(provider, cwd, sessionId ? sessions.getSessionHistory(sessionId) : []);
+      },
       attach: (name, data) => importAttachmentBytes(name, data),
       sessions: () => {
         // The desktop sidebar's list: archived sessions stay off the phone too.

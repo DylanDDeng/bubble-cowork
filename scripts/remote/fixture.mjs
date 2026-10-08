@@ -10,6 +10,9 @@ const {
   RemoteGateway,
 } = require("../../dist-electron/electron/remote/gateway.js");
 const {
+  buildProviderSlashCommands,
+} = require("../../dist-electron/ui/utils/claude-slash.js");
+const {
   RemoteJournal,
 } = require("../../dist-electron/electron/remote/journal.js");
 const root = mkdtempSync(join(tmpdir(), "aegis-ios-fixture-"));
@@ -152,6 +155,19 @@ const runtime = {
       ],
     },
     bubble: { defaultModel: "deepseek-v4-flash", options: [], availableModels: [{ name: "deepseek-v4-flash", label: "DeepSeek V4 Flash", enabled: true, isDefault: true, reasoningLevels: ["low", "high", "max"], defaultReasoningLevel: "high" }] },
+  }),
+  // The desktop's built-in commands, plus a few made-up skills (no files read).
+  capabilities: async (provider) => ({
+    commands: buildProviderSlashCommands(provider)
+      .filter((c) => !["goal", "rewind"].includes(c.name))
+      .map(({ name, description, source, submitOnSelect, inputHint }) => ({ name, description, source, submitOnSelect, inputHint })),
+    skills: ["claude", "codex", "bubble"].includes(provider)
+      ? [
+          { name: "release-notes", title: "Release Notes", description: "Draft release notes from merged changes", source: "project" },
+          { name: "frontend-design", title: "Frontend Design", description: "Distinctive, production-grade interfaces", source: "user" },
+          { name: "github", title: "GitHub", description: "Pull requests, issues and reviews", source: "plugin" },
+        ]
+      : [],
   }),
   attach: async (name, data) => ({
     id: crypto.randomUUID(),

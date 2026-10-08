@@ -201,3 +201,38 @@ test("a session's own model resolves even when the Mac's list doesn't carry it",
   // Listed models are not duplicated into labels.
   assert.deepEqual(call("catalog", { provider: "claude", options, extraModels: ["claude-sonnet-4-6"] }).labels, {});
 });
+
+test("composer menu: commands and skills as the desktop lists them", () => {
+  const capabilities = {
+    commands: [
+      { name: "compact", description: "Compact the current conversation context", source: "default" },
+      { name: "cost", description: "Show current token and cost usage", source: "default", submitOnSelect: true },
+      { name: "plan", description: "Switch into planning mode", source: "default" },
+      { name: "deploy", description: "Ship it", source: "session" },
+    ],
+    skills: [{ name: "brand guide", title: "Brand Guide", description: "House style", source: "project" }],
+  };
+  const menu = (provider, draft, supportsPlan = true) => call("composerMenu", { provider, draft, capabilities, supportsPlan });
+  assert.equal(menu("claude", "fix the bug"), null);
+  assert.equal(menu("claude", "fix /co"), null);
+
+  const all = menu("claude", "/");
+  assert.equal(all.title, "Commands & Skills");
+  assert.deepEqual(all.groups.map((g) => g.label), ["Built-in", "Provider", "Project Skills"]);
+  const items = all.groups.flatMap((g) => g.items);
+  const byId = Object.fromEntries(items.map((i) => [i.id, i]));
+  assert.equal(byId["command:compact"].title, "Compact Context");
+  assert.equal(byId["command:compact"].draft, "/compact ");
+  assert.equal(byId["command:cost"].submit, true);
+  assert.deepEqual([byId["command:plan"].action, byId["command:plan"].draft], ["plan", ""]);
+  assert.equal(byId["skill:project:brand guide"].draft, "/brand-guide ");
+
+  // Codex runs skills as `$name`, from either key; Plan stays a command without plan support.
+  assert.equal(menu("codex", "$bra").groups[0].items[0].draft, "$brand-guide ");
+  assert.equal(menu("codex", "/bra").groups.flatMap((g) => g.items)[0].draft, "$brand-guide ");
+  assert.equal(menu("codex", "/pl", false).groups[0].items[0].action, null);
+  // Devin lists no skills; /model opens the picker.
+  assert.equal(menu("devin", "/").title, "Commands");
+  assert.equal(menu("devin", "/brand").groups.length, 0);
+  assert.equal(menu("claude", "/model").groups[0].items[0].action, "model");
+});

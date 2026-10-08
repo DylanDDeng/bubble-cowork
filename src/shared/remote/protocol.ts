@@ -44,6 +44,16 @@ export const requestSchema = z.discriminatedUnion("method", [
   /** The app left or returned to the screen; while away the Mac keeps sending pushes. */
   z.object({ id, method: z.literal("presence"), background: z.boolean() }).strict(),
   z.object({ id, method: z.literal("options") }).strict(),
+  /** The composer's "/" and "$" menus for a session, or for a new task in a project. */
+  z
+    .object({
+      id,
+      method: z.literal("capabilities"),
+      provider: providerSchema,
+      sessionId: id.optional(),
+      projectId: id.optional(),
+    })
+    .strict(),
   z
     .object({
       id,
@@ -183,6 +193,12 @@ export interface RemoteAgentOptions {
       defaultReasoningLevel?: string | null;
     }>;
   };
+}
+/** Slash commands and skills, as the desktop composer lists them. */
+export interface RemoteCapabilities {
+  /** `source` "default" is a built-in Aegis knows; others come from the agent. */
+  commands: { name: string; description: string; source: "default" | "session" | "acp"; submitOnSelect?: boolean; inputHint?: string }[];
+  skills: { name: string; title: string; description?: string; source: "user" | "project" | "plugin" }[];
 }
 export interface RemoteFileEntry {
   name: string;

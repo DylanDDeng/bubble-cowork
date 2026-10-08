@@ -18,6 +18,9 @@ import {
   type RemoteAgentOptions,
   type RemoteAttachment,
   type RemoteTaskSettings,
+  type RemoteCapabilities,
+  type RemoteProvider,
+  providerSchema,
 } from "../../shared/remote/protocol";
 import type { ServerEvent, PermissionRequestPayload, Attachment } from "../../shared/types";
 
@@ -50,6 +53,8 @@ export interface RemoteRuntime {
   send(id: string, prompt: string, extras?: RemoteTaskExtras): Promise<boolean>;
   /** Agent catalog for the phone's pickers; must not include secrets. */
   options?(): Promise<RemoteAgentOptions>;
+  /** Slash commands and skills for a provider in a project (and session, if any). */
+  capabilities?(provider: RemoteProvider, cwd: string, sessionId?: string): Promise<RemoteCapabilities>;
   /** Stores uploaded bytes as a desktop attachment (type and size validated). */
   attach?(name: string, data: Uint8Array): Promise<Attachment>;
   stop(id: string): void;
@@ -524,6 +529,20 @@ export class RemoteGateway {
           id: request.id,
           result: (await this.runtime.options?.()) ?? {},
         };
+      if (request.method === "capabilities") {
+        // A session answers for its own agent and folder; a new task for the project's.
+        const session = request.sessionId ? this.allowedSession(request.sessionId) : undefined;
+        const projectId = session?.projectId ?? request.projectId;
+        const project = this.runtime.projects().find((p) => p.id === projectId);
+        if (!project) throw new Error("SCOPE_DENIED");
+        const provider = providerSchema.safeParse(session?.provider ?? request.provider);
+        if (!provider.success) return { type: "response", id: request.id, result: { commands: [], skills: [] } };
+        return {
+          type: "response",
+          id: request.id,
+          result: (await this.runtime.capabilities?.(provider.data, project.path, session?.id)) ?? { commands: [], skills: [] },
+        };
+      }
       if (
         request.method === "files.list" ||
         request.method === "files.search" ||

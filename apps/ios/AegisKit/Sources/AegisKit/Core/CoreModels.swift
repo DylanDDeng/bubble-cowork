@@ -195,7 +195,7 @@ public struct AgentCatalog: Decodable, Equatable, Sendable {
     public struct PermissionMode: Decodable, Equatable, Hashable, Sendable {
         public let mode: String
         public let label: String
-        /// "full-access" / "danger" modes are shown in red.
+        /// "full-access" modes are shown in orange, "danger" ones in red.
         public let tone: String?
         public var isFullAccess: Bool { tone == "full-access" || tone == "danger" }
     }
@@ -302,4 +302,32 @@ public struct RequestDescription: Decodable, Equatable, Sendable {
     public let body: String
     public let fields: [[String]]
     public let summary: String
+}
+
+/// The composer's "/" and "$" menu (composerMenu in apps/ios/core/composer.ts).
+public struct ComposerMenu: Decodable, Equatable, Sendable {
+    public struct Item: Decodable, Equatable, Identifiable, Sendable {
+        public let id: String
+        public let kind: String
+        public let title: String
+        public let detail: String?
+        /// "/compact" for a command, the scope ("Project") for a skill.
+        public let meta: String
+        /// A slash-menu glyph name for commands; "skill" or "plugin" for skills.
+        public let glyph: String
+        /// The draft after picking this item.
+        public let draft: String
+        /// Send the new draft right away.
+        public let submit: Bool
+        /// Handled by the app: "plan" turns on Plan first, "model" opens the picker.
+        public let action: String?
+    }
+    public struct Group: Decodable, Equatable, Identifiable, Sendable {
+        public let id: String
+        public let label: String?
+        public let items: [Item]
+    }
+    public let title: String
+    public let emptyMessage: String
+    public let groups: [Group]
 }

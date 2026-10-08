@@ -96,6 +96,21 @@ public final class CoreScript: @unchecked Sendable {
             ?? .placeholder(provider)
     }
 
+    private struct MenuInput: Encodable {
+        let provider: String
+        let draft: String
+        let capabilities: JSONValue?
+        let supportsPlan: Bool
+    }
+
+    /// The "/" or "$" menu for a draft that starts with one; nil otherwise.
+    public func composerMenu(provider: String, draft: String, capabilities: JSONValue?, supportsPlan: Bool) async -> ComposerMenu? {
+        try? await run {
+            try self.call("composerMenu", MenuInput(provider: provider, draft: draft, capabilities: capabilities, supportsPlan: supportsPlan),
+                          as: ComposerMenu?.self)
+        }
+    }
+
     public func parsePatch(_ patch: String) async -> [DiffFile] {
         (try? await run { try self.call("parsePatch", ["patch": patch], as: [DiffFile].self) }) ?? []
     }
