@@ -11,11 +11,7 @@ import {
   TerminalChrome,
   type TerminalChromeTab,
 } from '../terminal/TerminalChrome';
-import {
-  buildTerminalRuntimeKey,
-  terminalRuntimeRegistry,
-  type TerminalRuntimeCallbacks,
-} from '../terminal/terminalRuntimeRegistry';
+import { terminalHost, terminalKey, type TerminalHooks } from '../terminal/terminal-host';
 
 type TerminalAgentSpec = {
   kind: TerminalAgentKind;
@@ -178,13 +174,13 @@ export function SessionTerminal({
   useEffect(() => {
     const previousThreadId = previousThreadIdRef.current;
     if (previousThreadId && previousThreadId !== runtimeThreadId) {
-      terminalRuntimeRegistry.disposeThread(previousThreadId);
+      terminalHost.destroyScope(previousThreadId);
     }
     previousThreadIdRef.current = runtimeThreadId;
 
     if (!canStart) {
       if (runtimeThreadId) {
-        terminalRuntimeRegistry.disposeThread(runtimeThreadId);
+        terminalHost.destroyScope(runtimeThreadId);
       }
       tabsRef.current = [];
       nextTabNumberRef.current = 1;
@@ -194,7 +190,7 @@ export function SessionTerminal({
       return;
     }
 
-    terminalRuntimeRegistry.disposeThread(runtimeThreadId!);
+    terminalHost.destroyScope(runtimeThreadId!);
     tabsRef.current = [];
     nextTabNumberRef.current = 1;
     setTabs([]);
@@ -204,7 +200,7 @@ export function SessionTerminal({
 
     return () => {
       if (runtimeThreadId) {
-        terminalRuntimeRegistry.disposeThread(runtimeThreadId);
+        terminalHost.destroyScope(runtimeThreadId);
       }
     };
   }, [canStart, createInitialTab, normalizedCwd, runtimeThreadId]);
@@ -266,7 +262,7 @@ export function SessionTerminal({
   const handleCloseTab = useCallback(
     (tabId: string) => {
       if (!runtimeThreadId) return;
-      terminalRuntimeRegistry.disposeTerminal(runtimeThreadId, tabId);
+      terminalHost.destroy(terminalKey(runtimeThreadId, tabId));
       if (tabsRef.current.length <= 1) {
         tabsRef.current = [];
         setTabs([]);
@@ -291,8 +287,8 @@ export function SessionTerminal({
     setTabs((current) => current.map((tab) => (tab.id === tabId ? { ...tab, activity } : tab)));
   }, []);
 
-  const callbacksForTab = useCallback(
-    (tab: TerminalTab): TerminalRuntimeCallbacks => ({
+  const hooksForTab = useCallback(
+    (tab: TerminalTab): TerminalHooks => ({
       onActivity: (event) => {
         updateTabActivity(tab.id, activityFromEvent(event.agentState, event.hasRunningSubprocess));
       },
@@ -355,7 +351,7 @@ export function SessionTerminal({
             onCloseTab={handleCloseTab}
             onAddTab={handleAddTab}
             picker={picker}
-            callbacksForTab={callbacksForTab}
+            hooksForTab={hooksForTab}
             hideTabBar={hideChromeTabs}
           />
           {status ? (

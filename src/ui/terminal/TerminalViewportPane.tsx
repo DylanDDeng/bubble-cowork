@@ -1,88 +1,75 @@
-import { useEffect, useMemo, useRef } from 'react';
-import type {
-  TerminalRuntimeConfig,
-  TerminalRuntimeViewState,
-} from './terminalRuntimeTypes';
-import { terminalRuntimeRegistry } from './terminalRuntimeRegistry';
+import { useEffect, useRef } from 'react';
+import { terminalHost, type TerminalSpec } from './terminal-host';
+
+const SETTLE_REFIT_MS = 220;
 
 export function TerminalViewportPane({
-  config,
-  viewState,
+  spec,
+  visible,
+  active,
 }: {
-  config: TerminalRuntimeConfig;
-  viewState: TerminalRuntimeViewState;
+  spec: TerminalSpec;
+  visible: boolean;
+  active: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const memoViewState = useMemo(
-    () => ({ isVisible: viewState.isVisible, isActive: viewState.isActive }),
-    [viewState.isVisible, viewState.isActive]
-  );
+  const specRef = useRef(spec);
+  specRef.current = spec;
+  const viewRef = useRef({ visible, active });
+  viewRef.current = { visible, active };
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    terminalRuntimeRegistry.attach(config, memoViewState, container);
-    return () => {
-      terminalRuntimeRegistry.detach(config.runtimeKey);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.runtimeKey]);
+    terminalHost.mount(specRef.current, viewRef.current, container);
+    return () => terminalHost.unmount(spec.key);
+  }, [spec.key]);
 
   useEffect(() => {
-    terminalRuntimeRegistry.syncConfig(config.runtimeKey, config);
-  }, [config]);
+    terminalHost.update(spec);
+  }, [spec]);
 
   useEffect(() => {
-    terminalRuntimeRegistry.setViewState(config.runtimeKey, memoViewState);
-  }, [config.runtimeKey, memoViewState]);
+    terminalHost.show(spec.key, { visible, active });
+  }, [spec.key, visible, active]);
 
+  // Pane size changes: refit on the next frame and once more after layout
+  // animations settle.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
     let frame: number | null = null;
-    let settleTimer: number | null = null;
-    const requestResize = () => {
-      if (frame !== null) {
-        window.cancelAnimationFrame(frame);
+    let settle: number | null = null;
+    const onResize = () => {
+      if (frame === null) {
+        frame = window.requestAnimationFrame(() => {
+          frame = null;
+          terminalHost.refit(spec.key, true);
+        });
       }
-      frame = window.requestAnimationFrame(() => {
-        frame = null;
-        terminalRuntimeRegistry.resize(config.runtimeKey, { clearTextureAtlas: true, refresh: true });
-      });
-
-      if (settleTimer !== null) {
-        window.clearTimeout(settleTimer);
-      }
-      settleTimer = window.setTimeout(() => {
-        settleTimer = null;
-        terminalRuntimeRegistry.resize(config.runtimeKey, { clearTextureAtlas: true, refresh: true });
-      }, 220);
+      if (settle !== null) window.clearTimeout(settle);
+      settle = window.setTimeout(() => {
+        settle = null;
+        terminalHost.refit(spec.key, true);
+      }, SETTLE_REFIT_MS);
     };
-
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(requestResize);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onResize);
     observer?.observe(container);
-    window.addEventListener('resize', requestResize);
-    requestResize();
-
+    window.addEventListener('resize', onResize);
+    onResize();
     return () => {
       observer?.disconnect();
-      window.removeEventListener('resize', requestResize);
-      if (frame !== null) {
-        window.cancelAnimationFrame(frame);
-      }
-      if (settleTimer !== null) {
-        window.clearTimeout(settleTimer);
-      }
+      window.removeEventListener('resize', onResize);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      if (settle !== null) window.clearTimeout(settle);
     };
-  }, [config.runtimeKey]);
+  }, [spec.key]);
 
   return (
     <div
       ref={containerRef}
-      data-terminal-runtime-key={config.runtimeKey}
-      onMouseDown={() => terminalRuntimeRegistry.focus(config.runtimeKey)}
-      onClick={() => terminalRuntimeRegistry.focus(config.runtimeKey)}
+      data-terminal-runtime-key={spec.key}
+      onMouseDown={() => terminalHost.focus(spec.key)}
       className="aegis-terminal-pane h-full w-full overflow-hidden bg-[var(--bg-primary)] px-2 py-2"
     />
   );

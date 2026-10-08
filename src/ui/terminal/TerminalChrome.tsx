@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 import { TerminalActivityIndicator } from './TerminalActivityIndicator';
 import { TerminalIdentityIcon } from './TerminalIdentityIcon';
 import { TerminalViewportPane } from './TerminalViewportPane';
-import { buildTerminalRuntimeKey, terminalRuntimeRegistry } from './terminalRuntimeRegistry';
-import type { TerminalRuntimeCallbacks, TerminalRuntimeConfig } from './terminalRuntimeTypes';
+import { terminalHost, terminalKey, type TerminalHooks, type TerminalSpec } from './terminal-host';
 import type { TerminalActivityState, TerminalAgentKind } from '../../shared/terminal';
 import { Copy, Plus, Search, Trash2, X } from '../components/icons';
 
@@ -26,7 +25,7 @@ export function TerminalChrome({
   onCloseTab,
   onAddTab,
   picker,
-  callbacksForTab,
+  hooksForTab,
   hideTabBar = false,
 }: {
   threadId: string;
@@ -38,49 +37,53 @@ export function TerminalChrome({
   onCloseTab: (tabId: string) => void;
   onAddTab: () => void;
   picker?: React.ReactNode;
-  callbacksForTab: (tab: TerminalChromeTab) => TerminalRuntimeCallbacks;
+  hooksForTab: (tab: TerminalChromeTab) => TerminalHooks;
   hideTabBar?: boolean;
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const activeRuntimeKey = activeTabId ? buildTerminalRuntimeKey(threadId, activeTabId) : null;
+  const activeKey = activeTabId ? terminalKey(threadId, activeTabId) : null;
 
-  const configs = useMemo(() => {
-    const map = new Map<string, TerminalRuntimeConfig>();
-    for (const tab of tabs) {
-      map.set(tab.id, {
-        runtimeKey: buildTerminalRuntimeKey(threadId, tab.id),
-        threadId,
-        terminalId: tab.id,
-        cwd,
-        agentKind: tab.agent,
-        initialCommand: tab.initialCommand,
-        initialNotice: tab.initialNotice,
-        callbacks: callbacksForTab(tab),
-      });
-    }
-    return map;
-  }, [callbacksForTab, cwd, tabs, threadId]);
+  const specs = useMemo(
+    () =>
+      new Map<string, TerminalSpec>(
+        tabs.map((tab) => [
+          tab.id,
+          {
+            key: terminalKey(threadId, tab.id),
+            scope: threadId,
+            tabId: tab.id,
+            cwd,
+            agent: tab.agent,
+            launch: tab.initialCommand,
+            notice: tab.initialNotice,
+            hooks: hooksForTab(tab),
+          },
+        ])
+      ),
+    [hooksForTab, cwd, tabs, threadId]
+  );
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    if (!activeRuntimeKey || !query) return;
-    terminalRuntimeRegistry.search(activeRuntimeKey, query);
+    if (activeKey) terminalHost.find(activeKey, query);
   };
 
+  // The terminal's own selection: with the GPU renderer it is not a DOM selection.
   const handleCopy = async () => {
-    if (!activeRuntimeKey) return;
-    terminalRuntimeRegistry.focus(activeRuntimeKey);
+    if (!activeKey) return;
+    const text = terminalHost.selection(activeKey);
+    terminalHost.focus(activeKey);
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(window.getSelection()?.toString().trimEnd() || '');
+      await navigator.clipboard.writeText(text);
     } catch {
       // ignore clipboard permission failures
     }
   };
 
   const handleClear = () => {
-    if (!activeRuntimeKey) return;
-    terminalRuntimeRegistry.clear(activeRuntimeKey);
+    if (activeKey) terminalHost.clear(activeKey);
   };
 
   return (
@@ -141,8 +144,8 @@ export function TerminalChrome({
                   setSearchOpen(false);
                   setSearchQuery('');
                 }
-                if (event.key === 'Enter' && activeRuntimeKey && searchQuery) {
-                  terminalRuntimeRegistry.search(activeRuntimeKey, searchQuery);
+                if (event.key === 'Enter' && activeKey) {
+                  terminalHost.find(activeKey, searchQuery);
                 }
               }}
               autoFocus
@@ -183,12 +186,12 @@ export function TerminalChrome({
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-[var(--bg-primary)]">
         {tabs.map((tab) => {
-          const config = configs.get(tab.id);
-          if (!config) return null;
+          const spec = specs.get(tab.id);
+          if (!spec) return null;
           const active = tab.id === activeTabId;
           return (
             <div key={tab.id} className={`${active ? 'block' : 'hidden'} h-full w-full`}>
-              <TerminalViewportPane config={config} viewState={{ isVisible: visible, isActive: active }} />
+              <TerminalViewportPane spec={spec} visible={visible} active={active} />
             </div>
           );
         })}
