@@ -33,7 +33,9 @@ struct SessionView: View {
     private var pendingSends: [(id: String, prompt: String, result: CommandResult)] {
         let now = Date().timeIntervalSince1970 * 1000
         return model.client.operations.compactMap { id, op in
-            guard op.method == "send", op.sessionId == sessionId, let prompt = op.prompt else { return nil }
+            // A follow-up to this task, or the message that started it.
+            let ours = op.method == "send" ? op.sessionId == sessionId : op.method == "create" && op.result.sessionId == sessionId
+            guard ours, let prompt = op.prompt else { return nil }
             let sentAt = op.sentAt ?? 0
             let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             // Only a matching message recorded after this send counts: an earlier "OK" is not this one.
@@ -46,6 +48,12 @@ struct SessionView: View {
             return (id, prompt, op.result)
         }
         .sorted { (model.client.operations[$0.id]?.sentAt ?? 0) < (model.client.operations[$1.id]?.sentAt ?? 0) }
+    }
+
+    /// Until the task list catches up, a new task is titled by its first message.
+    private var startingTitle: String? {
+        model.client.operations.values.first { $0.method == "create" && $0.result.sessionId == sessionId }?.prompt
+            .map { String($0.prefix(60)) }
     }
 
     var body: some View {
@@ -70,7 +78,9 @@ struct SessionView: View {
                     .frame(maxWidth: .infinity)
                     .disabled(loadingOlder)
                 }
-                if messages.isEmpty {
+                let pending = pendingSends
+                // A new task already shows its message; no loading line under it.
+                if messages.isEmpty && pending.isEmpty {
                     Text(model.ready ? "Loading messages…" : "Messages update when your Mac is back.")
                         .font(.app(14)).foregroundStyle(Color.text2)
                         .frame(maxWidth: .infinity).padding(.vertical, 40)
@@ -78,16 +88,16 @@ struct SessionView: View {
                 ForEach(rendered.items) { item in
                     ItemView(item: item, sessionId: sessionId)
                 }
-                let pending = pendingSends
                 ForEach(pending, id: \.id) { send in
                     VStack(alignment: .trailing, spacing: 6) {
                         UserBubble(prompt: send.prompt)
-                        OpStatus(result: send.result)
+                        // Quiet while the Mac is answering; a stalled send says so.
+                        if !model.client.isInFlight(send.id) { OpStatus(result: send.result) }
                     }
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 // The Mac took it and the turn is starting; the next snapshot brings the real row.
-                if !shown.running, pending.contains(where: { [.completed, .accepted].contains($0.result.state) }) {
+                if !shown.running, pending.contains(where: { [.completed, .accepted].contains($0.result.state) || model.client.isInFlight($0.id) }) {
                     Text("Working").font(.app(14)).shimmer()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -207,7 +217,7 @@ struct SessionView: View {
             // Title sits next to the sidebar button, without a glass background.
             ToolbarItem(placement: .topBarLeading) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(session?.title ?? "Task").font(.app(16, weight: .semibold)).lineLimit(1)
+                    Text(session?.title ?? startingTitle ?? "Task").font(.app(16, weight: .semibold)).lineLimit(1)
                     HStack(spacing: 5) {
                         Text(model.projects.first { $0.id == session?.projectId }?.name ?? "Project")
                         Text("·").foregroundStyle(Color.text3)
@@ -583,5 +593,71 @@ private struct ScrollViewProbe: UIViewRepresentable {
                 view = current.superview
             }
         }
+    }
+}
+
+/// A new task between send and its creation on the Mac: the message and Working
+/// right away, then the task itself (AppModel.startSettled).
+struct StartingView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.pageWidth) private var pageWidth
+    let commandId: String
+
+    private var operation: RemoteOperation? { model.client.operations[commandId] }
+
+    var body: some View {
+        let prompt = operation?.prompt ?? ""
+        let result = operation?.result
+        // While the Mac is answering this reads as sent; only a stalled or refused
+        // start shows its state.
+        let stalled = result.map { $0.state == .rejected || ($0.unresolved && !model.client.isInFlight(commandId)) } ?? false
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    UserBubble(prompt: prompt)
+                    if stalled, let result { OpStatus(result: result) }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                if let result, result.state == .unknown, let error = result.error {
+                    // The Mac took it but couldn't say whether the task started.
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(error).font(.app(14)).foregroundStyle(Color.text2)
+                        Button("New task") { model.openHome() }.font(.app(14, weight: .semibold))
+                    }
+                } else if !stalled {
+                    Text("Working").font(.app(14)).shimmer()
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // The composer's place, until the task exists to send to.
+            HStack {
+                Text("Ask for follow-up changes").font(.app(16)).foregroundStyle(Color.text3)
+                Spacer()
+                Circle().fill(Color.inkOff).frame(width: 34, height: 34)
+            }
+            .padding(.leading, 18).padding(.trailing, 7).padding(.vertical, 6)
+            .glassEffect(.regular, in: .capsule)
+            .padding(.horizontal, 26)
+            .padding(.bottom, 6)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) { SidebarButton() }
+            ToolbarItem(placement: .topBarLeading) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(prompt).font(.app(16, weight: .semibold)).lineLimit(1)
+                    Text("Starting on \(model.macName)…").font(.app(12)).foregroundStyle(Color.text2).lineLimit(1)
+                }
+                .frame(width: max(120, pageWidth - 224), alignment: .leading)
+                .padding(.leading, 4)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
+        .task(id: result) { model.startSettled(commandId) }
+        .onAppear { if operation == nil { model.openHome() } }
     }
 }

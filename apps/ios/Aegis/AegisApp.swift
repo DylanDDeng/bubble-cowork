@@ -146,6 +146,7 @@ private struct PageStack: View {
         switch model.screen {
         case .home: HomeView()
         case .session(let id): SessionView(sessionId: id).id(id)
+        case .starting(let id): StartingView(commandId: id).id(id)
         }
     }
 }

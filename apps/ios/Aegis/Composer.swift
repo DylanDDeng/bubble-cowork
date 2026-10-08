@@ -280,11 +280,19 @@ struct Composer: View {
             Haptics.tap()
             Task { running ? await model.stop() : await model.send() }
         } label: {
-            Image(systemName: running ? "stop.fill" : "arrow.up")
-                .font(.app(running ? 11 : 16, weight: .bold))
-                .foregroundStyle(enabled ? Color.onInk : Color.page)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(enabled ? Color.ink : Color.inkOff))
+            // Busy: a send is on its way (a new task waits for the Mac to create it).
+            let sending = model.busy && !running
+            Group {
+                if sending {
+                    ProgressView().controlSize(.small).tint(Color.onInk)
+                } else {
+                    Image(systemName: running ? "stop.fill" : "arrow.up")
+                        .font(.app(running ? 11 : 16, weight: .bold))
+                        .foregroundStyle(enabled ? Color.onInk : Color.page)
+                }
+            }
+            .frame(width: 34, height: 34)
+            .background(Circle().fill(enabled || sending ? Color.ink : Color.inkOff))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)

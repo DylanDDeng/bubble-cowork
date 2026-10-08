@@ -40,7 +40,17 @@ public final class RemoteClient {
     /// When the Mac last said anything; polls answer every few seconds, so silence means a stalled path.
     @ObservationIgnored private var lastHeard: Double = 0
     /// Commands on the wire right now; a resend waits until the earlier attempt settles.
-    @ObservationIgnored private var inFlight = Set<String>()
+    /// Commands awaiting the Mac's answer right now.
+    private var inFlight = Set<String>()
+
+    /// Unconfirmed commands no request is waiting on: the Mac didn't answer in time,
+    /// or the connection dropped. reconcile() delivers them; the app shows these.
+    public var stalledCount: Int {
+        operations.filter { $0.value.result.unresolved && !inFlight.contains($0.key) }.count
+    }
+
+    /// A request for this command is waiting on the Mac's answer right now.
+    public func isInFlight(_ commandId: String) -> Bool { inFlight.contains(commandId) }
     @ObservationIgnored private var reconciling = false
     /// The first snapshot on each connection is fetched in full (the Mac may have restarted).
     @ObservationIgnored private var fullRefresh = true
@@ -520,8 +530,8 @@ public final class RemoteClient {
     /// comes back (lossy network, reconnect), the command stays in the journal as
     /// `.unknown` and `reconcile()` re-sends it until the Mac answers.
     @discardableResult
-    public func mutate(_ payload: [String: JSONValue]) async throws -> CommandResult {
-        let commandId = UUID().uuidString.lowercased()
+    /// `commandId` lets the caller show the command before it is answered.
+    public func mutate(_ payload: [String: JSONValue], commandId: String = UUID().uuidString.lowercased()) async throws -> CommandResult {
         var request = payload
         request["id"] = .string(commandId)
         request["commandId"] = .string(commandId)

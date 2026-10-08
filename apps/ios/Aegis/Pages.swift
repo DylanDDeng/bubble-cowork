@@ -296,8 +296,8 @@ struct Banners: View {
             if model.client.connection == .offline {
                 banner(icon: "icloud.slash", text: "\(model.macName) is offline", action: "Retry") { Task { await model.client.connect() } }
             }
-            if model.unresolvedCount > 0 {
-                let n = model.unresolvedCount
+            if model.stalledCount > 0 {
+                let n = model.stalledCount
                 banner(icon: "arrow.clockwise", text: "\(n) \(n == 1 ? "action is" : "actions are") on the way to your Mac", action: "Retry") {
                     Task { await model.client.reconcile() }
                 }

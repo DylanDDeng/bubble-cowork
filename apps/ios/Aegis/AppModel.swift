@@ -25,7 +25,8 @@ final class PendingAttachment: Identifiable {
 @MainActor
 @Observable
 final class AppModel {
-    enum Screen: Hashable { case home, session(String) }
+    /// `starting`: a new task sent but not yet created on the Mac (by command id).
+    enum Screen: Hashable { case home, session(String), starting(String) }
     enum Route: Hashable {
         case projects, project(String), settings
     }
@@ -116,7 +117,8 @@ final class AppModel {
         return nil
     }
     var currentSession: RemoteSession? { sessions.first { $0.id == currentSessionId } }
-    var unresolvedCount: Int { client.operations.values.filter(\.result.unresolved).count }
+    /// Sends the Mac hasn't confirmed and no request is waiting on; a normal send never counts.
+    var stalledCount: Int { client.stalledCount }
 
     func catalog(_ provider: String) -> AgentCatalog { catalogs[provider] ?? .placeholder(provider) }
 
@@ -333,16 +335,16 @@ final class AppModel {
                 if self.worktree { request["worktree"] = true }
             }
             if !ids.isEmpty { request["attachmentIds"] = .array(ids.map { .string($0) }) }
+            if sessionId == nil {
+                try await self.start(request, prompt: prompt)
+                return
+            }
             let result = try await self.client.mutate(request)
             switch result.state {
             case .completed:
                 self.draft = ""
                 self.attachments = []
                 Haptics.success()
-                if sessionId == nil, let created = result.sessionId {
-                    self.open(session: created)
-                    if self.notificationStatus == .notDetermined { Task { await self.requestNotifications() } }
-                }
             case .rejected:
                 self.notice = result.error == "SESSION_BUSY"
                     ? "This task is already running on your Mac. Your message is kept as a draft."
@@ -352,6 +354,41 @@ final class AppModel {
                 self.draft = ""
                 self.attachments = []
             }
+        }
+    }
+
+    /// A new task opens at once with its message; the page becomes the task when the
+    /// Mac has created it (now, or after a re-send if it doesn't answer in time).
+    private func start(_ request: [String: JSONValue], prompt: String) async throws {
+        let commandId = UUID().uuidString.lowercased()
+        draft = ""
+        drawerOpen = false
+        path = []
+        screen = .starting(commandId)
+        attachments = []
+        let result: CommandResult
+        do {
+            result = try await client.mutate(request, commandId: commandId)
+        } catch {
+            // Not created: back to a new task with the message to send again.
+            if screen == .starting(commandId) { openHome() }
+            draft = prompt
+            throw error
+        }
+        if result.state == .completed, result.sessionId != nil { Haptics.success() }
+        startSettled(commandId)
+    }
+
+    /// Moves a starting page on to its task once the Mac has created it.
+    func startSettled(_ commandId: String) {
+        guard screen == .starting(commandId), let result = client.operations[commandId]?.result else { return }
+        if result.state == .completed, let created = result.sessionId {
+            open(session: created)
+            if notificationStatus == .notDetermined { Task { await requestNotifications() } }
+        } else if result.state == .rejected || (result.state == .completed && result.sessionId == nil) {
+            openHome()
+            draft = client.operations[commandId]?.prompt ?? ""
+            notice = result.error.map { "Your Mac didn’t start this task: \($0)" } ?? "Your Mac didn’t start this task."
         }
     }
 

@@ -4687,12 +4687,19 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
   sessions.initialize();
   setupRemoteIPC(mainWindow, {
-    start: async (project, provider, prompt, extras) => handleSessionStart(mainWindow, {
-      cwd: project.path, projectCwd: project.path, provider, prompt, title: prompt.slice(0, 60), skipTitleGeneration: true,
-      envMode: 'local', createIsolatedWorkspace: extras?.worktree || undefined, scope: 'project', teamMode: 'solo', teamId: null,
-      ...remoteTaskPayload(provider, extras),
-      ...(provider === 'codex' ? await codexReferences(prompt, project.path) : {}),
-    }),
+    start: async (project, provider, prompt, extras) => {
+      const payload: SessionStartPayload = {
+        cwd: project.path, projectCwd: project.path, provider, prompt, title: prompt.slice(0, 60), skipTitleGeneration: true,
+        envMode: 'local', createIsolatedWorkspace: extras?.worktree || undefined, scope: 'project', teamMode: 'solo', teamId: null,
+        ...remoteTaskPayload(provider, extras),
+        ...(provider === 'codex' ? await codexReferences(prompt, project.path) : {}),
+      };
+      // Answer the phone once the session exists. Runtime checks and the agent's
+      // startup follow (seconds for some agents); their errors land in the session.
+      return new Promise<string | null>((resolve, reject) => {
+        handleSessionStart(mainWindow, payload, resolve).then(resolve, reject);
+      });
+    },
     send: async (sessionId, prompt, extras) => {
       const session = sessions.getSession(sessionId);
       const provider = session?.provider || 'claude';
