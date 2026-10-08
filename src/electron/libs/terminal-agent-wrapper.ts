@@ -96,186 +96,126 @@ function resolveExecutableOnPath(command: string, env: Record<string, string>, e
   return null;
 }
 
+// Shell function shared by the hook and the wrappers: write one Aegis OSC
+// event to the controlling terminal (or stdout when asked, for tests).
+const OSC_EMITTER = `aegis_osc() {
+  if [ "\${AEGIS_TERMINAL_OSC_STDOUT:-0}" != "1" ] && [ -w /dev/tty ]; then
+    printf '\\033]${OSC_PREFIX}%s\\007' "$1" 2>/dev/null > /dev/tty && return 0
+  fi
+  printf '\\033]${OSC_PREFIX}%s\\007' "$1"
+}`;
+
+/**
+ * Hook entry point for agent notifications. It only finds the agent and the
+ * raw event name in the payload and forwards both; the app classifies event
+ * names (see classifyAgentEvent), so new hook names need no shell change.
+ */
 function buildHookScript(): string {
   return `#!/bin/sh
 set -u
+payload="\${1:-}"
+[ -n "$payload" ] || payload="$(cat 2>/dev/null || true)"
 
-if [ "$#" -gt 0 ]; then
-  _aegis_hook_input="$1"
-else
-  _aegis_hook_input="$(cat 2>/dev/null || true)"
-fi
+${OSC_EMITTER}
 
-aegis_terminal_osc_event() {
-  event="$1"
-  if [ "\${AEGIS_TERMINAL_OSC_STDOUT:-0}" != "1" ] && [ -e /dev/tty ]; then
-    { printf '\\033]${OSC_PREFIX}%s\\007' "$event" > /dev/tty; } 2>/dev/null || printf '\\033]${OSC_PREFIX}%s\\007' "$event"
-  else
-    printf '\\033]${OSC_PREFIX}%s\\007' "$event"
-  fi
+json_field() {
+  printf '%s' "$payload" | tr -d '\\n' | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\\([A-Za-z0-9_-]*\\)".*/\\1/p'
 }
 
-_aegis_extract_json_string() {
-  printf '%s' "$_aegis_hook_input" | sed -n "s/.*\\\"$1\\\"[[:space:]]*:[[:space:]]*\\\"\\([^\\\"]*\\)\\\".*/\\1/p" | head -n 1
-}
+agent="$(json_field agent)"
+[ -n "$agent" ] || agent="\${AEGIS_TERMINAL_AGENT:-}"
+[ "$agent" = claude ] || [ "$agent" = codex ] || exit 0
 
-_aegis_agent="$(_aegis_extract_json_string agent)"
-if [ -z "$_aegis_agent" ]; then
-  _aegis_agent="\${AEGIS_TERMINAL_AGENT:-}"
-fi
-case "$_aegis_agent" in
-  claude|codex) ;;
-  *) exit 0 ;;
-esac
-
-_aegis_event="$(_aegis_extract_json_string hook_event_name)"
-if [ -z "$_aegis_event" ]; then
-  _aegis_event="$(_aegis_extract_json_string event)"
-fi
-if [ -z "$_aegis_event" ]; then
-  _aegis_type="$(_aegis_extract_json_string type)"
-  case "$_aegis_type" in
-    task_started|userPromptSubmitted|user_prompt_submit)
-      _aegis_event="Start"
-      ;;
-    task_complete|agent-turn-complete|stop|session_end|sessionEnd)
-      _aegis_event="Stop"
-      ;;
-    exec_approval_request|apply_patch_approval_request|request_user_input)
-      _aegis_event="PermissionRequest"
-      ;;
-  esac
-fi
-
-case "$_aegis_event" in
-  UserPromptSubmit|PostToolUse|PostToolUseFailure|Start)
-    aegis_terminal_osc_event '{"agent":"'"$_aegis_agent"'","event":"start"}'
-    ;;
-  Stop|SessionEnd)
-    aegis_terminal_osc_event '{"agent":"'"$_aegis_agent"'","event":"stop"}'
-    ;;
-  PermissionRequest|PreToolUse|Notification)
-    aegis_terminal_osc_event '{"agent":"'"$_aegis_agent"'","event":"permission-request"}'
-    ;;
-  Review)
-    aegis_terminal_osc_event '{"agent":"'"$_aegis_agent"'","event":"review"}'
-    ;;
-esac
-
+name=""
+for key in hook_event_name event type; do
+  [ -n "$name" ] || name="$(json_field "$key")"
+done
+[ -n "$name" ] && aegis_osc "{\\"agent\\":\\"$agent\\",\\"event\\":\\"$name\\"}"
 exit 0
 `;
 }
 
+const CLAUDE_HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'Notification'];
+const CLAUDE_EVENTS_WITHOUT_MATCHER = new Set(['UserPromptSubmit', 'Stop']);
+
 function buildClaudeSettingsJson(hookPath: string): string {
-  return JSON.stringify(
-    {
-      hooks: {
-        UserPromptSubmit: [{ hooks: [{ type: 'command', command: `AEGIS_TERMINAL_AGENT=claude ${shellQuote(hookPath)}` }] }],
-        Stop: [{ hooks: [{ type: 'command', command: `AEGIS_TERMINAL_AGENT=claude ${shellQuote(hookPath)}` }] }],
-        PostToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: `AEGIS_TERMINAL_AGENT=claude ${shellQuote(hookPath)}` }] }],
-        PostToolUseFailure: [{ matcher: '*', hooks: [{ type: 'command', command: `AEGIS_TERMINAL_AGENT=claude ${shellQuote(hookPath)}` }] }],
-        PermissionRequest: [{ matcher: '*', hooks: [{ type: 'command', command: `AEGIS_TERMINAL_AGENT=claude ${shellQuote(hookPath)}` }] }],
-        Notification: [{ matcher: '*', hooks: [{ type: 'command', command: `AEGIS_TERMINAL_AGENT=claude ${shellQuote(hookPath)}` }] }],
-      },
-    },
-    null,
-    2
+  const command = `AEGIS_TERMINAL_AGENT=claude ${shellQuote(hookPath)}`;
+  const hooks = Object.fromEntries(
+    CLAUDE_HOOK_EVENTS.map((event) => [
+      event,
+      [{ ...(CLAUDE_EVENTS_WITHOUT_MATCHER.has(event) ? {} : { matcher: '*' }), hooks: [{ type: 'command', command }] }],
+    ])
   );
+  return JSON.stringify({ hooks }, null, 2);
 }
 
-function buildCodexLogWatcherScript(hookPath: string): string {
-  return [
-    'if [ -z "${CODEX_TUI_SESSION_LOG_PATH:-}" ]; then',
-    '  AEGIS_CODEX_WATCHER_PID=""',
-    'else',
-    '(',
-    '  _aegis_log="$CODEX_TUI_SESSION_LOG_PATH"',
-    `  _aegis_hook=${shellQuote(hookPath)}`,
-    '  _aegis_last_turn_id=""',
-    '  _aegis_last_approval_id=""',
-    '  _aegis_approval_fallback_seq=0',
-    '  _aegis_emit_event() {',
-    '    _aegis_event="$1"',
-    '    _aegis_payload=$(printf \'{"agent":"codex","hook_event_name":"%s"}\' "$_aegis_event")',
-    '    "$_aegis_hook" "$_aegis_payload" >/dev/null 2>&1 || true',
-    '  }',
-    '  _aegis_i=0',
-    '  while [ ! -f "$_aegis_log" ] && [ "$_aegis_i" -lt 200 ]; do',
-    '    _aegis_i=$((_aegis_i + 1))',
-    '    sleep 0.05',
-    '  done',
-    '  if [ ! -f "$_aegis_log" ]; then',
-    '    exit 0',
-    '  fi',
-    '  tail -n 0 -F "$_aegis_log" 2>/dev/null | while IFS= read -r _aegis_line; do',
-    '    case "$_aegis_line" in',
-    `      *'"dir":"to_tui"'*'"kind":"codex_event"'*'"msg":{"type":"task_started"'*)`,
-    `        _aegis_turn_id=$(printf '%s\n' "$_aegis_line" | awk -F'"turn_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')`,
-    '        [ -n "$_aegis_turn_id" ] || _aegis_turn_id="task_started"',
-    '        if [ "$_aegis_turn_id" != "$_aegis_last_turn_id" ]; then',
-    '          _aegis_last_turn_id="$_aegis_turn_id"',
-    '          _aegis_emit_event "Start"',
-    '        fi',
-    '        ;;',
-    `      *'"dir":"to_tui"'*'"kind":"codex_event"'*'"msg":{"type":"'*'_approval_request"'*)`,
-    `        _aegis_approval_id=$(printf '%s\n' "$_aegis_line" | awk -F'"id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')`,
-    `        [ -n "$_aegis_approval_id" ] || _aegis_approval_id=$(printf '%s\n' "$_aegis_line" | awk -F'"approval_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')`,
-    `        [ -n "$_aegis_approval_id" ] || _aegis_approval_id=$(printf '%s\n' "$_aegis_line" | awk -F'"call_id":"' 'NF > 1 { sub(/".*/, "", $2); print $2; exit }')`,
-    '        if [ -z "$_aegis_approval_id" ]; then',
-    '          _aegis_approval_fallback_seq=$((_aegis_approval_fallback_seq + 1))',
-    '          _aegis_approval_id="approval_request_${_aegis_approval_fallback_seq}"',
-    '        fi',
-    '        if [ "$_aegis_approval_id" != "$_aegis_last_approval_id" ]; then',
-    '          _aegis_last_approval_id="$_aegis_approval_id"',
-    '          _aegis_emit_event "PermissionRequest"',
-    '        fi',
-    '        ;;',
-    '    esac',
-    '  done',
-    ') &',
-    'AEGIS_CODEX_WATCHER_PID=$!',
-    'fi',
-  ].join('\n');
+/**
+ * Codex's TUI writes its session log as JSON lines. An awk filter follows the
+ * log, keeps events sent to the TUI, and prints one line per new turn start or
+ * approval request (deduplicated by turn or request id); each printed line is
+ * forwarded through the hook.
+ */
+const CODEX_LOG_FILTER = `
+function field(name,   at, rest) {
+  at = index($0, "\\"" name "\\":\\"")
+  if (!at) return ""
+  rest = substr($0, at + length(name) + 4)
+  return substr(rest, 1, index(rest, "\\"") - 1)
+}
+index($0, "\\"dir\\":\\"to_tui\\"") && index($0, "\\"kind\\":\\"codex_event\\"") {
+  kind = field("type")
+  if (kind == "task_started") {
+    turn = field("turn_id"); if (turn == "") turn = "turn"
+    if (turn != last_turn) { last_turn = turn; print "task_started"; fflush() }
+  } else if (kind ~ /_approval_request$/) {
+    ask = field("id"); if (ask == "") ask = field("approval_id"); if (ask == "") ask = field("call_id")
+    if (ask == "") ask = "request-" (++anonymous)
+    if (ask != last_ask) { last_ask = ask; print "approval_request"; fflush() }
+  }
+}`;
+
+function buildCodexLogFollower(hookPath: string): string {
+  return `codex_follower=""
+if [ -n "\${CODEX_TUI_SESSION_LOG_PATH:-}" ]; then
+  (
+    log="$CODEX_TUI_SESSION_LOG_PATH"
+    tries=0
+    while [ ! -f "$log" ] && [ "$tries" -lt 200 ]; do tries=$((tries + 1)); sleep 0.05; done
+    [ -f "$log" ] || exit 0
+    tail -n 0 -F "$log" 2>/dev/null | awk ${shellQuote(CODEX_LOG_FILTER)} | while IFS= read -r event; do
+      ${shellQuote(hookPath)} "{\\"agent\\":\\"codex\\",\\"event\\":\\"$event\\"}" >/dev/null 2>&1 || true
+    done
+  ) &
+  codex_follower=$!
+fi`;
 }
 
 function buildWrapperScript(agent: ManagedTerminalAgentKind, realExecutable: string, hookPath: string, claudeSettingsPath: string): string {
-  const agentJson = JSON.stringify(agent);
-  const commandBody =
+  const real = shellQuote(realExecutable);
+  const event = (name: string, exitCode = false) =>
+    `aegis_osc '{"agent":"${agent}","event":"${name}"${exitCode ? `,"exitCode":'"$status"'}` : '}'}'`;
+  const run =
     agent === 'claude'
-      ? `aegis_terminal_osc_event '{"agent":${agentJson},"event":"start"}'
-${shellQuote(realExecutable)} --settings ${shellQuote(claudeSettingsPath)} "$@"
-status=$?
-aegis_terminal_osc_event '{"agent":${agentJson},"event":"stop","exitCode":'"$status"'}'
-exit "$status"`
-      : `${buildCodexLogWatcherScript(hookPath)}
-aegis_terminal_osc_event '{"agent":${agentJson},"event":"start"}'
-${shellQuote(realExecutable)} "$@"
-status=$?
-if [ -n "\${AEGIS_CODEX_WATCHER_PID:-}" ]; then
-  kill "$AEGIS_CODEX_WATCHER_PID" >/dev/null 2>&1 || true
-  wait "$AEGIS_CODEX_WATCHER_PID" 2>/dev/null || true
-fi
-aegis_terminal_osc_event '{"agent":${agentJson},"event":"stop","exitCode":'"$status"'}'
-exit "$status"`;
+      ? `${real} --settings ${shellQuote(claudeSettingsPath)} "$@"`
+      : `${buildCodexLogFollower(hookPath)}
+${real} "$@"`;
+  const stopFollower =
+    // The follower's pipeline (tail, awk, reader) are its children: stop them first.
+    agent === 'codex'
+      ? '[ -z "$codex_follower" ] || { pkill -P "$codex_follower" 2>/dev/null; kill "$codex_follower" 2>/dev/null; wait "$codex_follower" 2>/dev/null; }\n'
+      : '';
   return `#!/bin/sh
-if [ "$${WRAPPER_ENV_BYPASS}" = "1" ]; then
-  exec ${shellQuote(realExecutable)} "$@"
-fi
+# Aegis terminal wrapper for ${agent}: reports start and stop to the app.
+[ "\${${WRAPPER_ENV_BYPASS}:-}" = 1 ] && exec ${real} "$@"
+export ${WRAPPER_ENV_BYPASS}=1 AEGIS_TERMINAL_AGENT=${shellQuote(agent)} AEGIS_REAL_AGENT_CLI=${real}
 
-export ${WRAPPER_ENV_BYPASS}=1
-export AEGIS_TERMINAL_AGENT=${shellQuote(agent)}
-export AEGIS_REAL_AGENT_CLI=${shellQuote(realExecutable)}
+${OSC_EMITTER}
 
-aegis_terminal_osc_event() {
-  event="$1"
-  if [ "\${AEGIS_TERMINAL_OSC_STDOUT:-0}" != "1" ] && [ -e /dev/tty ]; then
-    { printf '\\033]${OSC_PREFIX}%s\\007' "$event" > /dev/tty; } 2>/dev/null || printf '\\033]${OSC_PREFIX}%s\\007' "$event"
-  else
-    printf '\\033]${OSC_PREFIX}%s\\007' "$event"
-  fi
-}
-
-${commandBody}
+${event('start')}
+${run}
+status=$?
+${stopFollower}${event('stop', true)}
+exit "$status"
 `;
 }
 

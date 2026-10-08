@@ -37,7 +37,7 @@
     "verify:theme-variables": "node scripts/verify-theme-variables.mjs",
     "verify:subagent-workstream": "node scripts/verify-subagent-workstream.mjs",
     "verify:prompt-history": "node scripts/verify-prompt-history.mjs",
-    "verify:terminal-ui": "npx tsx scripts/tests/terminal-streams.test.ts && node scripts/tests/terminal-host-electron.test.mjs",
+    "verify:terminal-ui": "npx tsx scripts/tests/terminal-streams.test.ts && npx tsx scripts/tests/terminal-session.test.ts && node scripts/tests/terminal-host-electron.test.mjs",
     "verify:terminal-pty": "npm run transpile:electron && node scripts/prepare-electron-native-deps.mjs && node scripts/tests/terminal-pty-electron.test.mjs",
     "verify:search-palette": "npm run transpile:electron && npx tsx scripts/tests/palette-ranking.test.ts && node scripts/tests/search-palette-electron.test.mjs",
     "verify:claude-turn-latency": "node scripts/verify-claude-turn-latency.mjs",

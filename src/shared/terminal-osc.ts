@@ -57,15 +57,45 @@ function coerceManagedAgent(value: unknown): ManagedTerminalAgentKind | null {
   return value === 'claude' || value === 'codex' ? value : null;
 }
 
-function coerceAgentEvent(value: unknown): TerminalAgentEventName | null {
-  if (value === 'start' || value === 'stop' || value === 'permission-request' || value === 'review') {
-    return value;
-  }
-  if (value === 'PermissionRequest') return 'permission-request';
-  if (value === 'Start') return 'start';
-  if (value === 'Stop') return 'stop';
-  if (value === 'Review') return 'review';
-  return null;
+/**
+ * Raw event names the terminal wrappers forward, classified here rather than
+ * in shell. Claude hook names, Codex notify types and Codex TUI log types all
+ * map onto the four activity events.
+ */
+const AGENT_EVENT_ALIASES: Record<string, TerminalAgentEventName> = {
+  start: 'start',
+  stop: 'stop',
+  'permission-request': 'permission-request',
+  review: 'review',
+  // Claude Code hooks
+  UserPromptSubmit: 'start',
+  PostToolUse: 'start',
+  PostToolUseFailure: 'start',
+  Stop: 'stop',
+  SessionEnd: 'stop',
+  PermissionRequest: 'permission-request',
+  PreToolUse: 'permission-request',
+  Notification: 'permission-request',
+  Start: 'start',
+  Review: 'review',
+  // Codex notify payloads and TUI session-log events
+  task_started: 'start',
+  userPromptSubmitted: 'start',
+  user_prompt_submit: 'start',
+  task_complete: 'stop',
+  'agent-turn-complete': 'stop',
+  session_end: 'stop',
+  sessionEnd: 'stop',
+  approval_request: 'permission-request',
+  exec_approval_request: 'permission-request',
+  apply_patch_approval_request: 'permission-request',
+  request_user_input: 'permission-request',
+};
+
+export function classifyAgentEvent(value: unknown): TerminalAgentEventName | null {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(AGENT_EVENT_ALIASES, value)
+    ? AGENT_EVENT_ALIASES[value]
+    : null;
 }
 
 function stateForEvent(event: TerminalAgentEventName): TerminalActivityState {
@@ -80,7 +110,7 @@ function parseAgentActivity(raw: string): TerminalOscActivityEvent | null {
       exitCode?: unknown;
     };
     const agent = coerceManagedAgent(payload.agent);
-    const event = coerceAgentEvent(payload.event);
+    const event = classifyAgentEvent(payload.event);
     if (!agent || !event) return null;
     return {
       agent,
