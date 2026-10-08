@@ -18,12 +18,12 @@ import {
   Clock,
 } from './icons';
 import { useAppStore } from '../store/useAppStore';
-import { SidebarSearchPalette } from './search/SidebarSearchPalette';
+import { SearchPalette } from './search/SearchPalette';
 import type {
-  SidebarSearchAction,
-  SidebarSearchProject,
-  SidebarSearchThread,
-} from './search/SidebarSearchPalette.logic';
+  PaletteAction,
+  PaletteProject,
+  PaletteThread,
+} from './search/palette-ranking';
 import { FolderTreeView } from './FolderTreeView';
 import { CappedScrollbar } from './CappedScrollbar';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
@@ -324,14 +324,14 @@ export function Sidebar() {
   };
 
   const shortcuts = useAppPreferences(state => state.keyboardShortcuts);
-  const paletteActions = useMemo<SidebarSearchAction[]>(
+  const paletteActions = useMemo<PaletteAction[]>(
     () => [
       {
         id: 'new-thread',
         label: 'New Task',
         description: 'Start a new conversation',
         keywords: ['create', 'conversation', 'chat', 'session', 'thread', 'task'],
-        shortcutLabel: shortcutLabel('newTask', shortcuts),
+        shortcut: shortcutLabel('newTask', shortcuts),
       },
       {
         id: 'open-project',
@@ -383,8 +383,8 @@ export function Sidebar() {
     [sessions]
   );
 
-  const paletteProjects = useMemo<SidebarSearchProject[]>(() => {
-    const map = new Map<string, SidebarSearchProject>();
+  const paletteProjects = useMemo<PaletteProject[]>(() => {
+    const map = new Map<string, PaletteProject>();
     for (const session of visibleSessions) {
       const cwd = session.cwd?.trim();
       if (!cwd) continue;
@@ -408,7 +408,7 @@ export function Sidebar() {
     return Array.from(map.values());
   }, [visibleSessions]);
 
-  const paletteThreads = useMemo<SidebarSearchThread[]>(() => {
+  const paletteThreads = useMemo<PaletteThread[]>(() => {
     return visibleSessions.map((session) => {
       const cwd = session.cwd?.trim() || null;
       const projectName = cwd
@@ -418,11 +418,11 @@ export function Sidebar() {
       // Only hydrated sessions have message content available in memory.
       // For others we still match title / project — consistent with the
       // lightweight, in-memory-only philosophy of the palette.
-      const messages: { text: string }[] = [];
+      const texts: string[] = [];
       if (session.hydrated) {
         for (const message of session.messages) {
           if (message.type === 'user_prompt') {
-            messages.push({ text: message.prompt });
+            texts.push(message.prompt);
           } else if (message.type === 'assistant' || message.type === 'user') {
             const text = getMessageContentBlocks(message)
               .map((block) => {
@@ -432,7 +432,7 @@ export function Sidebar() {
               })
               .filter(Boolean)
               .join(' ');
-            if (text) messages.push({ text });
+            if (text) texts.push(text);
           }
         }
       }
@@ -441,10 +441,8 @@ export function Sidebar() {
         id: session.id,
         title: session.title,
         projectName,
-        projectCwd: cwd,
-        provider: session.provider,
         updatedAt: session.updatedAt,
-        messages,
+        texts,
       };
     });
   }, [visibleSessions]);
@@ -678,15 +676,15 @@ export function Sidebar() {
         </div>
       </div>
 
-      <SidebarSearchPalette
+      <SearchPalette
         open={searchPaletteOpen}
         onOpenChange={setSearchPaletteOpen}
         actions={paletteActions}
         projects={paletteProjects}
         threads={paletteThreads}
-        onRunAction={runPaletteAction}
-        onOpenProject={openProjectFromPalette}
-        onOpenThread={openThreadFromPalette}
+        onPickAction={runPaletteAction}
+        onPickProject={openProjectFromPalette}
+        onPickThread={openThreadFromPalette}
       />
     </>
   );
