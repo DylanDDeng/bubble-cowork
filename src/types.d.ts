@@ -75,14 +75,12 @@ import type {
 import type {
   BrowserCapturePageResult,
   BrowserNavigateInput,
-  BrowserNewTabInput,
   BrowserOpenInput,
   BrowserReadoutResult,
   BrowserSendSelectionEvent,
   BrowserSessionInput,
-  BrowserSetPanelBoundsInput,
-  BrowserTabInput,
-  SessionBrowserState,
+  BrowserSessionState,
+  BrowserViewportInput,
 } from './shared/browser-types';
 import type {
   StartTerminalSessionResult,
@@ -525,22 +523,19 @@ declare global {
     subscribeStatistics: (callback: (data: StatisticsData) => void) => () => void;
     getStaticData: () => Promise<StaticData>;
     browser: {
-      open: (input: BrowserOpenInput) => Promise<SessionBrowserState>;
-      close: (input: BrowserSessionInput) => Promise<SessionBrowserState>;
-      hide: (input: BrowserSessionInput) => Promise<SessionBrowserState>;
-      getState: (input: BrowserSessionInput) => Promise<SessionBrowserState>;
-      setPanelBounds: (input: BrowserSetPanelBoundsInput) => Promise<SessionBrowserState>;
-      navigate: (input: BrowserNavigateInput) => Promise<SessionBrowserState>;
-      reload: (input: BrowserTabInput) => Promise<SessionBrowserState>;
-      goBack: (input: BrowserTabInput) => Promise<SessionBrowserState>;
-      goForward: (input: BrowserTabInput) => Promise<SessionBrowserState>;
-      newTab: (input: BrowserNewTabInput) => Promise<SessionBrowserState>;
-      closeTab: (input: BrowserTabInput) => Promise<SessionBrowserState>;
-      selectTab: (input: BrowserTabInput) => Promise<SessionBrowserState>;
-      openDevTools: (input: BrowserTabInput) => Promise<SessionBrowserState>;
-      capture: (input: BrowserTabInput) => Promise<BrowserCapturePageResult>;
-      readPage: (input: BrowserTabInput) => Promise<BrowserReadoutResult>;
-      onState: (callback: (state: SessionBrowserState) => void) => () => void;
+      open: (input: BrowserOpenInput) => Promise<BrowserSessionState>;
+      close: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
+      hide: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
+      getState: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
+      setPanelBounds: (input: BrowserViewportInput) => Promise<BrowserSessionState>;
+      navigate: (input: BrowserNavigateInput) => Promise<BrowserSessionState>;
+      reload: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
+      goBack: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
+      goForward: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
+      openDevTools: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
+      capture: (input: BrowserSessionInput) => Promise<BrowserCapturePageResult>;
+      readPage: (input: BrowserSessionInput) => Promise<BrowserReadoutResult>;
+      onState: (callback: (state: BrowserSessionState) => void) => () => void;
       onSendSelection: (callback: (event: BrowserSendSelectionEvent) => void) => () => void;
     };
     designMode: {

@@ -36,14 +36,12 @@ import type {
 import type {
   BrowserCapturePageResult,
   BrowserNavigateInput,
-  BrowserNewTabInput,
   BrowserOpenInput,
   BrowserReadoutResult,
   BrowserSendSelectionEvent,
   BrowserSessionInput,
-  BrowserSetPanelBoundsInput,
-  BrowserTabInput,
-  SessionBrowserState,
+  BrowserSessionState,
+  BrowserViewportInput,
 } from '../shared/browser-types';
 
 // IPC 通道常量（与 browser-ipc.ts 中 BROWSER_CHANNELS 保持一致，避免在 preload 里引入主进程模块）
@@ -57,9 +55,6 @@ const BROWSER_CHANNELS = {
   reload: 'desktop:browser-reload',
   goBack: 'desktop:browser-go-back',
   goForward: 'desktop:browser-go-forward',
-  newTab: 'desktop:browser-new-tab',
-  closeTab: 'desktop:browser-close-tab',
-  selectTab: 'desktop:browser-select-tab',
   openDevTools: 'desktop:browser-open-devtools',
   capture: 'desktop:browser-capture',
   readPage: 'desktop:browser-read-page',
@@ -1243,38 +1238,32 @@ contextBridge.exposeInMainWorld('electron', {
 
   // ===== 浏览器面板 (Session 级) =====
   browser: {
-    open: (input: BrowserOpenInput): Promise<SessionBrowserState> =>
+    open: (input: BrowserOpenInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.open, input),
-    close: (input: BrowserSessionInput): Promise<SessionBrowserState> =>
+    close: (input: BrowserSessionInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.close, input),
-    hide: (input: BrowserSessionInput): Promise<SessionBrowserState> =>
+    hide: (input: BrowserSessionInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.hide, input),
-    getState: (input: BrowserSessionInput): Promise<SessionBrowserState> =>
+    getState: (input: BrowserSessionInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.getState, input),
-    setPanelBounds: (input: BrowserSetPanelBoundsInput): Promise<SessionBrowserState> =>
+    setPanelBounds: (input: BrowserViewportInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.setPanelBounds, input),
-    navigate: (input: BrowserNavigateInput): Promise<SessionBrowserState> =>
+    navigate: (input: BrowserNavigateInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.navigate, input),
-    reload: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+    reload: (input: BrowserSessionInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.reload, input),
-    goBack: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+    goBack: (input: BrowserSessionInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.goBack, input),
-    goForward: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+    goForward: (input: BrowserSessionInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.goForward, input),
-    newTab: (input: BrowserNewTabInput): Promise<SessionBrowserState> =>
-      ipcRenderer.invoke(BROWSER_CHANNELS.newTab, input),
-    closeTab: (input: BrowserTabInput): Promise<SessionBrowserState> =>
-      ipcRenderer.invoke(BROWSER_CHANNELS.closeTab, input),
-    selectTab: (input: BrowserTabInput): Promise<SessionBrowserState> =>
-      ipcRenderer.invoke(BROWSER_CHANNELS.selectTab, input),
-    openDevTools: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+    openDevTools: (input: BrowserSessionInput): Promise<BrowserSessionState> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.openDevTools, input),
-    capture: (input: BrowserTabInput): Promise<BrowserCapturePageResult> =>
+    capture: (input: BrowserSessionInput): Promise<BrowserCapturePageResult> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.capture, input),
-    readPage: (input: BrowserTabInput): Promise<BrowserReadoutResult> =>
+    readPage: (input: BrowserSessionInput): Promise<BrowserReadoutResult> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.readPage, input),
-    onState: (callback: (state: SessionBrowserState) => void) => {
-      const handler = (_: unknown, state: SessionBrowserState) => {
+    onState: (callback: (state: BrowserSessionState) => void) => {
+      const handler = (_: unknown, state: BrowserSessionState) => {
         try {
           callback(state);
         } catch (error) {

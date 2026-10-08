@@ -1,298 +1,149 @@
-// Per-session in-app browser manager.
-//
-// Adapted from Synara (formerly dpcode; Emanuele-web04/synara)
-// DesktopBrowserManager, but
-// scoped to `sessionId` (each browser page has its own WebContentsView
-// lifecycle). Adds screenshot + page readout (text / links / selection) for
-// Agent integration.
-//
-// Key ideas:
-// 1. One visible WebContentsView per browser page while the session is active.
-// 2. At most one WebContentsView is attached to the BrowserWindow at a time.
-// 3. Inactive sessions are suspended after BROWSER_SESSION_SUSPEND_DELAY_MS
-//    to release Chromium renderer processes.
-// 4. Renderer sends panel bounds via `setPanelBounds`; main mirrors them
-//    onto the attached view.
+// In-app browser, one page per browser session (a chat's browser utility
+// tab). The panel in the renderer reports where the page should appear; this
+// manager keeps a native page view for it, shows at most one on the window,
+// suspends pages nobody has looked at for a while, and lends pages to
+// browser_use (which may drive them with the panel closed).
 
-import * as Crypto from 'node:crypto';
-import { BrowserWindow, Menu, clipboard, nativeTheme, shell, WebContentsView } from 'electron';
+import { Menu, clipboard, shell, type BrowserWindow, type ContextMenuParams, type WebContents } from 'electron';
+import { BLANK_PAGE, resolveAddress, webSearchUrl } from '../shared/browser-address';
 import type {
   BrowserCapturePageResult,
   BrowserNavigateInput,
-  BrowserNewTabInput,
   BrowserOpenInput,
-  BrowserPanelBounds,
+  BrowserPage,
   BrowserReadoutLink,
   BrowserReadoutResult,
+  BrowserSendSelectionEvent,
   BrowserSessionInput,
-  BrowserSetPanelBoundsInput,
-  BrowserTabInput,
-  BrowserTabState,
-  SessionBrowserState,
+  BrowserSessionState,
+  BrowserViewport,
+  BrowserViewportInput,
 } from '../shared/browser-types';
 import { BROWSER_SESSION_PARTITION } from '../shared/browser-types';
-import { normalizeExternalUrl } from './util';
+import {
+  absorb,
+  blankSession,
+  copySession,
+  describeLoadFailure,
+  GENERIC_LOAD_FAILURE,
+  loadFailed,
+  navigationStarted,
+  newPage,
+  retarget,
+  suspend,
+} from './browser/browser-page';
+import { pageBackground, PageView } from './browser/page-view';
+import { ViewPlacement } from './browser/view-placement';
 import { isLocalFileUrl } from './libs/html-preview';
+import { normalizeExternalUrl } from './util';
 
-const ABOUT_BLANK_URL = 'about:blank';
 export { BROWSER_SESSION_PARTITION };
-const BROWSER_SESSION_SUSPEND_DELAY_MS = 30_000;
-const BROWSER_ERROR_ABORTED = -3;
-const SEARCH_URL_PREFIX = 'https://www.google.com/search?q=';
 
-type BrowserStateListener = (state: SessionBrowserState) => void;
-
-export interface BrowserSendSelectionToChatEvent {
-  sessionId: string;
-  tabId: string;
-  selectionText: string;
-  pageUrl: string;
-  pageTitle: string;
-}
-
-type BrowserSendSelectionListener = (event: BrowserSendSelectionToChatEvent) => void;
-
-interface LiveTabRuntime {
-  key: string;
-  sessionId: string;
-  tabId: string;
-  view: WebContentsView;
-}
+/** A page nobody has looked at for this long gives up its renderer process. */
+const IDLE_SUSPEND_MS = 30_000;
+const NOT_LIVE = 'This page is not active right now.';
+const READOUT_TEXT_LIMIT = 20_000;
+const READOUT_SELECTION_LIMIT = 8_000;
+const READOUT_LINK_LIMIT = 80;
 
 export interface BrowserAgentTarget {
+  /** The session page's id. */
   tabId: string;
-  webContents: import('electron').WebContents;
-  /** Resolves after a suspended tab has restored its last committed page. */
+  webContents: WebContents;
+  /** Resolves once a page that was suspended has loaded its address again. */
   restore: Promise<void>;
-  /** True only while the native view is attached to the visible panel. */
+  /** True only while the page is on screen in the panel. */
   visible: boolean;
 }
 
-const BROWSER_AGENT_VIEW_BOUNDS: BrowserPanelBounds = {
-  x: 0,
-  y: 0,
-  width: 1280,
-  height: 800,
-};
+type Listener<T> = (value: T) => void;
 
-// Native WebContentsViews default to a white background, which clashes with the
-// app's themed chrome (especially the dark theme) before a page paints and in
-// any letterbox gaps. Track the app's --bg-primary by theme bucket so the view
-// blends in. Mirrors getMainWindowBackgroundColor() in main.ts. Keep these in
-// sync with --bg-primary in themes.ts (light = pure white, dark = #0E0E0E).
-function browserViewBackgroundColor(): string {
-  return nativeTheme.shouldUseDarkColors ? '#0E0E0E' : '#ffffff';
+/** Main-process addresses: file: must point at this machine. */
+function resolveForLoad(input: string | undefined): string {
+  const url = resolveAddress(input);
+  if (url.startsWith('file:') && !isLocalFileUrl(url)) throw new Error('Browser preview requires a local file URL');
+  return url;
 }
 
-function createBrowserTab(url = ABOUT_BLANK_URL): BrowserTabState {
-  return {
-    id: Crypto.randomUUID(),
-    url,
-    title: defaultTitleForUrl(url),
-    status: 'suspended',
-    isLoading: false,
-    canGoBack: false,
-    canGoForward: false,
-    faviconUrl: null,
-    lastCommittedUrl: null,
-    lastError: null,
+function validViewport(viewport: BrowserViewport | null): BrowserViewport | null {
+  if (!viewport || ![viewport.x, viewport.y, viewport.width, viewport.height].every(Number.isFinite)) return null;
+  const rect = {
+    x: Math.max(0, Math.floor(viewport.x)),
+    y: Math.max(0, Math.floor(viewport.y)),
+    width: Math.max(0, Math.floor(viewport.width)),
+    height: Math.max(0, Math.floor(viewport.height)),
   };
+  return rect.width && rect.height ? rect : null;
 }
 
-function defaultSessionBrowserState(sessionId: string): SessionBrowserState {
-  return {
-    sessionId,
-    open: false,
-    activeTabId: null,
-    tabs: [],
-    lastError: null,
-    agentActive: false,
-  };
-}
-
-function cloneSessionState(state: SessionBrowserState): SessionBrowserState {
-  return {
-    ...state,
-    tabs: state.tabs.map((tab) => ({ ...tab })),
-  };
-}
-
-function defaultTitleForUrl(url: string): string {
-  if (url === ABOUT_BLANK_URL) {
-    return 'New page';
-  }
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname || url;
-  } catch {
-    return url;
-  }
-}
-
-function normalizeBounds(bounds: BrowserPanelBounds | null): BrowserPanelBounds | null {
-  if (!bounds) return null;
-  if (
-    !Number.isFinite(bounds.x) ||
-    !Number.isFinite(bounds.y) ||
-    !Number.isFinite(bounds.width) ||
-    !Number.isFinite(bounds.height)
-  ) {
-    return null;
-  }
-  const width = Math.max(0, Math.floor(bounds.width));
-  const height = Math.max(0, Math.floor(bounds.height));
-  if (width === 0 || height === 0) {
-    return null;
+// Runs in the page: visible text without scripts and styles, the selection,
+// and distinct http(s) links.
+const READOUT_SCRIPT = `(() => {
+  const copy = document.cloneNode(true);
+  copy.querySelectorAll('script, style, noscript, template, iframe').forEach((node) => node.remove());
+  const root = copy.body || copy.documentElement;
+  const text = ((root && root.innerText) || '').replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();
+  const links = new Map();
+  for (const anchor of document.querySelectorAll('a[href]')) {
+    if (links.size >= ${READOUT_LINK_LIMIT}) break;
+    const href = anchor.href;
+    if (!/^https?:/i.test(href) || links.has(href)) continue;
+    links.set(href, (anchor.innerText || anchor.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200));
   }
   return {
-    x: Math.max(0, Math.floor(bounds.x)),
-    y: Math.max(0, Math.floor(bounds.y)),
-    width,
-    height,
+    url: location.href,
+    title: document.title || '',
+    text: text.slice(0, ${READOUT_TEXT_LIMIT}),
+    selection: String((window.getSelection && window.getSelection()) || '').slice(0, ${READOUT_SELECTION_LIMIT}),
+    links: [...links].map(([url, label]) => ({ url, text: label })),
   };
-}
-
-function looksLikeUrlInput(value: string): boolean {
-  return (
-    value.includes('.') ||
-    value.startsWith('localhost') ||
-    value.startsWith('127.0.0.1') ||
-    value.startsWith('0.0.0.0') ||
-    value.startsWith('[::1]')
-  );
-}
-
-function normalizeUrlInput(input: string | undefined): string {
-  const trimmed = input?.trim() ?? '';
-  if (trimmed.length === 0) {
-    return ABOUT_BLANK_URL;
-  }
-  if (/^file:/i.test(trimmed)) {
-    if (!isLocalFileUrl(trimmed)) throw new Error('Browser preview requires a local file URL');
-    return new URL(trimmed).href;
-  }
-  try {
-    const withScheme = new URL(trimmed);
-    if (withScheme.protocol === 'http:' || withScheme.protocol === 'https:') {
-      return withScheme.toString();
-    }
-    if (withScheme.protocol === 'about:') {
-      return withScheme.toString();
-    }
-  } catch {
-    // fall through
-  }
-  if (trimmed.includes(' ')) {
-    return `${SEARCH_URL_PREFIX}${encodeURIComponent(trimmed)}`;
-  }
-  if (looksLikeUrlInput(trimmed)) {
-    const prefersHttp =
-      trimmed.startsWith('localhost') ||
-      trimmed.startsWith('127.0.0.1') ||
-      trimmed.startsWith('0.0.0.0') ||
-      trimmed.startsWith('[::1]');
-    const scheme = prefersHttp ? 'http' : 'https';
-    try {
-      return new URL(`${scheme}://${trimmed}`).toString();
-    } catch {
-      return `${SEARCH_URL_PREFIX}${encodeURIComponent(trimmed)}`;
-    }
-  }
-  return `${SEARCH_URL_PREFIX}${encodeURIComponent(trimmed)}`;
-}
-
-function isAbortedNavigationError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return /ERR_ABORTED|\(-3\)/i.test(error.message);
-}
-
-function mapBrowserLoadError(errorCode: number): string {
-  switch (errorCode) {
-    case -102:
-      return 'Connection refused.';
-    case -105:
-      return "Couldn't resolve this address.";
-    case -106:
-      return "You're offline.";
-    case -118:
-      return 'This page took too long to respond.';
-    case -137:
-      return "A secure connection couldn't be established.";
-    case -200:
-      return "A secure connection couldn't be established.";
-    default:
-      return "Couldn't open this page.";
-  }
-}
-
-function buildRuntimeKey(sessionId: string, tabId: string): string {
-  return `${sessionId}:${tabId}`;
-}
+})()`;
 
 export class BrowserManager {
   private window: BrowserWindow | null = null;
-  private activeSessionId: string | null = null;
-  private activeBounds: BrowserPanelBounds | null = null;
-  private attachedRuntimeKey: string | null = null;
-  private attachedView: WebContentsView | null = null;
-  /** Off-screen layout host for Browser Use while the user panel is closed. */
-  private hiddenAgentWindow: BrowserWindow | null = null;
-  private readonly states = new Map<string, SessionBrowserState>();
-  private readonly runtimes = new Map<string, LiveTabRuntime>();
-  private readonly pinnedSessions = new Set<string>();
-  /** Sessions kept alive by Browser Use while their panel is detached. */
-  private readonly agentSessions = new Set<string>();
-  private readonly listeners = new Set<BrowserStateListener>();
-  /** agentActive re-entrancy depth per session (browser-use actions). */
-  private readonly agentActivityDepth = new Map<string, number>();
-  private readonly selectionListeners = new Set<BrowserSendSelectionListener>();
-  private readonly suspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly closingRuntimeKeys = new Set<string>();
-  private hostReloadCleanup: (() => void) | null = null;
+  private readonly placement = new ViewPlacement();
+  private readonly sessions = new Map<string, BrowserSessionState>();
+  private readonly views = new Map<string, PageView>();
+  /** The session whose page the panel shows, and where. */
+  private foreground: string | null = null;
+  private viewport: BrowserViewport | null = null;
+  private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Design mode keeps its session's page alive. */
+  private readonly pinned = new Set<string>();
+  /** browser_use keeps its session's page alive until the turn ends. */
+  private readonly agentHolds = new Set<string>();
+  private readonly agentDepth = new Map<string, number>();
+  private readonly stateListeners = new Set<Listener<BrowserSessionState>>();
+  private readonly selectionListeners = new Set<Listener<BrowserSendSelectionEvent>>();
+  private readonly hostReloadListeners = new Set<() => void>();
+  private unhookHost: (() => void) | null = null;
 
   setWindow(window: BrowserWindow | null): void {
-    this.hostReloadCleanup?.();
-    this.hostReloadCleanup = null;
+    this.unhookHost?.();
+    this.unhookHost = null;
     this.window = window;
-    if (window) {
-      // A full host-renderer reload (Cmd+R, dev full-reload) never runs React
-      // unmount cleanup, so nothing hides the native views: the attached
-      // WebContentsView would float orphaned over the fresh UI, and its
-      // session — still the active one — would never suspend. Reset native
-      // state whenever the host renderer navigates; the renderer re-opens
-      // panels on demand after boot.
-      const hostContents = window.webContents;
-      const onHostNavigate = () => this.handleHostRendererReload();
-      hostContents.on('did-navigate', onHostNavigate);
-      this.hostReloadCleanup = () => {
-        if (!hostContents.isDestroyed()) {
-          hostContents.removeListener('did-navigate', onHostNavigate);
-        }
-      };
-      if (this.activeSessionId && this.activeBounds) {
-        this.attachActiveTab(this.activeSessionId, this.activeBounds);
-      }
+    this.placement.setWindow(window);
+    if (!window) {
+      for (const sessionId of [...this.views.keys()]) this.dropView(sessionId);
+      this.placement.closeAgentHost();
       return;
     }
-    this.detachAttachedRuntime();
-    this.destroyAllRuntimes();
-    this.destroyHiddenAgentHost();
+    // A full reload of the app's renderer skips React cleanup, so nothing
+    // would hide the native view or let its session suspend. Reset here; the
+    // panel reopens what it needs after boot.
+    const contents = window.webContents;
+    const onNavigate = () => this.handleHostRendererReload();
+    contents.on('did-navigate', onNavigate);
+    this.unhookHost = () => {
+      if (!contents.isDestroyed()) contents.removeListener('did-navigate', onNavigate);
+    };
+    if (this.foreground && this.viewport) this.bringForward(this.foreground, this.viewport);
   }
 
-  /**
-   * Observers notified when the host renderer reloads (design mode disposes
-   * its sessions here — its poll timers would otherwise re-inject the
-   * inspector into freshly created runtimes while the reloaded UI shows
-   * design mode as off). Registered via callback because designModeService
-   * imports this module.
-   */
-  private readonly hostReloadListeners = new Set<() => void>();
-
+  /** Called before page state resets on an app renderer reload (design mode cleans up here). */
   onHostRendererReload(listener: () => void): () => void {
     this.hostReloadListeners.add(listener);
-    return () => {
-      this.hostReloadListeners.delete(listener);
-    };
+    return () => this.hostReloadListeners.delete(listener);
   }
 
   private handleHostRendererReload(): void {
@@ -300,1168 +151,471 @@ export class BrowserManager {
       try {
         listener();
       } catch (error) {
-        console.error('[browser] host-reload listener failed:', error);
+        console.error('[browser] host reload listener failed:', error);
       }
     }
-    this.pinnedSessions.clear();
-    this.detachAttachedRuntime();
-    const sessionIds = [...this.states.keys()];
-    this.activeSessionId = null;
-    this.activeBounds = null;
-    for (const sessionId of sessionIds) {
-      this.suspendSession(sessionId);
-    }
+    this.pinned.clear();
+    this.placement.hide();
+    this.foreground = null;
+    this.viewport = null;
+    for (const sessionId of this.sessions.keys()) this.suspendSession(sessionId);
   }
 
-  subscribe(listener: BrowserStateListener): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+  subscribe(listener: Listener<BrowserSessionState>): () => void {
+    this.stateListeners.add(listener);
+    return () => this.stateListeners.delete(listener);
   }
 
-  subscribeSendSelection(listener: BrowserSendSelectionListener): () => void {
+  subscribeSendSelection(listener: Listener<BrowserSendSelectionEvent>): () => void {
     this.selectionListeners.add(listener);
-    return () => {
-      this.selectionListeners.delete(listener);
-    };
+    return () => this.selectionListeners.delete(listener);
   }
 
   dispose(): void {
-    for (const timer of this.suspendTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.suspendTimers.clear();
-    this.detachAttachedRuntime();
-    this.destroyAllRuntimes();
-    this.destroyHiddenAgentHost();
-    this.listeners.clear();
+    for (const timer of this.idleTimers.values()) clearTimeout(timer);
+    this.idleTimers.clear();
+    this.placement.hide();
+    for (const sessionId of [...this.views.keys()]) this.dropView(sessionId);
+    this.placement.closeAgentHost();
+    this.stateListeners.clear();
     this.selectionListeners.clear();
-    this.states.clear();
-    this.agentSessions.clear();
-    this.closingRuntimeKeys.clear();
+    this.sessions.clear();
+    this.agentHolds.clear();
+    this.agentDepth.clear();
+    this.pinned.clear();
     this.window = null;
-    this.activeSessionId = null;
-    this.activeBounds = null;
+    this.placement.setWindow(null);
+    this.foreground = null;
+    this.viewport = null;
   }
 
-  // ===== Public API =====
+  // ===== Panel API =====
 
-  open(input: BrowserOpenInput): SessionBrowserState {
-    const state = this.ensureWorkspace(input.sessionId, input.initialUrl);
-    state.open = true;
-    syncSessionLastError(state);
-
-    if (
-      this.activeBounds &&
-      (this.activeSessionId === null || this.activeSessionId === input.sessionId)
-    ) {
-      this.activateSession(input.sessionId, this.activeBounds);
+  open(input: BrowserOpenInput): BrowserSessionState {
+    const session = this.session(input.sessionId);
+    this.ensurePage(session, input.initialUrl);
+    session.open = true;
+    if (this.viewport && (!this.foreground || this.foreground === input.sessionId)) {
+      this.bringForward(input.sessionId, this.viewport);
     }
-    this.emitState(input.sessionId);
-    return cloneSessionState(state);
+    return this.publish(input.sessionId);
   }
 
-  close(input: BrowserSessionInput): SessionBrowserState {
-    this.clearSuspendTimer(input.sessionId);
-    if (this.activeSessionId === input.sessionId) {
-      this.detachAttachedRuntime();
-      this.activeSessionId = null;
+  close(input: BrowserSessionInput): BrowserSessionState {
+    this.cancelIdle(input.sessionId);
+    if (this.foreground === input.sessionId) {
+      this.placement.hide();
+      this.foreground = null;
     }
-    this.destroySessionRuntimes(input.sessionId);
-    const state = this.getOrCreateState(input.sessionId);
-    state.open = false;
-    state.activeTabId = null;
-    state.tabs = [];
-    state.lastError = null;
-    this.emitState(input.sessionId);
-    return cloneSessionState(state);
+    this.dropView(input.sessionId);
+    const session = this.session(input.sessionId);
+    session.open = false;
+    session.page = null;
+    return this.publish(input.sessionId);
   }
 
   hide(input: BrowserSessionInput): void {
-    const state = this.states.get(input.sessionId);
-    if (!state?.open) return;
-    if (this.activeSessionId === input.sessionId) {
-      this.detachAttachedRuntime();
-      this.activeSessionId = null;
+    if (!this.sessions.get(input.sessionId)?.open) return;
+    if (this.foreground === input.sessionId) {
+      this.placement.hide();
+      this.foreground = null;
     }
-    this.scheduleSessionSuspend(input.sessionId);
+    this.scheduleIdle(input.sessionId);
   }
 
-  getState(input: BrowserSessionInput): SessionBrowserState {
-    return cloneSessionState(this.getOrCreateState(input.sessionId));
+  getState(input: BrowserSessionInput): BrowserSessionState {
+    return copySession(this.session(input.sessionId));
   }
 
-  // Re-apply the themed background to every live view. Called when the app
-  // theme changes so open browser views track light/dark like the window.
+  /** Follow the app theme in every live page view. */
   applyThemeBackground(): void {
-    const color = browserViewBackgroundColor();
-    for (const runtime of this.runtimes.values()) {
-      try {
-        runtime.view.setBackgroundColor(color);
-      } catch {
-        // View may already be destroyed; ignore.
+    const color = pageBackground();
+    for (const view of this.views.values()) view.setBackground(color);
+  }
+
+  setPanelBounds(input: BrowserViewportInput): BrowserSessionState {
+    const session = this.session(input.sessionId);
+    const viewport = validViewport(input.viewport);
+    if (!session.open || !viewport) {
+      if (this.foreground === input.sessionId) {
+        this.placement.hide();
+        this.foreground = null;
+        this.viewport = viewport;
+        this.scheduleIdle(input.sessionId);
       }
+      return copySession(session);
     }
+    this.bringForward(input.sessionId, viewport);
+    return copySession(session);
   }
 
-  setPanelBounds(input: BrowserSetPanelBoundsInput): SessionBrowserState {
-    const state = this.getOrCreateState(input.sessionId);
-    const nextBounds = normalizeBounds(input.bounds);
-    this.activeBounds = nextBounds;
-
-    if (!state.open || nextBounds === null) {
-      if (this.activeSessionId === input.sessionId) {
-        this.detachAttachedRuntime();
-        this.activeSessionId = null;
-        this.scheduleSessionSuspend(input.sessionId);
-      }
-      return cloneSessionState(state);
-    }
-    this.activateSession(input.sessionId, nextBounds);
-    return cloneSessionState(state);
-  }
-
-  navigate(input: BrowserNavigateInput): SessionBrowserState {
-    const state = this.ensureWorkspace(input.sessionId);
-    const tab = this.resolveTab(state, input.tabId);
-    const nextUrl = normalizeUrlInput(input.url);
-    tab.url = nextUrl;
-    tab.title = defaultTitleForUrl(nextUrl);
-    tab.lastCommittedUrl = null;
-    tab.lastError = null;
-    syncSessionLastError(state);
-
-    if (this.activeSessionId === input.sessionId) {
-      const runtime = this.ensureLiveRuntime(input.sessionId, tab.id);
-      this.clearSuspendTimer(input.sessionId);
-      if (state.activeTabId === tab.id && this.activeBounds) {
-        this.attachRuntime(runtime, this.activeBounds);
-      }
-      void this.loadTab(input.sessionId, tab.id, { force: true, runtime });
-    }
-    this.emitState(input.sessionId);
-    return cloneSessionState(state);
-  }
-
-  reload(input: BrowserTabInput): SessionBrowserState {
-    const state = this.ensureWorkspace(input.sessionId);
-    const tab = this.resolveTab(state, input.tabId);
-    const runtime = this.runtimes.get(buildRuntimeKey(input.sessionId, tab.id));
-    if (runtime) {
-      runtime.view.webContents.reload();
-    } else if (this.activeSessionId === input.sessionId) {
-      this.resumeSession(input.sessionId);
-      void this.loadTab(input.sessionId, tab.id, { force: true });
-    }
-    return cloneSessionState(state);
-  }
-
-  goBack(input: BrowserTabInput): SessionBrowserState {
-    const runtime = this.runtimes.get(buildRuntimeKey(input.sessionId, input.tabId));
-    if (runtime && runtime.view.webContents.canGoBack()) {
-      runtime.view.webContents.goBack();
-    }
-    return this.getState({ sessionId: input.sessionId });
-  }
-
-  goForward(input: BrowserTabInput): SessionBrowserState {
-    const runtime = this.runtimes.get(buildRuntimeKey(input.sessionId, input.tabId));
-    if (runtime && runtime.view.webContents.canGoForward()) {
-      runtime.view.webContents.goForward();
-    }
-    return this.getState({ sessionId: input.sessionId });
-  }
-
-  newTab(input: BrowserNewTabInput): SessionBrowserState {
-    const state = this.ensureWorkspace(input.sessionId);
-    const tab = this.resolveTab(state);
-    const retiredTabs = state.tabs.filter((item) => item.id !== tab.id);
-    for (const retiredTab of retiredTabs) {
-      this.destroyRuntime(input.sessionId, retiredTab.id);
-    }
-    state.tabs = [tab];
-    state.activeTabId = tab.id;
-    tab.url = normalizeUrlInput(input.url);
-    tab.title = defaultTitleForUrl(tab.url);
-    tab.lastCommittedUrl = null;
-    tab.lastError = null;
-
-    if (this.activeSessionId === input.sessionId) {
-      this.resumeSession(input.sessionId);
-      if (this.activeBounds) {
-        this.ensureLiveRuntime(input.sessionId, tab.id);
-        void this.loadTab(input.sessionId, tab.id, { force: true });
-        this.attachActiveTab(input.sessionId, this.activeBounds);
-      }
+  navigate(input: BrowserNavigateInput): BrowserSessionState {
+    const url = resolveForLoad(input.url);
+    const session = this.session(input.sessionId);
+    const page = this.ensurePage(session);
+    retarget(page, url);
+    // A page that still has a view loads right away, on screen or not, so
+    // the address it shows is never overwritten by what it had before.
+    let view = this.views.get(input.sessionId);
+    if (!view && this.foreground === input.sessionId) view = this.createView(input.sessionId);
+    if (view) {
+      this.cancelIdle(input.sessionId);
+      if (this.foreground === input.sessionId && this.viewport) this.placement.show(view, this.viewport);
+      void this.loadInto(input.sessionId, view, url);
     } else {
-      this.destroyRuntime(input.sessionId, tab.id);
-      tab.status = 'suspended';
-      tab.isLoading = false;
-      tab.canGoBack = false;
-      tab.canGoForward = false;
+      suspend(page);
     }
-
-    syncSessionLastError(state);
-    this.emitState(input.sessionId);
-    return cloneSessionState(state);
+    return this.publish(input.sessionId);
   }
 
-  closeTab(input: BrowserTabInput): SessionBrowserState {
-    const state = this.ensureWorkspace(input.sessionId);
-    const closingTabIndex = state.tabs.findIndex((tab) => tab.id === input.tabId);
-    if (closingTabIndex === -1) {
-      return cloneSessionState(state);
-    }
-
-    const wasActiveTab = state.activeTabId === input.tabId;
-    this.closingRuntimeKeys.add(buildRuntimeKey(input.sessionId, input.tabId));
-    const nextTabs = state.tabs.filter((tab) => tab.id !== input.tabId);
-    state.tabs = nextTabs;
-
-    if (nextTabs.length === 0) {
-      state.open = false;
-      state.activeTabId = null;
-      state.lastError = null;
-      if (this.activeSessionId === input.sessionId) {
-        this.detachAttachedRuntime();
-        this.activeSessionId = null;
-      }
-      this.emitState(input.sessionId);
-      this.destroyRuntime(input.sessionId, input.tabId, { defer: true });
-      return cloneSessionState(state);
-    }
-
-    if (!state.activeTabId || wasActiveTab) {
-      const nextActiveIndex = Math.min(closingTabIndex, nextTabs.length - 1);
-      state.activeTabId = nextTabs[Math.max(0, nextActiveIndex)]?.id ?? null;
-    }
-
-    syncSessionLastError(state);
-    this.emitState(input.sessionId);
-
-    if (wasActiveTab && this.activeSessionId === input.sessionId && this.activeBounds) {
-      this.attachActiveTab(input.sessionId, this.activeBounds);
-    }
-
-    this.destroyRuntime(input.sessionId, input.tabId, { defer: true });
-    return cloneSessionState(state);
+  reload(input: BrowserSessionInput): BrowserSessionState {
+    const view = this.views.get(input.sessionId);
+    if (view?.alive) view.contents.reload();
+    else if (this.foreground === input.sessionId) this.wake(input.sessionId);
+    return this.getState(input);
   }
 
-  selectTab(input: BrowserTabInput): SessionBrowserState {
-    const state = this.ensureWorkspace(input.sessionId);
-    const tab = this.resolveTab(state, input.tabId);
-    if (state.activeTabId !== tab.id) {
-      state.activeTabId = tab.id;
-      syncSessionLastError(state);
-      this.emitState(input.sessionId);
-    }
-    if (this.activeSessionId === input.sessionId) {
-      this.resumeSession(input.sessionId);
-      if (this.activeBounds) {
-        this.attachActiveTab(input.sessionId, this.activeBounds);
-      }
-    }
-    return cloneSessionState(state);
+  goBack(input: BrowserSessionInput): BrowserSessionState {
+    const history = this.views.get(input.sessionId)?.contents.navigationHistory;
+    if (history?.canGoBack()) history.goBack();
+    return this.getState(input);
   }
 
-  openDevTools(input: BrowserTabInput): void {
-    const state = this.ensureWorkspace(input.sessionId);
-    const tab = this.resolveTab(state, input.tabId);
-    if (state.activeTabId !== tab.id) {
-      state.activeTabId = tab.id;
-      syncSessionLastError(state);
-      this.emitState(input.sessionId);
-    }
-    this.resumeSession(input.sessionId);
-    const runtime = this.ensureLiveRuntime(input.sessionId, tab.id);
-    if (this.activeBounds) {
-      this.attachActiveTab(input.sessionId, this.activeBounds);
-    }
-    runtime.view.webContents.openDevTools({ mode: 'detach' });
+  goForward(input: BrowserSessionInput): BrowserSessionState {
+    const history = this.views.get(input.sessionId)?.contents.navigationHistory;
+    if (history?.canGoForward()) history.goForward();
+    return this.getState(input);
   }
 
-  // ===== Screenshot / Readout for Agent =====
+  openDevTools(input: BrowserSessionInput): void {
+    const session = this.session(input.sessionId);
+    this.ensurePage(session);
+    const view = this.views.get(input.sessionId) ?? this.wakeView(input.sessionId);
+    if (this.foreground === input.sessionId && this.viewport) this.placement.show(view, this.viewport);
+    view.contents.openDevTools({ mode: 'detach' });
+  }
 
-  async capturePage(input: BrowserTabInput): Promise<BrowserCapturePageResult> {
-    const state = this.states.get(input.sessionId);
-    const tab = state ? this.getTab(state, input.tabId) : null;
-    const runtime = this.runtimes.get(buildRuntimeKey(input.sessionId, input.tabId));
-    if (!state || !tab || !runtime || runtime.view.webContents.isDestroyed()) {
-      return { ok: false, message: 'This tab is not active right now.' };
-    }
+  // ===== Screenshot and readout =====
+
+  async capturePage(input: BrowserSessionInput): Promise<BrowserCapturePageResult> {
+    const live = this.livePage(input.sessionId);
+    if (!live) return { ok: false, message: NOT_LIVE };
     try {
-      const image = await runtime.view.webContents.capturePage();
-      if (image.isEmpty()) {
-        return { ok: false, message: 'Captured image is empty.' };
-      }
-      const size = image.getSize();
-      const buffer = image.toPNG();
-      const base64 = buffer.toString('base64');
+      const image = await live.view.contents.capturePage();
+      if (image.isEmpty()) return { ok: false, message: 'Captured image is empty.' };
+      const base64 = image.toPNG().toString('base64');
+      const { width, height } = image.getSize();
       return {
         ok: true,
         dataUrl: `data:image/png;base64,${base64}`,
         mimeType: 'image/png',
-        width: size.width,
-        height: size.height,
+        width,
+        height,
         base64,
-        pageUrl: runtime.view.webContents.getURL() || tab.url,
-        pageTitle: runtime.view.webContents.getTitle() || tab.title,
+        pageUrl: live.view.contents.getURL() || live.page.url,
+        pageTitle: live.view.contents.getTitle() || live.page.title,
       };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  async readPageContent(input: BrowserTabInput): Promise<BrowserReadoutResult> {
-    const state = this.states.get(input.sessionId);
-    const tab = state ? this.getTab(state, input.tabId) : null;
-    const runtime = this.runtimes.get(buildRuntimeKey(input.sessionId, input.tabId));
-    if (!state || !tab || !runtime || runtime.view.webContents.isDestroyed()) {
-      return { ok: false, message: 'This tab is not active right now.' };
-    }
-
-    // Run in the page context; strip scripts/styles, gather visible text,
-    // current selection, and up to 80 meaningful links.
-    const script = `(() => {
-      function stripHidden(root) {
-        const hidden = root.querySelectorAll('script, style, noscript, template, iframe');
-        for (const el of hidden) el.remove();
-      }
-      const doc = document.cloneNode(true);
-      stripHidden(doc);
-      const body = doc.body || doc.documentElement;
-      const rawText = (body ? body.innerText : '') || '';
-      const text = rawText.replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();
-      const seen = new Set();
-      const links = [];
-      const anchors = document.querySelectorAll('a[href]');
-      for (const a of anchors) {
-        const href = a.href;
-        if (!href) continue;
-        if (!/^https?:/i.test(href)) continue;
-        if (seen.has(href)) continue;
-        seen.add(href);
-        const label = (a.innerText || a.textContent || '').replace(/\\s+/g, ' ').trim();
-        links.push({ url: href, text: label.slice(0, 200) });
-        if (links.length >= 80) break;
-      }
-      const sel = (window.getSelection && window.getSelection()?.toString()) || '';
-      return {
-        url: location.href,
-        title: document.title || '',
-        text: text.slice(0, 20000),
-        selection: sel.slice(0, 8000),
-        links,
-      };
-    })();`;
-
+  async readPageContent(input: BrowserSessionInput): Promise<BrowserReadoutResult> {
+    const live = this.livePage(input.sessionId);
+    if (!live) return { ok: false, message: NOT_LIVE };
     try {
-      const result = (await runtime.view.webContents.executeJavaScript(script, true)) as {
+      const result = (await live.view.contents.executeJavaScript(READOUT_SCRIPT, true)) as {
         url: string;
         title: string;
         text: string;
         selection: string;
         links: BrowserReadoutLink[];
       };
-      return {
-        ok: true,
-        url: result.url,
-        title: result.title,
-        text: result.text,
-        selection: result.selection,
-        links: result.links,
-      };
+      return { ok: true, ...result };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
   }
 
-  /**
-   * Live webContents for a tab, or null when suspended/destroyed. Used by the
-   * design-mode service, which injects scripts and must re-check liveness on
-   * every poll (runtimes are destroyed on suspend/newTab/render-process-gone).
-   */
-  getLiveWebContents(sessionId: string, tabId: string) {
-    const runtime = this.runtimes.get(buildRuntimeKey(sessionId, tabId));
-    if (!runtime || runtime.view.webContents.isDestroyed()) return null;
-    return runtime.view.webContents;
+  /** The page's live contents, or null once suspended or replaced (design mode re-checks each poll). */
+  getLiveWebContents(sessionId: string, pageId: string): WebContents | null {
+    const live = this.livePage(sessionId);
+    return live && live.page.id === pageId ? live.view.contents : null;
   }
 
+  // ===== browser_use =====
+
   /**
-   * Acquire the active tab for agent automation. Unlike the visible-panel API,
-   * this creates a detached WebContentsView when the panel is closed. Opening
-   * the panel later attaches this exact runtime, so background and visible
-   * browsing never diverge into separate cookie/page state.
+   * Lends the session's page to an agent. With the panel closed the page
+   * lives in a hidden window; opening the panel later shows that same page,
+   * so the agent and the user never see different browsing state.
    */
   acquireAgentTarget(sessionId: string): BrowserAgentTarget {
-    const state = this.ensureWorkspace(sessionId);
-    const tab = this.getActiveTab(state);
-    if (!tab) {
-      throw new Error('Could not create a browser tab for this session.');
-    }
-    this.agentSessions.add(sessionId);
-    this.clearSuspendTimer(sessionId);
-
-    const runtimeKey = buildRuntimeKey(sessionId, tab.id);
-    const runtimeExisted = this.runtimes.has(runtimeKey);
-    const wasSuspended = tab.status === 'suspended';
-    const runtime = this.ensureLiveRuntime(sessionId, tab.id);
-    const visible =
-      this.activeSessionId === sessionId &&
-      this.attachedRuntimeKey === runtime.key &&
-      this.activeBounds !== null;
-    if (!visible) {
-      // A detached view still needs a viewport for layout, hit testing and DOM
-      // snapshots. Host it in a never-shown BrowserWindow so Chromium lays out
-      // the page without overlaying the user's main window.
-      this.attachRuntimeToHiddenHost(runtime);
-    }
-
-    const needsRestore =
-      (!runtimeExisted || wasSuspended) &&
-      tab.url !== ABOUT_BLANK_URL &&
-      runtime.view.webContents.getURL() !== tab.url;
-    const restore = needsRestore
-      ? this.loadTab(sessionId, tab.id, { force: true, runtime })
-      : Promise.resolve();
-    this.emitState(sessionId);
-    return { tabId: tab.id, webContents: runtime.view.webContents, restore, visible };
+    const page = this.ensurePage(this.session(sessionId));
+    this.agentHolds.add(sessionId);
+    this.cancelIdle(sessionId);
+    const existing = this.views.get(sessionId);
+    const view = existing ?? this.createView(sessionId);
+    const visible = this.foreground === sessionId && this.placement.visible === view && !!this.viewport;
+    if (!visible) this.placement.park(view);
+    const needsLoad = !existing && page.url !== BLANK_PAGE && view.contents.getURL() !== page.url;
+    const restore = needsLoad ? this.loadInto(sessionId, view, page.url) : Promise.resolve();
+    this.publish(sessionId);
+    return { tabId: page.id, webContents: view.contents, restore, visible };
   }
 
-  /**
-   * Release Browser Use's keepalive at the end of a turn. Detached runtimes
-   * are destroyed immediately; a user-visible panel keeps its live tab.
-   */
+  /** Ends browser_use's hold after a turn. Off-screen pages are suspended; a visible one stays. */
   releaseAgentSession(sessionId: string): void {
-    this.agentSessions.delete(sessionId);
-    const state = this.states.get(sessionId);
-    if (!state) {
-      if (this.agentSessions.size === 0) this.destroyHiddenAgentHost();
-      return;
+    this.agentHolds.delete(sessionId);
+    const session = this.sessions.get(sessionId);
+    const onScreen = this.foreground === sessionId && this.placement.visible !== null;
+    if (session && !onScreen) {
+      this.dropView(sessionId);
+      if (session.page) suspend(session.page);
+      session.agentActive = false;
+      this.agentDepth.delete(sessionId);
+      this.publish(sessionId);
     }
-    const visible = this.activeSessionId === sessionId && this.attachedRuntimeKey !== null;
-    if (visible) {
-      if (this.agentSessions.size === 0) this.destroyHiddenAgentHost();
-      return;
-    }
-    for (const tab of state.tabs) {
-      this.destroyRuntime(sessionId, tab.id);
-      tab.status = 'suspended';
-      tab.isLoading = false;
-      tab.canGoBack = false;
-      tab.canGoForward = false;
-    }
-    state.agentActive = false;
-    this.agentActivityDepth.delete(sessionId);
-    if (this.agentSessions.size === 0) this.destroyHiddenAgentHost();
-    syncSessionLastError(state);
-    this.emitState(sessionId);
+    if (!this.agentHolds.size) this.placement.closeAgentHost();
   }
 
-  /**
-   * Design mode pins its session: the suspend timer would otherwise destroy
-   * the WebContentsView (and with it the inspector + preview state) 30s after
-   * the panel loses focus.
-   */
+  /** Lights the panel's agent badge while `action` runs; nested actions keep it lit. */
+  async withAgentActivity<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return action();
+    const depth = (this.agentDepth.get(sessionId) ?? 0) + 1;
+    this.agentDepth.set(sessionId, depth);
+    if (depth === 1) {
+      session.agentActive = true;
+      this.publish(sessionId);
+    }
+    try {
+      return await action();
+    } finally {
+      const remaining = (this.agentDepth.get(sessionId) ?? 1) - 1;
+      if (remaining > 0) this.agentDepth.set(sessionId, remaining);
+      else {
+        this.agentDepth.delete(sessionId);
+        session.agentActive = false;
+        this.publish(sessionId);
+      }
+    }
+  }
+
+  /** Design mode pins its session so idle suspension keeps its page and inspector. */
   setSessionPinned(sessionId: string, pinned: boolean): void {
     if (pinned) {
-      this.pinnedSessions.add(sessionId);
-      this.clearSuspendTimer(sessionId);
+      this.pinned.add(sessionId);
+      this.cancelIdle(sessionId);
     } else {
-      this.pinnedSessions.delete(sessionId);
-      if (this.activeSessionId !== sessionId) this.scheduleSessionSuspend(sessionId);
+      this.pinned.delete(sessionId);
+      if (this.foreground !== sessionId) this.scheduleIdle(sessionId);
     }
   }
 
   // ===== Internals =====
 
-  private activateSession(sessionId: string, bounds: BrowserPanelBounds): void {
-    if (this.activeSessionId && this.activeSessionId !== sessionId) {
-      this.scheduleSessionSuspend(this.activeSessionId);
+  private session(sessionId: string): BrowserSessionState {
+    let session = this.sessions.get(sessionId);
+    if (!session) {
+      session = blankSession(sessionId);
+      this.sessions.set(sessionId, session);
     }
-    this.activeSessionId = sessionId;
-    this.activeBounds = bounds;
-    this.resumeSession(sessionId);
-    this.attachActiveTab(sessionId, bounds);
+    return session;
   }
 
-  private resumeSession(sessionId: string): void {
-    const state = this.ensureWorkspace(sessionId);
-    if (!state.open) return;
-    this.clearSuspendTimer(sessionId);
-    const activeTab = this.getActiveTab(state);
-    for (const tab of state.tabs) {
-      if (tab.id !== activeTab?.id) continue;
-      // Capture whether this tab actually needs a fresh load BEFORE calling
-      // ensureLiveRuntime, because that helper flips status to 'live' as soon
-      // as the view is created.
-      const runtimeKey = buildRuntimeKey(sessionId, tab.id);
-      const runtimeExisted = this.runtimes.has(runtimeKey);
-      const wasSuspended = tab.status === 'suspended';
-      const runtime = this.ensureLiveRuntime(sessionId, tab.id);
-      if (!runtimeExisted || wasSuspended) {
-        void this.loadTab(sessionId, tab.id, { force: true, runtime });
-      } else {
-        syncTabStateFromRuntime(state, tab, runtime.view.webContents);
-      }
-    }
-    syncSessionLastError(state);
-    this.emitState(sessionId);
+  private ensurePage(session: BrowserSessionState, initialUrl?: string): BrowserPage {
+    session.page ??= newPage(resolveForLoad(initialUrl));
+    return session.page;
   }
 
-  private scheduleSessionSuspend(sessionId: string): void {
-    const state = this.states.get(sessionId);
-    if (!state?.open || this.activeSessionId === sessionId) return;
-    if (this.pinnedSessions.has(sessionId)) return;
-    if (this.agentSessions.has(sessionId)) return;
-    this.clearSuspendTimer(sessionId);
+  private publish(sessionId: string): BrowserSessionState {
+    const snapshot = copySession(this.session(sessionId));
+    for (const listener of this.stateListeners) listener(copySession(snapshot));
+    return snapshot;
+  }
+
+  private livePage(sessionId: string): { page: BrowserPage; view: PageView } | null {
+    const page = this.sessions.get(sessionId)?.page;
+    const view = this.views.get(sessionId);
+    return page && view?.alive ? { page, view } : null;
+  }
+
+  private bringForward(sessionId: string, viewport: BrowserViewport): void {
+    if (this.foreground && this.foreground !== sessionId) this.scheduleIdle(this.foreground);
+    this.foreground = sessionId;
+    this.viewport = viewport;
+    const view = this.wake(sessionId);
+    if (view) this.placement.show(view, viewport);
+  }
+
+  /** Makes sure an open session's page has a view, loading it again when it had none. */
+  private wake(sessionId: string): PageView | null {
+    const session = this.sessions.get(sessionId);
+    if (!session?.open || !session.page) return null;
+    this.cancelIdle(sessionId);
+    const existing = this.views.get(sessionId);
+    if (existing?.alive) {
+      absorb(session.page, existing.facts());
+      this.publish(sessionId);
+      return existing;
+    }
+    return this.wakeView(sessionId);
+  }
+
+  private wakeView(sessionId: string): PageView {
+    const view = this.createView(sessionId);
+    const page = this.sessions.get(sessionId)?.page;
+    if (page) void this.loadInto(sessionId, view, page.url);
+    return view;
+  }
+
+  private createView(sessionId: string): PageView {
+    this.dropView(sessionId);
+    const page = () => this.sessions.get(sessionId)?.page ?? null;
+    const view: PageView = new PageView({
+      facts: (facts) => {
+        const current = page();
+        if (!current) return;
+        absorb(current, facts);
+        this.publish(sessionId);
+      },
+      started: () => {
+        const current = page();
+        if (!current) return;
+        navigationStarted(current);
+        this.publish(sessionId);
+      },
+      failed: (code, url) => {
+        const current = page();
+        if (!current) return;
+        loadFailed(current, describeLoadFailure(code), url || undefined);
+        this.publish(sessionId);
+      },
+      openWindow: (url) => this.openFromPage(sessionId, url),
+      contextMenu: (params) => this.showContextMenu(sessionId, view, params),
+      crashed: () => {
+        this.dropView(sessionId);
+        const current = page();
+        if (current) {
+          suspend(current);
+          current.error = 'This page stopped unexpectedly.';
+          this.publish(sessionId);
+        }
+        if (this.foreground === sessionId && this.viewport) this.bringForward(sessionId, this.viewport);
+      },
+    });
+    this.views.set(sessionId, view);
+    const current = page();
+    if (current) current.phase = 'live';
+    return view;
+  }
+
+  private dropView(sessionId: string): void {
+    const view = this.views.get(sessionId);
+    if (!view) return;
+    this.views.delete(sessionId);
+    this.placement.remove(view);
+    view.retire();
+  }
+
+  private async loadInto(sessionId: string, view: PageView, url: string): Promise<void> {
+    const page = this.sessions.get(sessionId)?.page;
+    if (!page) return;
+    navigationStarted(page);
+    this.publish(sessionId);
+    const outcome = await view.load(url);
+    if (outcome === 'retired' || this.views.get(sessionId) !== view) return;
+    if (outcome === 'failed') {
+      // did-fail-load usually explains the failure already; keep that message.
+      loadFailed(page, page.error ?? GENERIC_LOAD_FAILURE);
+    } else {
+      absorb(page, view.facts());
+    }
+    this.publish(sessionId);
+  }
+
+  private scheduleIdle(sessionId: string): void {
+    if (!this.sessions.get(sessionId)?.open || this.foreground === sessionId) return;
+    if (this.pinned.has(sessionId) || this.agentHolds.has(sessionId)) return;
+    this.cancelIdle(sessionId);
     const timer = setTimeout(() => {
+      this.idleTimers.delete(sessionId);
       this.suspendSession(sessionId);
-      this.suspendTimers.delete(sessionId);
-    }, BROWSER_SESSION_SUSPEND_DELAY_MS);
+    }, IDLE_SUSPEND_MS);
     timer.unref();
-    this.suspendTimers.set(sessionId, timer);
+    this.idleTimers.set(sessionId, timer);
+  }
+
+  private cancelIdle(sessionId: string): void {
+    const timer = this.idleTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.idleTimers.delete(sessionId);
   }
 
   private suspendSession(sessionId: string): void {
-    const state = this.states.get(sessionId);
-    if (!state || this.activeSessionId === sessionId) return;
-    if (this.pinnedSessions.has(sessionId)) return;
-    if (this.agentSessions.has(sessionId)) return;
-    for (const tab of state.tabs) {
-      this.destroyRuntime(sessionId, tab.id);
-      tab.status = 'suspended';
-      tab.isLoading = false;
-      tab.canGoBack = false;
-      tab.canGoForward = false;
-    }
-    syncSessionLastError(state);
-    this.emitState(sessionId);
+    const session = this.sessions.get(sessionId);
+    if (!session || this.foreground === sessionId || this.pinned.has(sessionId) || this.agentHolds.has(sessionId)) return;
+    this.dropView(sessionId);
+    if (session.page) suspend(session.page);
+    this.publish(sessionId);
   }
 
-  private clearSuspendTimer(sessionId: string): void {
-    const existing = this.suspendTimers.get(sessionId);
-    if (!existing) return;
-    clearTimeout(existing);
-    this.suspendTimers.delete(sessionId);
-  }
-
-  private attachActiveTab(sessionId: string, bounds: BrowserPanelBounds): void {
-    const state = this.ensureWorkspace(sessionId);
-    const activeTab = this.getActiveTab(state);
-    if (!activeTab) return;
-    const runtimeKey = buildRuntimeKey(sessionId, activeTab.id);
-    const runtimeExisted = this.runtimes.has(runtimeKey);
-    const wasSuspended = activeTab.status === 'suspended';
-    const runtime = this.ensureLiveRuntime(sessionId, activeTab.id);
-    this.attachRuntime(runtime, bounds);
-    if (!runtimeExisted || wasSuspended) {
-      void this.loadTab(sessionId, activeTab.id, { force: true, runtime });
-    } else {
-      this.syncRuntimeState(sessionId, activeTab.id);
-    }
-  }
-
-  // Attach/detach bookkeeping is deliberately IDEMPOTENT and keyed by the
-  // view REFERENCE, not just the runtime key. If Electron's contentView child
-  // list ever desyncs from the actual AppKit subviews (double addChildView,
-  // or a webContents destroyed while its view is still a child — the
-  // electron#42077 family), the NEXT window resize throws NSRangeException
-  // inside -[NSView setFrameSize:] and AppKit's exception handler spins the
-  // main thread forever (observed: fullscreen click → permanent beachball).
-  private attachRuntime(runtime: LiveTabRuntime, bounds: BrowserPanelBounds): void {
-    const window = this.window;
-    if (!window) return;
-    if (this.attachedRuntimeKey === runtime.key && this.attachedView === runtime.view) {
-      runtime.view.setBounds(bounds);
+  /** Pages may not open windows: web and local addresses load in place, others go to the system. */
+  private openFromPage(sessionId: string, url: string): void {
+    if (/^https?:\/\//i.test(url) || url === BLANK_PAGE || isLocalFileUrl(url)) {
+      this.navigate({ sessionId, url });
       return;
     }
-    this.detachAttachedRuntime();
-    this.removeViewFromHiddenHost(runtime.view);
-    try {
-      if (!window.contentView.children.includes(runtime.view)) {
-        window.contentView.addChildView(runtime.view);
-      }
-      runtime.view.setBounds(bounds);
-    } catch (error) {
-      console.error('[browser] attach failed:', error);
-      // If addChildView succeeded but setBounds threw, the view would be an
-      // unrecorded child — exactly the orphan this bookkeeping prevents.
-      this.removeViewFromWindow(runtime.view);
-      return;
-    }
-    this.attachedRuntimeKey = runtime.key;
-    this.attachedView = runtime.view;
+    const external = normalizeExternalUrl(url);
+    if (external) void shell.openExternal(external);
   }
 
-  private detachAttachedRuntime(): void {
-    const runtimeKey = this.attachedRuntimeKey;
-    const view = this.attachedView;
-    this.attachedRuntimeKey = null;
-    this.attachedView = null;
-    if (view) {
-      this.removeViewFromWindow(view);
-      const runtime = runtimeKey ? this.runtimes.get(runtimeKey) : null;
-      if (runtime && this.agentSessions.has(runtime.sessionId)) {
-        this.attachRuntimeToHiddenHost(runtime);
-      }
-    }
-  }
-
-  private ensureHiddenAgentHost(): BrowserWindow {
-    if (this.hiddenAgentWindow && !this.hiddenAgentWindow.isDestroyed()) {
-      return this.hiddenAgentWindow;
-    }
-    const hidden = new BrowserWindow({
-      show: false,
-      width: BROWSER_AGENT_VIEW_BOUNDS.width,
-      height: BROWSER_AGENT_VIEW_BOUNDS.height,
-      focusable: false,
-      skipTaskbar: true,
-      backgroundColor: browserViewBackgroundColor(),
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        backgroundThrottling: false,
-      },
-    });
-    hidden.on('closed', () => {
-      if (this.hiddenAgentWindow === hidden) this.hiddenAgentWindow = null;
-    });
-    this.hiddenAgentWindow = hidden;
-    return hidden;
-  }
-
-  private attachRuntimeToHiddenHost(runtime: LiveTabRuntime): void {
-    const hidden = this.ensureHiddenAgentHost();
-    this.removeViewFromWindow(runtime.view);
-    try {
-      if (!hidden.contentView.children.includes(runtime.view)) {
-        hidden.contentView.addChildView(runtime.view);
-      }
-      runtime.view.setBounds(BROWSER_AGENT_VIEW_BOUNDS);
-    } catch (error) {
-      console.error('[browser] hidden-host attach failed:', error);
-      this.removeViewFromHiddenHost(runtime.view);
-    }
-  }
-
-  private removeViewFromHiddenHost(view: WebContentsView): void {
-    const hidden = this.hiddenAgentWindow;
-    if (!hidden || hidden.isDestroyed()) return;
-    try {
-      if (hidden.contentView.children.includes(view)) {
-        hidden.contentView.removeChildView(view);
-      }
-    } catch (error) {
-      console.error('[browser] hidden-host detach failed:', error);
-    }
-  }
-
-  private destroyHiddenAgentHost(): void {
-    const hidden = this.hiddenAgentWindow;
-    this.hiddenAgentWindow = null;
-    if (!hidden || hidden.isDestroyed()) return;
-    try {
-      hidden.destroy();
-    } catch (error) {
-      console.warn('[browser] hidden-host close failed:', error);
-    }
-  }
-
-  /** Remove a view from the window's child list, tolerating any state. */
-  private removeViewFromWindow(view: WebContentsView): void {
-    const window = this.window;
-    if (!window || window.isDestroyed()) return;
-    try {
-      if (window.contentView.children.includes(view)) {
-        window.contentView.removeChildView(view);
-      }
-    } catch (error) {
-      console.error('[browser] detach failed:', error);
-    }
-  }
-
-  private isRuntimeClosing(sessionId: string, tabId: string): boolean {
-    return this.closingRuntimeKeys.has(buildRuntimeKey(sessionId, tabId));
-  }
-
-  private ensureLiveRuntime(sessionId: string, tabId: string): LiveTabRuntime {
-    const key = buildRuntimeKey(sessionId, tabId);
-    const existing = this.runtimes.get(key);
-    if (existing) return existing;
-    const runtime = this.createLiveRuntime(sessionId, tabId);
-    this.runtimes.set(key, runtime);
-    const state = this.ensureWorkspace(sessionId);
-    const tab = this.getTab(state, tabId);
-    if (tab) {
-      tab.status = 'live';
-      tab.lastError = null;
-      syncSessionLastError(state);
-    }
-    return runtime;
-  }
-
-  private createLiveRuntime(sessionId: string, tabId: string): LiveTabRuntime {
-    const view = new WebContentsView({
-      webPreferences: {
-        partition: BROWSER_SESSION_PARTITION,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        backgroundThrottling: false,
-      },
-    });
-    view.setBackgroundColor(browserViewBackgroundColor());
-    const runtime: LiveTabRuntime = {
-      key: buildRuntimeKey(sessionId, tabId),
-      sessionId,
-      tabId,
-      view,
-    };
-    const webContents = view.webContents;
-
-    webContents.setWindowOpenHandler(({ url }) => {
-      if (this.isRuntimeClosing(sessionId, tabId)) {
-        return { action: 'deny' };
-      }
-      if (url.startsWith('http://') || url.startsWith('https://') || isLocalFileUrl(url) || url === ABOUT_BLANK_URL) {
-        this.navigate({ sessionId, tabId, url });
-        return { action: 'deny' };
-      }
-      const externalUrl = normalizeExternalUrl(url);
-      if (externalUrl) {
-        void shell.openExternal(externalUrl);
-      }
-      return { action: 'deny' };
-    });
-
-    webContents.on('page-title-updated', (event) => {
-      event.preventDefault();
-      if (this.isRuntimeClosing(sessionId, tabId)) return;
-      this.syncRuntimeState(sessionId, tabId);
-    });
-    webContents.on('page-favicon-updated', (_event, faviconUrls) => {
-      if (this.isRuntimeClosing(sessionId, tabId)) return;
-      this.syncRuntimeState(sessionId, tabId, faviconUrls);
-    });
-    webContents.on('did-start-loading', () => {
-      if (this.isRuntimeClosing(sessionId, tabId)) return;
-      this.syncRuntimeState(sessionId, tabId);
-    });
-    webContents.on('did-stop-loading', () => {
-      if (this.isRuntimeClosing(sessionId, tabId)) return;
-      this.syncRuntimeState(sessionId, tabId);
-    });
-    webContents.on('did-navigate', () => {
-      if (this.isRuntimeClosing(sessionId, tabId)) return;
-      this.syncRuntimeState(sessionId, tabId);
-    });
-    webContents.on('did-navigate-in-page', () => {
-      if (this.isRuntimeClosing(sessionId, tabId)) return;
-      this.syncRuntimeState(sessionId, tabId);
-    });
-    webContents.on(
-      'did-fail-load',
-      (_event, errorCode, _errorDescription, validatedURL, isMainFrame) => {
-        if (this.isRuntimeClosing(sessionId, tabId)) return;
-        if (!isMainFrame || errorCode === BROWSER_ERROR_ABORTED) return;
-        const state = this.states.get(sessionId);
-        const tab = state ? this.getTab(state, tabId) : null;
-        if (!state || !tab) return;
-        tab.url = validatedURL || tab.url;
-        tab.title = defaultTitleForUrl(tab.url);
-        tab.isLoading = false;
-        tab.lastError = mapBrowserLoadError(errorCode);
-        syncSessionLastError(state);
-        this.emitState(sessionId);
-      }
-    );
-    webContents.on('context-menu', (_event, params) => {
-      if (this.isRuntimeClosing(sessionId, tabId)) return;
-      this.handleContextMenu(sessionId, tabId, params);
-    });
-
-    webContents.on('render-process-gone', () => {
-      if (this.isRuntimeClosing(sessionId, tabId)) return;
-      const state = this.states.get(sessionId);
-      const tab = state ? this.getTab(state, tabId) : null;
-      this.destroyRuntime(sessionId, tabId);
-      if (state && tab) {
-        tab.status = 'suspended';
-        tab.isLoading = false;
-        tab.lastError = 'This tab stopped unexpectedly.';
-        syncSessionLastError(state);
-        this.emitState(sessionId);
-      }
-      if (this.activeSessionId === sessionId && this.activeBounds) {
-        this.attachActiveTab(sessionId, this.activeBounds);
-      }
-    });
-
-    return runtime;
-  }
-
-  private async loadTab(
-    sessionId: string,
-    tabId: string,
-    options: { force?: boolean; runtime?: LiveTabRuntime } = {}
-  ): Promise<void> {
-    const state = this.ensureWorkspace(sessionId);
-    const tab = this.getTab(state, tabId);
-    if (!tab) return;
-
-    const runtime = options.runtime ?? this.ensureLiveRuntime(sessionId, tabId);
-    const webContents = runtime.view.webContents;
-    const nextUrl = normalizeUrlInput(
-      options.force === true ? tab.url : (tab.lastCommittedUrl ?? tab.url)
-    );
-    const currentUrl = webContents.getURL();
-    const shouldLoad = options.force === true || currentUrl !== nextUrl || currentUrl.length === 0;
-
-    if (this.isRuntimeClosing(sessionId, tabId)) {
-      return;
-    }
-
-    if (!shouldLoad) {
-      this.syncRuntimeState(sessionId, tabId);
-      return;
-    }
-
-    tab.url = nextUrl;
-    tab.status = 'live';
-    tab.isLoading = true;
-    tab.lastError = null;
-    syncSessionLastError(state);
-    this.emitState(sessionId);
-
-    try {
-      await webContents.loadURL(nextUrl);
-      if (this.isRuntimeClosing(sessionId, tabId)) {
-        return;
-      }
-      this.syncRuntimeState(sessionId, tabId);
-    } catch (error) {
-      if (this.isRuntimeClosing(sessionId, tabId)) {
-        return;
-      }
-      if (isAbortedNavigationError(error)) {
-        this.syncRuntimeState(sessionId, tabId);
-        return;
-      }
-      tab.isLoading = false;
-      tab.lastError = "Couldn't open this page.";
-      syncSessionLastError(state);
-      this.emitState(sessionId);
-    }
-  }
-
-  private syncRuntimeState(sessionId: string, tabId: string, faviconUrls?: string[]): void {
-    if (this.isRuntimeClosing(sessionId, tabId)) return;
-    const state = this.states.get(sessionId);
-    const tab = state ? this.getTab(state, tabId) : null;
-    const runtime = this.runtimes.get(buildRuntimeKey(sessionId, tabId));
-    if (!state || !tab || !runtime) return;
-    syncTabStateFromRuntime(state, tab, runtime.view.webContents, faviconUrls);
-    syncSessionLastError(state);
-    this.emitState(sessionId);
-  }
-
-  private destroySessionRuntimes(sessionId: string): void {
-    const state = this.states.get(sessionId);
-    if (!state) return;
-    for (const tab of state.tabs) {
-      this.destroyRuntime(sessionId, tab.id);
-    }
-  }
-
-  private destroyAllRuntimes(): void {
-    for (const runtime of this.runtimes.values()) {
-      this.destroyRuntime(runtime.sessionId, runtime.tabId);
-    }
-  }
-
-  private destroyRuntime(
-    sessionId: string,
-    tabId: string,
-    options: { defer?: boolean } = {}
-  ): void {
-    const key = buildRuntimeKey(sessionId, tabId);
-    const runtime = this.runtimes.get(key);
-    if (!runtime) {
-      this.closingRuntimeKeys.delete(key);
-      return;
-    }
-    this.closingRuntimeKeys.add(key);
-    if (this.attachedRuntimeKey === key) {
-      this.detachAttachedRuntime();
-    }
-    this.runtimes.delete(key);
-
-    if (options.defer) {
-      const timer = setTimeout(() => {
-        this.closeRuntimeWebContents(runtime, key);
-      }, 0);
-      timer.unref();
-      return;
-    }
-
-    this.closeRuntimeWebContents(runtime, key);
-  }
-
-  private closeRuntimeWebContents(runtime: LiveTabRuntime, key: string): void {
-    // Destroying a webContents whose view is still in the window's child list
-    // desyncs Electron's child bookkeeping from the AppKit subviews: the next
-    // window resize throws NSRangeException inside -[NSView setFrameSize:]
-    // and hangs the app in AppKit's exception handler. Unhook defensively,
-    // whatever path led here.
-    this.removeViewFromWindow(runtime.view);
-    this.removeViewFromHiddenHost(runtime.view);
-    if (this.attachedView === runtime.view) {
-      this.attachedView = null;
-      this.attachedRuntimeKey = null;
-    }
-    const webContents = runtime.view.webContents;
-    if (webContents.isDestroyed()) {
-      this.closingRuntimeKeys.delete(key);
-      return;
-    }
-
-    let cleanupTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      cleanupTimer = null;
-      this.closingRuntimeKeys.delete(key);
-    }, 30_000);
-    cleanupTimer.unref();
-
-    const cleanup = () => {
-      if (cleanupTimer) {
-        clearTimeout(cleanupTimer);
-        cleanupTimer = null;
-      }
-      this.closingRuntimeKeys.delete(key);
-    };
-
-    webContents.once('destroyed', cleanup);
-    try {
-      if (webContents.isLoading()) {
-        webContents.stop();
-      }
-      webContents.close({ waitForBeforeUnload: false });
-    } catch (error) {
-      webContents.removeListener('destroyed', cleanup);
-      cleanup();
-      console.warn('[BrowserManager] Failed to close browser tab runtime:', error);
-    }
-  }
-
-  private getOrCreateState(sessionId: string): SessionBrowserState {
-    const existing = this.states.get(sessionId);
-    if (existing) return existing;
-    const initial = defaultSessionBrowserState(sessionId);
-    this.states.set(sessionId, initial);
-    return initial;
-  }
-
-  private ensureWorkspace(sessionId: string, initialUrl?: string): SessionBrowserState {
-    const state = this.getOrCreateState(sessionId);
-    if (state.tabs.length === 0) {
-      const initialTab = createBrowserTab(normalizeUrlInput(initialUrl));
-      state.tabs = [initialTab];
-      state.activeTabId = initialTab.id;
-    }
-    if (!state.activeTabId || !state.tabs.some((tab) => tab.id === state.activeTabId)) {
-      state.activeTabId = state.tabs[0]?.id ?? null;
-    }
-    return state;
-  }
-
-  private resolveTab(state: SessionBrowserState, tabId?: string): BrowserTabState {
-    const resolvedTabId = tabId ?? state.activeTabId;
-    const existing =
-      (resolvedTabId ? state.tabs.find((tab) => tab.id === resolvedTabId) : undefined) ??
-      state.tabs[0];
-    if (existing) return existing;
-    const fallback = createBrowserTab();
-    state.tabs = [fallback];
-    state.activeTabId = fallback.id;
-    return fallback;
-  }
-
-  private getActiveTab(state: SessionBrowserState): BrowserTabState | null {
-    if (!state.activeTabId) return state.tabs[0] ?? null;
-    return state.tabs.find((tab) => tab.id === state.activeTabId) ?? state.tabs[0] ?? null;
-  }
-
-  private getTab(state: SessionBrowserState, tabId: string): BrowserTabState | null {
-    return state.tabs.find((tab) => tab.id === tabId) ?? null;
-  }
-
-  private emitState(sessionId: string): void {
-    const state = cloneSessionState(this.getOrCreateState(sessionId));
-    for (const listener of this.listeners) {
-      listener(state);
-    }
-  }
-
-  /** Mark agent-driven activity for the panel's agent badge (Codex-parity
-   * visible browser use). Re-entrant via depth counting so concurrent
-   * actions keep the badge lit until the LAST one finishes. Skips state
-   * creation for sessions whose panel never opened (no ghost states). */
-  async withAgentActivity<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
-    const state = this.states.get(sessionId);
-    if (!state) {
-      // No panel state: still run the action, just nothing to light up.
-      return action();
-    }
-    const depth = (this.agentActivityDepth.get(sessionId) ?? 0) + 1;
-    this.agentActivityDepth.set(sessionId, depth);
-    if (depth === 1) {
-      state.agentActive = true;
-      this.emitState(sessionId);
-    }
-    try {
-      return await action();
-    } finally {
-      const next = (this.agentActivityDepth.get(sessionId) ?? 1) - 1;
-      if (next <= 0) {
-        this.agentActivityDepth.delete(sessionId);
-        state.agentActive = false;
-        this.emitState(sessionId);
-      } else {
-        this.agentActivityDepth.set(sessionId, next);
-      }
-    }
-  }
-
-  private emitSendSelection(event: BrowserSendSelectionToChatEvent): void {
-    for (const listener of this.selectionListeners) {
-      try {
-        listener(event);
-      } catch (error) {
-        console.error('Browser send-selection listener failed:', error);
-      }
-    }
-  }
-
-  private handleContextMenu(
-    sessionId: string,
-    tabId: string,
-    params: Electron.ContextMenuParams
-  ): void {
-    const runtime = this.runtimes.get(buildRuntimeKey(sessionId, tabId));
-    if (!runtime || runtime.view.webContents.isDestroyed()) return;
-    const webContents = runtime.view.webContents;
-    const selectionText = params.selectionText?.trim() ?? '';
-    const hasSelection = selectionText.length > 0;
-    const linkUrl = params.linkURL;
-
-    const template: Electron.MenuItemConstructorOptions[] = [];
-
-    if (hasSelection) {
-      template.push({
-        label: 'Send selection to chat',
-        click: () => {
-          this.emitSendSelection({
-            sessionId,
-            tabId,
-            selectionText,
-            pageUrl: webContents.getURL(),
-            pageTitle: webContents.getTitle(),
-          });
+  private showContextMenu(sessionId: string, view: PageView, params: ContextMenuParams): void {
+    if (!view.alive) return;
+    const contents = view.contents;
+    const history = contents.navigationHistory;
+    const selection = params.selectionText?.trim() ?? '';
+    const groups: Electron.MenuItemConstructorOptions[][] = [];
+    if (selection) {
+      groups.push([
+        {
+          label: 'Send selection to chat',
+          click: () => {
+            const pageId = this.sessions.get(sessionId)?.page?.id;
+            if (!pageId) return;
+            const event = { sessionId, pageId, selectionText: selection, pageUrl: contents.getURL(), pageTitle: contents.getTitle() };
+            for (const listener of this.selectionListeners) {
+              try {
+                listener(event);
+              } catch (error) {
+                console.error('[browser] selection listener failed:', error);
+              }
+            }
+          },
         },
-      });
-      template.push({ type: 'separator' });
-      template.push({
-        label: 'Copy',
-        role: 'copy',
-      });
-      template.push({
-        label: 'Search the web',
-        click: () => {
-          this.navigate({
-            sessionId,
-            tabId,
-            url: `${SEARCH_URL_PREFIX}${encodeURIComponent(selectionText)}`,
-          });
-        },
-      });
+      ]);
+      groups.push([
+        { label: 'Copy', role: 'copy' },
+        { label: 'Search the web', click: () => this.navigate({ sessionId, url: webSearchUrl(selection) }) },
+      ]);
     }
-
-    if (linkUrl) {
-      if (hasSelection) template.push({ type: 'separator' });
-      template.push({
-        label: 'Open link',
-        click: () => {
-          this.navigate({ sessionId, tabId, url: linkUrl });
-        },
-      });
-      template.push({
-        label: 'Copy link address',
-        click: () => {
-          clipboard.writeText(linkUrl);
-        },
-      });
+    if (params.linkURL) {
+      const link = params.linkURL;
+      groups.push([
+        { label: 'Open link', click: () => this.navigate({ sessionId, url: link }) },
+        { label: 'Copy link address', click: () => clipboard.writeText(link) },
+      ]);
     }
-
-    if (template.length > 0) template.push({ type: 'separator' });
-    template.push({
-      label: 'Back',
-      enabled: webContents.canGoBack(),
-      click: () => webContents.goBack(),
-    });
-    template.push({
-      label: 'Forward',
-      enabled: webContents.canGoForward(),
-      click: () => webContents.goForward(),
-    });
-    template.push({
-      label: 'Reload',
-      click: () => webContents.reload(),
-    });
-    template.push({ type: 'separator' });
-    template.push({
-      label: 'Inspect element',
-      click: () => webContents.inspectElement(params.x, params.y),
-    });
-
-    const menu = Menu.buildFromTemplate(template);
-    menu.popup({ window: this.window ?? undefined });
+    groups.push([
+      { label: 'Back', enabled: history.canGoBack(), click: () => history.goBack() },
+      { label: 'Forward', enabled: history.canGoForward(), click: () => history.goForward() },
+      { label: 'Reload', click: () => contents.reload() },
+    ]);
+    groups.push([{ label: 'Inspect element', click: () => contents.inspectElement(params.x, params.y) }]);
+    const template = groups.flatMap((group, index) => (index ? [{ type: 'separator' as const }, ...group] : group));
+    Menu.buildFromTemplate(template).popup({ window: this.window ?? undefined });
   }
 }
 
-function syncTabStateFromRuntime(
-  state: SessionBrowserState,
-  tab: BrowserTabState,
-  webContents: WebContentsView['webContents'],
-  faviconUrls?: string[]
-): void {
-  const currentUrl = webContents.getURL();
-  const nextUrl = currentUrl || tab.url;
-  const nextTitle = webContents.getTitle();
-  tab.status = 'live';
-  tab.url = nextUrl;
-  tab.title = !nextTitle || nextTitle === ABOUT_BLANK_URL ? defaultTitleForUrl(nextUrl) : nextTitle;
-  tab.isLoading = webContents.isLoading();
-  tab.canGoBack = webContents.canGoBack();
-  tab.canGoForward = webContents.canGoForward();
-  tab.lastCommittedUrl = currentUrl || tab.lastCommittedUrl;
-  if (faviconUrls) {
-    tab.faviconUrl = faviconUrls[0] ?? tab.faviconUrl;
-  }
-  if (tab.lastError && !tab.isLoading) {
-    tab.lastError = null;
-  }
-  syncSessionLastError(state);
-}
-
-function syncSessionLastError(state: SessionBrowserState): void {
-  const activeTab =
-    (state.activeTabId ? state.tabs.find((tab) => tab.id === state.activeTabId) : undefined) ??
-    state.tabs[0];
-  state.lastError = activeTab?.lastError ?? null;
-}
-
-// Singleton instance used across ipc handlers.
 export const browserManager = new BrowserManager();

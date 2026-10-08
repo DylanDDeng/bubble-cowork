@@ -1,91 +1,54 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import type { BrowserSessionState } from '../../shared/browser-types';
 import { rendererStateStorage } from '../utils/renderer-state-storage';
 
-// Stores lightweight browser metadata per session (tabs list, recent history)
-// so the chrome can render immediately on session switch before the main
-// process sends its live state. Adapted from Synara's browserStateStore.
-const BROWSER_STATE_STORAGE_KEY = 'coworker:browser-state:v1';
-const BROWSER_HISTORY_LIMIT = 12;
-
-export interface PersistedBrowserTab {
-  id: string;
+/**
+ * Last known page of each browser session, persisted so tab labels and the
+ * panel can show something right away (after a restart or session switch)
+ * before the main process reports the live page.
+ */
+export interface RememberedPage {
+  pageId: string;
   url: string;
   title: string;
-  faviconUrl: string | null;
+  favicon: string | null;
+  seenAt: number;
 }
 
-export interface PersistedSessionBrowserState {
-  sessionId: string;
-  activeTabId: string | null;
-  tabs: PersistedBrowserTab[];
-  updatedAt: number;
+interface BrowserPageMemory {
+  pages: Record<string, RememberedPage>;
+  remember: (state: BrowserSessionState) => void;
+  forget: (browserSessionId: string) => void;
 }
 
-export interface BrowserHistoryEntry {
-  url: string;
-  title: string;
-  faviconUrl: string | null;
-  lastVisitedAt: number;
-}
-
-interface BrowserStateStore {
-  sessionStatesBySessionId: Record<string, PersistedSessionBrowserState>;
-  recentHistoryBySessionId: Record<string, BrowserHistoryEntry[]>;
-  upsertSessionState: (state: PersistedSessionBrowserState) => void;
-  removeSessionState: (sessionId: string) => void;
-  recordHistoryEntry: (sessionId: string, entry: BrowserHistoryEntry) => void;
-}
-
-export const useBrowserStateStore = create<BrowserStateStore>()(
+export const useBrowserStateStore = create<BrowserPageMemory>()(
   persist(
     (set) => ({
-      sessionStatesBySessionId: {},
-      recentHistoryBySessionId: {},
-      upsertSessionState: (state) => {
-        set((prev) => ({
-          sessionStatesBySessionId: {
-            ...prev.sessionStatesBySessionId,
-            [state.sessionId]: state,
-          },
-        }));
-      },
-      removeSessionState: (sessionId) => {
-        set((prev) => {
-          if (
-            !(sessionId in prev.sessionStatesBySessionId) &&
-            !(sessionId in prev.recentHistoryBySessionId)
-          ) {
-            return prev;
+      pages: {},
+      remember: ({ sessionId, page }) => {
+        if (!page) return;
+        set((current) => {
+          const known = current.pages[sessionId];
+          if (known && known.pageId === page.id && known.url === page.url && known.title === page.title && known.favicon === page.favicon) {
+            return current;
           }
-          const { [sessionId]: _dropState, ...restStates } = prev.sessionStatesBySessionId;
-          const { [sessionId]: _dropHistory, ...restHistory } = prev.recentHistoryBySessionId;
-          void _dropState;
-          void _dropHistory;
           return {
-            sessionStatesBySessionId: restStates,
-            recentHistoryBySessionId: restHistory,
-          };
-        });
-      },
-      recordHistoryEntry: (sessionId, entry) => {
-        if (!entry.url || entry.url === 'about:blank') return;
-        set((prev) => {
-          const existing = prev.recentHistoryBySessionId[sessionId] ?? [];
-          const filtered = existing.filter((item) => item.url !== entry.url);
-          const next = [entry, ...filtered].slice(0, BROWSER_HISTORY_LIMIT);
-          return {
-            recentHistoryBySessionId: {
-              ...prev.recentHistoryBySessionId,
-              [sessionId]: next,
+            pages: {
+              ...current.pages,
+              [sessionId]: { pageId: page.id, url: page.url, title: page.title, favicon: page.favicon, seenAt: Date.now() },
             },
           };
         });
       },
+      forget: (browserSessionId) =>
+        set((current) => {
+          if (!(browserSessionId in current.pages)) return current;
+          const pages = { ...current.pages };
+          delete pages[browserSessionId];
+          return { pages };
+        }),
     }),
-    {
-      name: BROWSER_STATE_STORAGE_KEY,
-      storage: createJSONStorage(() => rendererStateStorage),
-    }
+    { name: 'aegis:browser-pages:v2', storage: createJSONStorage(() => rendererStateStorage) }
   )
 );

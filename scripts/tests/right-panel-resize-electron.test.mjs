@@ -20,7 +20,7 @@ import {useAppPreferences} from '/src/ui/store/useAppPreferences';
 import '/src/ui/index.css';
 window.qa={commits:[],renders:0,observedWidths:[],prefs:useAppPreferences};
 window.electron={designMode:{onEvent:()=>()=>{}},browser:{
- open:async()=>({sessionId:'resize-qa',open:true,activeTabId:'tab',tabs:[{id:'tab',url:'about:blank',title:'Resize QA',status:'ready'}],lastError:null,agentActive:false}),
+ open:async()=>({sessionId:'resize-qa',open:true,page:{id:'tab',url:'about:blank',title:'Resize QA',phase:'live',loading:false,canBack:false,canForward:false,favicon:null,committedUrl:null,error:null},lastError:null,agentActive:false}),
  onState:()=>()=>{},onSendSelection:()=>()=>{},hide:window.qaNative.hide,setPanelBounds:window.qaNative.setPanelBounds,
 }};
 qa.pointerEvents=[];for(const type of ['pointerdown','pointermove','pointerup','gotpointercapture','lostpointercapture'])window.addEventListener(type,e=>qa.pointerEvents.push({type,id:e.pointerId,buttons:e.buttons,x:e.clientX}),true);
@@ -54,7 +54,7 @@ app.whenReady().then(async()=>{
  const nativeView=new WebContentsView({webPreferences:{backgroundThrottling:false}});win.contentView.addChildView(nativeView);nativeView.setVisible(false);
  await nativeView.webContents.loadURL('data:text/html,<body style="background:%23edf1f8;padding:32px;font-family:system-ui"><h2>Browser resize QA</h2><p>Native WebContentsView follows the panel while dragging.</p></body>');
  const bounds=[];
- ipcMain.handle('resize:bounds',(_,payload)=>{bounds.push(payload.bounds);nativeView.setBounds(payload.bounds);nativeView.setVisible(true);});
+ ipcMain.handle('resize:bounds',(_,payload)=>{bounds.push(payload.viewport);nativeView.setBounds(payload.viewport);nativeView.setVisible(true);});
  ipcMain.handle('resize:hide',()=>nativeView.setVisible(false));
  const errors=[];
  win.webContents.on('console-message',e=>{if(e.level==='error')errors.push(e.message);});

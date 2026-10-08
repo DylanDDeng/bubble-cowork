@@ -27,19 +27,12 @@ export async function openUrlInBrowserSession({
   sessionId: string;
   url: string;
 }): Promise<void> {
-  const currentState = await window.electron.browser.getState({ sessionId });
-  if (currentState.tabs.length === 0) {
-    // open() only honors initialUrl when it creates the first tab. A freshly
-    // mounted BrowserPanel races us with open(DEFAULT_HOME_URL); whoever loses
-    // gets ignored, so verify the active tab and force-navigate on mismatch.
-    const opened = await window.electron.browser.open({
-      sessionId,
-      initialUrl: url,
-    });
-    const activeTab = opened.tabs.find((tab) => tab.id === opened.activeTabId);
-    if (activeTab && activeTab.url === url) {
-      return;
-    }
+  const current = await window.electron.browser.getState({ sessionId });
+  if (!current.page) {
+    // open() only uses initialUrl when it creates the page, and a panel that
+    // just mounted may race us with its own open(): check what won.
+    const opened = await window.electron.browser.open({ sessionId, initialUrl: url });
+    if (opened.page?.url === url) return;
   }
 
   await window.electron.browser.navigate({

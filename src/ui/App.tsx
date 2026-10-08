@@ -75,7 +75,7 @@ import { DesignAnnotateBridge } from './components/browser/DesignAnnotateBridge'
 import { getSubagentPersona } from './utils/subagent-persona';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { ChatPane } from './components/ChatPane';
-import { useBrowserStateStore } from './store/useBrowserStateStore';
+import { useBrowserStateStore, type RememberedPage } from './store/useBrowserStateStore';
 import { EnvironmentEditorPicker, EnvironmentHub } from './components/environment/EnvironmentHub';
 import { SessionSourcesPanel } from './components/SessionSourcesPanel';
 import { useSessionSources } from './hooks/useSessionSources';
@@ -168,16 +168,10 @@ function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUti
   return target as ProjectUtilityPanelKind;
 }
 
-function getBrowserUtilityLabel(
-  state: ReturnType<typeof useBrowserStateStore.getState>['sessionStatesBySessionId'][string] | null | undefined
-): string {
-  const activeTab =
-    state?.tabs.find((tab) => tab.id === state.activeTabId) ??
-    state?.tabs[0] ??
-    null;
-  const title = activeTab?.title?.trim();
+function getBrowserUtilityLabel(page: RememberedPage | null | undefined): string {
+  const title = page?.title?.trim();
   if (title && title !== 'New tab' && title !== 'New page') return title;
-  const url = activeTab?.url?.trim();
+  const url = page?.url?.trim();
   if (!url || url === 'about:blank') return 'Browser';
   try {
     return new URL(url).hostname || 'Browser';
@@ -240,8 +234,8 @@ export function App() {
   const [activeProjectFileTabs, setActiveProjectFileTabs] = useState<
     Record<string, { filePath: string; name: string } | null>
   >({});
-  const browserSessionStates = useBrowserStateStore((s) => s.sessionStatesBySessionId);
-  const removeBrowserSessionState = useBrowserStateStore((s) => s.removeSessionState);
+  const browserSessionStates = useBrowserStateStore((s) => s.pages);
+  const removeBrowserSessionState = useBrowserStateStore((s) => s.forget);
 
   // P2: subscribe with a shallow-picked selector instead of the whole store —
   // App must NOT re-render for unrelated store changes (most importantly:

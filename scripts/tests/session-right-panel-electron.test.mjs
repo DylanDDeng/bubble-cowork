@@ -24,7 +24,7 @@ import {BrowserPanel} from '/src/ui/components/browser/BrowserPanel';
 import '/src/ui/index.css';
 window.qa={events:[]};
 window.electron={designMode:{onEvent:()=>()=>{}},browser:{
- open:async({sessionId})=>({sessionId,open:true,activeTabId:sessionId,tabs:[{id:sessionId,url:'about:blank',title:sessionId,status:'ready'}],lastError:null,agentActive:false}),
+ open:async({sessionId})=>({sessionId,open:true,page:{id:sessionId,url:'about:blank',title:sessionId,phase:'live',loading:false,canBack:false,canForward:false,favicon:null,committedUrl:null,error:null},lastError:null,agentActive:false}),
  onState:()=>()=>{},onSendSelection:()=>()=>{},
  hide:p=>{qa.events.push({kind:'hide',id:p.sessionId});return window.qaNative.hide(p);},
  setPanelBounds:p=>{qa.events.push({kind:'bounds',id:p.sessionId});return window.qaNative.bounds(p);},
@@ -51,7 +51,7 @@ app.whenReady().then(async()=>{
  const win=new BrowserWindow({show:false,width:1200,height:800,webPreferences:{backgroundThrottling:false,preload:path.join(__dirname,'preload.cjs')}});
  const view=new WebContentsView();win.contentView.addChildView(view);view.setVisible(false);
  let owner=null;const nativeEvents=[];
- ipcMain.handle('qa:bounds',(_,p)=>{owner=p.sessionId;view.setBounds(p.bounds);view.setVisible(p.bounds.width>0&&p.bounds.height>0);nativeEvents.push(['bounds',owner]);});
+ ipcMain.handle('qa:bounds',(_,p)=>{owner=p.sessionId;view.setBounds(p.viewport);view.setVisible(p.viewport.width>0&&p.viewport.height>0);nativeEvents.push(['bounds',owner]);});
  ipcMain.handle('qa:hide',(_,p)=>{if(owner===p.sessionId){owner=null;view.setVisible(false);}nativeEvents.push(['hide',p.sessionId]);});
  ipcMain.handle('qa:snapshot',()=>({owner,visible:view.getVisible()}));
  const js=s=>win.webContents.executeJavaScript(s,true);

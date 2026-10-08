@@ -37,7 +37,7 @@ app.whenReady().then(async () => {
     const bounds = { x: 0, y: 0, width: 900, height: 650 };
     browserManager.open({ sessionId: 'A', initialUrl: preview.url });
     async function show(id) {
-      browserManager.setPanelBounds({ sessionId: id, bounds });
+      browserManager.setPanelBounds({ sessionId: id, viewport: bounds });
       const target = browserManager.acquireAgentTarget(id);
       await target.restore;
       const contents = target.webContents;
@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
         if (!contents.isLoading() && contents.getURL().startsWith('file:')) break;
         await new Promise(resolve => setTimeout(resolve, 30));
       }
-      assert.equal(browserManager.getState({ sessionId: id }).lastError, null);
+      assert.equal(browserManager.getState({ sessionId: id }).page?.error, null);
       return contents;
     }
     const first = await show('A');
@@ -65,7 +65,7 @@ app.whenReady().then(async () => {
       browserManager.hide({ sessionId: id === 'A' ? 'B' : 'A' });
       const contents = await show(id);
       assert.equal(contents.getURL(), id === 'A' ? preview.url : secondUrl);
-      assert.equal(browserManager.getState({ sessionId: id }).tabs.length, 1);
+      assert.ok(browserManager.getState({ sessionId: id }).page, 'each session keeps its single page');
     }
     assert.throws(() => browserManager.navigate({ sessionId: 'A', url: 'file://remote/share/index.html' }), /local file/);
     console.log('PASS Electron HTML preview: external file, encoded path, relative CSS/JS/image, sandbox, repeated A/B switching, remote-file rejection');

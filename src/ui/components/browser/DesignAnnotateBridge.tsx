@@ -71,7 +71,7 @@ export function DesignAnnotateBridge() {
       const attachments: Attachment[] = [];
       let pageUrl: string | null = null;
       try {
-        const captured = await window.electron.browser.capture({ sessionId: browserSessionId, tabId });
+        const captured = await window.electron.browser.capture({ sessionId: browserSessionId });
         if (captured.ok && captured.base64 && captured.dataUrl) {
           pageUrl = captured.pageUrl ?? null;
           // Geometry travels WITH the annotate event, measured in-page at

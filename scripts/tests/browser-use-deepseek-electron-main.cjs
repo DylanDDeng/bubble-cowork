@@ -201,10 +201,10 @@ app.whenReady().then(async () => {
       );
     }
     const stateBeforeRelease = browserManager.getState({ sessionId: threadId });
-    if (stateBeforeRelease.open || !stateBeforeRelease.activeTabId) {
+    if (stateBeforeRelease.open || !stateBeforeRelease.page) {
       throw new Error('Browser Use did not create a detached session tab');
     }
-    const tabId = stateBeforeRelease.activeTabId;
+    const tabId = stateBeforeRelease.page.id;
     if (!browserManager.getLiveWebContents(threadId, tabId)) {
       throw new Error('detached browser runtime was not live during the turn');
     }

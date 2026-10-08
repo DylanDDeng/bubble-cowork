@@ -1,26 +1,19 @@
-// Per-session in-app browser panel.
+// In-app browser panel for one browser session. The page itself is a native
+// view owned by the main process; this component draws the toolbar, reports
+// where the page should appear (the viewport div below the toolbar), and
+// turns page content into chat context: screenshot, page readout, and
+// "Send selection to chat" from the page's context menu.
 //
-// Architecture (adapted from Synara's, formerly dpcode, BrowserPanel.tsx):
-// - Main process owns the actual Chromium WebContentsView. This component only
-//   renders chrome (address bar, tab strip, buttons) and reserves a viewport
-//   div whose bounds are forwarded to the main process so the native view is
-//   mirrored on top of the React tree.
-// - State is sourced from two places:
-//     1. `window.electron.browser.onState` broadcast (live source of truth).
-//     2. `useBrowserStateStore` persisted cache (instant paint on session switch).
-// - Three AI-integration actions live here:
-//     1. Screenshot the active tab and attach to chat.
-//     2. Readout the page (text + selection + top links) into the prompt.
-//     3. "Send selection to chat" fired from the browser native context menu.
-//
-// Keep this component resilient to background session switches: we always pass
-// the explicit `sessionId` prop to IPC calls and filter onState events.
+// Every call names the panel's own browser session, and state pushes for
+// other sessions are ignored, so a panel switched away mid-request stays
+// consistent.
 
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from 'react';
@@ -36,30 +29,20 @@ import {
   RefreshCw,
 } from '../icons';
 import { toast } from 'sonner';
+import { BLANK_PAGE, resolveAddress } from '../../../shared/browser-address';
 import type {
   BrowserReadoutResult,
   BrowserSendSelectionEvent,
-  BrowserTabState,
-  SessionBrowserState,
+  BrowserSessionState,
 } from '../../../shared/browser-types';
 import type { Attachment } from '../../../shared/types';
 import { useAppStore } from '../../store/useAppStore';
-import {
-  useBrowserStateStore,
-  type PersistedBrowserTab,
-  type PersistedSessionBrowserState,
-} from '../../store/useBrowserStateStore';
-import {
-  browserAddressDisplayValue,
-  normalizeBrowserAddressInput,
-  resolveBrowserAddressSync,
-  resolveBrowserChromeStatus,
-} from './BrowserPanel.logic';
+import { useBrowserStateStore, type RememberedPage } from '../../store/useBrowserStateStore';
+import { browserStatusLine, emptyAddressField, updateAddressField } from './address-bar';
 import { useBrowserNativeOverlay } from './browser-native-overlay';
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 1200;
-const DEFAULT_HOME_URL = 'about:blank';
 const READOUT_TEXT_CHAR_LIMIT = 6000;
 const READOUT_LINK_LIMIT = 15;
 
@@ -78,41 +61,26 @@ interface BrowserPanelProps {
   embedded?: boolean;
 }
 
-function persistedToState(state: PersistedSessionBrowserState): SessionBrowserState {
+/** What the panel shows before the main process reports: the remembered page, suspended. */
+function rememberedState(sessionId: string, remembered: RememberedPage | null): BrowserSessionState {
   return {
-    sessionId: state.sessionId,
-    open: true,
-    activeTabId: state.activeTabId,
-    tabs: state.tabs.map(
-      (tab: PersistedBrowserTab): BrowserTabState => ({
-        id: tab.id,
-        url: tab.url,
-        title: tab.title,
-        status: 'suspended',
-        isLoading: false,
-        canGoBack: false,
-        canGoForward: false,
-        faviconUrl: tab.faviconUrl,
-        lastCommittedUrl: tab.url,
-        lastError: null,
-      })
-    ),
-    lastError: null,
+    sessionId,
+    open: !!remembered,
     agentActive: false,
-  };
-}
-
-function stateToPersisted(state: SessionBrowserState): PersistedSessionBrowserState {
-  return {
-    sessionId: state.sessionId,
-    activeTabId: state.activeTabId,
-    updatedAt: Date.now(),
-    tabs: state.tabs.map((tab) => ({
-      id: tab.id,
-      url: tab.url,
-      title: tab.title,
-      faviconUrl: tab.faviconUrl,
-    })),
+    page: remembered
+      ? {
+          id: remembered.pageId,
+          url: remembered.url,
+          title: remembered.title,
+          phase: 'suspended',
+          loading: false,
+          canBack: false,
+          canForward: false,
+          favicon: remembered.favicon,
+          committedUrl: remembered.url,
+          error: null,
+        }
+      : null,
   };
 }
 
@@ -139,43 +107,20 @@ export function BrowserPanel({
     [sessionId, createDraftSession]
   );
 
-  const cachedSessionState = useBrowserStateStore(
-    (s) => s.sessionStatesBySessionId[browserSessionId] ?? null
+  const rememberPage = useBrowserStateStore((s) => s.remember);
+  const [sessionState, setSessionState] = useState<BrowserSessionState>(() =>
+    rememberedState(browserSessionId, useBrowserStateStore.getState().pages[browserSessionId] ?? null)
   );
-  const upsertSessionState = useBrowserStateStore((s) => s.upsertSessionState);
-  const removeSessionState = useBrowserStateStore((s) => s.removeSessionState);
-  const recordHistoryEntry = useBrowserStateStore((s) => s.recordHistoryEntry);
-
-  const [sessionState, setSessionState] = useState<SessionBrowserState>(() => {
-    if (cachedSessionState) return persistedToState(cachedSessionState);
-    return {
-      sessionId: browserSessionId,
-      open: false,
-      activeTabId: null,
-      tabs: [],
-      lastError: null,
-      agentActive: false,
-    };
-  });
-
-  const activeTab = useMemo<BrowserTabState | null>(() => {
-    if (!sessionState.activeTabId) return null;
-    return sessionState.tabs.find((tab) => tab.id === sessionState.activeTabId) ?? null;
-  }, [sessionState]);
-
-  // ===== 地址栏本地编辑状态 =====
-  const [addressValue, setAddressValue] = useState('');
-  const [addressEditing, setAddressEditing] = useState(false);
-  const [addressDrafts, setAddressDrafts] = useState<Record<string, string>>({});
-  const lastSyncedAddressRef = useRef<string | undefined>(undefined);
-  const previousActiveTabIdRef = useRef<string | null>(null);
+  const page = sessionState.page;
+  const [address, dispatchAddress] = useReducer(updateAddressField, emptyAddressField);
+  useEffect(() => dispatchAddress({ kind: 'page', page }), [page]);
 
   const [localError, setLocalError] = useState<string | null>(null);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [readoutBusy, setReadoutBusy] = useState(false);
 
   // ===== Design mode =====
-  // The design session is keyed by the (browserSessionId, tabId) it was
+  // The design session is keyed by the (browserSessionId, page id) it was
   // ENABLED for — disable must use that stored pair, not the current props:
   // after a chat-session switch browserSessionId changes and a disable built
   // from it would miss the service's session map, leaking the pinned
@@ -207,9 +152,7 @@ export function BrowserPanel({
       disableDesignMode();
       return;
     }
-    const tab = sessionState.activeTabId
-      ? sessionState.tabs.find((item) => item.id === sessionState.activeTabId) ?? null
-      : null;
+    const tab = sessionState.page;
     if (!tab) return;
     if (!projectRoot) {
       toast.error('Design mode needs an open project session (annotations carry project context).');
@@ -243,11 +186,11 @@ export function BrowserPanel({
     if (
       collapsed ||
       browserSessionId !== designTarget.browserSessionId ||
-      sessionState.activeTabId !== designTarget.tabId
+      page?.id !== designTarget.tabId
     ) {
       disableDesignMode();
     }
-  }, [collapsed, browserSessionId, sessionState.activeTabId, designTarget, disableDesignMode]);
+  }, [collapsed, browserSessionId, page?.id, designTarget, disableDesignMode]);
 
   // Unmount cleanup: closing the browser utility tab must release the design
   // session (pin + poll timer + in-page inspector), not leak it.
@@ -256,11 +199,11 @@ export function BrowserPanel({
   // Staleness fingerprint for in-flight enables: any change here (or unmount)
   // invalidates an enable() that resolves afterwards.
   useEffect(() => {
-    designContextRef.current = `${collapsed}:${browserSessionId}:${sessionState.activeTabId ?? ''}`;
+    designContextRef.current = `${collapsed}:${browserSessionId}:${page?.id ?? ''}`;
     return () => {
       designContextRef.current = '__unmounted__';
     };
-  }, [collapsed, browserSessionId, sessionState.activeTabId]);
+  }, [collapsed, browserSessionId, page?.id]);
 
   // The service emits 'disabled' when it tears a session down (page gone,
   // left localhost, host reload); clear the UI target without re-invoking
@@ -284,37 +227,27 @@ export function BrowserPanel({
     let cancelled = false;
     const api = window.electron.browser;
 
+    const accept = (state: BrowserSessionState) => {
+      setSessionState(state);
+      rememberPage(state);
+    };
     api
-      .open({ sessionId: browserSessionId, initialUrl: DEFAULT_HOME_URL })
+      .open({ sessionId: browserSessionId, initialUrl: BLANK_PAGE })
       .then((state) => {
-        if (cancelled) return;
-        setSessionState(state);
-        upsertSessionState(stateToPersisted(state));
+        if (!cancelled) accept(state);
       })
       .catch((error: unknown) => {
         if (!cancelled) setLocalError(String(error));
       });
-
-    const dispose = api.onState((nextState) => {
-      if (nextState.sessionId !== browserSessionId) return;
-      setSessionState(nextState);
-      upsertSessionState(stateToPersisted(nextState));
-      const active = nextState.tabs.find((tab) => tab.id === nextState.activeTabId);
-      if (active && active.url && active.url !== DEFAULT_HOME_URL) {
-        recordHistoryEntry(browserSessionId, {
-          url: active.url,
-          title: active.title,
-          faviconUrl: active.faviconUrl,
-          lastVisitedAt: Date.now(),
-        });
-      }
+    const dispose = api.onState((state) => {
+      if (state.sessionId === browserSessionId) accept(state);
     });
 
     return () => {
       cancelled = true;
       dispose();
     };
-  }, [browserSessionId, collapsed, recordHistoryEntry, upsertSessionState]);
+  }, [browserSessionId, collapsed, rememberPage]);
 
   // Invalidate scheduled geometry updates before paint. Otherwise an old
   // ResizeObserver/rAF can reattach a view after navigation has hidden it.
@@ -353,39 +286,9 @@ export function BrowserPanel({
     return () => dispose();
   }, [browserSessionId, requestChatInjection, sessionId]);
 
-  // ===== 地址栏同步 =====
-  const nextDisplayValue = browserAddressDisplayValue(activeTab);
-  useEffect(() => {
-    const decision = resolveBrowserAddressSync({
-      activeTabId: sessionState.activeTabId,
-      previousActiveTabId: previousActiveTabIdRef.current,
-      savedDraft: sessionState.activeTabId
-        ? addressDrafts[sessionState.activeTabId]
-        : undefined,
-      nextDisplayValue,
-      lastSyncedValue: lastSyncedAddressRef.current,
-      isEditing: addressEditing,
-    });
-    previousActiveTabIdRef.current = sessionState.activeTabId;
-    if (decision.type === 'replace') {
-      setAddressValue(decision.value);
-      lastSyncedAddressRef.current = decision.syncedValue;
-    }
-    // We intentionally omit addressDrafts/addressEditing from deps because the
-    // decision layer handles those via ref-like inputs to avoid sync loops.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionState.activeTabId, nextDisplayValue]);
-
-  const chromeStatus = useMemo(
-    () =>
-      resolveBrowserChromeStatus({
-        localError,
-        sessionLastError: sessionState.lastError,
-        activeTabStatus: activeTab?.status ?? 'suspended',
-        hasActiveTab: !!activeTab,
-        workspaceReady: sessionState.open,
-      }),
-    [activeTab, localError, sessionState.lastError, sessionState.open]
+  const statusLine = useMemo(
+    () => browserStatusLine({ localError, page, open: sessionState.open }),
+    [localError, page, sessionState.open]
   );
 
   // ===== Viewport bounds sync =====
@@ -400,7 +303,7 @@ export function BrowserPanel({
     window.electron.browser
       .setPanelBounds({
         sessionId: browserSessionId,
-        bounds: {
+        viewport: {
           x: Math.round(rect.left),
           y: Math.round(rect.top),
           width: Math.round(rect.width),
@@ -454,66 +357,47 @@ export function BrowserPanel({
     };
   }, [nativeViewHidden, width, pushBounds]);
 
-  // ===== 操作封装 =====
+  // ===== Toolbar actions =====
   const handleNavigate = useCallback(
-    async (rawInput: string) => {
-      const normalized = normalizeBrowserAddressInput(rawInput);
+    async (typed: string) => {
       try {
         const next = await window.electron.browser.navigate({
           sessionId: browserSessionId,
-          tabId: sessionState.activeTabId ?? undefined,
-          url: normalized,
+          url: resolveAddress(typed),
         });
         setSessionState(next);
-        setAddressEditing(false);
+        dispatchAddress({ kind: 'submitted' });
         setLocalError(null);
       } catch (error) {
         setLocalError(String(error));
       }
     },
-    [browserSessionId, sessionState.activeTabId]
+    [browserSessionId]
   );
 
   const handleAddressKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
       event.preventDefault();
-      void handleNavigate(addressValue);
+      void handleNavigate(address.text);
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      setAddressValue(nextDisplayValue);
-      setAddressEditing(false);
-      (event.target as HTMLInputElement).blur();
+      dispatchAddress({ kind: 'cancel' });
+      event.currentTarget.blur();
     }
   };
 
-  const handleAddressChange = (value: string) => {
-    setAddressValue(value);
-    if (sessionState.activeTabId) {
-      setAddressDrafts((prev) => ({ ...prev, [sessionState.activeTabId!]: value }));
-    }
+  const pageCall = (call: (input: { sessionId: string }) => Promise<unknown>) => () => {
+    if (page) call({ sessionId: browserSessionId }).catch(() => {});
   };
-
-  const handleBack = () => {
-    if (!activeTab) return;
-    window.electron.browser.goBack({ sessionId: browserSessionId, tabId: activeTab.id }).catch(() => {});
-  };
-  const handleForward = () => {
-    if (!activeTab) return;
-    window.electron.browser.goForward({ sessionId: browserSessionId, tabId: activeTab.id }).catch(() => {});
-  };
-  const handleReload = () => {
-    if (!activeTab) return;
-    window.electron.browser.reload({ sessionId: browserSessionId, tabId: activeTab.id }).catch(() => {});
-  };
+  const handleBack = pageCall(window.electron.browser.goBack);
+  const handleForward = pageCall(window.electron.browser.goForward);
+  const handleReload = pageCall(window.electron.browser.reload);
 
   const handleCaptureScreenshot = async () => {
-    if (!activeTab || screenshotBusy) return;
+    if (!page || screenshotBusy) return;
     setScreenshotBusy(true);
     try {
-      const result = await window.electron.browser.capture({
-        sessionId: browserSessionId,
-        tabId: activeTab.id,
-      });
+      const result = await window.electron.browser.capture({ sessionId: browserSessionId });
       if (!result.ok || !result.base64) {
         toast.error(result.message || 'Failed to capture screenshot');
         return;
@@ -528,9 +412,7 @@ export function BrowserPanel({
         toast.error('Failed to create screenshot attachment');
         return;
       }
-      const note = `Screenshot of [${result.pageTitle || result.pageUrl || activeTab.title}](${
-        result.pageUrl || activeTab.url
-      })`;
+      const note = `Screenshot of [${result.pageTitle || result.pageUrl || page.title}](${result.pageUrl || page.url})`;
       requestChatInjection({
         sessionId: resolveChatTargetId(),
         text: note,
@@ -547,13 +429,10 @@ export function BrowserPanel({
   };
 
   const handleReadPage = async () => {
-    if (!activeTab || readoutBusy) return;
+    if (!page || readoutBusy) return;
     setReadoutBusy(true);
     try {
-      const result = await window.electron.browser.readPage({
-        sessionId: browserSessionId,
-        tabId: activeTab.id,
-      });
+      const result = await window.electron.browser.readPage({ sessionId: browserSessionId });
       if (!result.ok) {
         toast.error(result.message || 'Failed to read this page');
         return;
@@ -696,7 +575,7 @@ export function BrowserPanel({
           <button
             type="button"
             onClick={handleBack}
-            disabled={!activeTab?.canGoBack}
+            disabled={!page?.canBack}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             title="Back"
             aria-label="Back"
@@ -706,7 +585,7 @@ export function BrowserPanel({
           <button
             type="button"
             onClick={handleForward}
-            disabled={!activeTab?.canGoForward}
+            disabled={!page?.canForward}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             title="Forward"
             aria-label="Forward"
@@ -716,13 +595,13 @@ export function BrowserPanel({
           <button
             type="button"
             onClick={handleReload}
-            disabled={!activeTab}
+            disabled={!page}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             title="Reload"
             aria-label="Reload"
           >
             <RefreshCw
-              className={`h-[13px] w-[13px] ${activeTab?.isLoading ? 'animate-spin' : ''}`}
+              className={`h-[13px] w-[13px] ${page?.loading ? 'animate-spin' : ''}`}
             />
           </button>
 
@@ -730,14 +609,14 @@ export function BrowserPanel({
             <input
               type="text"
               spellCheck={false}
-              value={addressValue}
-              onChange={(e) => handleAddressChange(e.target.value)}
+              value={address.text}
+              onChange={(e) => dispatchAddress({ kind: 'type', text: e.target.value })}
               onFocus={(e) => {
-                setAddressEditing(true);
+                dispatchAddress({ kind: 'focus' });
                 e.currentTarget.select();
               }}
               onBlur={() => {
-                window.setTimeout(() => setAddressEditing(false), 100);
+                window.setTimeout(() => dispatchAddress({ kind: 'blur' }), 100);
               }}
               onKeyDown={handleAddressKeyDown}
               placeholder="Search Google or enter a URL"
@@ -748,7 +627,7 @@ export function BrowserPanel({
           <button
             type="button"
             onClick={handleCaptureScreenshot}
-            disabled={!activeTab || screenshotBusy}
+            disabled={!page || screenshotBusy}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             title="Screenshot to chat"
             aria-label="Screenshot to chat"
@@ -762,7 +641,7 @@ export function BrowserPanel({
           <button
             type="button"
             onClick={handleReadPage}
-            disabled={!activeTab || readoutBusy}
+            disabled={!page || readoutBusy}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             title="Send page content to chat"
             aria-label="Send page content to chat"
@@ -776,7 +655,7 @@ export function BrowserPanel({
           <button
             type="button"
             onClick={() => void toggleDesignMode()}
-            disabled={!activeTab}
+            disabled={!page}
             className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
               designTarget
                 ? 'bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]'
@@ -790,12 +669,12 @@ export function BrowserPanel({
           <button
             type="button"
             onClick={() => {
-              if (activeTab?.url) {
-                void navigator.clipboard.writeText(activeTab.url);
+              if (page?.url) {
+                void navigator.clipboard.writeText(page.url);
                 toast.success('URL copied');
               }
             }}
-            disabled={!activeTab}
+            disabled={!page}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             title="Copy URL"
             aria-label="Copy URL"
@@ -805,13 +684,9 @@ export function BrowserPanel({
           <button
             type="button"
             onClick={() => {
-              if (activeTab) {
-                window.electron.browser
-                  .openDevTools({ sessionId: browserSessionId, tabId: activeTab.id })
-                  .catch(() => {});
-              }
+              if (page) window.electron.browser.openDevTools({ sessionId: browserSessionId }).catch(() => {});
             }}
-            disabled={!activeTab}
+            disabled={!page}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             title="Open DevTools"
             aria-label="Open DevTools"
@@ -828,15 +703,15 @@ export function BrowserPanel({
       <div className="flex min-h-0 flex-1">
         <div className="relative min-h-0 flex-1 bg-[var(--bg-primary)]">
           <div ref={viewportRef} className="absolute inset-0" />
-          {chromeStatus && (
+          {statusLine && (
             <div
               className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${
-                chromeStatus.tone === 'error'
+                statusLine.tone === 'error'
                   ? 'border-red-500/40 bg-red-500/10 text-red-400'
                   : 'border-[var(--border)] bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)]'
               }`}
             >
-              {chromeStatus.label}
+              {statusLine.text}
             </div>
           )}
         </div>
