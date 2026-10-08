@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zstdCompressSync } from 'node:zlib';
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
+
+const {
+  writeMessagesStream, toolResults, assistantBlocks, reasoningEffort,
+} = createRequire(import.meta.url)('../fixtures/deepseek-messages-mock.cjs');
 
 // A real rc.8 session with a completed read call. Only workspace paths and
 // the local skill catalog are redacted; event identities/order are preserved.
@@ -38,14 +43,7 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     const body = JSON.parse(Buffer.concat(chunks).toString());
     requests.push(body);
-    const chunk = (delta, finish_reason = null) => ({
-      id: 'upgrade-probe', object: 'chat.completion.chunk', model: body.model,
-      choices: [{ index: 0, delta, finish_reason }],
-    });
-    res.writeHead(200, { 'content-type': 'text/event-stream' });
-    res.write(`data: ${JSON.stringify(chunk({ role: 'assistant', content: 'UPGRADE_OK' }))}\n\n`);
-    res.write(`data: ${JSON.stringify(chunk({}, 'stop'))}\n\n`);
-    res.end('data: [DONE]\n\n');
+    writeMessagesStream(res, { model: body.model, id: 'upgrade-probe', text: 'UPGRADE_OK' });
   });
 });
 await new Promise((resolve, reject) => {
@@ -86,7 +84,7 @@ try {
     assert.equal(result.finalResponse, 'UPGRADE_OK');
     assert.equal(result.sessionId, sessionId);
     assert(result.events.some((event) => event.type === 'turn/end'));
-    assert(readdirSync(sessionDir).includes('session.v3.jsonl.zstd'));
+    assert(readdirSync(sessionDir).includes('session.v4.jsonl.zstd'), `migrated session files: ${readdirSync(sessionDir).join(', ')}`);
     assert.deepEqual(readFileSync(legacyPath), legacyBytes, 'migration must preserve the source log');
 
     // The new native write lock must reject a second process, then release
@@ -103,13 +101,12 @@ try {
   assert.equal(requests.length, 2, 'lock rejection must not reach the model');
   for (const request of requests) {
     assert.equal(request.model, 'deepseek-flash');
-    assert.equal(request.reasoning_effort, 'high');
-    assert(request.messages.some((message) => message.role === 'tool' &&
-      JSON.stringify(message).includes('AEGIS_LEGACY_MEMORY')));
-    assert(request.messages.some((message) => message.role === 'assistant' &&
-      JSON.stringify(message).includes('legacy-read')));
+    assert.equal(reasoningEffort(request), 'high');
+    assert(toolResults(request).some((result) => result.text.includes('AEGIS_LEGACY_MEMORY')));
+    assert(assistantBlocks(request).some((block) => block.type === 'tool_use' &&
+      JSON.stringify(block).includes('legacy-read')));
   }
-  assert(requests[1].messages.some((message) => message.role === 'assistant' && message.content === 'UPGRADE_OK'));
+  assert(assistantBlocks(requests[1]).some((block) => block.type === 'text' && block.text === 'UPGRADE_OK'));
 
   const other = join(temp, 'other'); mkdirSync(other);
   for (const [workspace, id, error] of [
@@ -122,7 +119,7 @@ try {
   }
   assert.equal(requests.length, 2, 'unsafe resume must fail before inference');
   assert.deepEqual(readFileSync(legacyPath), legacyBytes);
-  console.log('DeepSeek upgrade: rc.8 migration, V3 restart, full tool history, effort, locks and resume guards passed');
+  console.log('DeepSeek upgrade: rc.8 migration, V4 restart, full tool history, effort, locks and resume guards passed');
 } finally {
   await Promise.allSettled([...opened].map((h) => h.close()));
   server.closeAllConnections();

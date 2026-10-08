@@ -144,7 +144,7 @@
   config:
     includeHarnessIdentity: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
     includeRuntimeContext: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') !== 'minimal'"
-    personaPrefix: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? 'You are a helpful software engineer assistant.' : (process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'cordis' ? 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. You can inspect and experiment with the live Cordis runtime to help create custom agent compositions. Verify your work and keep answers factual.' : 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug. Verify your work by running the code or tests. Keep answers brief and factual.'"
+    personaPrefix: !!js "(process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'minimal' ? 'You are a helpful software engineer assistant.' : (process.env.AEGIS_DSH_AGENT_PRESET ?? 'standard') === 'cordis' ? 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. You can inspect the live Cordis runtime (services, events and the plugin tree) to help design custom agent compositions. Verify your work and keep answers factual.' : 'You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug. Verify your work by running the code or tests. Keep answers brief and factual.'"
 
 - id: tools
   name: '@deepseek-ai/dsh-tools'
@@ -199,9 +199,11 @@
 # PTC / Code mode exposes the registered tools through the generated
 # TypeScript SDK and the single run_code transport. The runtime remains loaded
 # in other modes so the composition shape is stable; native presentation never
-# exposes it to the model.
-- id: code-runtime
-  name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+# exposes it to the model. Each run_code call starts a fresh Node process under
+# the same sandbox policy as bash; the runtime keeps ELECTRON_RUN_AS_NODE so the
+# packaged Electron binary still runs as Node.
+- id: ptc-runtime
+  name: '@deepseek-ai/dsh-ptc-runtime-node'
 
 - id: sessions
   name: '@deepseek-ai/dsh-session-persistence-jsonl'

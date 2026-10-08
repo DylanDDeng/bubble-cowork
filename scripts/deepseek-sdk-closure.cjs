@@ -4,6 +4,11 @@
 // runtime edges, so every package reachable only through such a peer edge
 // must be declared as a direct dependency or app.asar silently omits it.
 const SDK_CLIENT = '@deepseek-ai/dsh-sdk-client';
+// The SDK client depends on the whole dsh CLI only to find a default launch
+// binary when the caller passes no `dshBin`. Aegis always passes the bundled
+// profile's runtime-bin.mjs, so the CLI graph (its Web UI, LibreOffice and
+// speech runtimes, other model SDKs) is never loaded and is not packaged.
+const UNUSED_SDK_LAUNCHER = '@deepseek-ai/dsh';
 
 // Resolve `name` from the package at `fromPath` the way Node does: nearest
 // nested node_modules first, then each ancestor, then the top level.
@@ -33,12 +38,17 @@ function walkLockGraph(lockPackages, roots, {
   // Release Linux builds target glibc; callers can explicitly validate musl.
   libc = 'glibc',
   returnPaths = false,
+  // Package names whose edges are not followed (they are not packaged).
+  skip = new Set(),
+  // Keep optional native packages of every platform instead of one target.
+  matchAllTargets = false,
 }) {
   const seenPaths = new Set();
   const names = new Set();
   const queue = roots.map((name) => ({ name, fromPath: '', optional: false, from: '<root>' }));
   while (queue.length > 0) {
     const { name, fromPath, optional, from } = queue.shift();
+    if (skip.has(name)) continue;
     const lockPath = resolveLockPath(lockPackages, fromPath, name);
     if (!lockPath) {
       if (optional) continue;
@@ -53,7 +63,7 @@ function walkLockGraph(lockPackages, roots, {
       !values.includes(`!${target}`) &&
       (!values.some((value) => !value.startsWith('!')) || values.includes('any') || values.includes(target))
     );
-    if (optional && (!matches(entry.os, platform) || !matches(entry.cpu, arch) || (platform === 'linux' && !matches(entry.libc, libc)))) continue;
+    if (optional && !matchAllTargets && (!matches(entry.os, platform) || !matches(entry.cpu, arch) || (platform === 'linux' && !matches(entry.libc, libc)))) continue;
     if (seenPaths.has(lockPath)) continue;
     seenPaths.add(lockPath);
     names.add(name);
@@ -70,8 +80,10 @@ function walkLockGraph(lockPackages, roots, {
   return returnPaths ? seenPaths : names;
 }
 
+const SKIP_LAUNCHER = new Set([UNUSED_SDK_LAUNCHER]);
+
 function deepseekSdkClosure(lockPackages, target = {}) {
-  return walkLockGraph(lockPackages, [SDK_CLIENT], { ...target, followPeers: true });
+  return walkLockGraph(lockPackages, [SDK_CLIENT], { ...target, followPeers: true, skip: SKIP_LAUNCHER });
 }
 
 function electronBuilderCollected(lockPackages, rootDependencies) {
@@ -79,13 +91,53 @@ function electronBuilderCollected(lockPackages, rootDependencies) {
 }
 
 function deepseekSdkPackagePaths(lockPackages, target = {}) {
-  return walkLockGraph(lockPackages, [SDK_CLIENT], { ...target, followPeers: true, returnPaths: true });
+  return walkLockGraph(lockPackages, [SDK_CLIENT], {
+    ...target, followPeers: true, returnPaths: true, skip: SKIP_LAUNCHER,
+  });
 }
 
+const packageName = (lockPath) => lockPath.slice(lockPath.lastIndexOf('node_modules/') + 'node_modules/'.length);
+
+// What electron-builder ships: it still collects the launcher's dependency
+// edges, then electron-builder.config.cjs drops every copy of the package
+// names only the launcher needs. Packages the launcher shares stay packaged.
 function electronBuilderPackagePaths(lockPackages, rootDependencies, target = {}) {
-  return walkLockGraph(lockPackages, Object.keys(rootDependencies ?? {}), {
+  const collected = walkLockGraph(lockPackages, Object.keys(rootDependencies ?? {}), {
     ...target, followPeers: false, returnPaths: true,
   });
+  const unused = new Set(unusedLauncherPackageNames(lockPackages, rootDependencies));
+  return new Set([...collected].filter((lockPath) => !unused.has(packageName(lockPath))));
+}
+
+// Lockfile paths electron-builder would collect only because of the unused
+// launcher. A path still reachable from anything else — including through a
+// peer edge of a kept package — is kept. Platform filters are not applied, so
+// the result covers every release target.
+function unusedLauncherPackagePaths(lockPackages, rootDependencies) {
+  const roots = Object.keys(rootDependencies ?? {});
+  const all = { returnPaths: true, matchAllTargets: true };
+  const collected = walkLockGraph(lockPackages, roots, { ...all, followPeers: false });
+  const kept = walkLockGraph(lockPackages, roots, { ...all, followPeers: true, skip: SKIP_LAUNCHER });
+  const unused = [...collected].filter((lockPath) => !kept.has(lockPath)).sort();
+  for (const lockPath of unused) {
+    const top = lockPath.match(/^node_modules\/((?:@[^/]+\/)?[^/]+)/)[0];
+    if (kept.has(top)) {
+      throw new Error(`${lockPath} is only used by ${UNUSED_SDK_LAUNCHER} but sits under kept package ${top}`);
+    }
+  }
+  return unused;
+}
+
+// Package names to exclude from the app. electron-builder re-hoists the
+// production tree, so a kept nested copy (Pi's own pi-ai, for example) can
+// land at the top-level path the launcher used. Exclude a name only when no
+// kept path anywhere in the lockfile carries it, and then exclude every copy.
+function unusedLauncherPackageNames(lockPackages, rootDependencies) {
+  const unused = new Set(unusedLauncherPackagePaths(lockPackages, rootDependencies));
+  const kept = new Set(Object.keys(lockPackages)
+    .filter((lockPath) => lockPath.includes('node_modules/') && !unused.has(lockPath))
+    .map(packageName));
+  return [...new Set([...unused].map(packageName))].filter((name) => !kept.has(name)).sort();
 }
 
 // electron-builder hoists production dependencies independently of npm's
@@ -109,6 +161,7 @@ function verifyDeepseekSdkResolution(lockPackages, readManifest, target = {}) {
   const seen = new Set();
   while (queue.length) {
     const { name, range, parent, optional } = queue.shift();
+    if (SKIP_LAUNCHER.has(name)) continue;
     const lockedVersions = versionsByName.get(name);
     if (optional && (!lockedVersions || ![...lockedVersions.values()].some((entry) => matches(entry.os, platform) && matches(entry.cpu, arch) && (platform !== 'linux' || matches(entry.libc, libc))))) continue;
     const packagedPath = resolvePackagePath(parent, name, (candidate) => Boolean(readManifest(candidate)));
@@ -141,8 +194,37 @@ function verifyDeepseekSdkResolution(lockPackages, readManifest, target = {}) {
   return seen.size;
 }
 
+// Every required dependency edge of the packaged production graph, followed
+// through the packaged manifests the way Node resolves them. Returns the
+// edges that resolve to nothing, so an exclusion that removes a package
+// something still requires fails the build instead of the app at runtime.
+function findUnresolvedPackagedDependencies(rootNames, readManifest, { ignore = new Set() } = {}) {
+  const unresolved = new Set();
+  const seen = new Set();
+  const queue = rootNames.map((name) => ({ name, parent: '', optional: false, by: '<root>' }));
+  while (queue.length) {
+    const { name, parent, optional, by } = queue.shift();
+    if (SKIP_LAUNCHER.has(name) || ignore.has(name)) continue;
+    const packagePath = resolvePackagePath(parent, name, (candidate) => Boolean(readManifest(candidate)));
+    if (!packagePath) {
+      if (!optional) unresolved.add(`${name} (required by ${by})`);
+      continue;
+    }
+    if (seen.has(packagePath)) continue;
+    seen.add(packagePath);
+    const manifest = readManifest(packagePath);
+    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+      queue.push({ name: dependency, parent: packagePath, optional: false, by: manifest.name ?? name });
+    }
+    for (const dependency of Object.keys(manifest.optionalDependencies ?? {})) {
+      queue.push({ name: dependency, parent: packagePath, optional: true, by: manifest.name ?? name });
+    }
+  }
+  return [...unresolved].sort();
+}
+
 module.exports = {
-  SDK_CLIENT, walkLockGraph, deepseekSdkClosure, electronBuilderCollected,
-  deepseekSdkPackagePaths, electronBuilderPackagePaths,
-  verifyDeepseekSdkResolution,
+  SDK_CLIENT, UNUSED_SDK_LAUNCHER, walkLockGraph, deepseekSdkClosure, electronBuilderCollected,
+  deepseekSdkPackagePaths, electronBuilderPackagePaths, unusedLauncherPackagePaths,
+  unusedLauncherPackageNames, verifyDeepseekSdkResolution, findUnresolvedPackagedDependencies,
 };

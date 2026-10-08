@@ -25,7 +25,7 @@ const profilePkg = JSON.parse(read('dev-fixtures/deepseek-harness/package.json')
 assert.ok(
   profilePkg.dependencies?.['@deepseek-ai/dsh-sdk-jsonrpc-server'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-llm-deepseek'] &&
-    profilePkg.dependencies?.['@deepseek-ai/dsh-mcp-client'] === '0.1.5-rc.1' &&
+    profilePkg.dependencies?.['@deepseek-ai/dsh-mcp-client'] === rootPkg.dependencies['@deepseek-ai/dsh-sdk-client'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-bash-sandbox'] &&
     profilePkg.dependencies?.['@deepseek-ai/dsh-fs-sandbox'],
   'deepseek-harness profile must compose the SDK server, DeepSeek/MCP adapters and sandboxed tool stack'
@@ -49,7 +49,7 @@ assert.ok(
 assert.ok(
   cordisYml.includes('AEGIS_DSH_AGENT_PRESET') &&
     cordisYml.includes("=== 'code' ? 'ptc' : 'native'") &&
-    cordisYml.includes("name: '@deepseek-ai/dsh-code-runtime-worker-thread'") &&
+    cordisYml.includes("name: '@deepseek-ai/dsh-ptc-runtime-node'") &&
     cordisYml.includes("name: '@deepseek-ai/dsh-tool-bash-persistent'") &&
     cordisYml.includes("name: '@deepseek-ai/dsh-tool-str-replace-editor'") &&
     cordisYml.includes("name: '@deepseek-ai/dsh-tool-cordis'"),
@@ -68,6 +68,14 @@ assert.ok(
     resumeShim.includes('AEGIS_DSH_RESUME_SESSION_ID') &&
     resumeShim.includes('AEGIS_DSH_RESUME_CWD_MISMATCH'),
   'runtime must resume stored same-cwd sessions and reject unsafe fallback cases explicitly'
+);
+const streamShim = read('dev-fixtures/deepseek-harness/runtime-stream-shim.mjs');
+assert.ok(
+  runtimeBin.includes('installDeepseekSdkStreamShim') &&
+    streamShim.includes("'agent/assistant-stream'") &&
+    streamShim.includes("ASSISTANT_STREAM_METHOD = 'aegis.assistant.stream'") &&
+    read('src/electron/libs/provider/deepseek-sdk-adapter.ts').includes("DEEPSEEK_ASSISTANT_STREAM_METHOD = 'aegis.assistant.stream'"),
+  'runtime must forward live assistant deltas on the notification the adapter streams from'
 );
 
 // ── Settings / runtime probe ────────────────────────────────────────────────

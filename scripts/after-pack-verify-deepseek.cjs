@@ -3,13 +3,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Arch } = require('builder-util');
 const asar = require('@electron/asar');
-const { verifyDeepseekSdkResolution } = require('./deepseek-sdk-closure.cjs');
+const {
+  verifyDeepseekSdkResolution, findUnresolvedPackagedDependencies, UNUSED_SDK_LAUNCHER,
+} = require('./deepseek-sdk-closure.cjs');
+
+// Packages electron-builder.json excludes on purpose (see the comments there).
+const INTENTIONALLY_EXCLUDED = new Set(['@tabler/icons-react', 'typescript']);
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
 
 const REQUIRED_RUNTIME_PATHS = [
   'runtime-bin.mjs',
   'runtime-resume-shim.mjs',
+  'runtime-stream-shim.mjs',
   'runtime-project-roots.mjs',
   'runtime-project-roots-windows.mjs',
   'cordis.yml',
@@ -75,6 +81,19 @@ function verifyPackagedDeepseekSdk(resourcesDir, projectDir, platform, arch) {
     return parsed;
   };
   const count = verifyDeepseekSdkResolution(lock.packages ?? {}, readManifest, { platform, arch });
+  assert.equal(
+    readManifest(`node_modules/${UNUSED_SDK_LAUNCHER}`),
+    null,
+    `packaged app must not ship the unused ${UNUSED_SDK_LAUNCHER} CLI graph; build with electron-builder.config.cjs`
+  );
+  const rootDependencies = Object.keys(
+    JSON.parse(fs.readFileSync(path.join(projectDir, 'package.json'), 'utf8')).dependencies ?? {}
+  );
+  const unresolved = findUnresolvedPackagedDependencies(rootDependencies, readManifest, {
+    ignore: INTENTIONALLY_EXCLUDED,
+  });
+  assert.deepEqual(unresolved, [], `packaged app is missing required dependencies:\n${unresolved.join('\n')}`);
+  console.log(`  • verified packaged production dependency graph  roots=${rootDependencies.length}`);
   console.log(
     `  • verified bundled DeepSeek SDK client graph  packages=${count} asar=${asarPath}`
   );

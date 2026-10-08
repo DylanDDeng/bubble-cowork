@@ -1,7 +1,71 @@
-# DeepSeek Harness 0.1.5-rc.1
+# DeepSeek Harness 0.2.0-rc.2
 
-Aegis pins its SDK client and bundled runtime to `0.1.5-rc.1` (upstream prerelease, released September 10, 2026):
-https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.5-rc.1
+Aegis pins its SDK client and bundled runtime to `0.2.0-rc.2` (upstream `next`
+prerelease, published September 29, 2026):
+https://github.com/deepseek-ai/deepseek-harness/releases
+
+## 0.2.0-rc.2 upgrade
+
+The SDK client and JSON-RPC wire are unchanged from 0.1.5-rc.1, so the adapter,
+runtime entry and native-resume shim are unchanged. The runtime changes are:
+
+- `dsh-llm-deepseek` speaks only the Messages API. The official root is
+  `https://api.deepseek.com/anthropic`; `$DEEPSEEK_BASE_URL` must be a
+  Messages-compatible root (`/v1/messages` and `/v1/files` are appended). An
+  OpenAI-style root inherited from the user's environment no longer works.
+  Usage keeps the same meaning: `inputTokens` excludes cache reads. Messages
+  streams carry no separate reasoning-token count; reasoning stays in output.
+- PTC runs on `dsh-ptc-runtime-node` (replacing `dsh-code-runtime-worker-thread`):
+  each `run_code` call starts a fresh Node process under the bash sandbox policy.
+  It keeps `ELECTRON_RUN_AS_NODE`, so the packaged Electron binary runs as Node.
+- Creator keeps only the read-only `cordis_inspect_list` and
+  `cordis_inspect_query` tools; upstream removed define/run/stop/undefine.
+- Sessions migrate to the V4 log format on continuation (see below).
+- Five more packages are reachable only through SDK peer edges and are declared
+  as root dependencies: `dsh-client-store`, `dsh-client-ui-primitives`,
+  `dsh-client-ui-slots`, `dsh-deepseek-account` and `dsh-llm-deepseek`.
+- `koffi` moves to 3.1.1. `@modelcontextprotocol/client` 2.0.0, pulled in by
+  `dsh-mcp-client`, has an open high-severity advisory (GHSA-6qxp-vccf-f47h,
+  OAuth credentials); it needs an upstream release.
+
+Local mocks share `scripts/fixtures/deepseek-messages-mock.cjs`, which speaks
+the Messages SSE stream and the Files API.
+
+## Live streaming
+
+The SDK wire carries only durable session events (no `assistant/chunk` since
+before 0.1.5-rc.1), so text and reasoning would appear only when each step
+commits. The agent loop still publishes every model chunk in-process as
+`agent/assistant-stream`, which the Harness Web and headless hosts render from.
+`runtime-stream-shim.mjs` (installed by `runtime-bin.mjs`, like the resume shim)
+forwards the text and reasoning deltas of each attempt as
+`aegis.assistant.stream` notifications on the same transport; the SDK client
+delivers them to the adapter's session-tree subscription unchanged. Usage and
+tool-call chunks are not forwarded: committed events carry them exactly once.
+The adapter streams the top-level agent only, and clears a partial answer when
+an attempt is abandoned or retried. `verify:deepseek-streaming` covers ordering,
+per-step restart and a dropped stream that the runtime retries.
+
+## Packaging without the dsh CLI
+
+`@deepseek-ai/dsh-sdk-client` depends on the whole dsh CLI (`@deepseek-ai/dsh`)
+only to find a default launch binary. Aegis always passes the bundled profile's
+`runtime-bin.mjs` as `dshBin`, so the CLI, its Web UI, LibreOffice (about 160 MB
+per platform) and the SenseVoice speech runtime are never loaded. Packaging runs
+through `electron-builder.config.cjs`, which extends `electron-builder.json` with
+exclusions computed from `package-lock.json`:
+
+- A package name is excluded only when every lockfile copy of it is reachable
+  solely through the CLI (dependency and peer edges of everything else count).
+  electron-builder re-hoists the production tree, so a path-based exclusion can
+  remove a kept nested copy, such as the Pi provider's own `pi-ai`.
+- `verify:deepseek-packaging` checks that nothing the SDK client resolves is
+  excluded. afterPack checks that the CLI is absent and that every required
+  dependency edge of the packaged production graph resolves in the archive.
+
+The arm64 macOS DMG went from 274 MB (0.1.5-rc.1, CLI included) to 243 MB.
+Runtime plugins come from the profile in `dev-fixtures/deepseek-harness`, not from
+the root packages, so the exclusions do not limit which plugins it can compose.
 
 The SDK now launches with `dshBin`, `profile`, `patches` and `processCwd`.
 Aegis supplies its own runtime entry and complete Cordis composition. Temporary
@@ -42,7 +106,7 @@ session ID. Aegis checks `sessionPersistence.stat(id).header` and resumes an exi
 same-directory session through `agents.resume()`. Missing logs or a different
 directory fail explicitly instead of silently starting an empty conversation.
 Native persistence owns migration and write locks. Existing logs remain immutable;
-continuation writes a V3 successor. An old Harness cannot resume the newer successor.
+continuation writes a V4 successor. An old Harness cannot resume the newer successor.
 The upgrade does not bulk-migrate or modify user sessions during installation.
 
 The SDK now depends on the CLI's larger package graph. Electron packaging checks
@@ -72,7 +136,7 @@ probes exercise real Harness/MCP/Electron code against local mock model response
 they do not require credentials or verify live model quality.
 
 Image regression tests run the actual Aegis adapter and bundled Harness against a
-local HTTP server implementing chat completions and the Files API. They verify
+local HTTP server implementing the Messages API and the Files API. They verify
 all four formats, image-only turns, text-only-model rejection, native and PTC
 `read_image`, malformed data and native image history after a process restart.
 The isolated Electron test exercises picker/drop/paste, preserved drafts, model

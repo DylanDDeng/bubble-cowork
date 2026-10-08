@@ -72,11 +72,13 @@ import type {
  *
  * Drives a per-thread DSH runtime from the bundled, installed, or source profile
  * through @deepseek-ai/dsh-sdk-client. Unlike the trimmed ACP surface, the
- * SDK wire streams the FULL session log — reasoning/text deltas, tool calls
- * and results, per-request usage and context window — which this adapter maps
- * onto the same stream shapes the Grok adapter emits.
+ * SDK wire streams the FULL durable session log — tool calls and results,
+ * per-request usage and context window — which this adapter maps onto the same
+ * stream shapes the Grok adapter emits. Durable events carry no live deltas,
+ * so the profile's runtime-stream-shim forwards text/reasoning deltas as
+ * `aegis.assistant.stream` notifications on the same subscription.
  *
- * Contract notes (pre-release wire, pinned 0.1.5-rc.1):
+ * Contract notes (pre-release wire, pinned 0.2.0-rc.2):
  * - No mid-turn cancel on the wire: stop = close the runtime (EOF → SIGTERM →
  *   SIGKILL ladder inside the SDK client). The JSON-RPC server still omits its
  *   core agents.resume() path, so the Aegis runtime bin installs a narrow
@@ -92,6 +94,9 @@ import type {
  *   SDK started payload has no parentToolCallId. Background delegation is
  *   disabled in the profile for this mapping.
  */
+
+/** Live text/reasoning deltas; see dev-fixtures/deepseek-harness/runtime-stream-shim.mjs. */
+const DEEPSEEK_ASSISTANT_STREAM_METHOD = 'aegis.assistant.stream';
 
 interface TurnState {
   /** Block-index counter for the renderer's delta coalescer. */
@@ -694,6 +699,14 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
       this.handleSubagentStarted(active, notification.params);
       return;
     }
+    if (notification.method === DEEPSEEK_ASSISTANT_STREAM_METHOD) {
+      // Live deltas are rendered for the top-level agent only; subagent
+      // output reaches its workstream when each step commits.
+      if (getString(notification.params.sessionId) === active.providerSessionId) {
+        this.handleAssistantStream(active, notification.params);
+      }
+      return;
+    }
     if (notification.method !== 'session.event') {
       return;
     }
@@ -861,6 +874,45 @@ export class DeepseekSdkAdapter implements ProviderAdapter {
   }
 
   // ── Streaming deltas ───────────────────────────────────────────────────────
+
+  /** One `aegis.assistant.stream` frame from the profile's runtime-stream-shim. */
+  private handleAssistantStream(
+    active: ActiveDeepseekSession,
+    params: Record<string, unknown>
+  ): void {
+    switch (params.type) {
+      case 'chunk':
+        this.handleAssistantChunk(active, { chunk: params.chunk });
+        break;
+      case 'start':
+        // A retry after a failed attempt starts over; drop its partial.
+        this.discardStreamedPartial(active);
+        break;
+      case 'end':
+        // A committed attempt is replaced by its assistant/message; an
+        // abandoned one (cancelled or failed) leaves nothing to keep.
+        if (params.outcome === 'abandoned') this.discardStreamedPartial(active);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private discardStreamedPartial(active: ActiveDeepseekSession): void {
+    const turn = active.turn;
+    if (!turn || (!turn.currentThinking && !turn.currentText)) return;
+    turn.currentThinking = undefined;
+    turn.currentText = undefined;
+    this.emit({
+      type: 'message',
+      threadId: active.threadId,
+      message: {
+        type: 'stream_event',
+        parentToolUseId: null,
+        event: { type: 'content_block_stop', index: turn.nextBlockIndex },
+      },
+    });
+  }
 
   private handleAssistantChunk(
     active: ActiveDeepseekSession,

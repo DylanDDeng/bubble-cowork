@@ -7,8 +7,13 @@ import http from 'node:http';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
+
+const {
+  writeMessagesStream, systemText, toolNames, toolResults,
+} = createRequire(import.meta.url)('./fixtures/deepseek-messages-mock.cjs');
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const profileDir = join(root, 'dev-fixtures', 'deepseek-harness');
@@ -38,41 +43,27 @@ async function capturePreset(preset) {
     request.on('end', () => {
       requestBody = JSON.parse(Buffer.concat(chunks).toString());
       requestCount += 1;
-      const chunk = (delta, finishReason = null, usage) => ({
-        id: 'aegis-preset-probe',
-        object: 'chat.completion.chunk',
-        created: 0,
-        model: requestBody.model,
-        choices: [{ index: 0, delta, finish_reason: finishReason }],
-        ...(usage ? { usage } : {}),
-      });
-      response.writeHead(200, { 'content-type': 'text/event-stream' });
       if (preset === 'code' && requestCount === 1) {
-        response.write(`data: ${JSON.stringify(chunk({ role: 'assistant', tool_calls: [{
-          index: 0, id: 'ptc-read', type: 'function', function: {
-            name: 'run_code', arguments: JSON.stringify({
+        writeMessagesStream(response, {
+          model: requestBody.model,
+          id: 'aegis-preset-probe',
+          toolCalls: [{
+            id: 'ptc-read',
+            name: 'run_code',
+            input: {
               code: `return await tools.read({ file_path: ${JSON.stringify(join(cwd, 'ptc.txt'))} });`,
               description: 'Read the PTC regression fixture file',
-            }),
-          },
-        }] }))}\n\n`);
-        response.write(`data: ${JSON.stringify(chunk({}, 'tool_calls'))}\n\n`);
-        response.end('data: [DONE]\n\n');
+            },
+          }],
+        });
         return;
       }
-      response.write(`data: ${JSON.stringify(chunk({ role: 'assistant', content: 'ok' }))}\n\n`);
-      response.write(
-        `data: ${JSON.stringify(
-          chunk({}, 'stop', {
-            prompt_tokens: 10,
-            completion_tokens: 1,
-            total_tokens: 11,
-            prompt_cache_hit_tokens: 0,
-            prompt_cache_miss_tokens: 10,
-          })
-        )}\n\n`
-      );
-      response.end('data: [DONE]\n\n');
+      writeMessagesStream(response, {
+        model: requestBody.model,
+        id: 'aegis-preset-probe',
+        text: 'ok',
+        usage: { input_tokens: 10, output_tokens: 1, cache_read_input_tokens: 0 },
+      });
     });
   });
   await new Promise((resolve, reject) => {
@@ -114,18 +105,15 @@ async function capturePreset(preset) {
     if (result.finalResponse !== 'ok' || !requestBody) {
       throw new Error(`${preset}: mock turn did not complete`);
     }
-    if (preset === 'code' && (requestCount !== 2 || !requestBody.messages?.some(
-      (message) => message.role === 'tool' && JSON.stringify(message).includes('AEGIS_PTC_READ_OK')
+    if (preset === 'code' && (requestCount !== 2 || !toolResults(requestBody).some(
+      (result) => result.text.includes('AEGIS_PTC_READ_OK')
     ))) {
-      throw new Error(`PTC did not return its nested read result: ${JSON.stringify(
-        requestBody.messages?.filter((message) => message.role === 'tool')
-      )}`);
+      throw new Error(`PTC did not return its nested read result: ${JSON.stringify(toolResults(requestBody))}`);
     }
-    const systemPrompt = requestBody.messages?.find((message) => message.role === 'system')?.content || '';
     return {
       preset,
-      tools: requestBody.tools?.map((tool) => tool.function?.name).filter(Boolean) || [],
-      systemPrompt,
+      tools: toolNames(requestBody),
+      systemPrompt: systemText(requestBody),
     };
   } finally {
     await harness.close().catch(() => {});

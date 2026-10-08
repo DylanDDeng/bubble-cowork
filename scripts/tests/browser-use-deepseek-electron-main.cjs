@@ -5,6 +5,7 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
+const { writeMessagesStream, toolNames, toolResults } = require('../fixtures/deepseek-messages-mock.cjs');
 process.env.AEGIS_BROWSER_USE_TEST_MODE = '1';
 
 function listen(server) {
@@ -22,17 +23,6 @@ function addressUrl(server, suffix = '') {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('server did not bind');
   return `http://127.0.0.1:${address.port}${suffix}`;
-}
-
-function sseChunk(requestNumber, model, delta, finishReason = null, usage) {
-  return {
-    id: `browser-use-e2e-${requestNumber}`,
-    object: 'chat.completion.chunk',
-    created: 0,
-    model,
-    choices: [{ index: 0, delta, finish_reason: finishReason }],
-    ...(usage ? { usage } : {}),
-  };
 }
 
 app.commandLine.appendSwitch('disable-gpu');
@@ -87,70 +77,24 @@ app.whenReady().then(async () => {
       request.on('end', () => {
         const body = JSON.parse(Buffer.concat(chunks).toString());
         requestCount += 1;
-        lastToolMessages = (body.messages || []).filter((message) => message.role === 'tool');
-        exposedBrowserTool ||= body.tools?.some(
-          (tool) => tool.function?.name === 'mcp__aegis-browser__browser_use'
-        );
-        sawNavigateResult ||= body.messages?.some(
-          (message) =>
-            message.role === 'tool' && JSON.stringify(message.content).includes('Navigated to')
-        );
-        sawSnapshotResult ||= body.messages?.some(
-          (message) =>
-            message.role === 'tool' &&
-            JSON.stringify(message.content).includes('DEEPSEEK_BROWSER_E2E')
-        );
-        const write = (delta, finishReason = null, usage) =>
-          response.write(
-            `data: ${JSON.stringify(
-              sseChunk(requestCount, body.model, delta, finishReason, usage)
-            )}\n\n`
-          );
-        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        lastToolMessages = toolResults(body);
+        exposedBrowserTool ||= toolNames(body).includes('mcp__aegis-browser__browser_use');
+        sawNavigateResult ||= toolResults(body).some((result) => result.text.includes('Navigated to'));
+        sawSnapshotResult ||= toolResults(body).some((result) => result.text.includes('DEEPSEEK_BROWSER_E2E'));
+        const stream = { model: body.model, id: `browser-use-e2e-${requestCount}`, usage: { input_tokens: 10, output_tokens: 1 } };
         if (requestCount === 1) {
-          write({
-            role: 'assistant',
-            tool_calls: [
-              {
-                index: 0,
-                id: 'call_browser_navigate',
-                type: 'function',
-                function: {
-                  name: 'mcp__aegis-browser__browser_use',
-                  arguments: JSON.stringify({ action: 'navigate', url: pageUrl }),
-                },
-              },
-            ],
+          writeMessagesStream(response, {
+            ...stream,
+            toolCalls: [{ id: 'call_browser_navigate', name: 'mcp__aegis-browser__browser_use', input: { action: 'navigate', url: pageUrl } }],
           });
-          write({}, 'tool_calls');
         } else if (requestCount === 2) {
-          write({
-            role: 'assistant',
-            tool_calls: [
-              {
-                index: 0,
-                id: 'call_browser_snapshot',
-                type: 'function',
-                function: {
-                  name: 'mcp__aegis-browser__browser_use',
-                  arguments: JSON.stringify({ action: 'snapshot' }),
-                },
-              },
-            ],
+          writeMessagesStream(response, {
+            ...stream,
+            toolCalls: [{ id: 'call_browser_snapshot', name: 'mcp__aegis-browser__browser_use', input: { action: 'snapshot' } }],
           });
-          write({}, 'tool_calls');
         } else {
-          write({ role: 'assistant', content: 'BROWSER_E2E_OK' });
-          write({}, 'stop');
+          writeMessagesStream(response, { ...stream, text: 'BROWSER_E2E_OK' });
         }
-        write({}, null, {
-          prompt_tokens: 10,
-          completion_tokens: 1,
-          total_tokens: 11,
-          prompt_cache_hit_tokens: 0,
-          prompt_cache_miss_tokens: 10,
-        });
-        response.end('data: [DONE]\n\n');
       });
     });
     await listen(apiServer);

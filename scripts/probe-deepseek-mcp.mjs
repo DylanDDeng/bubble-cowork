@@ -16,6 +16,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 
 const require = createRequire(import.meta.url);
+const { writeMessagesStream, toolNames, toolResults } = require('./fixtures/deepseek-messages-mock.cjs');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const profileDir = join(root, 'dev-fixtures', 'deepseek-harness');
 const runtimePath = join(profileDir, 'runtime-bin.mjs');
@@ -48,76 +49,31 @@ const api = http.createServer((request, response) => {
     const body = JSON.parse(Buffer.concat(chunks).toString());
     requestCount += 1;
     if (requestCount === 1) {
-      firstRequestTools = body.tools?.map((tool) => tool.function?.name).filter(Boolean) || [];
+      firstRequestTools = toolNames(body);
     } else {
       secondRequestMessages = body.messages || [];
     }
-    exposedStdioTool ||= body.tools?.some(
-      (tool) => tool.function?.name === 'mcp__aegis-probe__echo'
-    );
-    exposedHttpTool ||= body.tools?.some(
-      (tool) => tool.function?.name === 'mcp__aegis-http-probe__echo_http'
-    );
-    receivedStdioResult ||= body.messages?.some(
-      (message) => message.role === 'tool' && String(message.content).includes('ECHO:hello')
-    );
-    receivedHttpResult ||= body.messages?.some(
-      (message) => message.role === 'tool' && String(message.content).includes('HTTP_ECHO:world')
-    );
+    exposedStdioTool ||= toolNames(body).includes('mcp__aegis-probe__echo');
+    exposedHttpTool ||= toolNames(body).includes('mcp__aegis-http-probe__echo_http');
+    receivedStdioResult ||= toolResults(body).some((result) => result.text.includes('ECHO:hello'));
+    receivedHttpResult ||= toolResults(body).some((result) => result.text.includes('HTTP_ECHO:world'));
 
-    const chunk = (delta, finishReason = null, usage) => ({
-      id: `aegis-mcp-probe-${requestCount}`,
-      object: 'chat.completion.chunk',
-      created: 0,
-      model: body.model,
-      choices: [{ index: 0, delta, finish_reason: finishReason }],
-      ...(usage ? { usage } : {}),
-    });
-    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    const usage = { input_tokens: 10, output_tokens: 1, cache_read_input_tokens: 0 };
     if (requestCount === 1) {
-      response.write(
-        `data: ${JSON.stringify(
-          chunk({
-            role: 'assistant',
-            tool_calls: [
-              {
-                index: 0,
-                id: 'call_aegis_mcp_probe',
-                type: 'function',
-                function: { name: 'mcp__aegis-probe__echo', arguments: '{"text":"hello"}' },
-              },
-              {
-                index: 1,
-                id: 'call_aegis_http_mcp_probe',
-                type: 'function',
-                function: {
-                  name: 'mcp__aegis-http-probe__echo_http',
-                  arguments: '{"text":"world"}',
-                },
-              },
-            ],
-          })
-        )}\n\n`
-      );
-      response.write(`data: ${JSON.stringify(chunk({}, 'tool_calls'))}\n\n`);
+      writeMessagesStream(response, {
+        model: body.model,
+        id: `aegis-mcp-probe-${requestCount}`,
+        toolCalls: [
+          { id: 'call_aegis_mcp_probe', name: 'mcp__aegis-probe__echo', input: { text: 'hello' } },
+          { id: 'call_aegis_http_mcp_probe', name: 'mcp__aegis-http-probe__echo_http', input: { text: 'world' } },
+        ],
+        usage,
+      });
     } else {
-      response.write(
-        `data: ${JSON.stringify(chunk({ role: 'assistant', content: 'MCP_OK' }))}\n\n`
-      );
-      response.write(`data: ${JSON.stringify(chunk({}, 'stop'))}\n\n`);
+      writeMessagesStream(response, {
+        model: body.model, id: `aegis-mcp-probe-${requestCount}`, text: 'MCP_OK', usage,
+      });
     }
-    response.write(
-      `data: ${JSON.stringify(
-        chunk({}, null, {
-          prompt_tokens: 10,
-          completion_tokens: 1,
-          total_tokens: 11,
-          prompt_cache_hit_tokens: 0,
-          prompt_cache_miss_tokens: 10,
-        })
-      )}\n\n`
-    );
-    response.end('data: [DONE]\n\n');
   });
 });
 await new Promise((resolve, reject) => {

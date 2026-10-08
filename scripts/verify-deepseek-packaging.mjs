@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-const { deepseekSdkPackagePaths, electronBuilderPackagePaths } = createRequire(import.meta.url)(
-  './deepseek-sdk-closure.cjs'
-);
+const require = createRequire(import.meta.url);
+const {
+  deepseekSdkPackagePaths, electronBuilderPackagePaths, unusedLauncherPackageNames, UNUSED_SDK_LAUNCHER,
+} = require('./deepseek-sdk-closure.cjs');
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -21,6 +22,7 @@ assert.ok(
     builder.includes('"to": "deepseek-harness/node_modules"') &&
     builder.includes('"runtime-bin.mjs"') &&
     builder.includes('"runtime-resume-shim.mjs"') &&
+    builder.includes('"runtime-stream-shim.mjs"') &&
     builder.includes('"cordis.yml"'),
   'electron-builder must copy the complete DeepSeek Harness runtime profile outside app.asar'
 );
@@ -85,6 +87,28 @@ for (const name of sdkClosure) {
     `DeepSeek SDK dependency ${name} is not installed`
   );
 }
+
+// The unused dsh CLI graph is excluded through electron-builder.config.cjs,
+// so packaging must go through that config, and nothing the SDK client
+// resolves may be excluded with it.
+assert.equal(
+  rootPackage.scripts?.['build:electron'],
+  'electron-builder --config electron-builder.config.cjs',
+  'Electron packaging must use electron-builder.config.cjs, which excludes the unused dsh CLI graph'
+);
+const unusedLauncher = new Set(unusedLauncherPackageNames(lockPackages, rootPackage.dependencies));
+assert.ok(unusedLauncher.has(UNUSED_SDK_LAUNCHER), 'the dsh CLI launcher must be excluded');
+assert.deepEqual(
+  [...sdkClosure].filter((entry) => unusedLauncher.has(entry.slice(entry.lastIndexOf('node_modules/') + 13))),
+  [],
+  'packages the DeepSeek SDK client resolves must not be excluded with the dsh CLI'
+);
+const builderConfig = require('../electron-builder.config.cjs');
+assert.ok(
+  builderConfig.files.includes(`!node_modules/${UNUSED_SDK_LAUNCHER}`) &&
+    builderConfig.afterPack === 'scripts/after-pack-verify-deepseek.cjs',
+  'electron-builder.config.cjs must extend electron-builder.json with the dsh CLI exclusions'
+);
 assert.ok(
   rootPackage.devDependencies?.['@electron/asar'],
   'afterPack inspects app.asar with @electron/asar, which must be an explicit devDependency'
@@ -102,6 +126,7 @@ assert.deepEqual(
 for (const relativePath of [
   'runtime-bin.mjs',
   'runtime-resume-shim.mjs',
+  'runtime-stream-shim.mjs',
   'runtime-project-roots.mjs',
   'runtime-project-roots-windows.mjs',
   'cordis.yml',

@@ -25,7 +25,7 @@ export const DEEPSEEK_AGENT_PRESET_OPTIONS: ReadonlyArray<{
   {
     value: 'cordis',
     label: 'Creator',
-    description: 'Standard capabilities plus live Cordis runtime tools',
+    description: 'Standard capabilities plus Cordis runtime inspection',
   },
 ];
 

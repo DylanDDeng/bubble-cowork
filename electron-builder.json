@@ -52,6 +52,7 @@
         "cordis.yml",
         "runtime-bin.mjs",
         "runtime-resume-shim.mjs",
+        "runtime-stream-shim.mjs",
         "runtime-project-roots.mjs",
         "runtime-project-roots-windows.mjs",
         "package.json"

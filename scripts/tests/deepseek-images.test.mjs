@@ -8,6 +8,7 @@ import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
 import sharp from 'sharp';
 
 const require = createRequire(import.meta.url);
+const { writeMessagesStream, imageBlocks, handleFilesRequest } = require('../fixtures/deepseek-messages-mock.cjs');
 const root = resolve('.');
 const profile = join(root, 'dev-fixtures/deepseek-harness');
 const temp = realpathSync(mkdtempSync(join(tmpdir(), 'aegis-dsh-images-')));
@@ -28,27 +29,19 @@ const server = http.createServer((req, res) => {
   const chunks = [];
   req.on('data', chunk => chunks.push(chunk));
   req.on('end', async () => {
-    if (req.url.startsWith('/files')) {
-      res.setHeader('content-type', 'application/json');
-      if (req.method === 'POST') {
-        const form = await new Response(Buffer.concat(chunks), { headers: { 'content-type': req.headers['content-type'] } }).formData();
-        const file = form.get('file');
-        const bytes = Buffer.from(await file.arrayBuffer());
-        assert((await sharp(bytes).metadata()).width > 0, 'Files API receives real raster bytes');
-        const now = Math.floor(Date.now() / 1000);
-        const record = { id: `file-${uploaded.size}`, object: 'file', bytes: bytes.length, filename: file.name, purpose: 'user_data', created_at: now, expires_at: now + 86400 };
-        uploaded.set(record.id, record); res.end(JSON.stringify(record));
-      } else res.end(JSON.stringify(uploaded.get(req.url.split('/').pop()) || { object: 'list', data: [...uploaded.values()], has_more: false }));
-      return;
+    const raw = Buffer.concat(chunks);
+    if (req.method === 'POST' && req.url.startsWith('/v1/files')) {
+      const form = await new Response(raw, { headers: { 'content-type': req.headers['content-type'] } }).formData();
+      const bytes = Buffer.from(await form.get('file').arrayBuffer());
+      assert((await sharp(bytes).metadata()).width > 0, 'Files API receives real raster bytes');
     }
-    const body = JSON.parse(Buffer.concat(chunks).toString()); requests.push(body);
+    if (handleFilesRequest(req, res, raw, uploaded)) return;
+    const body = JSON.parse(raw.toString()); requests.push(body);
     const call = nextCall; nextCall = undefined;
     if (holdResponse) await holdResponse;
-    const chunk = (delta, finish_reason = null) => ({ id: 'image-test', object: 'chat.completion.chunk', model: body.model, choices: [{ index: 0, delta, finish_reason }] });
-    res.writeHead(200, { 'content-type': 'text/event-stream' });
-    res.write(`data: ${JSON.stringify(chunk(call ? { role: 'assistant', tool_calls: [{ index: 0, id: `image-call-${requests.length}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } : { role: 'assistant', content: 'IMAGE_OK' }))}\n\n`);
-    res.write(`data: ${JSON.stringify(chunk({}, call ? 'tool_calls' : 'stop'))}\n\n`);
-    res.end('data: [DONE]\n\n');
+    writeMessagesStream(res, call
+      ? { model: body.model, id: 'image-test', toolCalls: [{ id: `image-call-${requests.length}`, name: call.name, input: call.args }] }
+      : { model: body.model, id: 'image-test', text: 'IMAGE_OK' });
   });
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -77,7 +70,7 @@ function makeAdapter() {
 function options(threadId, attachments = [], extra = {}) {
   return { threadId, cwd, prompt: 'Inspect these images.', model: 'deepseek-flash', attachments, ...extra };
 }
-const imageParts = body => body.messages.flatMap(message => Array.isArray(message.content) ? message.content.filter(part => part.type === 'image_url' || (part.type === 'file' && uploaded.has(part.file_id))) : []);
+const imageParts = body => imageBlocks(body).filter(block => block.source?.type === 'base64' || (block.source?.type === 'file' && uploaded.has(block.source.file_id)));
 const results = adapter => adapter.observed.filter(e => e.type === 'message' && e.message?.type === 'assistant').flatMap(e => e.message.message.content).filter(b => b.type === 'tool_result');
 async function stop(adapter, id) { await adapter.stopSession(id); adapters.delete(adapter); }
 try {

@@ -9,6 +9,7 @@ import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { installDeepseekSdkResumeShim } from './runtime-resume-shim.mjs';
+import { installDeepseekSdkStreamShim } from './runtime-stream-shim.mjs';
 import { installProjectRoots } from './runtime-project-roots.mjs';
 
 const NAME = 'aegis-dsh-sdk-runtime';
@@ -17,7 +18,8 @@ loadEnv(NAME);
 process.env.AEGIS_DSH_ATTACHMENT_HOME ||= join(homedir(), '.aegis', 'deepseek');
 installProjectRoots();
 installDeepseekSdkResumeShim({ HarnessSdkJsonRpcServer, SessionId });
-// SDK 0.1.5 launches `dshBin --profile sdk --patch <config>`. Aegis owns
+installDeepseekSdkStreamShim({ HarnessSdkJsonRpcServer });
+// The SDK launches `dshBin --profile sdk --patch <config>`. Aegis owns
 // the complete composition (including temporary MCP rows), so this single
 // patch is our config, not an overlay on the user's global DSH profile.
 const { values, positionals } = parseArgs({
