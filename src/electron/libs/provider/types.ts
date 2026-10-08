@@ -1,8 +1,8 @@
 /**
  * Provider Adapter Architecture
  *
- * Adapted from Synara's (formerly dpcode) ProviderAdapter pattern for Aegis's
- * Electron architecture without Effect-TS.
+ * One adapter per agent runtime behind a shared interface, so the rest of
+ * the app starts, steers and stops every agent the same way.
  *
  * Core concepts:
  * - ProviderKind: identifies agent type (claude | codex | opencode | kimi | grok | pi)

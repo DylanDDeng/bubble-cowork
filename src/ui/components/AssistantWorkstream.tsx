@@ -1012,7 +1012,7 @@ function ErrorRow({
   );
 }
 
-// ── Tool/task/memory row (the compact Synara-style line) ────────────────────
+// ── Tool/task/memory row (one compact line per item) ────────────────────────
 
 function ToolRow({
   entry,
