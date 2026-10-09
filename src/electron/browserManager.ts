@@ -419,6 +419,31 @@ export class BrowserManager {
     if (!this.agentHolds.size) this.placement.closeAgentHost();
   }
 
+  /** Ends every hold an agent took on the chat's tabs during a turn. */
+  releaseAgentChat(chatSessionId: string): void {
+    for (const sessionId of [...this.agentHolds]) {
+      if (isChatBrowserSession(sessionId, chatSessionId)) this.releaseAgentSession(sessionId);
+    }
+  }
+
+  /** The chat's tabs an agent may act on: the main one, then extra tabs that have a page. */
+  agentTabs(chatSessionId: string): BrowserAgentTab[] {
+    const main = this.sessions.get(chatSessionId)?.page;
+    const tabs: BrowserAgentTab[] = [
+      { tab: 'main', browserSessionId: chatSessionId, url: main?.url ?? '', title: main?.title ?? '' },
+    ];
+    for (const [sessionId, session] of this.sessions) {
+      if (sessionId === chatSessionId || !isChatBrowserSession(sessionId, chatSessionId) || !session.page) continue;
+      tabs.push({
+        tab: sessionId.slice(chatSessionId.length + 1),
+        browserSessionId: sessionId,
+        url: session.page.url,
+        title: session.page.title,
+      });
+    }
+    return tabs;
+  }
+
   /** Lights the panel's agent badge while `action` runs; nested actions keep it lit. */
   async withAgentActivity<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
     const session = this.sessions.get(sessionId);

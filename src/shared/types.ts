@@ -1078,7 +1078,7 @@ export type ServerEvent =
   | { type: 'automation.changed'; payload: AutomationSnapshot }
   // 系统通知点击后的回位事件（主进程 → 聚焦窗口后广播）
   | { type: 'app.focusSession'; payload: { sessionId: string } }
-  | { type: 'browser.open-panel'; payload: { sessionId: string } };
+  | { type: 'browser.open-panel'; payload: { sessionId: string; tab?: string } };
 
 // Payload 类型
 /**

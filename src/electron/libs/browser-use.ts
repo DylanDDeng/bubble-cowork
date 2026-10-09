@@ -13,8 +13,11 @@
 // The service lives in the main process next to BrowserManager and is exposed
 // to agents through per-provider MCP wiring (see browser-use-mcp.ts).
 
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { BrowserAgentTarget, BrowserManager } from '../browserManager';
-import type { WebContents } from 'electron';
+import { nativeImage, type NativeImage, type WebContents } from 'electron';
 
 export const BROWSER_USE_SERVER_NAME = 'aegis-browser';
 
@@ -308,18 +311,57 @@ export function resolveNodePoint(
   };
 }
 
+export type BrowserUseAction =
+  | 'navigate'
+  | 'back'
+  | 'forward'
+  | 'screenshot'
+  | 'snapshot'
+  | 'read'
+  | 'click'
+  | 'hover'
+  | 'type'
+  | 'select'
+  | 'key'
+  | 'scroll'
+  | 'wait'
+  | 'tabs';
+
 export interface BrowserUseActionInput {
+  /** The chat session; its main browser tab unless `tab` names another. */
   sessionId: string;
-  action: 'click' | 'type' | 'scroll' | 'navigate' | 'snapshot' | 'read' | 'key';
+  action: BrowserUseAction;
+  tab?: string;
   url?: string;
   x?: number;
   y?: number;
   nodeId?: number;
   snapshotId?: string;
   text?: string;
+  clear?: boolean;
+  value?: string;
   key?: string;
   direction?: 'up' | 'down';
   amount?: number;
+  timeoutMs?: number;
+}
+
+export interface BrowserUseScreenshot {
+  base64: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  /** Image pixels per viewport CSS pixel (1 unless the viewport was large). */
+  scale: number;
+  path: string;
+  url: string;
+}
+
+export interface BrowserUseTabInfo {
+  tab: string;
+  title: string;
+  url: string;
+  current: boolean;
 }
 
 export interface BrowserUseActionResult {
@@ -327,17 +369,19 @@ export interface BrowserUseActionResult {
   message: string;
   snapshot?: BrowserUseSnapshot;
   text?: string;
+  screenshot?: BrowserUseScreenshot;
+  tabs?: BrowserUseTabInfo[];
 }
 
-/** Snapshot cache: last snapshot per (sessionId, tabId) for node addressing. */
+/** Snapshot cache: last snapshot per (browser session, page) for node addressing. */
 const lastSnapshots = new Map<string, BrowserUseSnapshot>();
 
-function cacheKey(sessionId: string, tabId: string): string {
-  return `${sessionId}:${tabId}`;
+function cacheKey(browserSessionId: string, tabId: string): string {
+  return `${browserSessionId}:${tabId}`;
 }
 
-export function rememberSnapshot(sessionId: string, tabId: string, snapshot: BrowserUseSnapshot): void {
-  lastSnapshots.set(cacheKey(sessionId, tabId), snapshot);
+export function rememberSnapshot(browserSessionId: string, tabId: string, snapshot: BrowserUseSnapshot): void {
+  lastSnapshots.set(cacheKey(browserSessionId, tabId), snapshot);
   if (lastSnapshots.size > 32) {
     // Drop the oldest entry (Map preserves insertion order).
     const oldest = lastSnapshots.keys().next().value;
@@ -345,8 +389,8 @@ export function rememberSnapshot(sessionId: string, tabId: string, snapshot: Bro
   }
 }
 
-export function getRememberedSnapshot(sessionId: string, tabId: string): BrowserUseSnapshot | null {
-  return lastSnapshots.get(cacheKey(sessionId, tabId)) ?? null;
+export function getRememberedSnapshot(browserSessionId: string, tabId: string): BrowserUseSnapshot | null {
+  return lastSnapshots.get(cacheKey(browserSessionId, tabId)) ?? null;
 }
 
 const KEY_ALIASES: Record<string, string> = {
@@ -357,6 +401,12 @@ const KEY_ALIASES: Record<string, string> = {
   esc: 'Escape',
   backspace: 'Backspace',
   delete: 'Delete',
+  space: 'Space',
+  ' ': 'Space',
+  home: 'Home',
+  end: 'End',
+  pageup: 'PageUp',
+  pagedown: 'PageDown',
   arrowup: 'Up',
   arrowdown: 'Down',
   arrowleft: 'Left',
@@ -367,18 +417,156 @@ const KEY_ALIASES: Record<string, string> = {
   right: 'Right',
 };
 
+const MODIFIER_ALIASES: Record<string, 'control' | 'meta' | 'alt' | 'shift'> = {
+  ctrl: 'control',
+  control: 'control',
+  cmd: 'meta',
+  command: 'meta',
+  meta: 'meta',
+  alt: 'alt',
+  option: 'alt',
+  shift: 'shift',
+};
+
 function normalizeKey(key: string): string {
   return KEY_ALIASES[key.trim().toLowerCase()] ?? key.trim();
 }
 
+/** "enter", "shift+tab", "cmd+a" → the key and its modifiers. */
+export function parseKeyChord(chord: string): { keyCode: string; modifiers: Array<'control' | 'meta' | 'alt' | 'shift'> } {
+  const parts = chord.split('+').map((part) => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return { keyCode: normalizeKey(chord), modifiers: [] };
+  const modifiers: Array<'control' | 'meta' | 'alt' | 'shift'> = [];
+  for (const part of parts.slice(0, -1)) {
+    const modifier = MODIFIER_ALIASES[part.toLowerCase()];
+    if (modifier && !modifiers.includes(modifier)) modifiers.push(modifier);
+  }
+  return { keyCode: normalizeKey(parts[parts.length - 1]), modifiers };
+}
+
 /** Ask the renderer to reveal Browser Use. The action does not depend on the
  * renderer responding: BrowserManager can run the same tab detached. */
-export type BrowserUsePanelOpener = (sessionId: string) => Promise<void>;
+export type BrowserUsePanelOpener = (sessionId: string, tab: string) => Promise<void>;
 
 let panelOpener: BrowserUsePanelOpener | null = null;
 
 export function setBrowserUsePanelOpener(opener: BrowserUsePanelOpener | null): void {
   panelOpener = opener;
+}
+
+// ===== Screenshots =====
+
+/** Longest image edge sent to models; larger viewports are scaled down. */
+const SCREENSHOT_MAX_EDGE = 1568;
+const SCREENSHOT_JPEG_QUALITY = 75;
+/** Screenshots kept on disk per chat; older ones are deleted. */
+const SCREENSHOTS_KEPT = 12;
+let screenshotSequence = 0;
+
+function screenshotRoot(): string {
+  return process.env.AEGIS_BROWSER_SCREENSHOT_DIR || join(tmpdir(), 'aegis-browser-shots');
+}
+
+function screenshotDir(sessionId: string): string {
+  return join(screenshotRoot(), sessionId.replace(/[^\w.-]/g, '_'));
+}
+
+async function saveScreenshot(sessionId: string, bytes: Buffer): Promise<string> {
+  const dir = screenshotDir(sessionId);
+  await mkdir(dir, { recursive: true });
+  screenshotSequence += 1;
+  const name = `shot-${Date.now()}-${String(screenshotSequence).padStart(4, '0')}.jpg`;
+  const file = join(dir, name);
+  await writeFile(file, bytes);
+  const shots = (await readdir(dir)).filter((entry) => entry.startsWith('shot-')).sort();
+  await Promise.all(
+    shots.slice(0, Math.max(0, shots.length - SCREENSHOTS_KEPT)).map((entry) => rm(join(dir, entry), { force: true }))
+  );
+  return file;
+}
+
+/** A deleted chat's screenshots go with it. */
+export async function forgetBrowserUseScreenshots(sessionId: string): Promise<void> {
+  await rm(screenshotDir(sessionId), { recursive: true, force: true });
+}
+
+/**
+ * The page's pixels. A page on screen (or shown before) captures directly; a
+ * page an agent drives with the panel closed sits in a never-shown window that
+ * has no display surface, so Chromium's own screenshot command renders it.
+ */
+async function capturePixels(webContents: WebContents): Promise<NativeImage> {
+  try {
+    const image = await webContents.capturePage(undefined, { stayHidden: true });
+    if (!image.isEmpty()) return image;
+  } catch {
+    // No display surface: fall through to the DevTools protocol.
+  }
+  const { data } = (await sendDevtoolsCommand(webContents, 'Page.captureScreenshot', { format: 'png' })) as {
+    data: string;
+  };
+  return nativeImage.createFromBuffer(Buffer.from(data, 'base64'));
+}
+
+/** One DevTools protocol command, attaching only for its duration (and
+ * leaving an existing attachment alone). */
+async function sendDevtoolsCommand(
+  webContents: WebContents,
+  method: string,
+  params: Record<string, unknown>
+): Promise<unknown> {
+  const devtools = webContents.debugger;
+  const attachedHere = !devtools.isAttached();
+  if (attachedHere) devtools.attach('1.3');
+  try {
+    return await devtools.sendCommand(method, params);
+  } finally {
+    if (attachedHere && devtools.isAttached()) devtools.detach();
+  }
+}
+
+async function captureScreenshot(
+  sessionId: string,
+  webContents: WebContents,
+  signal: AbortSignal,
+  timeoutMs: number
+): Promise<BrowserUseScreenshot> {
+  const viewport = (await withDeadline(
+    webContents.executeJavaScript('({ width: innerWidth, height: innerHeight, url: location.href })', true),
+    timeoutMs,
+    'Viewport read',
+    signal
+  )) as { width: number; height: number; url: string };
+  const image = await withDeadline(capturePixels(webContents), timeoutMs, 'Screenshot', signal);
+  if (image.isEmpty()) throw new Error('The page has not painted anything to capture yet.');
+  const scale = Math.min(1, SCREENSHOT_MAX_EDGE / Math.max(viewport.width, viewport.height, 1));
+  const width = Math.max(1, Math.round(viewport.width * scale));
+  const height = Math.max(1, Math.round(viewport.height * scale));
+  const bytes = image.resize({ width, height, quality: 'good' }).toJPEG(SCREENSHOT_JPEG_QUALITY);
+  const path = await saveScreenshot(sessionId, bytes);
+  return {
+    base64: bytes.toString('base64'),
+    mimeType: 'image/jpeg',
+    width,
+    height,
+    scale: Math.round(scale * 1000) / 1000,
+    path,
+    url: viewport.url,
+  };
+}
+
+// ===== Actions =====
+
+function resolveTab(
+  manager: BrowserManager,
+  input: BrowserUseActionInput
+): { browserSessionId: string; tab: string } | { error: string } {
+  const tab = input.tab?.trim() || 'main';
+  if (tab === 'main') return { browserSessionId: input.sessionId, tab };
+  const found = manager.agentTabs(input.sessionId).find((entry) => entry.tab === tab);
+  return found
+    ? { browserSessionId: found.browserSessionId, tab }
+    : { error: `Unknown tab "${tab}". Use the tabs action to list this chat's browser tabs.` };
 }
 
 export async function runBrowserUseAction(
@@ -400,10 +588,21 @@ export async function runBrowserUseAction(
       const deadlines = { ...DEFAULT_BROWSER_USE_DEADLINES, ...options.deadlines };
       try {
         throwIfAborted(combined.signal);
+        const resolved = resolveTab(manager, input);
+        if ('error' in resolved) return { ok: false, message: resolved.error };
+        if (input.action === 'tabs') {
+          const tabs = manager.agentTabs(input.sessionId).map((entry) => ({
+            tab: entry.tab,
+            title: entry.title,
+            url: entry.url,
+            current: entry.tab === resolved.tab,
+          }));
+          return { ok: true, message: `${tabs.length} browser tab${tabs.length === 1 ? '' : 's'} in this chat.`, tabs };
+        }
         // Reveal on a best-effort basis while acquiring the same tab
         // immediately for detached/background execution.
-        if (panelOpener) void panelOpener(input.sessionId).catch(() => {});
-        const target = manager.acquireAgentTarget(input.sessionId);
+        if (panelOpener) void panelOpener(input.sessionId, resolved.tab).catch(() => {});
+        const target = manager.acquireAgentTarget(resolved.browserSessionId);
         await withDeadline(
           target.restore,
           deadlines.restoreMs,
@@ -411,8 +610,8 @@ export async function runBrowserUseAction(
           combined.signal,
           () => stopLoading(target.webContents)
         );
-        return await manager.withAgentActivity(input.sessionId, () =>
-          runBrowserUseActionInner(input, target, combined.signal, deadlines)
+        return await manager.withAgentActivity(resolved.browserSessionId, () =>
+          runBrowserUseActionInner(input, resolved.browserSessionId, target, combined.signal, deadlines)
         );
       } catch (error) {
         return { ok: false, message: browserUseErrorMessage(error) };
@@ -434,8 +633,89 @@ export async function runBrowserUseAction(
   }
 }
 
+/** The viewport point an action targets: a snapshot node (re-based on the
+ * current scroll) or explicit x/y. A string explains why there is none. */
+async function resolvePoint(
+  input: BrowserUseActionInput,
+  browserSessionId: string,
+  tabId: string,
+  webContents: WebContents,
+  signal: AbortSignal,
+  timeoutMs: number
+): Promise<{ x: number; y: number } | string | null> {
+  if (typeof input.nodeId === 'number') {
+    if (!input.snapshotId) return 'snapshot_id is required with node_id.';
+    const snapshot = getRememberedSnapshot(browserSessionId, tabId);
+    if (!snapshot || snapshot.snapshotId !== input.snapshotId) {
+      return 'Stale snapshot. Take a new snapshot before addressing nodes.';
+    }
+    // Read the CURRENT scroll so viewport coords re-base correctly when the
+    // page scrolled since the snapshot.
+    const current = await readScrollPosition(webContents, signal, timeoutMs);
+    const point = resolveNodePoint(snapshot, input.nodeId, current.scrollX, current.scrollY);
+    return point ?? `Node ${input.nodeId} not found in the snapshot.`;
+  }
+  if (typeof input.x === 'number' && typeof input.y === 'number') return { x: Math.round(input.x), y: Math.round(input.y) };
+  return null;
+}
+
+function clickAt(webContents: WebContents, x: number, y: number): void {
+  // sendInputEvent expects viewport coordinates for visible content.
+  webContents.sendInputEvent({ type: 'mouseMove', x, y });
+  webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+  webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+}
+
+const SELECT_SCRIPT = `((x, y, wanted) => {
+  let el = document.elementFromPoint(x, y);
+  if (el && el.tagName === 'LABEL' && el.control) el = el.control;
+  while (el && el.tagName !== 'SELECT') el = el.parentElement;
+  if (!el) return { ok: false, message: 'No <select> element at that point. Use click for custom dropdowns.' };
+  const options = [...el.options];
+  const label = (option) => (option.label || option.text || '').trim();
+  const target = wanted.trim();
+  const match = options.find((o) => o.value === wanted)
+    || options.find((o) => label(o) === target)
+    || options.find((o) => label(o).toLowerCase() === target.toLowerCase());
+  if (!match) {
+    return { ok: false, message: 'No option "' + wanted + '". Options: ' + options.slice(0, 40).map((o) => label(o) || o.value).join(', ') };
+  }
+  if (match.disabled) return { ok: false, message: 'Option "' + (label(match) || match.value) + '" is disabled.' };
+  el.focus();
+  // The native setter, so frameworks that track the value see the change.
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, match.value);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return { ok: true, message: 'Selected "' + (label(match) || match.value) + '".' };
+})`;
+
+// Scrolls the container under the point (the page when nothing under it
+// scrolls). Done in the page because Chromium runs no wheel scrolling for a
+// page that isn't being drawn, as an agent's page with the panel closed.
+const SCROLL_SCRIPT = `((x, y, dy) => {
+  const page = document.scrollingElement || document.documentElement;
+  const scrolls = (el) => {
+    const overflow = getComputedStyle(el).overflowY;
+    return /(auto|scroll|overlay)/.test(overflow) && el.scrollHeight > el.clientHeight + 1;
+  };
+  let el = document.elementFromPoint(x, y);
+  while (el && el !== document.body && el !== document.documentElement && !scrolls(el)) el = el.parentElement;
+  const target = el && el !== document.body && el !== document.documentElement ? el : page;
+  const before = target.scrollTop;
+  target.scrollBy({ top: dy, behavior: 'instant' });
+  return {
+    moved: Math.round(target.scrollTop - before),
+    top: Math.round(target.scrollTop),
+    max: Math.round(target.scrollHeight - target.clientHeight),
+    page: target === page,
+  };
+})`;
+
+const WAIT_POLL_MS = 200;
+
 async function runBrowserUseActionInner(
   input: BrowserUseActionInput,
+  browserSessionId: string,
   target: BrowserAgentTarget,
   signal: AbortSignal,
   deadlines: BrowserUseDeadlines
@@ -443,6 +723,7 @@ async function runBrowserUseActionInner(
   const { tabId, webContents } = target;
   throwIfAborted(signal);
   if (webContents.isDestroyed()) return { ok: false, message: 'The browser tab was destroyed.' };
+  const point = () => resolvePoint(input, browserSessionId, tabId, webContents, signal, deadlines.commandMs);
 
   try {
     switch (input.action) {
@@ -471,6 +752,22 @@ async function runBrowserUseActionInner(
         await waitForBrowserPageReady(webContents, deadlines.navigationMs, signal);
         return { ok: true, message: `Navigated to ${input.url}.` };
       }
+      case 'back':
+      case 'forward': {
+        const history = webContents.navigationHistory;
+        const back = input.action === 'back';
+        if (back ? !history.canGoBack() : !history.canGoForward()) {
+          return { ok: false, message: back ? 'There is no earlier page in this tab.' : 'There is no later page in this tab.' };
+        }
+        if (back) history.goBack();
+        else history.goForward();
+        await waitForSettled(webContents, signal, deadlines.navigationMs);
+        return { ok: true, message: `Went ${input.action} to ${webContents.getURL()}.` };
+      }
+      case 'screenshot': {
+        const screenshot = await captureScreenshot(input.sessionId, webContents, signal, deadlines.commandMs);
+        return { ok: true, message: `Captured ${screenshot.url}.`, screenshot };
+      }
       case 'snapshot': {
         const snapshot = await withDeadline(
           captureDomSnapshot(webContents),
@@ -478,7 +775,7 @@ async function runBrowserUseActionInner(
           'Snapshot',
           signal
         );
-        rememberSnapshot(input.sessionId, tabId, snapshot);
+        rememberSnapshot(browserSessionId, tabId, snapshot);
         return {
           ok: true,
           message: `Snapshot of ${snapshot.url}: ${snapshot.nodes.length} interactive elements.`,
@@ -499,74 +796,113 @@ async function runBrowserUseActionInner(
           snapshot,
         };
       }
-      case 'click': {
-        let x = input.x;
-        let y = input.y;
-        if (typeof input.nodeId === 'number' && input.snapshotId) {
-          const snapshot = getRememberedSnapshot(input.sessionId, tabId);
-          if (!snapshot || snapshot.snapshotId !== input.snapshotId) {
-            return {
-              ok: false,
-              message: 'Stale snapshot. Take a new snapshot before addressing nodes.',
-            };
-          }
-          // Read the CURRENT scroll so viewport coords re-base correctly
-          // when the page scrolled since the snapshot.
-          const current = await readScrollPosition(webContents, signal, deadlines.commandMs);
-          const point = resolveNodePoint(
-            snapshot,
-            input.nodeId,
-            current.scrollX,
-            current.scrollY
-          );
-          if (!point) return { ok: false, message: `Node ${input.nodeId} not found in the snapshot.` };
-          x = point.x;
-          y = point.y;
-        }
-        if (typeof x !== 'number' || typeof y !== 'number') {
-          return { ok: false, message: 'Provide x/y or nodeId+snapshotId for click.' };
-        }
-        // sendInputEvent expects viewport coordinates for visible content.
-        webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
-        webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+      case 'click':
+      case 'hover': {
+        const at = await point();
+        if (typeof at === 'string') return { ok: false, message: at };
+        if (!at) return { ok: false, message: `Provide x/y or node_id + snapshot_id for ${input.action}.` };
+        if (input.action === 'click') clickAt(webContents, at.x, at.y);
+        // Chromium drops synthetic mouse moves for a page that isn't on
+        // screen; the protocol's input path delivers them either way.
+        else await sendDevtoolsCommand(webContents, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y });
         await waitForSettled(webContents, signal, deadlines.settleMs);
-        return { ok: true, message: `Clicked (${x}, ${y}).` };
+        return { ok: true, message: `${input.action === 'click' ? 'Clicked' : 'Hovered'} (${at.x}, ${at.y}).` };
       }
       case 'type': {
-        if (!input.text) return { ok: false, message: 'text is required for type.' };
-        // Focus the point first (if provided), then insert the text.
-        if (typeof input.x === 'number' && typeof input.y === 'number') {
-          webContents.sendInputEvent({ type: 'mouseDown', x: input.x, y: input.y, button: 'left', clickCount: 1 });
-          webContents.sendInputEvent({ type: 'mouseUp', x: input.x, y: input.y, button: 'left', clickCount: 1 });
+        const text = input.text ?? '';
+        if (!text && !input.clear) return { ok: false, message: 'text is required for type (or clear: true to empty the field).' };
+        // Focus the field first when one is named.
+        const at = await point();
+        if (typeof at === 'string') return { ok: false, message: at };
+        if (at) {
+          clickAt(webContents, at.x, at.y);
+          await abortableDelay(50, signal);
         }
-        for (const ch of input.text) {
-          webContents.sendInputEvent({ type: 'char', keyCode: ch });
+        if (input.clear) webContents.selectAll();
+        // insertText goes through the editing pipeline like an IME commit, so
+        // controlled inputs see real input events and any script works.
+        if (text) await webContents.insertText(text);
+        else {
+          webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' });
+          webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
         }
         await waitForSettled(webContents, signal, deadlines.settleMs);
-        return { ok: true, message: `Typed ${input.text.length} characters.` };
+        return {
+          ok: true,
+          message: text ? `Typed ${text.length} characters${input.clear ? ' in place of the field contents' : ''}.` : 'Cleared the field.',
+        };
+      }
+      case 'select': {
+        if (input.value === undefined) return { ok: false, message: 'value is required for select.' };
+        const at = await point();
+        if (typeof at === 'string') return { ok: false, message: at };
+        if (!at) return { ok: false, message: 'Provide node_id + snapshot_id (or x/y) of the <select> element.' };
+        const outcome = (await withDeadline(
+          webContents.executeJavaScript(`${SELECT_SCRIPT}(${at.x}, ${at.y}, ${JSON.stringify(input.value)})`, true),
+          deadlines.commandMs,
+          'Select',
+          signal
+        )) as { ok: boolean; message: string };
+        if (outcome.ok) await waitForSettled(webContents, signal, deadlines.settleMs);
+        return outcome;
       }
       case 'key': {
         if (!input.key) return { ok: false, message: 'key is required for key.' };
-        const keyCode = normalizeKey(input.key);
-        webContents.sendInputEvent({ type: 'keyDown', keyCode });
-        webContents.sendInputEvent({ type: 'keyUp', keyCode });
+        const { keyCode, modifiers } = parseKeyChord(input.key);
+        webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+        if (keyCode === 'Space' && !modifiers.length) webContents.sendInputEvent({ type: 'char', keyCode: ' ' });
+        webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
         await waitForSettled(webContents, signal, deadlines.settleMs);
-        return { ok: true, message: `Pressed ${keyCode}.` };
+        return { ok: true, message: `Pressed ${[...modifiers, keyCode].join('+')}.` };
       }
       case 'scroll': {
         const direction = input.direction === 'up' ? -1 : 1;
         const amount = Math.min(Math.max(input.amount ?? 600, 50), 5000);
-        const x = input.x ?? 0;
-        const y = input.y ?? 0;
-        webContents.sendInputEvent({
-          type: 'mouseWheel',
-          x,
-          y,
-          deltaX: 0,
-          deltaY: direction * amount,
-        });
+        let at = await point();
+        if (typeof at === 'string') return { ok: false, message: at };
+        if (!at) {
+          // The middle of the viewport, not its corner.
+          const size = (await withDeadline(
+            webContents.executeJavaScript('({ width: innerWidth, height: innerHeight })', true),
+            deadlines.commandMs,
+            'Viewport read',
+            signal
+          )) as { width: number; height: number };
+          at = { x: Math.round(size.width / 2), y: Math.round(size.height / 2) };
+        }
+        const outcome = (await withDeadline(
+          webContents.executeJavaScript(`${SCROLL_SCRIPT}(${at.x}, ${at.y}, ${direction * amount})`, true),
+          deadlines.commandMs,
+          'Scroll',
+          signal
+        )) as { moved: number; top: number; max: number; page: boolean };
         await waitForSettled(webContents, signal, deadlines.settleMs);
-        return { ok: true, message: `Scrolled ${direction === -1 ? 'up' : 'down'} by ${amount}px.` };
+        const where = `${outcome.page ? 'the page' : 'the scrollable area'} is at ${outcome.top} of ${outcome.max}px`;
+        if (!outcome.moved) {
+          return { ok: true, message: `Nothing scrolled: already at the ${direction === -1 ? 'top' : 'bottom'} (${where}).` };
+        }
+        return { ok: true, message: `Scrolled ${direction === -1 ? 'up' : 'down'} by ${Math.abs(outcome.moved)}px; ${where}.` };
+      }
+      case 'wait': {
+        if (!input.text) {
+          const ms = Math.min(Math.max(input.amount ?? 1000, 0), 10_000);
+          await abortableDelay(ms, signal);
+          return { ok: true, message: `Waited ${ms}ms.` };
+        }
+        const timeoutMs = Math.min(Math.max(input.timeoutMs ?? 5000, 100), 20_000);
+        const deadline = Date.now() + timeoutMs;
+        const probe = `(() => { const body = document.body; return !!body && body.innerText.includes(${JSON.stringify(input.text)}); })()`;
+        for (;;) {
+          throwIfAborted(signal);
+          const found = webContents.isLoading()
+            ? false
+            : ((await withDeadline(webContents.executeJavaScript(probe, true), deadlines.commandMs, 'Wait', signal)) as boolean);
+          if (found) return { ok: true, message: `"${input.text}" is on the page.` };
+          if (Date.now() >= deadline) {
+            return { ok: false, message: `"${input.text}" did not appear within ${timeoutMs}ms.` };
+          }
+          await abortableDelay(WAIT_POLL_MS, signal);
+        }
       }
       default:
         return { ok: false, message: `Unknown action: ${input.action}` };
@@ -610,13 +946,13 @@ async function readScrollPosition(
   }
 }
 
-/** Cancel in-flight/queued work and release a detached backend at turn end,
- * Stop, Delete or app shutdown. A later turn lazily gets a fresh controller. */
+/** Cancel in-flight/queued work and release the chat's detached tabs at turn
+ * end, Stop, Delete or app shutdown. A later turn lazily gets a fresh controller. */
 export function finishBrowserUseTurn(manager: BrowserManager, sessionId: string): void {
   sessionAbortControllers.get(sessionId)?.abort(new Error('Browser turn ended.'));
   sessionAbortControllers.delete(sessionId);
   for (const key of [...lastSnapshots.keys()]) {
     if (key.startsWith(`${sessionId}:`)) lastSnapshots.delete(key);
   }
-  manager.releaseAgentSession(sessionId);
+  manager.releaseAgentChat(sessionId);
 }

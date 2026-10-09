@@ -14,13 +14,15 @@
 
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
+import { BROWSER_USE_SERVER_NAME, finishBrowserUseTurn, runBrowserUseAction } from './browser-use';
 import {
-  BROWSER_USE_SERVER_NAME,
-  finishBrowserUseTurn,
-  runBrowserUseAction,
-  type BrowserUseActionInput,
-  type BrowserUseActionResult,
-} from './browser-use';
+  BROWSER_USE_TOOL_DESCRIPTION,
+  browserUseInputFromArgs,
+  browserUseInputSchema,
+  browserUseResultContent,
+  type BrowserUseToolArgs,
+  type BrowserUseToolContent,
+} from './browser-use-tool';
 import { isBrowserUseEnabled } from './browser-use-permissions';
 import { browserManager } from '../browserManager';
 import { upsertCodexMcpServer, getCodexMcpServers, saveCodexMcpServers } from './codex-mcp-settings';
@@ -110,7 +112,7 @@ function loadMcpSdk(): {
         args: Record<string, unknown>,
         context?: { signal?: AbortSignal }
       ) => Promise<{
-        content: Array<{ type: 'text'; text: string }>;
+        content: BrowserUseToolContent[];
         isError?: boolean;
       }>
     ) => void;
@@ -137,35 +139,6 @@ function loadZod(): typeof import('zod') {
 
 const TOOL_NAME = 'browser_use';
 
-const TOOL_DESCRIPTION = [
-  'Drive the Aegis session browser panel to browse and interact with web pages.',
-  'Aegis reveals the panel when available and keeps the same tab usable in the background.',
-  'Workflow: navigate (the user approves new origins), then snapshot to get',
-  'interactive elements with stable node ids and viewport coordinates, then',
-  'click/type/scroll by node id (preferred) or x/y, then read or snapshot again',
-  'to verify. Take a fresh snapshot after any navigation or scroll — node ids',
-  'are per-snapshot.',
-].join(' ');
-
-function formatResult(result: BrowserUseActionResult): string {
-  const parts = [result.message];
-  if (result.text) parts.push('\n--- page text ---\n' + result.text.slice(0, 12000));
-  if (result.snapshot) {
-    const nodes = result.snapshot.nodes
-      .map(
-        (n) =>
-          `[${n.id}] ${n.role}${n.text ? ` "${n.text.slice(0, 80)}"` : ''} @(${n.x},${n.y})${n.href ? ` -> ${n.href.slice(0, 100)}` : ''}`
-      )
-      .join('\n');
-    parts.push(
-      `\n--- interactive elements (snapshot ${result.snapshot.snapshotId}) ---\n` +
-        (nodes || '(none found)') +
-        `\npage: ${result.snapshot.url}`
-    );
-  }
-  return parts.join('\n');
-}
-
 function mergeRequestSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
   const controller = new AbortController();
   for (const signal of signals) {
@@ -186,21 +159,8 @@ function buildMcpServer(scopedSessionId: string | null, requestSignal: AbortSign
   server.registerTool(
     TOOL_NAME,
     {
-      description: TOOL_DESCRIPTION,
-      inputSchema: {
-        action: z
-          .enum(['navigate', 'snapshot', 'read', 'click', 'type', 'key', 'scroll'])
-          .describe('What to do in the browser panel.'),
-        url: z.string().optional().describe('Absolute URL (navigate only). The user approves new origins.'),
-        x: z.number().optional().describe('Viewport x in CSS pixels (click/type/scroll).'),
-        y: z.number().optional().describe('Viewport y in CSS pixels (click/type/scroll).'),
-        node_id: z.number().optional().describe('Node id from the latest snapshot (click).'),
-        snapshot_id: z.string().optional().describe('Snapshot id the node_id belongs to (click).'),
-        text: z.string().optional().describe('Text to type (type only).'),
-        key: z.string().optional().describe('Key to press: enter, tab, escape, backspace, arrow keys (key only).'),
-        direction: z.enum(['up', 'down']).optional().describe('Scroll direction (scroll only).'),
-        amount: z.number().optional().describe('Scroll pixels (scroll only, default 600).'),
-      },
+      description: BROWSER_USE_TOOL_DESCRIPTION,
+      inputSchema: browserUseInputSchema(z),
     },
     async (args, context) => {
       const startedAt = Date.now();
@@ -240,31 +200,7 @@ function buildMcpServer(scopedSessionId: string | null, requestSignal: AbortSign
           };
         }
       }
-      const typedArgs = args as unknown as {
-        action: BrowserUseActionInput['action'];
-        url?: string;
-        x?: number;
-        y?: number;
-        node_id?: number;
-        snapshot_id?: string;
-        text?: string;
-        key?: string;
-        direction?: 'up' | 'down';
-        amount?: number;
-      };
-      const input: BrowserUseActionInput = {
-        sessionId,
-        action: typedArgs.action,
-        url: typedArgs.url,
-        x: typedArgs.x,
-        y: typedArgs.y,
-        nodeId: typedArgs.node_id,
-        snapshotId: typedArgs.snapshot_id,
-        text: typedArgs.text,
-        key: typedArgs.key,
-        direction: typedArgs.direction,
-        amount: typedArgs.amount,
-      };
+      const input = browserUseInputFromArgs(sessionId, args as unknown as BrowserUseToolArgs);
       const result = await runBrowserUseAction(browserManager, input, { signal });
       console.info('[browser-use]', {
         stage: 'response',
@@ -274,7 +210,9 @@ function buildMcpServer(scopedSessionId: string | null, requestSignal: AbortSign
         elapsedMs: Date.now() - startedAt,
       });
       return {
-        content: [{ type: 'text' as const, text: formatResult(result) }],
+        // Screenshots travel as a saved file the agent opens itself: not every
+        // provider here passes MCP image blocks to its model.
+        content: browserUseResultContent(result, { inlineImage: false }),
         ...(result.ok ? {} : { isError: true }),
       };
     }

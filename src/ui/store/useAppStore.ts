@@ -1379,7 +1379,11 @@ export const useAppStore = create<Store>()(
           get().setActiveSession(event.payload.sessionId);
         }
         set({ showSettings: false });
-        get().openRightUtilityTab('browser', { instantReveal: true });
+        // An agent acting on an extra browser tab reveals that tab.
+        const tab = event.payload.tab;
+        const target: ProjectUtilityPanelTarget =
+          tab && tab.startsWith('browser:') ? (tab as ProjectUtilityPanelTarget) : 'browser';
+        get().openRightUtilityTab(target, { instantReveal: true });
         break;
       }
     }

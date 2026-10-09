@@ -5,11 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   finishBrowserUseTurn,
+  parseKeyChord,
   runBrowserUseAction,
   waitForBrowserPageReady,
 } from '../../src/electron/libs/browser-use';
+import { browserUseResultContent } from '../../src/electron/libs/browser-use-tool';
 import {
+  decideBrowserUseNavigation,
+  forgetBrowserUseApprovals,
   initializeBrowserUseConsent,
+  isLoopbackOrigin,
   requestBrowserUseNavigationConsent,
   setBrowserUseSessionFullAccess,
 } from '../../src/electron/libs/browser-use-consent';
@@ -112,7 +117,11 @@ class FakeBrowserManager {
     }
   }
 
-  releaseAgentSession(sessionId: string) {
+  agentTabs(sessionId: string) {
+    return [{ tab: 'main', browserSessionId: sessionId, url: '', title: '' }];
+  }
+
+  releaseAgentChat(sessionId: string) {
     this.releases.push(sessionId);
   }
 }
@@ -270,12 +279,71 @@ async function main() {
     await requestBrowserUseNavigationConsent('loopback', 'http://127.0.0.1:9999/path'),
     true
   );
+  saveBrowserUsePermissionSettings({ enabled: true, defaultPolicy: 'ask', origins: {} });
+  // Loopback is matched by host, never by prefix.
+  for (const origin of ['http://localhost:5173', 'https://localhost', 'http://127.0.0.2:8080', 'http://[::1]:3000']) {
+    assert.equal(isLoopbackOrigin(origin), true, origin);
+  }
+  for (const origin of ['http://localhost.evil.example', 'http://127.0.0.1.nip.io', 'file:///tmp/a.html']) {
+    assert.equal(isLoopbackOrigin(origin), false, origin);
+  }
+  assert.equal(decideBrowserUseNavigation('loopback', 'http://localhost.evil.example/'), 'ask');
+  // One approval memory serves both consent paths, for the whole session,
+  // until the session is deleted.
+  assert.equal(decideBrowserUseNavigation('policy', 'https://ask.example/other'), 'allow');
+  assert.equal(decideBrowserUseNavigation('other-session', 'https://ask.example/other'), 'ask');
+  forgetBrowserUseApprovals('policy');
+  assert.equal(decideBrowserUseNavigation('policy', 'https://ask.example/other'), 'ask');
+  assert.equal(decideBrowserUseNavigation('policy', 'not a url'), 'block');
   rmSync(permissionDir, { recursive: true, force: true });
   delete process.env.AEGIS_BROWSER_USE_SETTINGS_PATH;
 
   finishBrowserUseTurn(manager as never, 'one');
   assert.deepEqual(manager.releases, ['one']);
   assert.equal(manager.activityDepth.get('one'), 0);
+
+  // Key chords: plain keys, aliases and modifiers.
+  assert.deepEqual(parseKeyChord('enter'), { keyCode: 'Return', modifiers: [] });
+  assert.deepEqual(parseKeyChord('PageDown'), { keyCode: 'PageDown', modifiers: [] });
+  assert.deepEqual(parseKeyChord('cmd+a'), { keyCode: 'a', modifiers: ['meta'] });
+  assert.deepEqual(parseKeyChord('Ctrl + Shift + Tab'), { keyCode: 'Tab', modifiers: ['control', 'shift'] });
+
+  // Screenshots: always a saved file named in the text; an image block only
+  // where the client is known to show it to the model.
+  const shotResult = {
+    ok: true,
+    message: 'Captured http://localhost:5173/.',
+    screenshot: {
+      base64: 'AAAA',
+      mimeType: 'image/jpeg',
+      width: 1280,
+      height: 800,
+      scale: 1,
+      path: '/tmp/shot.jpg',
+      url: 'http://localhost:5173/',
+    },
+  };
+  const inline = browserUseResultContent(shotResult, { inlineImage: true });
+  assert.equal(inline.length, 2);
+  assert.deepEqual(inline[1], { type: 'image', data: 'AAAA', mimeType: 'image/jpeg' });
+  assert.match((inline[0] as { text: string }).text, /Also saved to \/tmp\/shot\.jpg/);
+  const byFile = browserUseResultContent(shotResult, { inlineImage: false });
+  assert.equal(byFile.length, 1);
+  assert.match((byFile[0] as { text: string }).text, /Saved to \/tmp\/shot\.jpg\. Open that image file/);
+  assert.match((byFile[0] as { text: string }).text, /can be used directly/);
+  const scaled = browserUseResultContent(
+    { ...shotResult, screenshot: { ...shotResult.screenshot, scale: 0.5 } },
+    { inlineImage: false }
+  );
+  assert.match((scaled[0] as { text: string }).text, /divide image coordinates by 0\.5/);
+  const tabsText = browserUseResultContent(
+    { ok: true, message: '2 browser tabs in this chat.', tabs: [
+      { tab: 'main', title: 'App', url: 'http://localhost:5173/', current: true },
+      { tab: 'browser:t1', title: '', url: 'https://example.com/', current: false },
+    ] },
+    { inlineImage: false }
+  );
+  assert.match((tabsText[0] as { text: string }).text, /main \(acting on\): "App" http:\/\/localhost:5173\/\nbrowser:t1: https:\/\/example\.com\//);
 
   console.log('browser-use runtime: queue, detached target, deadline, abort and ready checks passed');
 }

@@ -29,9 +29,18 @@ export function isBrowserUseSessionFullAccess(sessionId: string): boolean {
   return fullAccessSessions.has(sessionId);
 }
 
-/** Loopback origins never need a card (local dev pages, health checks). */
-function isLoopbackOrigin(origin: string): boolean {
-  return origin.startsWith('http://127.0.0.1') || origin.startsWith('http://localhost') || origin.startsWith('http://[::1]');
+/** Loopback origins never need a card (local dev pages, health checks).
+ * Compared by host, so look-alikes such as localhost.example.com don't pass. */
+export function isLoopbackOrigin(origin: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  const hostname = parsed.hostname;
+  return hostname === 'localhost' || hostname === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(hostname);
 }
 
 export interface BrowserUseConsentHost {
@@ -59,8 +68,14 @@ export function initializeBrowserUseConsent(nextHost: BrowserUseConsentHost): vo
   host = nextHost;
 }
 
-/** Per-session origins approved this app run (turn-scoped memory). */
+/**
+ * Origins the user approved, per chat session. Both consent paths (Claude's
+ * in-process server and the HTTP server) share this one memory, so an origin
+ * approved once is not asked again for the rest of that session; deleting the
+ * session forgets it.
+ */
 const approvedOrigins = new Map<string, Set<string>>();
+const APPROVED_SESSION_LIMIT = 64;
 
 export function rememberBrowserUseApproval(sessionId: string, origin: string): void {
   let set = approvedOrigins.get(sessionId);
@@ -69,18 +84,46 @@ export function rememberBrowserUseApproval(sessionId: string, origin: string): v
     approvedOrigins.set(sessionId, set);
   }
   set.add(origin);
+  if (approvedOrigins.size > APPROVED_SESSION_LIMIT) {
+    const oldest = approvedOrigins.keys().next().value;
+    if (oldest !== undefined && oldest !== sessionId) approvedOrigins.delete(oldest);
+  }
 }
 
 export function forgetBrowserUseApprovals(sessionId: string): void {
   approvedOrigins.delete(sessionId);
 }
 
-function originOf(url: string): string {
+export function browserUseOriginOf(url: string): string {
   try {
     return new URL(url).origin;
   } catch {
     return '';
   }
+}
+
+export type BrowserUseNavigationDecision = 'allow' | 'block' | 'ask';
+
+/**
+ * Everything navigation consent decides without asking: full-access sessions
+ * and loopback origins pass, then origins approved earlier in the session,
+ * then the persisted policy. 'ask' means the caller shows its permission card
+ * and reports an approval back through rememberBrowserUseApproval.
+ */
+export function decideBrowserUseNavigation(sessionId: string, url: string): BrowserUseNavigationDecision {
+  const origin = browserUseOriginOf(url);
+  if (!origin) return 'block';
+  if (
+    isBrowserUseSessionFullAccess(sessionId) ||
+    (host?.isSessionFullAccess(sessionId) ?? false) ||
+    isLoopbackOrigin(origin)
+  ) {
+    return 'allow';
+  }
+  if (approvedOrigins.get(sessionId)?.has(origin)) return 'allow';
+  const policy = resolveBrowserUsePolicy(url);
+  if (policy === 'allow') rememberBrowserUseApproval(sessionId, origin);
+  return policy;
 }
 
 function isBrowserUseToolName(name: unknown): boolean {
@@ -208,30 +251,17 @@ export function findBrowserUseCallerSessionId(
   });
 }
 
-/** Ask navigation consent: persisted policy first, then the permission card.
- * Full-access sessions and loopback origins skip the card entirely. */
+/** Ask navigation consent through the calling session's permission card
+ * when decideBrowserUseNavigation cannot settle it on its own. */
 export async function requestBrowserUseNavigationConsent(
   sessionId: string,
   url: string,
   signal?: AbortSignal
 ): Promise<boolean> {
-  const origin = originOf(url);
-  if (!origin) return false;
-  if (
-    isBrowserUseSessionFullAccess(sessionId) ||
-    (host?.isSessionFullAccess(sessionId) ?? false) ||
-    isLoopbackOrigin(origin)
-  ) {
-    return true;
-  }
-  if (approvedOrigins.get(sessionId)?.has(origin)) return true;
-  const policy = resolveBrowserUsePolicy(url);
-  if (policy === 'allow') {
-    rememberBrowserUseApproval(sessionId, origin);
-    return true;
-  }
-  if (policy === 'block') return false;
+  const decision = decideBrowserUseNavigation(sessionId, url);
+  if (decision !== 'ask') return decision === 'allow';
   if (!host) return false;
+  const origin = browserUseOriginOf(url);
   const allowed = await host.requestPermission(
     sessionId,
     `Allow the agent to open ${origin} in the session browser?`,

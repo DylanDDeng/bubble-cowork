@@ -55,6 +55,7 @@ assert.ok(
 
 // ── MCP layer (browser-use-mcp.ts) ────────────────────────────────────────
 const mcp = read('src/electron/libs/browser-use-mcp.ts');
+const httpServerSource = read('src/electron/libs/browser-use-http-server.ts');
 assert.ok(
   mcp.includes("const TOOL_NAME = 'browser_use'"),
   'single browser_use tool (Codex-shaped action surface)'
@@ -70,6 +71,19 @@ assert.ok(
 assert.ok(
   mcp.includes('rememberBrowserUseApproval'),
   'approved origins are remembered for the session (no re-ask per action)'
+);
+const tool = read('src/electron/libs/browser-use-tool.ts');
+for (const action of ['screenshot', 'back', 'forward', 'hover', 'select', 'wait', 'tabs']) {
+  assert.ok(tool.includes(`'${action}'`), `browser_use exposes the ${action} action`);
+}
+assert.ok(
+  mcp.includes('browserUseInputSchema(z)') && httpServerSource.includes('browserUseInputSchema(z)'),
+  'both MCP servers expose the one shared schema'
+);
+assert.ok(
+  mcp.includes('browserUseResultContent(result, { inlineImage: true })') &&
+    httpServerSource.includes('browserUseResultContent(result, { inlineImage: false })'),
+  'Claude gets screenshots inline; HTTP providers get the saved file'
 );
 assert.ok(
   mcp.includes('createSdkMcpServer'),
@@ -171,12 +185,17 @@ assert.ok(
   permissions.includes("export type BrowserUseOriginPolicy = 'allow' | 'block' | 'ask'"),
   'three-state origin policy model'
 );
-for (const layer of [read('src/electron/libs/browser-use-mcp.ts'), consent]) {
-  assert.ok(
-    layer.includes('resolveBrowserUsePolicy'),
-    'both consent paths consult the persisted policy before showing the card'
-  );
-}
+assert.ok(
+  consent.includes('resolveBrowserUsePolicy') &&
+    consent.includes('export function decideBrowserUseNavigation') &&
+    mcp.includes('decideBrowserUseNavigation(sessionId, url)') &&
+    !mcp.includes('new Map<string, Set<string>>()'),
+  'both consent paths share one decision (policy, loopback, approvals) before showing the card'
+);
+assert.ok(
+  ipc.includes('forgetBrowserUseApprovals(sessionId)'),
+  'deleting a session forgets its approved origins'
+);
 assert.ok(
   ipc.includes("'set-browser-use-origin-policy'") && ipc.includes("'set-browser-use-default-policy'"),
   'settings IPC for the permissions page'

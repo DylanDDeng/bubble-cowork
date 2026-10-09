@@ -104,9 +104,10 @@ import {
 import {
   BROWSER_USE_SERVER_NAME,
   finishBrowserUseTurn,
+  forgetBrowserUseScreenshots,
   setBrowserUsePanelOpener,
 } from './libs/browser-use';
-import { initializeBrowserUseConsent } from './libs/browser-use-consent';
+import { forgetBrowserUseApprovals, initializeBrowserUseConsent } from './libs/browser-use-consent';
 import {
   getBrowserUsePermissionSettings,
   setBrowserUseOriginPolicy,
@@ -4909,10 +4910,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // routes the approval card through the session's existing permission state.
   // Browser-use panel opener: main asks the renderer to reveal the session's
   // Browser panel (agent actions auto-open it, Codex parity).
-  setBrowserUsePanelOpener(async (sessionId) => {
+  setBrowserUsePanelOpener(async (sessionId, tab) => {
     broadcast(mainWindow, {
       type: 'browser.open-panel',
-      payload: { sessionId },
+      payload: { sessionId, tab },
     } as Parameters<typeof broadcast>[1]);
   });
   initializeBrowserUseConsent({
@@ -11992,7 +11993,9 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
     });
     return;
   }
+  forgetBrowserUseApprovals(sessionId);
   browserManager.closeChat(sessionId);
+  void forgetBrowserUseScreenshots(sessionId).catch(() => {});
 
   // 先停止运行中的会话
   const entry = runnerHandles.get(sessionId);
