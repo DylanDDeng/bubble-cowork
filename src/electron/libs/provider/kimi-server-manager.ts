@@ -110,6 +110,9 @@ function envInt(name: string, fallback: number): number {
 }
 
 const TOKEN_LINE_REGEX = /^\s*Token:\s+(\S+)\s*$/m;
+/** The banner's `Local: http://127.0.0.1:<port>/…` line: 2.x moves to the
+ * next port when the requested one is taken, so this is where it listens. */
+const LOCAL_URL_PORT_REGEX = /^\s*Local:\s+https?:\/\/[^\s/:]+:(\d+)/m;
 const ALREADY_RUNNING_REGEX = /server already running \(pid=(\d+), port=(\d+)/;
 
 export const KIMI_SERVER_TOKEN_PATH = path.join(homedir(), '.kimi-code', 'server.token');
@@ -452,7 +455,8 @@ export class KimiServerManager extends EventEmitter {
         throw new KimiServerTransportError('daemon_unavailable', 'could not obtain the kimi server bearer token');
       }
 
-      const effectivePort = owned ? port : (adoptedPort as number);
+      const bannerPort = Number.parseInt(LOCAL_URL_PORT_REGEX.exec(stdout)?.[1] ?? '', 10);
+      const effectivePort = owned ? (Number.isInteger(bannerPort) && bannerPort > 0 ? bannerPort : port) : (adoptedPort as number);
       const baseUrl = `http://127.0.0.1:${effectivePort}`;
 
       // Readiness gate on /healthz. The 2s shortcut applies only to an owned
@@ -790,10 +794,12 @@ export class KimiServerManager extends EventEmitter {
     return data?.aborted === true;
   }
 
-  /** Cancel one submitted/queued prompt (probe P1: the route exists; a stop
-   * must use it because queued prompts auto-advance after `:abort`). */
+  /** Abort one submitted/queued prompt. A stop must do this for queued
+   * prompts first: after a session `:abort` they start on their own. 2.x
+   * has only `abort|steer` prompt actions — `:cancel` answers 40001
+   * "unsupported action" (probe-kimi-server-v3 P1). */
   async cancelPrompt(sessionId: string, promptId: string): Promise<void> {
-    await this.request('POST', `/sessions/${sessionId}/prompts/${promptId}:cancel`);
+    await this.request('POST', `/sessions/${sessionId}/prompts/${promptId}:abort`);
   }
 
   /** `GET /sessions/{id}` — carries the authoritative run-state
@@ -916,6 +922,13 @@ export class KimiServerManager extends EventEmitter {
   async listWorkspaces(): Promise<Array<Record<string, unknown>>> {
     const data = await this.request<Record<string, unknown>>('GET', '/workspaces');
     return Array.isArray(data?.items) ? (data.items as Array<Record<string, unknown>>) : [];
+  }
+
+  /** `POST /workspaces` — registers `root` (idempotent) and returns its id. */
+  async registerWorkspace(root: string): Promise<string> {
+    const data = await this.request<Record<string, unknown>>('POST', '/workspaces', { root });
+    const workspace = data && typeof data.workspace === 'object' && data.workspace !== null ? (data.workspace as Record<string, unknown>) : data;
+    return typeof workspace?.id === 'string' ? workspace.id : '';
   }
 
   /** Same payload shape as the session-scoped skills route. */

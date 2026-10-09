@@ -221,7 +221,10 @@ const server = createServer((req, res) => {
         respond(0, {});
         if (action === 'compact') {
           setTimeout(() => {
-            emitSequence(sessionId, [['event.session.history_compacted', {}]]);
+            emitSequence(sessionId, [
+              ['compaction.started', { trigger: 'manual' }],
+              ['compaction.completed', { result: { summary: 'compacted', compactedCount: 1, tokensBefore: 1000, tokensAfter: 100 } }],
+            ]);
           }, 20);
         }
         return;

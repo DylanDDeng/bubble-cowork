@@ -1,6 +1,8 @@
 import { CompactionTracker } from './compaction-tracker';
+import { kimiQuestionAnswers, kimiQuestionInput, kimiQuestionItems, type KimiQuestionItem } from './kimi-questions';
 import { EventEmitter } from 'events';
-import { readFileSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
+import { isAbsolute } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import {
   KimiServerApiError,
@@ -22,6 +24,7 @@ import type {
 import type {
   AcpPermissionInput,
   AcpPermissionOption,
+  AskUserQuestionInput,
   Attachment,
   ContentBlock,
   KimiPermissionMode,
@@ -109,15 +112,22 @@ function extractRowText(row: Record<string, unknown>): string | null {
  * UI mapping pinned by the plan: default→manual, plan→manual+plan_mode,
  * auto→auto, yolo→yolo. (Server modes are `manual | yolo | auto`.)
  */
+/**
+ * Aegis's Kimi modes onto the server's. Kimi 2.x names them differently from
+ * what the words suggest: server `yolo` is "Ask When Needed" (routine work
+ * runs, risky actions, questions and plans still ask) and server `auto` is
+ * "Never Ask". So Aegis Auto → `yolo`, and Aegis YOLO (full access, also what
+ * unattended automations use) → `auto`.
+ */
 export function mapKimiPermissionMode(mode: KimiPermissionMode | undefined): {
   permission_mode: 'manual' | 'auto' | 'yolo';
   plan_mode: boolean;
 } {
   switch (mode) {
     case 'auto':
-      return { permission_mode: 'auto', plan_mode: false };
-    case 'yolo':
       return { permission_mode: 'yolo', plan_mode: false };
+    case 'yolo':
+      return { permission_mode: 'auto', plan_mode: false };
     case 'plan':
       return { permission_mode: 'manual', plan_mode: true };
     case 'default':
@@ -128,6 +138,9 @@ export function mapKimiPermissionMode(mode: KimiPermissionMode | undefined): {
 
 type ServerContentBlock = Record<string, unknown>;
 
+/** Images up to this size go inline as base64; larger ones by path. */
+const INLINE_IMAGE_MAX_BYTES = 600 * 1024;
+
 function buildContentBlocks(prompt: string, attachments?: Attachment[]): ServerContentBlock[] {
   const blocks: ServerContentBlock[] = [];
   if (prompt.trim()) {
@@ -136,6 +149,14 @@ function buildContentBlocks(prompt: string, attachments?: Attachment[]): ServerC
   for (const attachment of attachments || []) {
     if (attachment.kind === 'image') {
       try {
+        // Larger images go by absolute path: the request body is capped at
+        // 1 MiB and base64 grows it by a third, so inline images past ~750 KB
+        // failed. The local server reads the file itself (2.x `source.kind:
+        // 'path'`, absolute and non-sensitive paths only).
+        if (isAbsolute(attachment.path) && statSync(attachment.path).size > INLINE_IMAGE_MAX_BYTES) {
+          blocks.push({ type: 'image', source: { kind: 'path', path: attachment.path } });
+          continue;
+        }
         // The server validates image parts as {type, source:{kind:'base64',
         // media_type, data}} (Zod discriminated union on source.kind, every
         // field min(1)); the ACP-style flat {mimeType, data} shape is
@@ -182,7 +203,9 @@ interface PendingInteraction {
    * REST resolution consumed the renderer card and the ipc promise — only a
    * fresh permission_request makes the retry reachable). */
   toolName: string;
-  input: AcpPermissionInput;
+  input: AcpPermissionInput | AskUserQuestionInput;
+  /** A question's items, for turning the card's answers into Kimi answers. */
+  questionItems?: KimiQuestionItem[];
   /** One resolution in flight per interaction (approve/reject must not race). */
   resolving?: boolean;
 }
@@ -223,6 +246,9 @@ interface ActiveServerSession {
    * so the Settings usage report can aggregate kimi consumption. */
   turnUsage: { input: number; output: number; cacheRead: number; cacheCreation: number };
   pendingManualCompact: boolean;
+  /** When a compaction last settled: 2.x sends `compaction.completed`, older
+   * servers `event.session.history_compacted`; one settles, not both. */
+  compactionSettledAt: number;
   /** The current turn already surfaced an error event (P0-1 dedupe). */
   reportedTurnError: boolean;
   stopRequest: { timer: ReturnType<typeof setTimeout> } | null;
@@ -353,6 +379,7 @@ export class KimiServerAdapter implements ProviderAdapter {
       lastContext: { contextTokens: 0, maxContextTokens: 0 },
       turnUsage: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
       pendingManualCompact: false,
+      compactionSettledAt: 0,
       reportedTurnError: false,
       stopRequest: null,
       subagentParents: new Map(),
@@ -415,7 +442,8 @@ export class KimiServerAdapter implements ProviderAdapter {
     this.emit({ type: 'status_change', threadId: input.threadId, status: 'running' });
 
     // `/compact` routes to the dedicated action; completion is signaled by
-    // `event.session.history_compacted`, which settles the turn.
+    // `compaction.completed` (2.x; older servers sent
+    // `event.session.history_compacted`), which settles the turn.
     if (input.prompt.trim() === '/compact' && !input.attachments?.length) {
       if (session.activeTurn || session.submitInFlight > 0 || session.pendingPromptIds.size > 0) {
         // Mid-turn `:compact` semantics are unprobed, and the synthetic
@@ -632,9 +660,10 @@ export class KimiServerAdapter implements ProviderAdapter {
     try {
       const optionId = getString(decision.updatedInput?.optionId);
       if (pending.kind === 'question') {
-        if (decision.behavior === 'allow' && optionId) {
+        const answers = decision.updatedInput?.answers;
+        if (decision.behavior === 'allow' && pending.questionItems && isRecord(answers)) {
           await this.manager.resolveQuestion(session.providerSessionId, pending.serverInteractionId, {
-            selected_label: optionId,
+            answers: kimiQuestionAnswers(pending.questionItems, answers),
           });
         } else {
           await this.manager.request(
@@ -658,8 +687,10 @@ export class KimiServerAdapter implements ProviderAdapter {
       // A WS approval/question.resolved may have consumed the entry while we
       // were failing — don't resurrect or double-dismiss it.
       if (session.pendingInteractions.get(requestId) !== pending) return;
-      if (error instanceof KimiServerApiError && error.code === 40404) {
-        // Expired/unknown server-side (probe P5): nothing left to answer.
+      // 40404: expired/unknown server-side (probe P5). 40909: the question
+      // is already settled — a successful :dismiss answers with it (probe v3).
+      if (error instanceof KimiServerApiError && (error.code === 40404 || (pending.kind === 'question' && error.code === 40909))) {
+        // Nothing left to answer.
         session.pendingInteractions.delete(requestId);
         this.emit({ type: 'permission_dismissed', threadId, requestId });
         return;
@@ -684,9 +715,8 @@ export class KimiServerAdapter implements ProviderAdapter {
 
   /**
    * Session-independent skill listing for the composer (the NewSessionView
-   * and pre-first-turn composers have no session catalog to read). Prefers
-   * the workspace-scoped route matched by cwd; falls back to a throwaway
-   * session (archived afterwards) when the cwd has no workspace yet.
+   * and pre-first-turn composers have no session catalog to read), through
+   * the cwd's workspace, registering it when Kimi has none yet.
    */
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
     const cwd = input.cwd?.trim() || process.cwd();
@@ -698,20 +728,19 @@ export class KimiServerAdapter implements ProviderAdapter {
     await this.manager.ensureDaemon();
     let raw: Array<Record<string, unknown>> = [];
     const workspaces = await this.manager.listWorkspaces();
-    const workspace =
-      workspaces.find((entry) => getString(entry.root) === cwd) ||
-      // Skills are predominantly global (~/.kimi-code/skills + builtins);
-      // any workspace lists them when this cwd has none yet.
-      workspaces[0];
-    if (workspace && getString(workspace.id)) {
-      raw = await this.manager.listWorkspaceSkills(getString(workspace.id));
+    let workspaceId = getString(workspaces.find((entry) => getString(entry.root) === cwd)?.id);
+    if (!workspaceId) {
+      // Register the cwd (idempotent on root) rather than creating a
+      // throwaway session, which stayed behind in Kimi's session store.
+      workspaceId = await this.manager.registerWorkspace(cwd).catch(() => '');
+    }
+    if (workspaceId) {
+      raw = await this.manager.listWorkspaceSkills(workspaceId);
     } else {
-      const { id } = await this.manager.createSession(cwd);
-      try {
-        raw = await this.manager.listSessionSkills(id);
-      } finally {
-        await this.manager.archiveSession(id).catch(() => {});
-      }
+      // The cwd can't be registered (e.g. it no longer exists): global skills
+      // from any workspace, without another project's own.
+      const other = getString(workspaces[0]?.id);
+      raw = other ? (await this.manager.listWorkspaceSkills(other)).filter((skill) => getString(skill.source) !== 'project') : [];
     }
 
     const skills: ProviderSkillDescriptor[] = raw
@@ -913,12 +942,29 @@ export class KimiServerAdapter implements ProviderAdapter {
       case 'event.question.requested':
         this.handleQuestionRequested(session, payload);
         break;
+      case 'event.question.answered':
       case 'event.question.resolved':
       case 'event.question.dismissed':
         this.handleQuestionResolved(session, payload);
         break;
+      case 'compaction.started':
+        // A manual /compact already started its attempt; auto compaction
+        // (or one another client began) starts here.
+        this.compactions.start(session, {
+          trigger: payload.trigger === 'manual' ? 'manual' : 'auto',
+          preTokens: session.lastContext.contextTokens || 0,
+        });
+        break;
+      case 'compaction.completed': {
+        const result = isRecord(payload.result) ? payload.result : {};
+        this.handleHistoryCompacted(session, typeof result.tokensBefore === 'number' ? result.tokensBefore : undefined);
+        break;
+      }
+      case 'compaction.cancelled':
+        this.handleCompactionCancelled(session);
+        break;
       case 'event.session.history_compacted':
-        this.handleHistoryCompacted(session, payload);
+        this.handleHistoryCompacted(session);
         break;
       case 'prompt.completed':
       case 'prompt.aborted': {
@@ -1144,7 +1190,8 @@ export class KimiServerAdapter implements ProviderAdapter {
     const toolCallId = getString(payload.toolCallId);
     if (!toolCallId) return;
     const output = payload.output;
-    const isError = payload.is_error === true || Boolean(payload.error);
+    // 2.x sends camelCase `isError`; older servers `is_error`.
+    const isError = payload.isError === true || payload.is_error === true || Boolean(payload.error);
     const content =
       typeof output === 'string'
         ? output
@@ -1427,6 +1474,25 @@ export class KimiServerAdapter implements ProviderAdapter {
     if (!questionId || session.seenInteractionIds.has(`q:${questionId}`)) return;
     session.seenInteractionIds.add(`q:${questionId}`);
 
+    // Kimi 2.x: up to four items with option ids, multi-select and free text,
+    // shown in the same AskUserQuestion card other providers use.
+    const items = kimiQuestionItems(payload);
+    if (items.length) {
+      const requestId = `kimi-server-question:${session.threadId}:${questionId}`;
+      const input = kimiQuestionInput(items);
+      session.pendingInteractions.set(requestId, {
+        requestId,
+        kind: 'question',
+        serverInteractionId: questionId,
+        threadId: session.threadId,
+        toolName: 'AskUserQuestion',
+        input,
+        questionItems: items,
+      });
+      this.emit({ type: 'permission_request', threadId: session.threadId, requestId, toolName: 'AskUserQuestion', input });
+      return;
+    }
+
     const question = getString(payload.question) || getString(payload.title) || 'Kimi has a question';
     const rawOptions = Array.isArray(payload.options) ? payload.options : [];
     const options: AcpPermissionOption[] = rawOptions
@@ -1480,10 +1546,12 @@ export class KimiServerAdapter implements ProviderAdapter {
     }
   }
 
-  private handleHistoryCompacted(session: ActiveServerSession, payload: Record<string, unknown>): void {
+  private handleHistoryCompacted(session: ActiveServerSession, preTokens?: number): void {
+    if (Date.now() - session.compactionSettledAt < 10_000) return;
+    session.compactionSettledAt = Date.now();
     const manual = session.pendingManualCompact;
     session.pendingManualCompact = false;
-    this.compactions.complete(session, { trigger: manual ? 'manual' : 'auto' });
+    this.compactions.complete(session, { trigger: manual ? 'manual' : 'auto', ...(preTokens !== undefined ? { preTokens } : {}) });
     if (manual) {
       // A manual /compact runs outside a model turn: settle the UI turn here.
       session.status = 'completed';
@@ -1501,6 +1569,16 @@ export class KimiServerAdapter implements ProviderAdapter {
         },
       });
     }
+  }
+
+  /** A compaction that stopped without compacting (e.g. nothing to compact). */
+  private handleCompactionCancelled(session: ActiveServerSession): void {
+    this.compactions.interrupt(session);
+    if (!session.pendingManualCompact) return;
+    session.pendingManualCompact = false;
+    this.emitLocalNotice(session.threadId, 'Kimi did not compact the conversation.');
+    session.status = 'completed';
+    this.emit({ type: 'status_change', threadId: session.threadId, status: 'completed' });
   }
 
   // ── Failure domains ───────────────────────────────────────────────────────

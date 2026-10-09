@@ -189,6 +189,8 @@ function invalidContentReason(content) {
         if (!source.url) return `content.${i}.source.url: Invalid input: expected non-empty string`;
       } else if (source.kind === 'file') {
         if (!source.file_id) return `content.${i}.source.file_id: Invalid input: expected non-empty string`;
+      } else if (source.kind === 'path') {
+        if (!source.path || !source.path.startsWith('/')) return `content.${i}.source.path: attachment path must be absolute`;
       } else {
         return `content.${i}.source.kind: Invalid discriminator value`;
       }
@@ -239,7 +241,11 @@ function makeFakeFetch(state) {
       return respond(0, { steered: true, prompt_ids: body.prompt_ids });
     }
     if (/\/prompts\/[^/]+:cancel$/.test(u.pathname) && method === 'POST') {
-      return respond(0, { cancelled: true });
+      // Gone in Kimi 2.x (probe-kimi-server-v3 P1).
+      return respond(40001, null);
+    }
+    if (/\/prompts\/[^/]+:abort$/.test(u.pathname) && method === 'POST') {
+      return respond(0, { aborted: true });
     }
     if (/\/prompts$/.test(u.pathname) && method === 'POST') {
       if (state.submitDelayMs) await new Promise((r) => setTimeout(r, state.submitDelayMs));
@@ -260,6 +266,10 @@ function makeFakeFetch(state) {
     if (/:archive$/.test(u.pathname)) return respond(0, {});
     if (/:fork$/.test(u.pathname)) return respond(0, { id: 'session_forked_1' });
     if (/\/messages$/.test(u.pathname)) return respond(0, { items: state.messages || [] });
+    if (u.pathname === '/api/v1/workspaces' && method === 'POST') {
+      if (state.registerWorkspaceCode) return respond(state.registerWorkspaceCode, null);
+      return respond(0, { id: 'wd_registered', root: body.root, name: 'registered', session_count: 0 });
+    }
     if (u.pathname === '/api/v1/workspaces') {
       return respond(0, { items: state.workspaces ?? [{ id: 'wd_test_1', root: '/tmp/proj' }] });
     }
@@ -286,7 +296,10 @@ function makeFakeFetch(state) {
       if (state.approvalsCode) return respond(state.approvalsCode, null);
       return respond(0, { resolved: true });
     }
-    if (/\/questions\//.test(u.pathname) && method === 'POST') return respond(0, {});
+    if (/\/questions\//.test(u.pathname) && method === 'POST') {
+      if (state.questionsCode) return respond(state.questionsCode, null);
+      return respond(0, {});
+    }
     return respond(0, {});
   };
   fetchImpl.calls = calls;
@@ -360,10 +373,11 @@ async function startL1Session(options = {}) {
 async function l1PermissionModeMapping() {
   assert.deepEqual(mapKimiPermissionMode('default'), { permission_mode: 'manual', plan_mode: false });
   assert.deepEqual(mapKimiPermissionMode('plan'), { permission_mode: 'manual', plan_mode: true });
-  assert.deepEqual(mapKimiPermissionMode('auto'), { permission_mode: 'auto', plan_mode: false });
-  assert.deepEqual(mapKimiPermissionMode('yolo'), { permission_mode: 'yolo', plan_mode: false });
+  // Kimi 2.x: server `yolo` = "Ask When Needed", server `auto` = "Never Ask".
+  assert.deepEqual(mapKimiPermissionMode('auto'), { permission_mode: 'yolo', plan_mode: false });
+  assert.deepEqual(mapKimiPermissionMode('yolo'), { permission_mode: 'auto', plan_mode: false });
   assert.deepEqual(mapKimiPermissionMode(undefined), { permission_mode: 'manual', plan_mode: false });
-  ok('permission modes map default/plan/auto/yolo → manual/manual+plan/auto/yolo');
+  ok('permission modes map default/plan/auto/yolo → manual/manual+plan/yolo(ask when needed)/auto(never ask)');
 }
 
 async function l1TurnCompleted() {
@@ -417,6 +431,27 @@ async function l1ImageAttachmentSourceShape() {
     ok('image attachments submit as {type:image, source:{kind:base64,…}} (40001 regression guard)');
   } finally {
     rmSync(imagePath, { force: true });
+  }
+}
+
+async function l1LargeImageByPath() {
+  // Past the inline limit base64 would overflow the server's 1 MiB body.
+  const bigPath = join(tmpdir(), `verify-kimi-big-${process.pid}.png`);
+  writeFileSync(bigPath, Buffer.alloc(700 * 1024, 1));
+  try {
+    const t = await startL1Session();
+    await t.adapter.sendTurn({
+      threadId: 'thread-1',
+      prompt: 'describe',
+      model: 'm',
+      attachments: [{ id: 'big', path: bigPath, name: 'big.png', size: 700 * 1024, mimeType: 'image/png', kind: 'image' }],
+    });
+    const submit = t.fetchImpl.calls.find((call) => /\/prompts$/.test(call.path));
+    assert.deepEqual(submit.body.content[1], { type: 'image', source: { kind: 'path', path: bigPath } });
+    assert.ok(JSON.stringify(submit.body).length < 64 * 1024, 'the request body stays small');
+    ok('large images go by absolute path instead of base64');
+  } finally {
+    rmSync(bigPath, { force: true });
   }
 }
 
@@ -831,16 +866,108 @@ async function l1CompactFlow() {
     t.fetchImpl.calls.some((call) => /:compact$/.test(call.path)),
     '/compact routes to the :compact action'
   );
+  t.push('compaction.started', { trigger: 'manual' });
   t.push('agent.status.updated', { contextTokens: 5000, maxContextTokens: 10000 }, true);
+  t.push('compaction.completed', { result: { summary: 's', compactedCount: 3, tokensBefore: 20000, tokensAfter: 5000 } });
+  // An older server's event for the same compaction must not settle it twice.
   t.push('event.session.history_compacted', {});
   await waitFor(() => t.events.messages('result').length === 1, 2000, 'compact result');
-  const boundary = t.events.messages('system').find((m) => m.subtype === 'compact_boundary');
+  await sleep(30);
+  assert.equal(t.events.messages('result').length, 1, 'one result for one compaction');
+  const boundaries = t.events.messages('system').filter((m) => m.subtype === 'compact_boundary');
+  assert.equal(boundaries.length, 1, 'one boundary for one compaction');
+  const boundary = boundaries[0];
   assert.equal(boundary.compactMetadata.trigger, 'manual');
   assert.equal(boundary.compactMetadata.preTokens, 20000, 'snapshot before compact, not post-compact occupancy');
   const start = t.events.messages('system').find((m) => m.subtype === 'compact_status');
   assert.equal(start.status, 'started');
   assert.equal(start.compactionId, boundary.compactionId);
-  ok('/compact → :compact → history_compacted emits a manual compact_boundary + result');
+  ok('/compact → :compact → compaction.completed emits one manual compact_boundary + result');
+}
+
+async function l1CompactCancelled() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: '/compact' });
+  t.push('compaction.started', { trigger: 'manual' });
+  t.push('compaction.cancelled', {});
+  await waitFor(() => t.events.byType('status_change').some((e) => e.status === 'completed'), 2000, 'settled');
+  assert.equal(t.adapter.sessions.get('thread-1').pendingManualCompact, false);
+  assert.ok(
+    t.events.messages('system').some((m) => m.subtype === 'compact_status' && m.status === 'interrupted'),
+    'the compaction attempt closes as interrupted'
+  );
+  ok('a cancelled manual compaction settles the turn instead of hanging');
+}
+
+async function l1AutoCompaction() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'x', model: 'm' });
+  t.push('agent.status.updated', { contextTokens: 90000, maxContextTokens: 100000 }, true);
+  await waitFor(() => t.adapter.sessions.get('thread-1').lastContext.contextTokens === 90000, 2000, 'usage');
+  t.push('compaction.started', { trigger: 'auto' });
+  t.push('compaction.completed', { result: { summary: 's', compactedCount: 9, tokensBefore: 91000, tokensAfter: 8000 } });
+  await waitFor(() => t.events.messages('system').some((m) => m.subtype === 'compact_boundary'), 2000, 'boundary');
+  const boundary = t.events.messages('system').find((m) => m.subtype === 'compact_boundary');
+  assert.equal(boundary.compactMetadata.trigger, 'auto');
+  assert.equal(boundary.compactMetadata.preTokens, 91000, 'tokensBefore from the event');
+  assert.equal(t.events.messages('result').length, 0, 'auto compaction does not end the turn');
+  ok('auto compaction (compaction.started/completed) emits an auto compact_boundary');
+}
+
+async function l1Questions() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'ask me', model: 'm' });
+  const questions = [
+    { id: 'q_0', question: 'Pick a color', options: [{ id: 'opt_0_0', label: 'Red' }, { id: 'opt_0_1', label: 'Blue' }], allow_other: true },
+    { id: 'q_1', question: 'Which sizes?', multi_select: true, options: [{ id: 'opt_1_0', label: 'S' }, { id: 'opt_1_1', label: 'M' }, { id: 'opt_1_2', label: 'L' }] },
+  ];
+  t.push('event.question.requested', { question_id: 'question_1', questions });
+  await waitFor(() => t.events.byType('permission_request').length === 1, 2000, 'question card');
+  const card = t.events.byType('permission_request')[0];
+  assert.equal(card.toolName, 'AskUserQuestion');
+  assert.deepEqual(card.input.questions.map((q) => q.question), ['Pick a color', 'Which sizes?']);
+  assert.deepEqual(card.input.questions[0].options.map((o) => o.label), ['Red', 'Blue']);
+  assert.equal(card.input.questions[1].multiSelect, true);
+  await t.adapter.respondToRequest('thread-1', card.requestId, {
+    behavior: 'allow',
+    updatedInput: { ...card.input, answers: { 'Pick a color': 'Teal', 'Which sizes?': 'S,L' } },
+  });
+  const answer = t.fetchImpl.calls.find((call) => call.path.endsWith('/questions/question_1'));
+  assert.deepEqual(answer.body, {
+    answers: {
+      q_0: { kind: 'other', text: 'Teal' },
+      q_1: { kind: 'multi', option_ids: ['opt_1_0', 'opt_1_2'] },
+    },
+  });
+
+  // Dismissing answers 40909 "dismissed": success, not a re-shown card.
+  t.push('event.question.requested', { question_id: 'question_2', questions: [questions[0]] });
+  await waitFor(() => t.events.byType('permission_request').length === 2, 2000, 'second card');
+  const second = t.events.byType('permission_request')[1];
+  t.state.questionsCode = 40909;
+  await t.adapter.respondToRequest('thread-1', second.requestId, { behavior: 'deny' });
+  assert.ok(t.fetchImpl.calls.some((call) => call.path.endsWith('/questions/question_2:dismiss')));
+  assert.equal(t.events.byType('permission_request').length, 2, 'the card is not re-shown');
+  assert.equal(t.adapter.sessions.get('thread-1').pendingInteractions.size, 0);
+  t.state.questionsCode = 0;
+
+  // Answered by another client: the card is withdrawn.
+  t.push('event.question.requested', { question_id: 'question_3', questions: [questions[0]] });
+  await waitFor(() => t.events.byType('permission_request').length === 3, 2000, 'third card');
+  t.push('event.question.answered', { question_id: 'question_3' });
+  await waitFor(() => t.events.byType('permission_dismissed').some((e) => e.requestId.endsWith(':question_3')), 2000, 'withdrawn');
+  ok('2.x questions: AskUserQuestion card, answers by item id, dismiss 40909, answered elsewhere');
+}
+
+async function l1ToolResultIsError() {
+  const t = await startL1Session();
+  await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'x', model: 'm' });
+  t.push('tool.call.started', { toolCallId: 'tool_E', name: 'Read', args: { path: '/missing' } });
+  t.push('tool.result', { toolCallId: 'tool_E', output: 'ENOENT', isError: true });
+  await waitFor(() => t.events.messages('user').some((m) => m.message.content[0]?.tool_use_id === 'tool_E'), 2000, 'tool result');
+  const result = t.events.messages('user').find((m) => m.message.content[0]?.tool_use_id === 'tool_E');
+  assert.equal(result.message.content[0].is_error, true);
+  ok('tool.result isError (2.x camelCase) marks the tool_result as an error');
 }
 
 async function l1DaemonExitMidTurn() {
@@ -1046,17 +1173,32 @@ async function l1SessionlessSkillListing() {
   const again = await adapter.listSkills({ provider: 'kimi', cwd: '/tmp/proj' });
   assert.equal(again.cached, true, 'second call within TTL is cached');
 
-  // No workspace for the cwd and none at all → throwaway session + archive.
+  // A cwd Kimi has no workspace for is registered (idempotent), not
+  // listed through a throwaway session that stays behind.
   const t2 = makeTransport();
-  t2.state.workspaces = [];
   const adapter2 = new KimiServerAdapter(t2.transport);
-  const fallback = await adapter2.listSkills({ provider: 'kimi', cwd: '/tmp/other' });
-  assert.ok(fallback.skills.length > 0, 'session fallback returns skills');
+  const registered = await adapter2.listSkills({ provider: 'kimi', cwd: '/tmp/other' });
+  assert.ok(registered.skills.length > 0, 'registered workspace lists skills');
+  const register = t2.fetchImpl.calls.find((call) => call.path === '/api/v1/workspaces' && call.method === 'POST');
+  assert.deepEqual(register.body, { root: '/tmp/other' });
+  assert.ok(t2.fetchImpl.calls.some((call) => call.path === '/api/v1/workspaces/wd_registered/skills'));
   assert.ok(
-    t2.fetchImpl.calls.some((call) => /:archive$/.test(call.path)),
-    'throwaway listing session is archived'
+    !t2.fetchImpl.calls.some((call) => (call.path === '/api/v1/sessions' && call.method === 'POST') || /:archive$/.test(call.path)),
+    'no throwaway session'
   );
-  ok('sessionless skill listing: workspace route, cache, session fallback + archive');
+
+  // Registration fails (cwd gone): another workspace's global skills only.
+  const t3 = makeTransport();
+  t3.state.registerWorkspaceCode = 40004;
+  t3.state.skills = [
+    { name: 'clarify', description: 'Improve unclear UX copy', path: '/tmp/skills/clarify', source: 'user' },
+    { name: 'deploy-proj', description: 'Deploy that other project', path: '/tmp/proj/.kimi/skills/deploy', source: 'project' },
+  ];
+  const adapter3 = new KimiServerAdapter(t3.transport);
+  const fallback = await adapter3.listSkills({ provider: 'kimi', cwd: '/tmp/gone' });
+  assert.ok(fallback.skills.length > 0);
+  assert.deepEqual(fallback.skills.map((skill) => skill.name), ['clarify'], "another project's own skills are left out");
+  ok('sessionless skill listing: workspace route, cache, registers the cwd, global-only fallback');
 }
 
 async function l1RunOneShot() {
@@ -1255,6 +1397,25 @@ async function l2DelayedToken() {
   ok('L2 delayed token line still boots (poll until deadline)');
 }
 
+async function l1BannerPortWins() {
+  // Kimi 2.x moves to the next port when the requested one is taken and
+  // says so in the banner's Local line; the manager must follow it.
+  const { transport, child } = makeTransport({
+    spawnDaemon: () => {
+      setImmediate(() =>
+        child.emitStdout('\n  Kimi server ready  2.1.1\n\n  Local:    http://127.0.0.1:45678/#token=tok_l1_test\n\n  Token:    tok_l1_test\n\n')
+      );
+      return child;
+    },
+  });
+  const manager = new KimiServerManager(transport);
+  const state = await manager.ensureDaemon();
+  assert.equal(state.port, 45678);
+  assert.equal(state.baseUrl, 'http://127.0.0.1:45678');
+  await manager.stop();
+  ok('the port in the banner Local line wins over the requested port');
+}
+
 async function l2MalformedTokenFallsBackToFile() {
   // Banner has an empty Token: line — the persistent token file wins.
   const manager = new KimiServerManager(makeL2Transport('malformed-token'));
@@ -1411,7 +1572,7 @@ async function l1StopSubmitWindow() {
   await t.adapter.sendTurn({ threadId: 'thread-1', prompt: 'hi', model: 'm' });
   // No turn.started pushed — we are inside the ack→frame window.
   await t.adapter.stopSession('thread-1');
-  const cancel = t.fetchImpl.calls.find((call) => /\/prompts\/prompt_1:cancel$/.test(call.path));
+  const cancel = t.fetchImpl.calls.find((call) => /\/prompts\/prompt_1:abort$/.test(call.path));
   const abort = t.fetchImpl.calls.find((call) => /:abort$/.test(call.path));
   assert.ok(cancel, 'queued/submitted prompt is cancelled on stop');
   assert.ok(abort, 'abort covers a possibly-already-running turn');
@@ -1432,7 +1593,7 @@ async function l1StopDuringInflightSubmit() {
   assert.equal(t.events.byType('stop_settled').length, 1, 'stop settles immediately');
   await sendPromise;
   await waitFor(
-    () => t.fetchImpl.calls.some((call) => /\/prompts\/prompt_1:cancel$/.test(call.path)),
+    () => t.fetchImpl.calls.some((call) => /\/prompts\/prompt_1:abort$/.test(call.path)),
     2000,
     'late submit continuation cancels its prompt'
   );
@@ -2041,6 +2202,8 @@ const suites = [
   ['L1: permission mode mapping', l1PermissionModeMapping],
   ['L1: turn completed', l1TurnCompleted],
   ['L1: image attachment source shape', l1ImageAttachmentSourceShape],
+  ['L1: large image by path', l1LargeImageByPath],
+  ['L1: banner port wins', l1BannerPortWins],
   ['L1: turn failed ordering', l1TurnFailedOrder],
   ['L1: error frame dedupe', l1ErrorFrameDedupe],
   ['L1: seq replay idempotence + volatile', l1SeqReplayIdempotence],
@@ -2059,6 +2222,10 @@ const suites = [
   ['L1: result carries turn usage', l1ResultCarriesTurnUsage],
   ['L1: thinking passthrough', l1ThinkingPassthrough],
   ['L1: compact flow', l1CompactFlow],
+  ['L1: compact cancelled', l1CompactCancelled],
+  ['L1: auto compaction', l1AutoCompaction],
+  ['L1: 2.x questions', l1Questions],
+  ['L1: tool.result isError', l1ToolResultIsError],
   ['L1: daemon exit mid-turn', l1DaemonExitMidTurn],
   ['L1: resume not_found falls forward', l1ResumeNotFound],
   ['L1: resume flush-race verification', l1ResumeFlushRace],
