@@ -167,19 +167,26 @@ assert.ok(
   ipc.includes('initializeBrowserUseConsent'),
   'consent host is wired to session transcripts + runner list'
 );
-assert.ok(
-  httpServer.includes('saveOpencodeMcpServers'),
-  'opencode config receives the browser-use entry (inside the HTTP server bootstrap)'
-);
-// Qoder and Bubble get Browser Use per session; their global configs carry none.
+// Qoder, Bubble and OpenCode get Browser Use without their global configs.
 const bootstrap = httpServer.slice(
   httpServer.indexOf('export function ensureBrowserUseHttpServer'),
   httpServer.indexOf('function removeSessionScopedProviderEntries')
 );
 assert.ok(
-  !/(bubble|qoder)\[BROWSER_USE_SERVER_NAME\] =/.test(bootstrap) &&
+  !/(bubble|qoder|opencode)( as Record<string, unknown>\))?\[BROWSER_USE_SERVER_NAME\] =/.test(bootstrap) &&
     bootstrap.includes('removeSessionScopedProviderEntries()'),
-  'the bootstrap writes no Bubble/Qoder entry and clears ones earlier versions wrote'
+  'the bootstrap writes no Bubble/Qoder/OpenCode entry and clears ones earlier versions wrote'
+);
+const opencodeServe = read('src/electron/libs/provider/opencode-serve-manager.ts');
+assert.ok(
+  opencodeServe.includes('createBrowserUseProviderMcpDescriptor(resolve)') &&
+    opencodeServe.includes('[BROWSER_USE_SERVER_NAME]: { type: \'remote\', url: browserUse.url, headers: browserUse.headers'),
+  "OpenCode gets browser_use through Aegis's own server config"
+);
+assert.ok(
+  httpServer.includes('BROWSER_USE_PROVIDER_HEADER') &&
+    read('src/electron/libs/provider/opencode-sdk-adapter.ts').includes("meta?.['ai.opencode/sessionID']"),
+  'OpenCode calls are attributed from the session named in their request meta'
 );
 const qoderAdapter = read('src/electron/libs/provider/qoder-sdk-adapter.ts');
 assert.ok(

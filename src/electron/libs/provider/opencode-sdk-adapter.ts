@@ -437,6 +437,32 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
 
   constructor(manager = new OpenCodeServeManager()) {
     this.manager = manager;
+    // Optional: test doubles of the serve manager may not implement it.
+    this.manager.setBrowserUseHooks?.(
+      (meta) => this.resolveBrowserUseThread(meta),
+      () => this.sessions.size === 0
+    );
+  }
+
+  /**
+   * The Aegis thread behind a browser_use call: OpenCode names its session in
+   * the MCP request meta. A subagent runs in a child session, so unknown ids
+   * follow their parent up to the session a thread owns.
+   */
+  private async resolveBrowserUseThread(meta: Record<string, unknown> | undefined): Promise<string | null> {
+    let id = getString(meta?.['ai.opencode/sessionID']).trim();
+    for (let depth = 0; id && depth < 4; depth += 1) {
+      for (const session of this.sessions.values()) {
+        if (session.providerSessionId === id) return session.threadId;
+      }
+      const any = this.sessions.values().next().value as ActiveOpenCodeSession | undefined;
+      if (!any) return null;
+      const info = await requestOpenCode<Record<string, unknown>>(
+        any.client.session.get({ path: { id }, query: { directory: any.cwd } })
+      ).catch(() => null);
+      id = getString(info?.parentID).trim();
+    }
+    return null;
   }
 
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {

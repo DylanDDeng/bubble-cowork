@@ -12143,7 +12143,11 @@ function handleMcpSaveConfig(
   // 保存 OpenCode 全局配置（写入 ~/.config/opencode/opencode.json）
   if (payload.opencodeGlobalServers !== undefined) {
     try {
-      saveOpencodeMcpServers(payload.opencodeGlobalServers);
+      // Browser Use reaches OpenCode through Aegis's own server config;
+      // never persist the reserved name in the user's opencode.json.
+      const incoming = { ...payload.opencodeGlobalServers };
+      delete incoming[BROWSER_USE_SERVER_NAME];
+      saveOpencodeMcpServers(incoming);
     } catch (error) {
       console.warn('Failed to save OpenCode MCP servers:', error);
     }

@@ -1,4 +1,11 @@
 import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
+import { BROWSER_USE_SERVER_NAME } from '../browser-use';
+import {
+  createBrowserUseProviderMcpDescriptor,
+  type BrowserUseSessionMcpDescriptor,
+  type BrowserUseSessionResolver,
+} from '../browser-use-http-server';
+import { isBrowserUseEnabled } from '../browser-use-permissions';
 import { createServer } from 'net';
 import {
   loadOpenCodeSdk,
@@ -65,6 +72,8 @@ type OpenCodeServerState = {
   sdk: OpenCodeSdkModule;
   v2Sdk: OpenCodeV2SdkModule | null;
   server: OpenCodeServerHandle;
+  /** Browser Use as configured when the server started (its config is fixed). */
+  browserUse: BrowserUseSessionMcpDescriptor | null;
 };
 
 function buildDefaultOpenCodeConfig(): Record<string, unknown> {
@@ -100,8 +109,27 @@ export class OpenCodeServeManager {
   private serverState: OpenCodeServerState | null = null;
   private serverPromise: Promise<OpenCodeServerState> | null = null;
   private abortController: AbortController | null = null;
+  private resolveBrowserSession: BrowserUseSessionResolver | null = null;
+  private canRestart: () => boolean = () => false;
+
+  /**
+   * Browser Use reaches OpenCode through this server's own config (never the
+   * user's opencode.json): `resolve` names the Aegis session from a tool
+   * call's request meta, and `canRestart` says when no session would notice
+   * a restart that picks up a changed Browser Use setting.
+   */
+  setBrowserUseHooks(resolve: BrowserUseSessionResolver, canRestart: () => boolean): void {
+    this.resolveBrowserSession = resolve;
+    this.canRestart = canRestart;
+  }
 
   async getClient(directory: string): Promise<OpenCodeClient> {
+    const running = this.serverState;
+    if (running && Boolean(running.browserUse) !== isBrowserUseEnabled() && this.canRestart()) {
+      // The Browser Use setting changed since start; no session uses this
+      // server, so restart it with the current config.
+      await this.close();
+    }
     const state = await this.ensureServer();
     const client = state.sdk.createOpencodeClient({
       baseUrl: state.server.url,
@@ -122,6 +150,7 @@ export class OpenCodeServeManager {
     this.serverPromise = null;
     const state = this.serverState;
     this.serverState = null;
+    state?.browserUse?.dispose();
     state?.server.close();
   }
 
@@ -153,13 +182,34 @@ export class OpenCodeServeManager {
     const port = await findAvailablePort(hostname);
     this.abortController = new AbortController();
     const reader = await getSessionReaderHttpConfig();
-    const server = await sdk.createOpencodeServer({
-      hostname,
-      port,
-      signal: this.abortController.signal,
-      timeout: 15_000,
-      config: { ...buildDefaultOpenCodeConfig(), mcp: { [SESSION_MCP_SERVER_NAME]: { type: 'remote', url: reader.url, headers: reader.headers, enabled: true } } },
-    });
-    return { sdk, v2Sdk, server };
+    const resolve = this.resolveBrowserSession;
+    const browserUse =
+      resolve && isBrowserUseEnabled()
+        ? await createBrowserUseProviderMcpDescriptor(resolve).catch((error) => {
+            console.warn('[OpenCodeServeManager] Browser Use unavailable for OpenCode:', error);
+            return null;
+          })
+        : null;
+    const mcp: Record<string, unknown> = {
+      [SESSION_MCP_SERVER_NAME]: { type: 'remote', url: reader.url, headers: reader.headers, enabled: true },
+      ...(browserUse
+        ? { [BROWSER_USE_SERVER_NAME]: { type: 'remote', url: browserUse.url, headers: browserUse.headers, enabled: true } }
+        : {}),
+    };
+    try {
+      const server = await sdk.createOpencodeServer({
+        hostname,
+        port,
+        signal: this.abortController.signal,
+        timeout: 15_000,
+        // Inline config (OPENCODE_CONFIG_CONTENT) merges with the user's: their
+        // own MCP servers, providers and auth stay as they are.
+        config: { ...buildDefaultOpenCodeConfig(), mcp },
+      });
+      return { sdk, v2Sdk, server, browserUse };
+    } catch (error) {
+      browserUse?.dispose();
+      throw error;
+    }
   }
 }
