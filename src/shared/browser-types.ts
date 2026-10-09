@@ -20,6 +20,8 @@ export interface BrowserPage {
   committedUrl: string | null;
   /** User-facing reason the last load failed, cleared by the next navigation. */
   error: string | null;
+  /** Page zoom factor (1 = 100%). Chromium keeps it per site. */
+  zoom: number;
 }
 
 export interface BrowserSessionState {
@@ -54,6 +56,48 @@ export interface BrowserNavigateInput extends BrowserSessionInput {
 
 export interface BrowserViewportInput extends BrowserSessionInput {
   viewport: BrowserViewport | null;
+}
+
+export interface BrowserFindInput extends BrowserSessionInput {
+  text: string;
+  /** Search backwards (Shift+Enter). */
+  backward?: boolean;
+  /** Move to the next match of the same text rather than start over. */
+  findNext?: boolean;
+}
+
+export interface BrowserZoomInput extends BrowserSessionInput {
+  direction: 'in' | 'out' | 'reset';
+}
+
+/** Which browser session's panel chrome (address bar, find bar) has focus, if any. */
+export interface BrowserChromeFocusInput {
+  sessionId: string | null;
+}
+
+// ===== Events pushed to the renderer =====
+
+/** Panel actions asked for from the page's keyboard (the page had focus). */
+export interface BrowserCommandEvent {
+  sessionId: string;
+  command: 'focus-address' | 'find' | 'screenshot' | 'readout' | 'annotate';
+}
+
+/** The toolbar's overflow menu, shown natively so the page stays visible under it. */
+export interface BrowserMenuInput extends BrowserSessionInput {
+  /** Window-relative point to open at (the button's bottom-left). */
+  x: number;
+  y: number;
+  /** The toolbar is narrow: screenshot and annotate live in the menu. */
+  compact: boolean;
+  annotating: boolean;
+}
+
+export interface BrowserFindResult {
+  sessionId: string;
+  /** 1-based index of the highlighted match; 0 when there is none. */
+  active: number;
+  matches: number;
 }
 
 // ===== Screenshot and page readout =====

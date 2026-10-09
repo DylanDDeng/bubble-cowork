@@ -1,6 +1,7 @@
 import { nativeTheme, WebContentsView, type ContextMenuParams, type WebContents } from 'electron';
 import { BROWSER_SESSION_PARTITION } from '../../shared/browser-types';
 import type { ViewFacts } from './browser-page';
+import { browserShortcutFor, type BrowserShortcut } from './shortcuts';
 
 const ERR_ABORTED = -3;
 
@@ -18,6 +19,10 @@ export interface PageViewEvents {
   contextMenu(params: ContextMenuParams): void;
   /** The renderer process died. */
   crashed(): void;
+  /** A browser shortcut pressed while the page had focus (already kept from the page). */
+  shortcut(action: BrowserShortcut): void;
+  /** Find-in-page progress. */
+  found(result: { activeMatchOrdinal: number; matches: number }): void;
 }
 
 let themed: Partial<Record<'light' | 'dark', string>> = {};
@@ -72,6 +77,7 @@ export class PageView {
       canBack: contents.navigationHistory.canGoBack(),
       canForward: contents.navigationHistory.canGoForward(),
       favicons,
+      zoom: contents.getZoomFactor(),
     };
   }
 
@@ -129,6 +135,22 @@ export class PageView {
       })
     );
     contents.on('context-menu', live((_event, params: ContextMenuParams) => this.events.contextMenu(params)));
+    contents.on(
+      'before-input-event',
+      live((event: Electron.Event, input: Electron.Input) => {
+        const action = browserShortcutFor(input, process.platform === 'darwin');
+        if (!action) return;
+        // Keeps the key from the page and from the app menu's own Reload/Zoom.
+        event.preventDefault();
+        this.events.shortcut(action);
+      })
+    );
+    contents.on(
+      'found-in-page',
+      live((_event, result: Electron.Result) => this.events.found({ activeMatchOrdinal: result.activeMatchOrdinal, matches: result.matches }))
+    );
+    // ⌘/Ctrl + wheel and pinch ask for zoom; Electron leaves applying it to us.
+    contents.on('zoom-changed', live((_event, direction: 'in' | 'out') => this.events.shortcut(direction === 'in' ? 'zoom-in' : 'zoom-out')));
     contents.on('render-process-gone', live(() => this.events.crashed()));
   }
 }

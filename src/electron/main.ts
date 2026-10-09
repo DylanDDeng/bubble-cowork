@@ -5,7 +5,7 @@ import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
 import { setupIPCHandlers, cleanup } from './ipc-handlers';
-import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
+import { registerBrowserIpc, disposeBrowserIpc, runBrowserShortcut } from './browser-ipc';
 import { registerDesignModeIpc } from './design-mode-ipc';
 import { browserManager } from './browserManager';
 import { setPageBackgrounds } from './browser/page-view';
@@ -959,14 +959,43 @@ function setupMenu(): void {
     submenu: editSubmenu,
   });
 
+  // Reload and Zoom act on the in-app browser's page while its panel chrome
+  // (address bar, find bar) has focus; a focused page claims these keys
+  // itself (before-input-event). Otherwise they act on the app window.
+  const browserOr = (
+    action: 'reload' | 'hard-reload' | 'zoom-in' | 'zoom-out' | 'zoom-reset',
+    appAction: (contents: Electron.WebContents) => void
+  ) => (_item: Electron.MenuItem, window: Electron.BaseWindow | undefined) => {
+    const target = browserManager.menuTarget();
+    if (target && mainWindow && !mainWindow.isDestroyed()) {
+      void runBrowserShortcut(mainWindow, target, action).catch(() => {});
+      return;
+    }
+    const contents = window instanceof BrowserWindow ? window.webContents : mainWindow?.webContents;
+    if (contents && !contents.isDestroyed()) appAction(contents);
+  };
+  const appZoom = (delta: number) => (contents: Electron.WebContents) =>
+    contents.setZoomLevel(delta === 0 ? 0 : contents.getZoomLevel() + delta);
   const viewSubmenu: Electron.MenuItemConstructorOptions[] = [
-    role('reload'),
-    role('forceReload'),
+    { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: browserOr('reload', (contents) => contents.reload()) },
+    {
+      label: 'Force Reload',
+      accelerator: 'Shift+CmdOrCtrl+R',
+      click: browserOr('hard-reload', (contents) => contents.reloadIgnoringCache()),
+    },
     role('toggleDevTools'),
     separator(),
-    role('resetZoom'),
-    role('zoomIn'),
-    role('zoomOut'),
+    { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: browserOr('zoom-reset', appZoom(0)) },
+    { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: browserOr('zoom-in', appZoom(0.5)) },
+    // ⌘= without Shift on US layouts.
+    {
+      label: 'Zoom In',
+      accelerator: 'CmdOrCtrl+=',
+      visible: false,
+      acceleratorWorksWhenHidden: true,
+      click: browserOr('zoom-in', appZoom(0.5)),
+    },
+    { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: browserOr('zoom-out', appZoom(-0.5)) },
     separator(),
     role('togglefullscreen'),
   ];

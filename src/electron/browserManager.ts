@@ -9,6 +9,8 @@ import { Menu, clipboard, shell, type BrowserWindow, type ContextMenuParams, typ
 import { BLANK_PAGE, resolveAddress, webSearchUrl } from '../shared/browser-address';
 import type {
   BrowserCapturePageResult,
+  BrowserFindInput,
+  BrowserFindResult,
   BrowserNavigateInput,
   BrowserOpenInput,
   BrowserPage,
@@ -19,6 +21,7 @@ import type {
   BrowserSessionState,
   BrowserViewport,
   BrowserViewportInput,
+  BrowserZoomInput,
 } from '../shared/browser-types';
 import { BROWSER_SESSION_PARTITION } from '../shared/browser-types';
 import {
@@ -35,6 +38,7 @@ import {
 } from './browser/browser-page';
 import { pageBackground, PageView } from './browser/page-view';
 import { installBrowserSessionPolicy } from './browser/session-policy';
+import { nextZoom, type BrowserShortcut } from './browser/shortcuts';
 import { ViewPlacement } from './browser/view-placement';
 import { isLocalFileUrl } from './libs/html-preview';
 import { normalizeExternalUrl } from './util';
@@ -140,6 +144,10 @@ export class BrowserManager {
   private readonly agentDepth = new Map<string, number>();
   private readonly stateListeners = new Set<Listener<BrowserSessionState>>();
   private readonly selectionListeners = new Set<Listener<BrowserSendSelectionEvent>>();
+  private readonly shortcutListeners = new Set<(sessionId: string, action: BrowserShortcut) => void>();
+  private readonly findListeners = new Set<Listener<BrowserFindResult>>();
+  /** The browser session whose panel chrome (address bar, find bar) has focus. */
+  private chromeFocus: string | null = null;
   private readonly hostReloadListeners = new Set<() => void>();
   private unhookHost: (() => void) | null = null;
 
@@ -191,6 +199,28 @@ export class BrowserManager {
     return () => this.stateListeners.delete(listener);
   }
 
+  /** Browser shortcuts pressed inside a page (the page had focus). */
+  subscribeShortcut(listener: (sessionId: string, action: BrowserShortcut) => void): () => void {
+    this.shortcutListeners.add(listener);
+    return () => this.shortcutListeners.delete(listener);
+  }
+
+  subscribeFind(listener: Listener<BrowserFindResult>): () => void {
+    this.findListeners.add(listener);
+    return () => this.findListeners.delete(listener);
+  }
+
+  /** The panel reports focus in its own chrome, so menu Reload/Zoom act on the page. */
+  setChromeFocus(sessionId: string | null): void {
+    this.chromeFocus = sessionId;
+  }
+
+  /** The browser session the app menu's Reload/Zoom should act on, if any. */
+  menuTarget(): string | null {
+    const sessionId = this.chromeFocus;
+    return sessionId && this.sessions.get(sessionId)?.page ? sessionId : null;
+  }
+
   subscribeSendSelection(listener: Listener<BrowserSendSelectionEvent>): () => void {
     this.selectionListeners.add(listener);
     return () => this.selectionListeners.delete(listener);
@@ -204,6 +234,9 @@ export class BrowserManager {
     this.placement.closeAgentHost();
     this.stateListeners.clear();
     this.selectionListeners.clear();
+    this.shortcutListeners.clear();
+    this.findListeners.clear();
+    this.chromeFocus = null;
     this.sessions.clear();
     this.agentHolds.clear();
     this.agentDepth.clear();
@@ -303,11 +336,56 @@ export class BrowserManager {
     return this.publish(input.sessionId);
   }
 
-  reload(input: BrowserSessionInput): BrowserSessionState {
+  reload(input: BrowserSessionInput & { ignoreCache?: boolean }): BrowserSessionState {
     const view = this.views.get(input.sessionId);
-    if (view?.alive) view.contents.reload();
-    else if (this.foreground === input.sessionId) this.wake(input.sessionId);
+    if (view?.alive) {
+      if (input.ignoreCache) view.contents.reloadIgnoringCache();
+      else view.contents.reload();
+    } else if (this.foreground === input.sessionId) this.wake(input.sessionId);
     return this.getState(input);
+  }
+
+  stop(input: BrowserSessionInput): BrowserSessionState {
+    const view = this.views.get(input.sessionId);
+    if (view?.alive && view.contents.isLoading()) view.contents.stop();
+    return this.getState(input);
+  }
+
+  /** Find in page; an empty text ends the search. Results arrive through subscribeFind. */
+  find(input: BrowserFindInput): void {
+    const view = this.views.get(input.sessionId);
+    if (!view?.alive) return;
+    if (!input.text) {
+      view.contents.stopFindInPage('clearSelection');
+      this.emitFind({ sessionId: input.sessionId, active: 0, matches: 0 });
+      return;
+    }
+    // Electron's `findNext` means "begin a new find session" (true for the
+    // first request, false for follow-ups), the opposite of what it reads as.
+    view.contents.findInPage(input.text, { forward: !input.backward, findNext: input.findNext !== true });
+  }
+
+  stopFind(input: BrowserSessionInput, keepSelection = false): void {
+    const view = this.views.get(input.sessionId);
+    if (view?.alive) view.contents.stopFindInPage(keepSelection ? 'keepSelection' : 'clearSelection');
+  }
+
+  zoom(input: BrowserZoomInput): BrowserSessionState {
+    const view = this.views.get(input.sessionId);
+    const page = this.sessions.get(input.sessionId)?.page;
+    if (view?.alive && page) {
+      const next = nextZoom(view.contents.getZoomFactor(), input.direction);
+      view.contents.setZoomFactor(next);
+      page.zoom = next;
+      return this.publish(input.sessionId);
+    }
+    return this.getState(input);
+  }
+
+  /** Moves keyboard focus from a page back to the app window (address bar, find bar). */
+  focusAppWindow(): void {
+    const window = this.window;
+    if (window && !window.isDestroyed()) window.webContents.focus();
   }
 
   goBack(input: BrowserSessionInput): BrowserSessionState {
@@ -582,11 +660,19 @@ export class BrowserManager {
         }
         if (this.foreground === sessionId && this.viewport) this.bringForward(sessionId, this.viewport);
       },
+      shortcut: (action) => {
+        for (const listener of this.shortcutListeners) listener(sessionId, action);
+      },
+      found: (result) => this.emitFind({ sessionId, active: result.activeMatchOrdinal, matches: result.matches }),
     });
     this.views.set(sessionId, view);
     const current = page();
     if (current) current.phase = 'live';
     return view;
+  }
+
+  private emitFind(result: BrowserFindResult): void {
+    for (const listener of this.findListeners) listener(result);
   }
 
   private dropView(sessionId: string): void {

@@ -101,6 +101,41 @@ app.whenReady().then(async () => {
       `${new URL(base).host} wants to use your location.`,
     ], 'one dialog per site and capability');
 
+    // Find in page reports matches; an empty search clears it.
+    const found = [];
+    const stopFindListener = browserManager.subscribeFind((result) => found.push(result));
+    await live('A').executeJavaScript('document.body.insertAdjacentHTML("beforeend", "<p>apple apple apple</p>")');
+    browserManager.find({ sessionId: 'A', text: 'apple' });
+    await until(() => found.some((r) => r.matches === 3), 'three matches');
+    browserManager.find({ sessionId: 'A', text: 'apple', findNext: true });
+    await until(() => found.some((r) => r.matches === 3 && r.active === 2), 'moves to the second match');
+    browserManager.find({ sessionId: 'A', text: '' });
+    assert.deepEqual(found.at(-1), { sessionId: 'A', active: 0, matches: 0 });
+    stopFindListener();
+
+    // Zoom steps along Chrome's ladder and is reported on the page.
+    browserManager.zoom({ sessionId: 'A', direction: 'in' });
+    assert.equal(state('A').page.zoom, 1.1);
+    assert.equal(live('A').getZoomFactor(), 1.1);
+    browserManager.zoom({ sessionId: 'A', direction: 'reset' });
+    assert.equal(state('A').page.zoom, 1);
+
+    // Browser keys pressed inside the page are claimed for the browser and
+    // never reach the page's own handlers (nor the app menu).
+    const shortcuts = [];
+    const stopShortcuts = browserManager.subscribeShortcut((sessionId, action) => shortcuts.push([sessionId, action]));
+    await live('A').executeJavaScript('window.__keys = []; addEventListener("keydown", (e) => __keys.push(e.key))');
+    live('A').focus();
+    const mod = process.platform === 'darwin' ? 'meta' : 'control';
+    live('A').sendInputEvent({ type: 'keyDown', keyCode: 'R', modifiers: [mod] });
+    live('A').sendInputEvent({ type: 'keyDown', keyCode: 'L', modifiers: [mod] });
+    live('A').sendInputEvent({ type: 'keyDown', keyCode: 'K' });
+    await until(() => shortcuts.length >= 2, 'page shortcuts claimed');
+    assert.deepEqual(shortcuts, [['A', 'reload'], ['A', 'focus-address']]);
+    await wait(100);
+    assert.deepEqual(await live('A').executeJavaScript('__keys'), ['k'], 'claimed keys never reach the page; plain keys do');
+    stopShortcuts();
+
     // A navigation sent while the panel is hidden (view still alive) loads at
     // once and survives showing the panel again.
     browserManager.hide({ sessionId: 'A' });
@@ -214,7 +249,7 @@ app.whenReady().then(async () => {
     assert.equal(remembered.page.url, 'about:blank');
     browserManager.close({ sessionId: 'R' });
 
-    console.log('PASS browser manager: lifecycle, hidden navigation, kept load errors, crash recovery, agent pages, panel handoff, live page budget, close');
+    console.log('PASS browser manager: lifecycle, find, zoom, page shortcuts, hidden navigation, kept load errors, crash recovery, agent pages, panel handoff, live page budget, close');
   } catch (error) {
     console.error(error);
     code = 1;

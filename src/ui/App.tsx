@@ -753,15 +753,13 @@ export function App() {
         return { id: tab, kind, label: 'Changes' };
       }
       if (kind === 'browser') {
-        const browserSessionId = activeSessionId
-          ? getBrowserUtilitySessionId(activeSessionId, tab)
-          : null;
+        // With no chat open the tab belongs to the standalone browser session.
+        const remembered = browserSessionStates[getBrowserUtilitySessionId(activeSessionId, tab)] ?? null;
         return {
           id: tab,
           kind,
-          label: getBrowserUtilityLabel(
-            browserSessionId ? browserSessionStates[browserSessionId] : null
-          ),
+          label: getBrowserUtilityLabel(remembered),
+          favicon: remembered?.favicon ?? null,
         };
       }
       if (kind === 'side-chat') {
@@ -1272,12 +1270,10 @@ export function App() {
           {browserUtilityTabs.map((tabId) => (
             <BrowserPanel
               key={`${activeSessionId ?? 'new'}:${tabId}`}
-              embedded
               sessionId={activeSessionId}
               browserSessionId={getBrowserUtilitySessionId(activeSessionId, tabId)}
               collapsed={activeUtilityPanel !== 'browser' || activeRightUtilityTab !== tabId}
               width={renderedRightUtilityPanelWidth}
-              onWidthChange={setRightUtilityPanelWidth}
               isFullscreen={rightPanelFullscreen === 'browser'}
               onToggleFullscreen={() =>
                 setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
@@ -1408,9 +1404,17 @@ export function App() {
           so the product stays visible while no agent is ready yet. */}
       {agentOnboarding.visible ? <AgentOnboardingView onComplete={agentOnboarding.dismiss} /> : null}
 
-      {/* Toast notifications */}
+      {/* Toast notifications. A visible browser page is a native view that
+          paints over the DOM, so toasts move clear of it: to the chat side,
+          or above the page (tab strip and toolbar) when it fills the window. */}
       <Toaster
-        position="bottom-center"
+        position={
+          activeUtilityPanel === 'browser'
+            ? rightPanelFullscreen === 'browser'
+              ? 'top-center'
+              : 'bottom-left'
+            : 'bottom-center'
+        }
         toastOptions={{
           style: {
             background: 'var(--bg-secondary)',
@@ -1423,6 +1427,16 @@ export function App() {
     </div>
     </BrowserNativeOverlayContext.Provider>
   );
+}
+
+/** A browser tab's page favicon; the kind's icon when it fails to load. */
+function TabFavicon({ src, fallback: Fallback }: { src: string; fallback: ReturnType<typeof getUtilityTabIcon> }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [src]);
+  if (broken || !/^(https?:|data:image\/)/.test(src)) {
+    return <Fallback className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />;
+  }
+  return <img src={src} alt="" className="h-3.5 w-3.5 flex-shrink-0 rounded-[3px]" onError={() => setBroken(true)} />;
 }
 
 function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
@@ -1675,6 +1689,8 @@ function RightUtilityTabStrip({
                       hue={getSubagentPersona(tab.subagentId).colorHue}
                       size={14}
                     />
+                  ) : tab.kind === 'browser' && tab.favicon ? (
+                    <TabFavicon src={tab.favicon} fallback={Icon} />
                   ) : useFileIcon ? (
                     <FileTypeIcon
                       name={tab.label}

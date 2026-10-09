@@ -535,6 +535,14 @@ declare global {
       openDevTools: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
       capture: (input: BrowserSessionInput) => Promise<BrowserCapturePageResult>;
       readPage: (input: BrowserSessionInput) => Promise<BrowserReadoutResult>;
+      stop: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
+      find: (input: import('./shared/browser-types').BrowserFindInput) => Promise<void>;
+      stopFind: (input: BrowserSessionInput) => Promise<void>;
+      zoom: (input: import('./shared/browser-types').BrowserZoomInput) => Promise<BrowserSessionState>;
+      setChromeFocus: (input: import('./shared/browser-types').BrowserChromeFocusInput) => Promise<void>;
+      showMenu: (input: import('./shared/browser-types').BrowserMenuInput) => Promise<void>;
+      onCommand: (callback: (event: import('./shared/browser-types').BrowserCommandEvent) => void) => () => void;
+      onFindResult: (callback: (result: import('./shared/browser-types').BrowserFindResult) => void) => () => void;
       onState: (callback: (state: BrowserSessionState) => void) => () => void;
       onSendSelection: (callback: (event: BrowserSendSelectionEvent) => void) => () => void;
     };

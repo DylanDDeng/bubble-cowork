@@ -44,7 +44,7 @@ app.whenReady().then(async()=>{
  const js=code=>win.webContents.executeJavaScript(code,true);
  const until=async(code,label,ms=8000)=>{const end=Date.now()+ms;while(Date.now()<end){if(await js(code))return;await delay(60)}throw new Error('timed out: '+label)};
  const screenshot=async name=>{if(!process.env.QA_CAPTURE)return;fs.mkdirSync(process.env.QA_CAPTURE,{recursive:true});fs.writeFileSync(path.join(process.env.QA_CAPTURE,name+'.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG())};
- const address='document.querySelector("input[placeholder^=Search]")';
+ const address='document.querySelector("input[aria-label=Address]")';
  const go=async text=>{await js('(()=>{const el='+address+';el.focus();const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;set.call(el,'+JSON.stringify(text)+');el.dispatchEvent(new Event("input",{bubbles:true}))})()');await delay(80);await js(address+'.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');await delay(200)};
  const page=()=>browserManager.getState({sessionId:'panel-qa'}).page;
  try{
@@ -52,12 +52,15 @@ app.whenReady().then(async()=>{
   await until('!!'+address,'panel');
   await until('true',''); await delay(500);
   assert.equal(await js(address+'.value'),'','a blank page shows an empty address');
-  assert.equal(win.contentView.children.length,1,'the native page view is placed over the panel');
+  await until('document.body.textContent.includes("Start browsing")','a blank page shows the start view');
+  assert.equal(win.contentView.children.length,0,'the start view takes the native page off screen');
+  await screenshot('0-start');
 
   await go(base.replace('http://','')+'/first');
   await until(address+'.value==='+JSON.stringify(base+'/first'),'address shows the resolved URL');
   await delay(400);
   assert.equal(page().title,'QA /first');
+  assert.equal(win.contentView.children.length,1,'a loaded page is placed over the panel');
   await go(base+'/second');
   await until('!document.querySelector("[aria-label=Back]").disabled','back enabled after a second page');
   await screenshot('1-loaded');
@@ -65,10 +68,28 @@ app.whenReady().then(async()=>{
   await until(address+'.value==='+JSON.stringify(base+'/first'),'back returns to the first page');
 
   await go(refused);
-  await until('document.body.textContent.includes("Connection refused.")','the failure shows in the status line');
+  await until('document.body.textContent.includes("be opened")','the error view explains the failure');
   await delay(500);
-  assert.ok(await js('document.body.textContent.includes("Connection refused.")'),'the message stays after loading stops');
+  assert.ok(await js('document.body.textContent.includes("Connection refused.")'),'the reason stays after loading stops');
+  assert.equal(win.contentView.children.length,0,'the error view takes the native page off screen');
   await screenshot('2-refused');
+  // Try again on a failing address keeps explaining; a good address recovers.
+  await js('[...document.querySelectorAll("button")].find(b=>b.textContent.includes("Try again")).click()');
+  await until('document.body.textContent.includes("Connection refused.")','retry fails the same way');
+  await go(base+'/second');
+  await until(address+'.value==='+JSON.stringify(base+'/second'),'recovers on a good address');
+  await delay(400);
+  assert.equal(win.contentView.children.length,1,'the page is back over the panel');
+
+  // ⌘F in the panel opens find; matches are counted.
+  const mod=process.platform==='darwin'?'metaKey':'ctrlKey';
+  await js(address+'.dispatchEvent(new KeyboardEvent("keydown",{key:"f",code:"KeyF",'+mod+':true,bubbles:true}))');
+  await until('!!document.querySelector("input[data-browser-find]")','find bar opens');
+  await js('(()=>{const el=document.querySelector("input[data-browser-find]");const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;set.call(el,"second");el.dispatchEvent(new Event("input",{bubbles:true}))})()');
+  await until('document.body.textContent.includes("1/1")','find counts the match');
+  await screenshot('3-find');
+  await js('document.querySelector("input[data-browser-find]").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+  await until('!document.querySelector("input[data-browser-find]")','Escape closes find');
 
   await js('qa.setCollapsed(true)');await delay(300);
   assert.equal(win.contentView.children.length,0,'collapsing takes the page off the window');
@@ -90,7 +111,7 @@ app.whenReady().then(async()=>{
   await until(address+'.value==='+JSON.stringify(base+'/restored'),'address shows the restored page');
 
   assert.deepEqual(errors.filter(e=>!/No handler registered/.test(e)),[]);
-  console.log(JSON.stringify({ok:true,checks:['blank address','typed host resolves and loads','back','refused connection message','collapse hides native view','restores the remembered page']}));
+  console.log(JSON.stringify({ok:true,checks:['start view','typed host resolves and loads','back','error view + retry','find','collapse hides native view','restores the remembered page']}));
   app.exit(0);
  }catch(e){console.error(e);console.error(errors);console.error('state at failure: page',JSON.stringify(page()),'input',await js(address+'.value'),'body',await js('document.body.innerText.slice(0,300)'));await screenshot('failure');app.exit(1)}
 });

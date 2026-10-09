@@ -7,6 +7,10 @@
 // Every call names the panel's own browser session, and state pushes for
 // other sessions are ignored, so a panel switched away mid-request stays
 // consistent.
+//
+// The native page always paints above the DOM, so anything the panel draws
+// over the page area (the start view, the error view) takes the page off
+// screen while it shows.
 
 import {
   useCallback,
@@ -16,17 +20,24 @@ import {
   useReducer,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Camera,
-  Copy,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
   FileText,
+  Globe,
   Loader2,
   MoreHorizontal,
   Palette,
   RefreshCw,
+  Search,
+  X,
 } from '../icons';
 import { toast } from 'sonner';
 import { BLANK_PAGE, resolveAddress } from '../../../shared/browser-address';
@@ -35,16 +46,25 @@ import type {
   BrowserSendSelectionEvent,
   BrowserSessionState,
 } from '../../../shared/browser-types';
+import { isMacPlatform } from '../../../shared/keyboard-shortcuts';
 import type { Attachment } from '../../../shared/types';
 import { useAppStore } from '../../store/useAppStore';
 import { useBrowserStateStore, type RememberedPage } from '../../store/useBrowserStateStore';
-import { browserStatusLine, emptyAddressField, updateAddressField } from './address-bar';
+import {
+  browserStatusLine,
+  emptyAddressField,
+  pageOverlayFor,
+  panelShortcutFor,
+  recentPages,
+  siteMarkFor,
+  updateAddressField,
+} from './address-bar';
 import { useBrowserNativeOverlay } from './browser-native-overlay';
 
-const MIN_PANEL_WIDTH = 320;
-const MAX_PANEL_WIDTH = 1200;
 const READOUT_TEXT_CHAR_LIMIT = 6000;
 const READOUT_LINK_LIMIT = 15;
+/** Below this toolbar width, screenshot and annotate move into the menu. */
+const COMPACT_TOOLBAR_WIDTH = 460;
 
 interface BrowserPanelProps {
   // The chat session to inject "send to chat" output into. Null when the
@@ -53,12 +73,10 @@ interface BrowserPanelProps {
   sessionId: string | null;
   browserSessionId?: string;
   collapsed: boolean;
+  /** Width of the panel; changes re-measure where the page goes. */
   width: number;
-  onWidthChange: (width: number) => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  topInset?: number;
-  embedded?: boolean;
 }
 
 /** What the panel shows before the main process reports: the remembered page, suspended. */
@@ -79,9 +97,61 @@ function rememberedState(sessionId: string, remembered: RememberedPage | null): 
           favicon: remembered.favicon,
           committedUrl: remembered.url,
           error: null,
+          zoom: 1,
         }
       : null,
   };
+}
+
+const toolbarButtonClass =
+  'inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--text-secondary)]';
+
+function ToolbarButton({
+  label,
+  onClick,
+  disabled,
+  active,
+  children,
+  buttonRef,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  children: ReactNode;
+  buttonRef?: React.Ref<HTMLButtonElement>;
+}) {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={`${toolbarButtonClass} ${
+        active ? 'bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] text-[var(--accent)] hover:bg-[color-mix(in_srgb,var(--accent)_22%,transparent)] hover:text-[var(--accent)]' : ''
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Favicon or a fitting mark at the start of the address bar. */
+function SiteMark({ page }: { page: BrowserSessionState['page'] }) {
+  const [broken, setBroken] = useState(false);
+  const mark = siteMarkFor(page);
+  useEffect(() => setBroken(false), [page?.favicon]);
+  const iconClass = 'h-[13px] w-[13px] flex-shrink-0';
+  if (mark === 'favicon' && page?.favicon && !broken) {
+    return <img src={page.favicon} alt="" className="h-[14px] w-[14px] flex-shrink-0 rounded-[3px]" onError={() => setBroken(true)} />;
+  }
+  if (mark === 'error') return <AlertTriangle className={`${iconClass} text-[var(--warning)]`} aria-hidden="true" />;
+  if (mark === 'file') return <FileText className={`${iconClass} text-[var(--text-muted)]`} aria-hidden="true" />;
+  if (mark === 'search') return <Search className={`${iconClass} text-[var(--text-muted)]`} aria-hidden="true" />;
+  return <Globe className={`${iconClass} text-[var(--text-muted)]`} aria-hidden="true" />;
 }
 
 export function BrowserPanel({
@@ -89,15 +159,11 @@ export function BrowserPanel({
   browserSessionId: browserSessionIdProp,
   collapsed,
   width,
-  onWidthChange,
   isFullscreen,
   onToggleFullscreen,
-  topInset = 0,
-  embedded = false,
 }: BrowserPanelProps) {
   const browserSessionId = browserSessionIdProp ?? sessionId ?? '__standalone-browser__';
   const overlayOpen = useBrowserNativeOverlay();
-  const nativeViewHidden = collapsed || overlayOpen;
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
   const createDraftSession = useAppStore((s) => s.createDraftSession);
   // Target chat session for "send to chat" actions; create a draft if browsing
@@ -108,6 +174,7 @@ export function BrowserPanel({
   );
 
   const rememberPage = useBrowserStateStore((s) => s.remember);
+  const rememberedPages = useBrowserStateStore((s) => s.pages);
   const [sessionState, setSessionState] = useState<BrowserSessionState>(() =>
     rememberedState(browserSessionId, useBrowserStateStore.getState().pages[browserSessionId] ?? null)
   );
@@ -119,6 +186,16 @@ export function BrowserPanel({
   const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [readoutBusy, setReadoutBusy] = useState(false);
 
+  const pageOverlay = pageOverlayFor(page, sessionState.agentActive);
+  const nativeViewHidden = collapsed || overlayOpen || pageOverlay !== null;
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const [toolbarWidth, setToolbarWidth] = useState(Number.POSITIVE_INFINITY);
+  const compact = toolbarWidth < COMPACT_TOOLBAR_WIDTH;
+
   // ===== Design mode =====
   // The design session is keyed by the (browserSessionId, page id) it was
   // ENABLED for — disable must use that stored pair, not the current props:
@@ -127,6 +204,8 @@ export function BrowserPanel({
   // WebContentsView and leaving the page's clicks hijacked by the inspector
   // (review finding).
   const [designTarget, setDesignTarget] = useState<{ browserSessionId: string; tabId: string; token?: number } | null>(null);
+  /** Annotations sent to the composer during this design session. */
+  const [annotationCount, setAnnotationCount] = useState(0);
   const projectRoot = useAppStore((s) => (sessionId ? s.sessions[sessionId]?.cwd ?? null : null));
 
   const disableDesignMode = useCallback(() => {
@@ -154,18 +233,15 @@ export function BrowserPanel({
     }
     const tab = sessionState.page;
     if (!tab) return;
-    if (!projectRoot) {
-      toast.error('Design mode needs an open project session (annotations carry project context).');
-      return;
-    }
     const contextAtStart = designContextRef.current;
+    // Any web page can be annotated; a project only adds source context.
     const enabled = await window.electron.designMode.enable({
       sessionId: browserSessionId,
       tabId: tab.id,
-      projectRoot,
+      projectRoot: projectRoot ?? '',
     });
     if (!enabled.ok) {
-      toast.error(enabled.message || 'Failed to enable design mode');
+      toast.error(enabled.message || 'Failed to start annotating');
       return;
     }
     if (designContextRef.current !== contextAtStart) {
@@ -175,6 +251,7 @@ export function BrowserPanel({
       void window.electron.designMode.disable({ sessionId: browserSessionId, tabId: tab.id, token: enabled.token });
       return;
     }
+    setAnnotationCount(0);
     setDesignTarget({ browserSessionId, tabId: tab.id, token: enabled.token });
   }, [designTarget, disableDesignMode, sessionState, projectRoot, browserSessionId]);
 
@@ -206,11 +283,16 @@ export function BrowserPanel({
   }, [collapsed, browserSessionId, page?.id]);
 
   // The service emits 'disabled' when it tears a session down (page gone,
-  // left localhost, host reload); clear the UI target without re-invoking
-  // IPC (idempotent server-side). Annotate delivery lives in the app-level
-  // DesignAnnotateBridge, independent of this panel's lifetime.
+  // left the web, host reload); clear the UI target without re-invoking IPC
+  // (idempotent server-side). Annotate delivery lives in the app-level
+  // DesignAnnotateBridge, independent of this panel's lifetime; the panel
+  // only counts what this session added.
   useEffect(() => {
     return window.electron.designMode.onEvent((event) => {
+      if (event.kind === 'annotate' && event.sessionId === browserSessionId) {
+        setAnnotationCount((count) => count + 1);
+        return;
+      }
       if (event.kind !== 'disabled') return;
       setDesignTarget((current) =>
         current && current.tabId === event.tabId && current.browserSessionId === event.sessionId
@@ -218,7 +300,7 @@ export function BrowserPanel({
           : current
       );
     });
-  }, []);
+  }, [browserSessionId]);
 
   // ===== 订阅主进程状态 =====
   useEffect(() => {
@@ -288,7 +370,7 @@ export function BrowserPanel({
       toast.success('Selection sent to chat');
     });
     return () => dispose();
-  }, [browserSessionId, requestChatInjection, sessionId]);
+  }, [browserSessionId, requestChatInjection, resolveChatTargetId]);
 
   const statusLine = useMemo(
     () => browserStatusLine({ localError, page, open: sessionState.open }),
@@ -342,7 +424,7 @@ export function BrowserPanel({
     };
   }, [nativeViewHidden, pushBounds]);
 
-  // When the animation transitions, push bounds repeatedly for a short burst.
+  // When the panel transitions in, push bounds repeatedly for a short burst.
   useEffect(() => {
     if (nativeViewHidden) return;
     let frames = 0;
@@ -361,6 +443,15 @@ export function BrowserPanel({
     };
   }, [nativeViewHidden, width, pushBounds]);
 
+  // Toolbar width decides which actions stay visible.
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => setToolbarWidth(entries[0]?.contentRect.width ?? Number.POSITIVE_INFINITY));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // ===== Toolbar actions =====
   const handleNavigate = useCallback(
     async (typed: string) => {
@@ -372,6 +463,7 @@ export function BrowserPanel({
         setSessionState(next);
         dispatchAddress({ kind: 'submitted' });
         setLocalError(null);
+        addressInputRef.current?.blur();
       } catch (error) {
         setLocalError(String(error));
       }
@@ -396,8 +488,23 @@ export function BrowserPanel({
   const handleBack = pageCall(window.electron.browser.goBack);
   const handleForward = pageCall(window.electron.browser.goForward);
   const handleReload = pageCall(window.electron.browser.reload);
+  const handleStop = pageCall(window.electron.browser.stop);
+  const handleRetry = () => {
+    if (!page) return;
+    void handleNavigate(page.url);
+  };
+  const handleOpenExternal = () => {
+    if (page && /^https?:\/\//i.test(page.url)) void window.electron.openExternalUrl(page.url).catch(() => {});
+  };
 
-  const handleCaptureScreenshot = async () => {
+  const focusAddress = useCallback(() => {
+    const input = addressInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, []);
+
+  const handleCaptureScreenshot = useCallback(async () => {
     if (!page || screenshotBusy) return;
     setScreenshotBusy(true);
     try {
@@ -430,9 +537,9 @@ export function BrowserPanel({
     } finally {
       setScreenshotBusy(false);
     }
-  };
+  }, [page, screenshotBusy, browserSessionId, requestChatInjection, resolveChatTargetId]);
 
-  const handleReadPage = async () => {
+  const handleReadPage = useCallback(async () => {
     if (!page || readoutBusy) return;
     setReadoutBusy(true);
     try {
@@ -454,57 +561,115 @@ export function BrowserPanel({
     } finally {
       setReadoutBusy(false);
     }
+  }, [page, readoutBusy, browserSessionId, requestChatInjection, resolveChatTargetId]);
+
+  const openMenu = () => {
+    const button = menuButtonRef.current;
+    if (!button || !page) return;
+    const rect = button.getBoundingClientRect();
+    void window.electron.browser
+      .showMenu({
+        sessionId: browserSessionId,
+        x: rect.right - 220,
+        y: rect.bottom + 4,
+        compact,
+        annotating: Boolean(designTarget),
+      })
+      .catch(() => {});
   };
 
-  // ===== 面板尺寸拖拽 =====
-  const resizingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(width);
-  const [isResizing, setIsResizing] = useState(false);
+  // ===== Find in page =====
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState('');
+  const [findResult, setFindResult] = useState<{ active: number; matches: number } | null>(null);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleResizeStart = (event: React.MouseEvent) => {
-    event.preventDefault();
-    resizingRef.current = true;
-    setIsResizing(true);
-    startXRef.current = event.clientX;
-    startWidthRef.current = width;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
+  const openFind = useCallback(() => {
+    if (!page) return;
+    setFindOpen(true);
+    requestAnimationFrame(() => {
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+    });
+  }, [page]);
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    setFindResult(null);
+    window.electron.browser.stopFind({ sessionId: browserSessionId }).catch(() => {});
+  }, [browserSessionId]);
+
+  const runFind = (text: string, options: { findNext?: boolean; backward?: boolean } = {}) => {
+    window.electron.browser
+      .find({ sessionId: browserSessionId, text, findNext: options.findNext, backward: options.backward })
+      .catch(() => {});
+    if (!text) setFindResult(null);
   };
 
   useEffect(() => {
-    if (!isResizing) return;
-    const onMove = (event: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const delta = startXRef.current - event.clientX;
-      const next = Math.max(
-        MIN_PANEL_WIDTH,
-        Math.min(MAX_PANEL_WIDTH, startWidthRef.current + delta)
-      );
-      onWidthChange(next);
+    return window.electron.browser.onFindResult((result) => {
+      if (result.sessionId === browserSessionId) setFindResult({ active: result.active, matches: result.matches });
+    });
+  }, [browserSessionId]);
+
+  // A collapsed or switched-away panel leaves no highlight behind.
+  useEffect(() => {
+    if (collapsed && findOpen) closeFind();
+  }, [collapsed, findOpen, closeFind]);
+
+  // ===== Commands from the page's keyboard and the native menu =====
+  useEffect(() => {
+    return window.electron.browser.onCommand((event) => {
+      if (event.sessionId !== browserSessionId || collapsed) return;
+      if (event.command === 'focus-address') focusAddress();
+      else if (event.command === 'find') openFind();
+      else if (event.command === 'screenshot') void handleCaptureScreenshot();
+      else if (event.command === 'readout') void handleReadPage();
+      else if (event.command === 'annotate') void toggleDesignMode();
+    });
+  }, [browserSessionId, collapsed, focusAddress, openFind, handleCaptureScreenshot, handleReadPage, toggleDesignMode]);
+
+  // Keys while the panel's own controls have focus. Claimed keys are kept
+  // from the app keymap (it skips prevented events).
+  const handlePanelKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const action = panelShortcutFor(event, isMacPlatform());
+    if (!action) return;
+    event.preventDefault();
+    if (action === 'focus-address') focusAddress();
+    else if (action === 'find') openFind();
+    else if (action === 'back') handleBack();
+    else if (action === 'forward') handleForward();
+  };
+
+  // The app menu's Reload/Zoom act on this page while the panel's controls
+  // have focus (the page claims those keys itself when it has focus).
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const onFocusIn = () => {
+      window.electron.browser.setChromeFocus({ sessionId: browserSessionId }).catch(() => {});
     };
-    const onUp = () => {
-      resizingRef.current = false;
-      setIsResizing(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+    const onFocusOut = (event: FocusEvent) => {
+      if (event.relatedTarget instanceof Node && root.contains(event.relatedTarget)) return;
+      window.electron.browser.setChromeFocus({ sessionId: null }).catch(() => {});
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('blur', onUp);
+    root.addEventListener('focusin', onFocusIn);
+    root.addEventListener('focusout', onFocusOut);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('blur', onUp);
+      root.removeEventListener('focusin', onFocusIn);
+      root.removeEventListener('focusout', onFocusOut);
+      if (root.contains(document.activeElement)) {
+        window.electron.browser.setChromeFocus({ sessionId: null }).catch(() => {});
+      }
     };
-  }, [isResizing, onWidthChange]);
+  }, [browserSessionId]);
 
   // Esc exits fullscreen. Only binds when in fullscreen so we don't swallow
   // Escape elsewhere (address bar blur, modal close, etc.).
   useEffect(() => {
     if (!isFullscreen) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         event.stopPropagation();
         onToggleFullscreen();
       }
@@ -513,215 +678,327 @@ export function BrowserPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [isFullscreen, onToggleFullscreen]);
 
+  const zoomPercent = Math.round((page?.zoom ?? 1) * 100);
+  const recent = useMemo(
+    () => (pageOverlay === 'empty' ? recentPages(rememberedPages, browserSessionId) : []),
+    [pageOverlay, rememberedPages, browserSessionId]
+  );
+
   // ===== Render =====
   return (
     <div
-      className={
-        embedded
-          ? `absolute inset-0 min-h-0 min-w-0 bg-[var(--bg-primary)] ${
-              collapsed ? 'hidden' : 'flex flex-col'
-            }`
-          : `relative flex h-full flex-col border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-              isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
-            } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`
-      }
-      style={
-        embedded
-          ? undefined
-          : isFullscreen
-          ? {
-              width: 'auto',
-              opacity: 1,
-              transform: 'translateX(0)',
-              borderLeftWidth: 1,
-            }
-          : {
-              width: collapsed ? 0 : width,
-              opacity: collapsed ? 0 : 1,
-              transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
-              borderLeftWidth: collapsed ? 0 : 1,
-            }
-      }
-      aria-hidden={collapsed && !isFullscreen}
+      ref={rootRef}
+      onKeyDown={handlePanelKeyDown}
+      className={`absolute inset-0 min-h-0 min-w-0 bg-[var(--bg-primary)] ${collapsed ? 'hidden' : 'flex flex-col'}`}
     >
-      {!embedded && !collapsed && !isFullscreen && (
-        <div
-          className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
-          onMouseDown={handleResizeStart}
-        >
-          <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
-        </div>
-      )}
-
-      {/* Top drag strip */}
-      {!embedded ? (
-        <div
-          className="drag-region flex-shrink-0"
-          style={{ height: topInset > 0 ? topInset : 32 }}
-        />
-      ) : null}
-
-      {/* Chrome */}
-      <div className="no-drag flex-shrink-0 bg-[var(--bg-secondary)]/45">
-        <div className="flex items-center gap-1 px-2 py-1.5">
-          {sessionState.agentActive ? (
-            <span
-              className="mr-0.5 inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--accent-light)] px-2 text-[11px] font-medium text-[var(--accent)]"
-              title="An agent is driving this browser panel"
-            >
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--accent)] opacity-60" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-              </span>
-              Agent
+      {/* Toolbar */}
+      <div
+        ref={toolbarRef}
+        className="no-drag relative flex h-10 flex-shrink-0 items-center gap-0.5 border-b border-[var(--border)] bg-[var(--bg-secondary)]/45 px-1.5"
+      >
+        {sessionState.agentActive ? (
+          <span
+            className="mr-1 inline-flex h-6 flex-shrink-0 items-center gap-1.5 rounded-md bg-[var(--accent-light)] px-2 text-[11px] font-medium text-[var(--accent)]"
+            title="An agent is using this page"
+          >
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--accent)] opacity-60 motion-reduce:animate-none" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
             </span>
+            Agent
+          </span>
+        ) : null}
+        <ToolbarButton label="Back" onClick={handleBack} disabled={!page?.canBack}>
+          <ArrowLeft className="h-[14px] w-[14px]" />
+        </ToolbarButton>
+        <ToolbarButton label="Forward" onClick={handleForward} disabled={!page?.canForward}>
+          <ArrowRight className="h-[14px] w-[14px]" />
+        </ToolbarButton>
+        {page?.loading ? (
+          <ToolbarButton label="Stop loading" onClick={handleStop}>
+            <X className="h-[14px] w-[14px]" />
+          </ToolbarButton>
+        ) : (
+          <ToolbarButton label="Reload" onClick={handleReload} disabled={!page}>
+            <RefreshCw className="h-[14px] w-[14px]" />
+          </ToolbarButton>
+        )}
+
+        {/* Address bar */}
+        <div className="group/address relative mx-1 flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-transparent bg-[var(--bg-tertiary)] pl-2 pr-1 focus-within:border-[var(--border-focus)] focus-within:ring-1 focus-within:ring-[var(--border-focus)]">
+          <SiteMark page={page} />
+          <input
+            ref={addressInputRef}
+            type="text"
+            spellCheck={false}
+            value={address.text}
+            onChange={(e) => dispatchAddress({ kind: 'type', text: e.target.value })}
+            onFocus={(e) => {
+              dispatchAddress({ kind: 'focus' });
+              e.currentTarget.select();
+            }}
+            onBlur={() => {
+              window.setTimeout(() => dispatchAddress({ kind: 'blur' }), 100);
+            }}
+            onKeyDown={handleAddressKeyDown}
+            placeholder="Search or enter address"
+            aria-label="Address"
+            className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+          />
+          {zoomPercent !== 100 ? (
+            <button
+              type="button"
+              onClick={() => void window.electron.browser.zoom({ sessionId: browserSessionId, direction: 'reset' })}
+              title="Reset zoom"
+              className="flex-shrink-0 rounded px-1 text-[10px] font-medium tabular-nums text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            >
+              {zoomPercent}%
+            </button>
           ) : null}
-          <button
-            type="button"
-            onClick={handleBack}
-            disabled={!page?.canBack}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Back"
-            aria-label="Back"
-          >
-            <ArrowLeft className="h-[13px] w-[13px]" />
-          </button>
-          <button
-            type="button"
-            onClick={handleForward}
-            disabled={!page?.canForward}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Forward"
-            aria-label="Forward"
-          >
-            <ArrowRight className="h-[13px] w-[13px]" />
-          </button>
-          <button
-            type="button"
-            onClick={handleReload}
-            disabled={!page}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Reload"
-            aria-label="Reload"
-          >
-            <RefreshCw
-              className={`h-[13px] w-[13px] ${page?.loading ? 'animate-spin' : ''}`}
-            />
-          </button>
-
-          <div className="relative mx-1 flex-1">
-            <input
-              type="text"
-              spellCheck={false}
-              value={address.text}
-              onChange={(e) => dispatchAddress({ kind: 'type', text: e.target.value })}
-              onFocus={(e) => {
-                dispatchAddress({ kind: 'focus' });
-                e.currentTarget.select();
-              }}
-              onBlur={() => {
-                window.setTimeout(() => dispatchAddress({ kind: 'blur' }), 100);
-              }}
-              onKeyDown={handleAddressKeyDown}
-              placeholder="Search Google or enter a URL"
-              className="h-7 w-full rounded-md border border-transparent bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-1 focus:ring-[var(--border-focus)]"
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleCaptureScreenshot}
-            disabled={!page || screenshotBusy}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Screenshot to chat"
-            aria-label="Screenshot to chat"
-          >
-            {screenshotBusy ? (
-              <Loader2 className="h-[13px] w-[13px] animate-spin" />
-            ) : (
-              <Camera className="h-[13px] w-[13px]" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={handleReadPage}
-            disabled={!page || readoutBusy}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Send page content to chat"
-            aria-label="Send page content to chat"
-          >
-            {readoutBusy ? (
-              <Loader2 className="h-[13px] w-[13px] animate-spin" />
-            ) : (
-              <FileText className="h-[13px] w-[13px]" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => void toggleDesignMode()}
-            disabled={!page}
-            className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
-              designTarget
-                ? 'bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]'
-                : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-            }`}
-            title={designTarget ? 'Exit design mode' : 'Design mode: click an element, describe the change, send it to the agent'}
-            aria-label="Toggle design mode"
-          >
-            <Palette className="h-[13px] w-[13px]" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (page?.url) {
-                void navigator.clipboard.writeText(page.url);
-                toast.success('URL copied');
-              }
-            }}
-            disabled={!page}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Copy URL"
-            aria-label="Copy URL"
-          >
-            <Copy className="h-[13px] w-[13px]" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (page) window.electron.browser.openDevTools({ sessionId: browserSessionId }).catch(() => {});
-            }}
-            disabled={!page}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Open DevTools"
-            aria-label="Open DevTools"
-          >
-            <MoreHorizontal className="h-[13px] w-[13px]" />
-          </button>
+          {page && /^https?:\/\//i.test(page.url) ? (
+            <button
+              type="button"
+              onClick={handleOpenExternal}
+              title="Open in default browser"
+              aria-label="Open in default browser"
+              className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[var(--text-muted)] opacity-0 transition-opacity hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover/address:opacity-100"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </button>
+          ) : null}
         </div>
 
+        {!compact ? (
+          <>
+            <ToolbarButton label="Screenshot to chat" onClick={() => void handleCaptureScreenshot()} disabled={!page || screenshotBusy}>
+              {screenshotBusy ? <Loader2 className="h-[14px] w-[14px] animate-spin" /> : <Camera className="h-[14px] w-[14px]" />}
+            </ToolbarButton>
+            <div className="relative flex-shrink-0">
+              <ToolbarButton
+                label={designTarget ? 'Stop annotating' : 'Annotate: click an element or drag over an area, describe the change'}
+                onClick={() => void toggleDesignMode()}
+                disabled={!page || pageOverlay !== null}
+                active={Boolean(designTarget)}
+              >
+                <Palette className="h-[14px] w-[14px]" />
+              </ToolbarButton>
+              {designTarget && annotationCount > 0 ? (
+                <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-semibold leading-none text-white">
+                  {annotationCount}
+                </span>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+        <ToolbarButton label="More" onClick={openMenu} disabled={!page} buttonRef={menuButtonRef}>
+          <MoreHorizontal className="h-[14px] w-[14px]" />
+        </ToolbarButton>
+
+        {/* Loading: a thin sweep along the toolbar's bottom edge. */}
+        <div
+          className={`pointer-events-none absolute inset-x-0 -bottom-px h-[2px] overflow-hidden transition-opacity duration-200 ${
+            page?.loading ? 'opacity-100' : 'opacity-0'
+          }`}
+          role="progressbar"
+          aria-label="Loading"
+          aria-hidden={!page?.loading}
+        >
+          {page?.loading ? <div className="aegis-browser-progress h-full w-1/3 bg-[var(--accent)]" /> : null}
+        </div>
       </div>
 
-      {/* Viewport row: native WebContentsView mirror + (optional) design drawer.
-          The drawer shrinks the viewport div; the ResizeObserver above pushes
-          the smaller bounds to the main process automatically. */}
-      <div className="flex min-h-0 flex-1">
-        <div className="relative min-h-0 flex-1 bg-[var(--bg-primary)]">
-          <div ref={viewportRef} className="absolute inset-0" />
-          {statusLine && (
-            <div
-              className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${
-                statusLine.tone === 'error'
-                  ? 'border-red-500/40 bg-red-500/10 text-red-400'
-                  : 'border-[var(--border)] bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)]'
-              }`}
+      {/* Find in page */}
+      {findOpen ? (
+        <div className="no-drag flex h-9 flex-shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg-secondary)]/45 px-2">
+          <Search className="h-[13px] w-[13px] flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+          <input
+            ref={findInputRef}
+            type="text"
+            spellCheck={false}
+            value={findText}
+            aria-label="Find in page"
+            data-browser-find=""
+            placeholder="Find in page"
+            onChange={(event) => {
+              setFindText(event.target.value);
+              runFind(event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                runFind(findText, { findNext: true, backward: event.shiftKey });
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                closeFind();
+              }
+            }}
+            className="h-7 min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+          />
+          <span className="flex-shrink-0 text-[11px] tabular-nums text-[var(--text-muted)]" aria-live="polite">
+            {findText && findResult ? (findResult.matches ? `${findResult.active}/${findResult.matches}` : 'No results') : ''}
+          </span>
+          <ToolbarButton label="Previous match" onClick={() => runFind(findText, { findNext: true, backward: true })} disabled={!findResult?.matches}>
+            <ChevronUp className="h-[14px] w-[14px]" />
+          </ToolbarButton>
+          <ToolbarButton label="Next match" onClick={() => runFind(findText, { findNext: true })} disabled={!findResult?.matches}>
+            <ChevronDown className="h-[14px] w-[14px]" />
+          </ToolbarButton>
+          <ToolbarButton label="Close find" onClick={closeFind}>
+            <X className="h-[14px] w-[14px]" />
+          </ToolbarButton>
+        </div>
+      ) : null}
+
+      {/* Page area: the native page is laid over viewportRef. */}
+      <div className="relative min-h-0 flex-1 bg-[var(--bg-primary)]">
+        <div ref={viewportRef} className="absolute inset-0" />
+        {pageOverlay === 'empty' ? (
+          <StartView
+            recent={recent}
+            onOpen={(url) => void handleNavigate(url)}
+            onFocusAddress={focusAddress}
+          />
+        ) : null}
+        {pageOverlay === 'error' && page ? (
+          <ErrorView
+            message={page.error ?? ''}
+            url={page.url}
+            onRetry={handleRetry}
+            onOpenExternal={/^https?:\/\//i.test(page.url) ? handleOpenExternal : null}
+          />
+        ) : null}
+        {statusLine ? (
+          <div
+            className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${
+              statusLine.tone === 'error'
+                ? 'border-[color-mix(in_srgb,var(--error)_40%,transparent)] bg-[color-mix(in_srgb,var(--error)_10%,transparent)] text-[var(--error)]'
+                : 'border-[var(--border)] bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)]'
+            }`}
+          >
+            {statusLine.text}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function StartView({
+  recent,
+  onOpen,
+  onFocusAddress,
+}: {
+  recent: Array<{ url: string; title: string; favicon: string | null }>;
+  onOpen: (url: string) => void;
+  onFocusAddress: () => void;
+}) {
+  const shortcut = isMacPlatform() ? '⌘L' : 'Ctrl+L';
+  return (
+    <div className="absolute inset-0 flex items-center justify-center overflow-y-auto p-6">
+      <div className="flex w-full max-w-[340px] flex-col items-center text-center">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+          <Globe className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <h2 className="mt-3 text-[13px] font-medium text-[var(--text-primary)]">Start browsing</h2>
+        <p className="mt-1 text-[12px] leading-relaxed text-[var(--text-secondary)]">
+          <button type="button" onClick={onFocusAddress} className="underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--text-primary)]">
+            Type an address or a search
+          </button>{' '}
+          in the bar above ({shortcut}). Local dev servers work too, like localhost:5173.
+        </p>
+        {recent.length ? (
+          <div className="mt-5 w-full text-left">
+            <div className="px-2 pb-1 text-[11px] font-medium text-[var(--text-muted)]">Recent</div>
+            <ul className="flex flex-col">
+              {recent.map((item) => (
+                <li key={item.url}>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(item.url)}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-[var(--sidebar-item-hover)]"
+                    title={item.url}
+                  >
+                    <RecentMark favicon={item.favicon} />
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">{item.title || hostOf(item.url)}</span>
+                    <span className="max-w-[45%] flex-shrink-0 truncate text-[11px] text-[var(--text-muted)]">{hostOf(item.url)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function RecentMark({ favicon }: { favicon: string | null }) {
+  const [broken, setBroken] = useState(false);
+  if (favicon && /^(https?:|data:image\/)/.test(favicon) && !broken) {
+    return <img src={favicon} alt="" className="h-[14px] w-[14px] flex-shrink-0 rounded-[3px]" onError={() => setBroken(true)} />;
+  }
+  return <Globe className="h-[13px] w-[13px] flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />;
+}
+
+function ErrorView({
+  message,
+  url,
+  onRetry,
+  onOpenExternal,
+}: {
+  message: string;
+  url: string;
+  onRetry: () => void;
+  onOpenExternal: (() => void) | null;
+}) {
+  const crashed = /stopped unexpectedly/i.test(message);
+  return (
+    <div className="absolute inset-0 flex items-center justify-center overflow-y-auto p-6" role="alert">
+      <div className="flex w-full max-w-[340px] flex-col items-center text-center">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--warning)_14%,transparent)] text-[var(--warning)]">
+          <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <h2 className="mt-3 text-[13px] font-medium text-[var(--text-primary)]">
+          {crashed ? 'This page stopped working' : "This page couldn't be opened"}
+        </h2>
+        <p className="mt-1 text-[12px] leading-relaxed text-[var(--text-secondary)]">{message}</p>
+        {url ? (
+          <p className="mt-2 max-w-full truncate font-mono text-[11px] text-[var(--text-muted)]" title={url}>
+            {url}
+          </p>
+        ) : null}
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--text-primary)] px-3 text-[12px] font-medium text-[var(--bg-primary)] hover:opacity-90"
+          >
+            <RefreshCw className="h-3 w-3" aria-hidden="true" />
+            Try again
+          </button>
+          {onOpenExternal ? (
+            <button
+              type="button"
+              onClick={onOpenExternal}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border)] px-3 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
             >
-              {statusLine.text}
-            </div>
-          )}
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+              Open in default browser
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
   );
+}
+
+function hostOf(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'file:' ? parsed.pathname.split('/').pop() || url : parsed.host;
+  } catch {
+    return url;
+  }
 }
 
 function base64ToBytes(base64: string): Uint8Array {

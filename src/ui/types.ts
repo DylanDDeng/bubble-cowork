@@ -240,6 +240,8 @@ export type ProjectUtilityTabDescriptor = {
   running?: boolean;
   /** True while the side-chat fork is in flight (non-closable loading tab). */
   pending?: boolean;
+  /** For browser tabs: the page's favicon, shown in place of the globe. */
+  favicon?: string | null;
 };
 
 /**

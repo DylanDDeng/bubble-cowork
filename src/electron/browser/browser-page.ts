@@ -16,6 +16,7 @@ export interface ViewFacts {
   canBack: boolean;
   canForward: boolean;
   favicons?: string[];
+  zoom?: number;
 }
 
 export function blankSession(sessionId: string): BrowserSessionState {
@@ -34,6 +35,7 @@ export function newPage(url: string = BLANK_PAGE): BrowserPage {
     favicon: null,
     committedUrl: null,
     error: null,
+    zoom: 1,
   };
 }
 
@@ -73,6 +75,7 @@ export function absorb(page: BrowserPage, facts: ViewFacts): void {
   page.canBack = facts.canBack;
   page.canForward = facts.canForward;
   if (facts.favicons) page.favicon = facts.favicons[0] ?? page.favicon;
+  if (typeof facts.zoom === 'number' && facts.zoom > 0) page.zoom = facts.zoom;
 }
 
 export function navigationStarted(page: BrowserPage): void {

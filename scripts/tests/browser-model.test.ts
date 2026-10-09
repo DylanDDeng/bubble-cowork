@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { addressForDisplay, placeholderTitle, resolveAddress, webSearchUrl } from '../../src/shared/browser-address';
-import { browserStatusLine, emptyAddressField, updateAddressField } from '../../src/ui/components/browser/address-bar';
+import {
+  browserStatusLine,
+  emptyAddressField,
+  pageOverlayFor,
+  panelShortcutFor,
+  recentPages,
+  siteMarkFor,
+  updateAddressField,
+} from '../../src/ui/components/browser/address-bar';
+import { browserShortcutFor, nextZoom } from '../../src/electron/browser/shortcuts';
+import { agentBrowserRevealDecision } from '../../src/ui/utils/agent-browser-reveal';
 import {
   absorb,
   describeLoadFailure,
@@ -126,7 +136,8 @@ assert.equal(same, field, 'an unchanged page keeps the same field object');
 
 // ── Status line ──────────────────────────────────────────────────────────────
 assert.deepEqual(browserStatusLine({ localError: 'Bad', page: { ...pageA, error: 'Other' }, open: true }), { text: 'Bad', tone: 'error' });
-assert.deepEqual(browserStatusLine({ localError: null, page: { ...pageA, error: 'Other' }, open: true }), { text: 'Other', tone: 'error' });
+// Load errors get the error view, not the status line.
+assert.equal(browserStatusLine({ localError: null, page: { ...pageA, error: 'Other' }, open: true }), null);
 assert.deepEqual(browserStatusLine({ localError: null, page: null, open: true }), { text: 'No page open', tone: 'info' });
 assert.deepEqual(browserStatusLine({ localError: null, page: null, open: false }), { text: 'Starting browser...', tone: 'info' });
 assert.deepEqual(browserStatusLine({ localError: null, page: pageA, open: true }), { text: 'Restoring page...', tone: 'info' });
@@ -163,5 +174,70 @@ assert.equal(grants.answer('https://meet.example', ['media:video', 'media:audio'
 grants.record('https://meet.example', ['media:audio'], false);
 assert.equal(grants.answer('https://meet.example', ['media:video', 'media:audio']), false);
 assert.equal(grants.answer('https://other.example', ['media:video']), undefined, 'answers stay with their site');
+
+// ── Page overlays, site mark, recent pages ───────────────────────────────────
+const live = { ...pageA, phase: 'live' as const };
+assert.equal(pageOverlayFor(null, false), null);
+assert.equal(pageOverlayFor({ ...live, url: 'about:blank' }, false), 'empty');
+assert.equal(pageOverlayFor({ ...live, url: 'about:blank' }, true), null, 'an agent driving a blank page keeps it visible');
+assert.equal(pageOverlayFor({ ...live, error: 'Connection refused.' }, false), 'error');
+assert.equal(pageOverlayFor({ ...live, error: 'Connection refused.', loading: true }, false), null, 'a retry in progress shows the page');
+assert.equal(pageOverlayFor(live, false), null);
+assert.equal(siteMarkFor(null), 'search');
+assert.equal(siteMarkFor({ ...live, url: 'about:blank' }), 'search');
+assert.equal(siteMarkFor({ ...live, error: 'x' }), 'error');
+assert.equal(siteMarkFor({ ...live, url: 'file:///tmp/a.html' }), 'file');
+assert.equal(siteMarkFor({ ...live, favicon: 'https://a.dev/favicon.ico' }), 'favicon');
+assert.equal(siteMarkFor({ ...live, favicon: 'javascript:alert(1)' }), 'web', 'only http(s) and image data favicons render');
+const remembered = {
+  self: { pageId: '1', url: 'https://self.dev/', title: 'Self', favicon: null, seenAt: 9 },
+  a: { pageId: '2', url: 'https://a.dev/', title: 'A', favicon: null, seenAt: 3 },
+  b: { pageId: '3', url: 'https://b.dev/', title: 'B', favicon: 'https://b.dev/f.ico', seenAt: 5 },
+  dupe: { pageId: '4', url: 'https://a.dev/', title: 'A again', favicon: null, seenAt: 1 },
+  blank: { pageId: '5', url: 'about:blank', title: '', favicon: null, seenAt: 8 },
+};
+assert.deepEqual(recentPages(remembered, 'self').map((p) => p.url), ['https://b.dev/', 'https://a.dev/']);
+
+// ── Keyboard: page shortcuts (main) and panel shortcuts (renderer) ───────────
+const key = (code: string, mods: Partial<Record<'meta' | 'control' | 'shift' | 'alt', boolean>> = {}, key = '') => ({
+  type: 'keyDown', code, key, meta: false, control: false, shift: false, alt: false, ...mods,
+});
+assert.equal(browserShortcutFor(key('KeyL', { meta: true }), true), 'focus-address');
+assert.equal(browserShortcutFor(key('KeyR', { meta: true }), true), 'reload');
+assert.equal(browserShortcutFor(key('KeyR', { meta: true, shift: true }), true), 'hard-reload');
+assert.equal(browserShortcutFor(key('BracketLeft', { meta: true }), true), 'back');
+assert.equal(browserShortcutFor(key('BracketRight', { meta: true }), true), 'forward');
+assert.equal(browserShortcutFor(key('KeyF', { meta: true }), true), 'find');
+assert.equal(browserShortcutFor(key('Equal', { meta: true }), true), 'zoom-in');
+assert.equal(browserShortcutFor(key('Minus', { meta: true }), true), 'zoom-out');
+assert.equal(browserShortcutFor(key('Digit0', { meta: true }), true), 'zoom-reset');
+assert.equal(browserShortcutFor(key('KeyR', { control: true }), false), 'reload', 'Ctrl on Windows/Linux');
+assert.equal(browserShortcutFor(key('KeyR', { control: true }), true), null, 'Ctrl+R is not a Mac shortcut');
+assert.equal(browserShortcutFor(key('KeyC', { meta: true }), true), null, 'copy stays with the page');
+assert.equal(browserShortcutFor(key('KeyL'), true), null, 'plain typing stays with the page');
+assert.equal(browserShortcutFor({ ...key('KeyL', { meta: true }), type: 'keyUp' }, true), null);
+assert.equal(nextZoom(1, 'in'), 1.1);
+assert.equal(nextZoom(1, 'out'), 0.9);
+assert.equal(nextZoom(1.33, 'reset'), 1);
+assert.equal(nextZoom(5, 'in'), 5, 'clamped at the top step');
+assert.equal(nextZoom(1.05, 'in'), 1.1, 'off-ladder zoom moves to the next step');
+const panelKey = (code: string, mods: Partial<Record<'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey', boolean>> = {}) => ({
+  code, key: '', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods,
+});
+assert.equal(panelShortcutFor(panelKey('KeyL', { metaKey: true }), true), 'focus-address');
+assert.equal(panelShortcutFor(panelKey('KeyF', { metaKey: true }), true), 'find');
+assert.equal(panelShortcutFor(panelKey('BracketLeft', { metaKey: true }), true), 'back');
+assert.equal(panelShortcutFor(panelKey('KeyF', { metaKey: true, shiftKey: true }), true), null);
+assert.equal(panelShortcutFor(panelKey('KeyR', { metaKey: true }), true), null, 'Reload/Zoom go through the app menu');
+
+// ── Agent browser actions: reveal, notify or stay quiet ──────────────────────
+const reveal = (input: Partial<Parameters<typeof agentBrowserRevealDecision>[0]>) =>
+  agentBrowserRevealDecision({ sessionId: 's1', activeSessionId: 's1', browserTabShown: false, settingsOpen: false, now: 0, ...input });
+assert.equal(reveal({ now: 1000 }), 'reveal', 'the current task shows its browser');
+assert.equal(reveal({ now: 2000 }), 'none', 'not again right after the user moved away');
+assert.equal(reveal({ now: 2000 + 91_000 }), 'reveal', 'after a quiet while it shows again');
+assert.equal(reveal({ sessionId: 's2', now: 5000 }), 'notify', 'another task only gets a notice');
+assert.equal(reveal({ sessionId: 's2', now: 6000 }), 'none', 'at most one notice a minute per task');
+assert.equal(reveal({ sessionId: 's3', settingsOpen: true, now: 7000 }), 'notify', 'never pulls the user out of Settings');
 
 console.log('browser-model.test.ts passed');

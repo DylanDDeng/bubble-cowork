@@ -3033,6 +3033,29 @@ button.aegis-mdx-metadata-key:hover {
   }
 }
 
+/* In-app browser loading bar: page loads report no progress, so it sweeps. */
+@keyframes aegis-browser-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.aegis-browser-progress {
+  animation: aegis-browser-progress 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aegis-browser-progress {
+    animation: none;
+    transform: none;
+    width: 100% !important;
+    opacity: 0.6;
+  }
+}
+
 /* Visible thin scrollbar: the provider list is long and macOS hides overlay bars. */
 .agent-onboarding-provider-list {
   scrollbar-width: thin;

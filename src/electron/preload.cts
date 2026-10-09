@@ -42,6 +42,12 @@ import type {
   BrowserSessionInput,
   BrowserSessionState,
   BrowserViewportInput,
+  BrowserChromeFocusInput,
+  BrowserCommandEvent,
+  BrowserMenuInput,
+  BrowserFindInput,
+  BrowserFindResult,
+  BrowserZoomInput,
 } from '../shared/browser-types';
 
 // IPC 通道常量（与 browser-ipc.ts 中 BROWSER_CHANNELS 保持一致，避免在 preload 里引入主进程模块）
@@ -60,6 +66,14 @@ const BROWSER_CHANNELS = {
   readPage: 'desktop:browser-read-page',
   state: 'desktop:browser-state',
   sendSelection: 'desktop:browser-send-selection',
+  stop: 'desktop:browser-stop',
+  find: 'desktop:browser-find',
+  stopFind: 'desktop:browser-stop-find',
+  zoom: 'desktop:browser-zoom',
+  setChromeFocus: 'desktop:browser-set-chrome-focus',
+  command: 'desktop:browser-command',
+  findResult: 'desktop:browser-find-result',
+  showMenu: 'desktop:browser-show-menu',
 } as const;
 
 // 与 design-mode-ipc.ts 中 DESIGN_CHANNELS 保持一致
@@ -1262,6 +1276,40 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(BROWSER_CHANNELS.capture, input),
     readPage: (input: BrowserSessionInput): Promise<BrowserReadoutResult> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.readPage, input),
+    stop: (input: BrowserSessionInput): Promise<BrowserSessionState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.stop, input),
+    find: (input: BrowserFindInput): Promise<void> => ipcRenderer.invoke(BROWSER_CHANNELS.find, input),
+    stopFind: (input: BrowserSessionInput): Promise<void> => ipcRenderer.invoke(BROWSER_CHANNELS.stopFind, input),
+    zoom: (input: BrowserZoomInput): Promise<BrowserSessionState> => ipcRenderer.invoke(BROWSER_CHANNELS.zoom, input),
+    setChromeFocus: (input: BrowserChromeFocusInput): Promise<void> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.setChromeFocus, input),
+    showMenu: (input: BrowserMenuInput): Promise<void> => ipcRenderer.invoke(BROWSER_CHANNELS.showMenu, input),
+    onCommand: (callback: (event: BrowserCommandEvent) => void) => {
+      const handler = (_: unknown, event: BrowserCommandEvent) => {
+        try {
+          callback(event);
+        } catch (error) {
+          console.error('Browser command handler error:', error);
+        }
+      };
+      ipcRenderer.on(BROWSER_CHANNELS.command, handler);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_CHANNELS.command, handler);
+      };
+    },
+    onFindResult: (callback: (result: BrowserFindResult) => void) => {
+      const handler = (_: unknown, result: BrowserFindResult) => {
+        try {
+          callback(result);
+        } catch (error) {
+          console.error('Browser find handler error:', error);
+        }
+      };
+      ipcRenderer.on(BROWSER_CHANNELS.findResult, handler);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_CHANNELS.findResult, handler);
+      };
+    },
     onState: (callback: (state: BrowserSessionState) => void) => {
       const handler = (_: unknown, state: BrowserSessionState) => {
         try {
