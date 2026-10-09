@@ -537,6 +537,7 @@ async function captureScreenshot(
     'Viewport read',
     signal
   )) as { width: number; height: number; url: string };
+  await hideAgentPointer(webContents);
   const image = await withDeadline(capturePixels(webContents), timeoutMs, 'Screenshot', signal);
   if (image.isEmpty()) throw new Error('The page has not painted anything to capture yet.');
   const scale = Math.min(1, SCREENSHOT_MAX_EDGE / Math.max(viewport.width, viewport.height, 1));
@@ -554,6 +555,48 @@ async function captureScreenshot(
     url: viewport.url,
   };
 }
+
+// ===== Agent pointer =====
+
+/** Isolated world for Aegis's own in-page UI: the page can neither see nor
+ * remove its globals, and the pointer never touches the page's scripts. */
+const AEGIS_WORLD_ID = 1919;
+const POINTER_ID = '__aegis_agent_pointer';
+
+/** Shows where the agent is about to act, when the user can see the page. */
+async function showAgentPointer(webContents: WebContents, x: number, y: number, kind: 'click' | 'hover' | 'type'): Promise<void> {
+  const ring = kind === 'click' ? '0 0 0 10px rgba(59,130,246,0.18)' : '0 0 0 4px rgba(59,130,246,0.15)';
+  const code = `(() => {
+    let el = document.getElementById(${JSON.stringify(POINTER_ID)});
+    const fresh = !el;
+    if (!el) {
+      el = document.createElement('div');
+      el.id = ${JSON.stringify(POINTER_ID)};
+      el.setAttribute('aria-hidden', 'true');
+      el.style.cssText = 'position:fixed;left:0;top:0;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;' +
+        'border:2px solid #3b82f6;background:rgba(59,130,246,0.2);pointer-events:none;z-index:2147483647;opacity:0;' +
+        'transition:transform 220ms cubic-bezier(0.22,1,0.36,1),opacity 300ms ease,box-shadow 300ms ease;';
+      document.documentElement.appendChild(el);
+    }
+    if (fresh) { el.style.transition = 'none'; el.style.transform = 'translate(${x}px, ${y}px)'; void el.offsetWidth; el.style.transition = ''; }
+    el.style.transform = 'translate(${x}px, ${y}px)';
+    el.style.opacity = '1';
+    el.style.boxShadow = ${JSON.stringify(ring)};
+    clearTimeout(window.__aegisPointerTimer);
+    window.__aegisPointerTimer = setTimeout(() => { el.style.opacity = '0'; }, 1600);
+    return true;
+  })()`;
+  await webContents.executeJavaScriptInIsolatedWorld(AEGIS_WORLD_ID, [{ code }]).catch(() => undefined);
+}
+
+/** Takes the pointer off the page before a screenshot. */
+async function hideAgentPointer(webContents: WebContents): Promise<void> {
+  const code = `(() => { const el = document.getElementById(${JSON.stringify(POINTER_ID)}); if (el) el.remove(); return true; })()`;
+  await webContents.executeJavaScriptInIsolatedWorld(AEGIS_WORLD_ID, [{ code }]).catch(() => undefined);
+}
+
+/** Time for the pointer to travel before the input lands, so it reads as cause → effect. */
+const POINTER_TRAVEL_MS = 220;
 
 // ===== Actions =====
 
@@ -801,6 +844,10 @@ async function runBrowserUseActionInner(
         const at = await point();
         if (typeof at === 'string') return { ok: false, message: at };
         if (!at) return { ok: false, message: `Provide x/y or node_id + snapshot_id for ${input.action}.` };
+        if (target.visible) {
+          await showAgentPointer(webContents, at.x, at.y, input.action === 'click' ? 'click' : 'hover');
+          await abortableDelay(POINTER_TRAVEL_MS, signal);
+        }
         if (input.action === 'click') clickAt(webContents, at.x, at.y);
         // Chromium drops synthetic mouse moves for a page that isn't on
         // screen; the protocol's input path delivers them either way.
@@ -815,6 +862,10 @@ async function runBrowserUseActionInner(
         const at = await point();
         if (typeof at === 'string') return { ok: false, message: at };
         if (at) {
+          if (target.visible) {
+            await showAgentPointer(webContents, at.x, at.y, 'type');
+            await abortableDelay(POINTER_TRAVEL_MS, signal);
+          }
           clickAt(webContents, at.x, at.y);
           await abortableDelay(50, signal);
         }

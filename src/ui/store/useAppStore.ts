@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { rendererStateStorage } from '../utils/renderer-state-storage';
 import { toast } from 'sonner';
+import { agentBrowserRevealDecision } from '../utils/agent-browser-reveal';
 import { normalizeSessionTitleInput } from '../../shared/session-rename';
 import * as tree from './layout-tree';
 import type { PaneId, SplitEdge, WorkspaceLayout } from './layout-tree';
@@ -1375,15 +1376,30 @@ export const useAppStore = create<Store>()(
 
       // Browser Use：agent 动作自动打开会话浏览器面板（Codex parity）
       case 'browser.open-panel': {
-        if (event.payload.sessionId !== get().activeSessionId) {
-          get().setActiveSession(event.payload.sessionId);
-        }
-        set({ showSettings: false });
         // An agent acting on an extra browser tab reveals that tab.
         const tab = event.payload.tab;
         const target: ProjectUtilityPanelTarget =
           tab && tab.startsWith('browser:') ? (tab as ProjectUtilityPanelTarget) : 'browser';
-        get().openRightUtilityTab(target, { instantReveal: true });
+        const reveal = () => {
+          if (event.payload.sessionId !== get().activeSessionId) get().setActiveSession(event.payload.sessionId);
+          set({ showSettings: false });
+          get().openRightUtilityTab(target, { instantReveal: true });
+        };
+        const decision = agentBrowserRevealDecision({
+          sessionId: event.payload.sessionId,
+          activeSessionId: get().activeSessionId,
+          browserTabShown: get().activeRightUtilityTab === target && !get().rightUtilityPanelHidden,
+          settingsOpen: get().showSettings,
+          now: Date.now(),
+        });
+        if (decision === 'reveal') reveal();
+        else if (decision === 'notify') {
+          const title = get().sessions[event.payload.sessionId]?.title?.trim() || 'another task';
+          toast(`An agent is using the browser in “${title}”`, {
+            id: `agent-browser:${event.payload.sessionId}`,
+            action: { label: 'Show', onClick: reveal },
+          });
+        }
         break;
       }
     }

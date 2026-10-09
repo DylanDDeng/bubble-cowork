@@ -110,6 +110,7 @@ app.whenReady().then(async () => {
     result = await run({ action: 'hover', ...node(snap, (n) => n.text === 'Hover me') });
     assert.equal(result.ok, true, result.message);
     assert.equal(await js('document.title'), 'hovered');
+    assert.equal(await js('!!document.getElementById("__aegis_agent_pointer")'), false, 'no pointer on a page nobody sees');
 
     // Wait finds content that appears later, and gives up on what never does.
     result = await run({ action: 'click', ...node(snap, (n) => n.text === 'Later') });
@@ -189,8 +190,16 @@ app.whenReady().then(async () => {
     browserManager.setPanelBounds({ sessionId: chat, viewport: { x: 0, y: 0, width: 900, height: 700 } });
     const end = Date.now() + 8000;
     while (Date.now() < end && (contents().isLoading() || contents().getURL() !== `${base}/form`)) await new Promise((r) => setTimeout(r, 50));
+    // While the user can see the page, the agent's pointer shows where it
+    // acts; it is taken off the page before a screenshot.
+    const visibleSnap = (await run({ action: 'snapshot' })).snapshot;
+    result = await run({ action: 'hover', ...node(visibleSnap, (n) => n.text === 'Hover me') });
+    assert.equal(result.ok, true, result.message);
+    assert.equal(await js('!!document.getElementById("__aegis_agent_pointer")'), true, 'the pointer is drawn on a visible page');
+    assert.equal(await js('typeof window.__aegisPointerTimer'), 'undefined', "the pointer's script runs outside the page's world");
     result = await run({ action: 'screenshot' });
     assert.equal(result.ok, true, result.message);
+    assert.equal(await js('!!document.getElementById("__aegis_agent_pointer")'), false, 'the pointer is removed before capture');
     assert.equal(result.screenshot.width, 900, 'the visible page is captured at its panel size');
     const visible = nativeImage.createFromPath(result.screenshot.path).toBitmap();
     assert.ok(visible[(60 * 900 + 60) * 4] > 200, 'the visible capture shows the page');
