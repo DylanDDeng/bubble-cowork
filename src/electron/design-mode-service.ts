@@ -22,6 +22,15 @@ import type {
 export type { DesignModeTarget } from '../shared/design-mode-types';
 
 const POLL_INTERVAL_MS = 300;
+/** Isolated world for the inspector on sites other than the user's own dev pages. */
+const DESIGN_WORLD_ID = 1920;
+
+/**
+ * Where the inspector runs. Dev pages (localhost, local files) get the page's
+ * own world, where React's fiber and source data are readable. Other sites
+ * get an isolated world: the page can neither read nor forge annotations.
+ */
+type InspectorWorld = 'page' | 'isolated';
 
 interface DesignSessionState {
   sessionId: string;
@@ -31,6 +40,7 @@ interface DesignSessionState {
   capabilities: DesignCapabilities;
   /** Ownership token — stale disables must not tear down a successor. */
   token: number;
+  world: InspectorWorld;
 }
 
 let nextSessionToken = 1;
@@ -48,6 +58,27 @@ function isLocalhostUrl(rawUrl: string): boolean {
     return false;
   }
 }
+
+/** Web pages and local files; not about:, data: or internal pages. */
+function isInspectableUrl(rawUrl: string): boolean {
+  try {
+    return ['http:', 'https:', 'file:'].includes(new URL(rawUrl).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function worldFor(rawUrl: string): InspectorWorld {
+  return isLocalhostUrl(rawUrl) || rawUrl.startsWith('file:') ? 'page' : 'isolated';
+}
+
+function runIn(wc: WebContents, world: InspectorWorld, code: string): Promise<unknown> {
+  return world === 'page'
+    ? wc.executeJavaScript(code, true)
+    : wc.executeJavaScriptInIsolatedWorld(DESIGN_WORLD_ID, [{ code }], true);
+}
+
+const DRAIN = 'window.__aegisDesignDrain ? window.__aegisDesignDrain() : null';
 
 export class DesignModeService {
   private readonly sessions = new Map<string, DesignSessionState>();
@@ -101,20 +132,18 @@ export class DesignModeService {
     if (!wc) return { ok: false, message: 'This browser tab is not active.' };
 
     const url = wc.getURL() || '';
-    if (!isLocalhostUrl(url)) {
-      return {
-        ok: false,
-        message: 'Design mode only works on localhost dev pages. Start the project dev server and open it here first.',
-      };
+    if (!isInspectableUrl(url)) {
+      return { ok: false, message: 'Open a web page first, then annotate it.' };
     }
+    const world = worldFor(url);
 
     try {
-      await wc.executeJavaScript(INSPECTOR_SCRIPT, true);
+      await runIn(wc, world, INSPECTOR_SCRIPT);
     } catch (error) {
       return { ok: false, message: `Failed to inject inspector: ${error instanceof Error ? error.message : String(error)}` };
     }
 
-    const capabilities = await this.probeCapabilities(wc, url);
+    const capabilities = await this.probeCapabilities(wc, url, world);
     const key = keyOf(input);
     const existing = this.sessions.get(key);
     if (existing?.pollTimer) clearInterval(existing.pollTimer);
@@ -126,6 +155,7 @@ export class DesignModeService {
       pollTimer: null,
       capabilities,
       token: nextSessionToken++,
+      world,
     };
     state.pollTimer = setInterval(() => {
       void this.pollOnce(state);
@@ -138,9 +168,11 @@ export class DesignModeService {
     return { ok: true, capabilities, token: state.token };
   }
 
-  private async probeCapabilities(wc: WebContents, url: string): Promise<DesignCapabilities> {
+  private async probeCapabilities(wc: WebContents, url: string, world: InspectorWorld): Promise<DesignCapabilities> {
     let reactFiber = false;
     let hmrClient = false;
+    // React's fiber data lives in the page's own world.
+    if (world === 'isolated') return { reactFiber, hmrClient, localhost: false };
     try {
       const probe = (await wc.executeJavaScript(
         `(() => {
@@ -183,10 +215,7 @@ export class DesignModeService {
       // immediately collapse/switch) would otherwise be lost in the in-page
       // queue — or replayed weirdly the next time design mode is enabled.
       try {
-        const raw = await wc.executeJavaScript(
-          'window.__aegisDesignDrain ? window.__aegisDesignDrain() : null',
-          true
-        );
+        const raw = await runIn(wc, state.world, DRAIN);
         if (raw !== null) this.forwardDrainedEvents(state, String(raw));
       } catch {
         // Best-effort; the page may already be gone.
@@ -197,13 +226,12 @@ export class DesignModeService {
     // strip its helpers or emit a 'disabled' that would clear the fresh UI
     // target.
     if (this.sessions.has(key)) return;
-    if (wc) {
-      await wc
-        .executeJavaScript(
-          `(() => { if (window.__aegisDesignClearSelection) window.__aegisDesignClearSelection(); if (window.__aegisDesignSetEnabled) window.__aegisDesignSetEnabled(false); return true; })()`,
-          true
-        )
-        .catch(() => undefined);
+    if (wc && state) {
+      await runIn(
+        wc,
+        state.world,
+        `(() => { if (window.__aegisDesignClearSelection) window.__aegisDesignClearSelection(); if (window.__aegisDesignSetEnabled) window.__aegisDesignSetEnabled(false); return true; })()`
+      ).catch(() => undefined);
     }
     this.emit({ kind: 'disabled', sessionId: input.sessionId, tabId: input.tabId, reason });
   }
@@ -217,7 +245,7 @@ export class DesignModeService {
     }
     let raw: unknown = null;
     try {
-      raw = await wc.executeJavaScript('window.__aegisDesignDrain ? window.__aegisDesignDrain() : null', true);
+      raw = await runIn(wc, state.world, DRAIN);
     } catch {
       raw = null;
     }
@@ -237,21 +265,22 @@ export class DesignModeService {
         await this.disable(state, 'page-gone');
         return;
       }
-      // Injection lost (navigation / reload). Re-inject while still on localhost.
+      // Injection lost (navigation / reload). Re-inject on any web page, in
+      // the world that page calls for.
       const url = wc.getURL() || '';
-      if (!isLocalhostUrl(url)) {
-        await this.disable(state, 'left-localhost');
+      if (!isInspectableUrl(url)) {
+        await this.disable(state, 'left-page');
         return;
       }
+      const world = worldFor(url);
       try {
-        await wc.executeJavaScript(INSPECTOR_SCRIPT, true);
+        await runIn(wc, world, INSPECTOR_SCRIPT);
         if (!this.isCurrent(state)) {
           // Disabled mid-injection: the fresh inspector must not stay active.
-          await wc
-            .executeJavaScript('window.__aegisDesignSetEnabled && window.__aegisDesignSetEnabled(false)', true)
-            .catch(() => undefined);
+          await runIn(wc, world, 'window.__aegisDesignSetEnabled && window.__aegisDesignSetEnabled(false)').catch(() => undefined);
           return;
         }
+        state.world = world;
         this.emit({ kind: 'reinjected', sessionId: state.sessionId, tabId: state.tabId });
       } catch {
         // Try again next tick.
@@ -302,10 +331,7 @@ export class DesignModeService {
       const wc = this.webContentsFor(state);
       if (!wc || wc.isDestroyed()) continue;
       try {
-        const raw = await wc.executeJavaScript(
-          'window.__aegisDesignDrain ? window.__aegisDesignDrain() : null',
-          true
-        );
+        const raw = await runIn(wc, state.world, DRAIN);
         if (raw !== null) this.forwardDrainedEvents(state, String(raw));
       } catch {
         // Best-effort.
@@ -326,11 +352,8 @@ export class DesignModeService {
     }
   }
 
-  private async measurePage(wc: WebContents) {
-    const raw = (await wc.executeJavaScript(
-      'window.__aegisDesignMeasure ? window.__aegisDesignMeasure() : null',
-      true
-    )) as string | null;
+  private async measurePage(wc: WebContents, world: InspectorWorld) {
+    const raw = (await runIn(wc, world, 'window.__aegisDesignMeasure ? window.__aegisDesignMeasure() : null')) as string | null;
     if (!raw) return null;
     return JSON.parse(raw) as {
       found: boolean;
@@ -349,8 +372,9 @@ export class DesignModeService {
   ): Promise<{ found: boolean; rect?: { x: number; y: number; w: number; h: number }; viewport?: { w: number; h: number } }> {
     const wc = this.webContentsFor(input);
     if (!wc) return { found: false };
+    const state = this.sessions.get(keyOf(input));
     try {
-      const measured = await this.measurePage(wc);
+      const measured = await this.measurePage(wc, state?.world ?? worldFor(wc.getURL() || ''));
       if (!measured) return { found: false };
       return { found: measured.found, rect: measured.rect, viewport: measured.viewport };
     } catch {

@@ -57,6 +57,28 @@ import { computeAnnotationCrop, composeAnnotationText } from '../../src/ui/compo
   );
 }
 
+// ── annotation text for a dragged-out area ───────────────────────────────────
+{
+  const text = composeAnnotationText({
+    note: 'Tighten this section',
+    selection: {
+      tagName: 'region',
+      className: '',
+      text: 'Pricing · Plans',
+      source: null,
+      chain: [],
+      region: true,
+      elements: ['h2.title', 'div.grid'],
+    },
+    pageUrl: 'https://example.com/',
+  });
+  assert.ok(text.startsWith('Tighten this section'));
+  assert.ok(text.includes('Annotated area (screenshot attached):'));
+  assert.ok(text.includes('- Contains: h2.title, div.grid'));
+  assert.ok(text.includes('https://example.com/'));
+  assert.ok(!text.includes('Source:'), 'an area has no single source location');
+}
+
 // ── annotation text: note first, full context, tier-A source ─────────────────
 {
   const text = composeAnnotationText({

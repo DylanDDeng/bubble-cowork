@@ -47,7 +47,7 @@ export function computeAnnotationCrop(
  */
 export function composeAnnotationText(options: {
   note: string;
-  selection: Pick<DesignSelectionInfo, 'tagName' | 'className' | 'text' | 'source' | 'chain'>;
+  selection: Pick<DesignSelectionInfo, 'tagName' | 'className' | 'text' | 'source' | 'chain' | 'region' | 'elements'>;
   pageUrl?: string | null;
   /** Only claim a screenshot when one is actually attached — capture is best-effort. */
   hasScreenshot?: boolean;
@@ -56,6 +56,13 @@ export function composeAnnotationText(options: {
   const lines: string[] = [];
   lines.push(note.trim());
   lines.push('');
+  if (selection.region) {
+    lines.push(hasScreenshot ? 'Annotated area (screenshot attached):' : 'Annotated area (no screenshot available):');
+    if (selection.elements?.length) lines.push(`- Contains: ${selection.elements.join(', ')}`);
+    if (selection.text) lines.push(`- Text: "${selection.text.slice(0, 200)}"`);
+    if (pageUrl) lines.push(`- Page: ${pageUrl}`);
+    return lines.join('\n');
+  }
   lines.push(hasScreenshot ? 'Annotated element (screenshot attached):' : 'Annotated element (no screenshot available):');
   const descriptor = selection.className
     ? `<${selection.tagName} class="${selection.className.slice(0, 200)}">`

@@ -1,5 +1,4 @@
 import { useCallback, useEffect } from 'react';
-import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import type { DesignSelectionInfo } from '../../../shared/design-mode-types';
 import type { Attachment } from '../../../shared/types';
@@ -103,7 +102,8 @@ export function DesignAnnotateBridge() {
         mode: 'append',
         source: 'design-annotate',
       });
-      toast.success('Annotation sent to the composer — review and send');
+      // No success toast: the page confirms in place ("Added to composer")
+      // and the toolbar counts annotations.
     },
     [requestChatInjection]
   );

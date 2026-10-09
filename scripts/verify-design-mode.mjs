@@ -47,8 +47,16 @@ assert.ok(
   'service: forwards annotate submissions and exposes submit-time geometry'
 );
 assert.ok(
-  serviceSrc.includes('setSessionPinned') && serviceSrc.includes('isLocalhostUrl'),
-  'service: suspend pin + localhost gate present'
+  serviceSrc.includes('setSessionPinned') && serviceSrc.includes('isInspectableUrl'),
+  'service: suspend pin + any web page (or local file) can be annotated'
+);
+assert.ok(
+  serviceSrc.includes('executeJavaScriptInIsolatedWorld') && serviceSrc.includes("world === 'page'"),
+  'service: other sites get the inspector in an isolated world (no forged annotations); dev pages keep the page world for React sources'
+);
+assert.ok(
+  inspectorSrc.includes("tagName: 'region'") && inspectorSrc.includes('suppressClick') && inspectorSrc.includes('Added to composer'),
+  'inspector: drag selects an area, the trailing click is swallowed, each annotation confirms in place'
 );
 
 const bridgeSrc = fs.readFileSync(path.join(root, 'src/ui/components/browser/DesignAnnotateBridge.tsx'), 'utf8');

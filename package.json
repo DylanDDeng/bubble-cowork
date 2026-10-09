@@ -39,7 +39,7 @@
     "verify:prompt-history": "node scripts/verify-prompt-history.mjs",
     "verify:terminal-ui": "npx tsx scripts/tests/terminal-streams.test.ts && npx tsx scripts/tests/terminal-session.test.ts && node scripts/tests/terminal-host-electron.test.mjs",
     "verify:terminal-pty": "npm run transpile:electron && node scripts/prepare-electron-native-deps.mjs && node scripts/tests/terminal-pty-electron.test.mjs",
-    "verify:browser": "npm run transpile:electron && npx tsx scripts/tests/browser-model.test.ts && node node_modules/electron/cli.js scripts/tests/browser-manager-electron.test.cjs && node node_modules/electron/cli.js scripts/tests/browser-use-actions-electron.test.cjs && node scripts/tests/browser-panel-electron.test.mjs",
+    "verify:browser": "npm run transpile:electron && npx tsx scripts/tests/browser-model.test.ts && node node_modules/electron/cli.js scripts/tests/browser-manager-electron.test.cjs && node node_modules/electron/cli.js scripts/tests/browser-use-actions-electron.test.cjs && node node_modules/electron/cli.js scripts/tests/design-mode-electron.test.cjs && node scripts/tests/browser-panel-electron.test.mjs",
     "verify:search-palette": "npm run transpile:electron && npx tsx scripts/tests/palette-ranking.test.ts && node scripts/tests/search-palette-electron.test.mjs",
     "verify:claude-turn-latency": "node scripts/verify-claude-turn-latency.mjs",
     "verify:claude-stream-retry": "npm run transpile:electron && npx tsx scripts/tests/claude-stream-retry.test.ts && npx tsx scripts/tests/stream-retry-history.test.ts && node scripts/tests/stream-retry-persistence.test.mjs",

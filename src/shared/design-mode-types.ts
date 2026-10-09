@@ -26,6 +26,10 @@ export interface DesignSelectionInfo {
   chain: string[];
   computed: Record<string, string>;
   rect: { x: number; y: number; w: number; h: number };
+  /** A dragged-out area rather than one element. */
+  region?: boolean;
+  /** For an area: the outermost elements inside it (tag.class), at most 12. */
+  elements?: string[];
 }
 
 export interface DesignCapabilities {
