@@ -10971,6 +10971,8 @@ function startRunner(
             stoppedByUser ? 'stopped' : turnStatus === 'error' ? 'error' : 'completed',
             explicitFailureMessage || undefined
           );
+          // The turn is over: the agent's browser tabs go back to the panel.
+          finishBrowserUseTurn(browserManager, session.id);
           if (provider === 'claude') {
             // The interrupted turn's result has landed — settle one stopped
             // turn; the hard-abort fallback stands down once none remain.
@@ -11135,6 +11137,7 @@ function startRunner(
         }
         turnDone?.('error', message);
         settleWorkflowTurn(session.id, 'error', message);
+        finishBrowserUseTurn(browserManager, session.id);
         // dispose, not abort: the session already errored, so a stopSession
         // here would emit a spurious stop_settled — but plain detach leaks
         // the adapter session's local resources (a live SSE loop double-fed
@@ -11989,6 +11992,7 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
     });
     return;
   }
+  browserManager.closeChat(sessionId);
 
   // 先停止运行中的会话
   const entry = runnerHandles.get(sessionId);

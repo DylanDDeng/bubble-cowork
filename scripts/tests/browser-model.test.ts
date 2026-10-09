@@ -10,6 +10,14 @@ import {
   retarget,
   suspend,
 } from '../../src/electron/browser/browser-page';
+import {
+  browserPermissionRule,
+  PermissionGrants,
+  permissionKinds,
+  permissionOrigin,
+  permissionQuestion,
+  permissionSite,
+} from '../../src/electron/browser/permission-policy';
 import type { BrowserPage } from '../../src/shared/browser-types';
 
 // ── Address resolution ───────────────────────────────────────────────────────
@@ -123,5 +131,37 @@ assert.deepEqual(browserStatusLine({ localError: null, page: null, open: true })
 assert.deepEqual(browserStatusLine({ localError: null, page: null, open: false }), { text: 'Starting browser...', tone: 'info' });
 assert.deepEqual(browserStatusLine({ localError: null, page: pageA, open: true }), { text: 'Restoring page...', tone: 'info' });
 assert.equal(browserStatusLine({ localError: null, page: { ...pageA, phase: 'live' }, open: true }), null);
+
+// ── Page permissions ─────────────────────────────────────────────────────────
+assert.equal(browserPermissionRule('clipboard-sanitized-write'), 'allow');
+assert.equal(browserPermissionRule('fullscreen'), 'allow');
+for (const permission of ['media', 'geolocation', 'notifications', 'clipboard-read', 'openExternal']) {
+  assert.equal(browserPermissionRule(permission), 'ask', permission);
+}
+for (const permission of ['midi', 'midiSysex', 'hid', 'serial', 'usb', 'display-capture', 'idle-detection', 'unknown']) {
+  assert.equal(browserPermissionRule(permission), 'deny', permission);
+}
+assert.deepEqual(permissionKinds('media', ['video']), ['media:video']);
+assert.deepEqual(permissionKinds('media', ['audio', 'video']), ['media:audio', 'media:video']);
+assert.deepEqual(permissionKinds('media', []), ['media:video', 'media:audio']);
+assert.deepEqual(permissionKinds('geolocation'), ['geolocation']);
+assert.equal(permissionSite('http://localhost:5173/app'), 'localhost:5173');
+assert.equal(permissionSite('file:///tmp/a.html'), 'A local file');
+assert.equal(permissionOrigin('https://meet.example/room?x=1'), 'https://meet.example');
+assert.equal(
+  permissionQuestion('meet.example', ['media:video', 'media:audio']),
+  'meet.example wants to use your camera and your microphone.'
+);
+assert.equal(permissionQuestion('maps.example', ['geolocation']), 'maps.example wants to use your location.');
+assert.equal(permissionQuestion('news.example', ['notifications']), 'news.example wants to show notifications.');
+assert.match(permissionQuestion('a.example', ['openExternal'], 'zoommtg://join'), /open a link in another app \(zoommtg:\/\/join\)/);
+const grants = new PermissionGrants();
+assert.equal(grants.answer('https://meet.example', ['media:video']), undefined);
+grants.record('https://meet.example', ['media:video'], true);
+assert.equal(grants.answer('https://meet.example', ['media:video']), true);
+assert.equal(grants.answer('https://meet.example', ['media:video', 'media:audio']), undefined, 'a new capability asks again');
+grants.record('https://meet.example', ['media:audio'], false);
+assert.equal(grants.answer('https://meet.example', ['media:video', 'media:audio']), false);
+assert.equal(grants.answer('https://other.example', ['media:video']), undefined, 'answers stay with their site');
 
 console.log('browser-model.test.ts passed');

@@ -1,8 +1,8 @@
 // The in-app browser manager against real page views and a local HTTP server:
 // panel lifecycle, a navigation sent while the panel is hidden, load failures
-// that stay explained, crash recovery, browser_use's hidden pages, and the
-// state pushed to listeners.
-const { app, BrowserWindow } = require('electron');
+// that stay explained, crash recovery, browser_use's hidden pages, the live
+// page budget, and the state pushed to listeners.
+const { app, BrowserWindow, dialog } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -68,6 +68,39 @@ app.whenReady().then(async () => {
     assert.equal(shownChildren(), 1, 'the page view is on the window');
     assert.ok(pushes.some((push) => push.sessionId === 'A' && push.page && push.page.loading), 'loading is pushed');
 
+    // The browser partition refuses what it should never grant, and its
+    // synchronous checks only report what is allowed outright.
+    const permissionProbe = await live('A').executeJavaScript(`(async () => {
+      const midi = await navigator.requestMIDIAccess().then(() => 'granted', () => 'denied');
+      const camera = (await navigator.permissions.query({ name: 'camera' })).state;
+      const geolocation = (await navigator.permissions.query({ name: 'geolocation' })).state;
+      return { midi, camera, geolocation };
+    })()`);
+    assert.equal(permissionProbe.midi, 'denied', 'MIDI access is refused');
+    assert.notEqual(permissionProbe.camera, 'granted', 'camera is not granted without asking');
+    assert.notEqual(permissionProbe.geolocation, 'granted', 'location is not granted without asking');
+
+    // Sensitive requests ask once per site in a native dialog (stubbed here),
+    // and the answer holds: concurrent asks share one dialog.
+    const asked = [];
+    dialog.showMessageBox = async (_window, options) => {
+      asked.push(options.message);
+      return { response: /notifications/.test(options.message) ? 0 : 1 };
+    };
+    const notify = () => live('A').executeJavaScript('Notification.requestPermission()', true);
+    assert.equal(await notify(), 'granted', 'Allow grants the request');
+    assert.equal(await notify(), 'granted');
+    const locate = () => live('A').executeJavaScript(
+      'new Promise((resolve) => navigator.geolocation.getCurrentPosition(() => resolve("granted"), (error) => resolve(error.code === 1 ? "denied" : "error:" + error.code)))',
+      true
+    );
+    assert.deepEqual(await Promise.all([locate(), locate()]), ['denied', 'denied'], 'Block refuses the request');
+    assert.equal(await locate(), 'denied');
+    assert.deepEqual(asked, [
+      `${new URL(base).host} wants to show notifications.`,
+      `${new URL(base).host} wants to use your location.`,
+    ], 'one dialog per site and capability');
+
     // A navigation sent while the panel is hidden (view still alive) loads at
     // once and survives showing the panel again.
     browserManager.hide({ sessionId: 'A' });
@@ -124,9 +157,12 @@ app.whenReady().then(async () => {
     });
     assert.equal(sawActive, true);
     assert.equal(state('B').agentActive, false);
+    const agentContents = live('B');
     browserManager.releaseAgentSession('B');
-    assert.equal(live('B'), null, 'release drops the hidden page');
-    assert.equal(state('B').page.phase, 'suspended');
+    assert.equal(live('B'), agentContents, 'the page the agent left stays live after the turn');
+    assert.equal(state('B').page.phase, 'live');
+    assert.equal(state('B').agentActive, false);
+    assert.equal(BrowserWindow.getAllWindows().length, 1, 'the hidden agent window closes with the last hold');
 
     // Agent on the visible session keeps the same live page after release.
     const visibleTarget = browserManager.acquireAgentTarget('A');
@@ -147,9 +183,38 @@ app.whenReady().then(async () => {
     assert.equal(state('C').page, null);
     assert.equal(state('C').open, false);
     assert.equal(shownChildren(), 0);
-    assert.throws(() => browserManager.navigate({ sessionId: 'A', url: 'file://remote/share/x.html' }), /local file/);
+    // Live off-screen pages stay within budget: the longest unseen go first.
+    for (let i = 1; i <= 7; i += 1) {
+      browserManager.open({ sessionId: `P${i}`, initialUrl: `${base}/p${i}` });
+      browserManager.setPanelBounds({ sessionId: `P${i}`, viewport });
+      await until(() => state(`P${i}`).page.title === `Page /p${i}`, `P${i} loads`);
+    }
+    assert.equal(live('B'), null, 'the longest unseen page is suspended first');
+    assert.equal(live('A'), null, 'then the next longest unseen');
+    assert.equal(state('A').page.phase, 'suspended');
+    for (let i = 1; i <= 7; i += 1) assert.ok(live(`P${i}`), `P${i} stays live`);
+    // Coming back to a suspended page loads it again and keeps the budget.
+    browserManager.setPanelBounds({ sessionId: 'A', viewport });
+    await until(() => live('A') && !live('A').isLoading() && live('A').getURL() === `${base}/after-crash`, 'A wakes');
+    assert.equal(live('P1'), null, 'waking one page suspends the longest unseen other');
+    assert.ok(live('P7'), 'the page just left stays live');
 
-    console.log('PASS browser manager: lifecycle, hidden navigation, kept load errors, crash recovery, agent pages, panel handoff, close');
+    // Deleting a chat closes its browser pages, extra tabs included.
+    browserManager.open({ sessionId: 'P3:browser:extra', initialUrl: `${base}/extra` });
+    browserManager.closeChat('P3');
+    assert.equal(live('P3'), null);
+    assert.equal(state('P3').page, null);
+    assert.equal(state('P3:browser:extra').page, null);
+    assert.ok(live('P4'), 'other chats keep their pages');
+
+    assert.throws(() => browserManager.navigate({ sessionId: 'A', url: 'file://remote/share/x.html' }), /local file/);
+    // A remembered address that can't load here seeds a blank page instead of
+    // failing the panel's open.
+    const remembered = browserManager.open({ sessionId: 'R', initialUrl: 'file://remote/share/x.html' });
+    assert.equal(remembered.page.url, 'about:blank');
+    browserManager.close({ sessionId: 'R' });
+
+    console.log('PASS browser manager: lifecycle, hidden navigation, kept load errors, crash recovery, agent pages, panel handoff, live page budget, close');
   } catch (error) {
     console.error(error);
     code = 1;

@@ -76,8 +76,21 @@ app.whenReady().then(async()=>{
   await until('document.querySelector("input")',''); await delay(600);
   assert.equal(win.contentView.children.length,1,'expanding shows it again');
 
+  // An app restart leaves the main process with no page: the panel opens the
+  // page it remembers instead of a blank one.
+  await go(base+'/restored');
+  await until(address+'.value==='+JSON.stringify(base+'/restored'),'restored page loads');
+  await delay(300);
+  await js('qa.setCollapsed(true)');await delay(300);
+  browserManager.close({sessionId:'panel-qa'});
+  assert.equal(page(),null,'the main process forgot the page');
+  await js('qa.setCollapsed(false)');
+  const end=Date.now()+8000;while(Date.now()<end&&!(page()&&page().title==='QA /restored'))await delay(60);
+  assert.equal(page()&&page().url,base+'/restored','the remembered page is opened again');
+  await until(address+'.value==='+JSON.stringify(base+'/restored'),'address shows the restored page');
+
   assert.deepEqual(errors.filter(e=>!/No handler registered/.test(e)),[]);
-  console.log(JSON.stringify({ok:true,checks:['blank address','typed host resolves and loads','back','refused connection message','collapse hides native view']}));
+  console.log(JSON.stringify({ok:true,checks:['blank address','typed host resolves and loads','back','refused connection message','collapse hides native view','restores the remembered page']}));
   app.exit(0);
  }catch(e){console.error(e);console.error(errors);console.error('state at failure: page',JSON.stringify(page()),'input',await js(address+'.value'),'body',await js('document.body.innerText.slice(0,300)'));await screenshot('failure');app.exit(1)}
 });

@@ -162,9 +162,18 @@ app.whenReady().then(async () => {
       throw new Error('DeepSeek temporary MCP config survived normal runtime disposal');
     }
 
+    const windowsDuringTurn = BrowserWindow.getAllWindows().length;
     finishBrowserUseTurn(browserManager, threadId);
-    if (browserManager.getLiveWebContents(threadId, tabId)) {
-      throw new Error('turn cleanup did not release the detached runtime');
+    // Release ends the agent's hold and closes the hidden agent window; the
+    // page itself stays live like any unseen page until idle or budget.
+    if (BrowserWindow.getAllWindows().length !== windowsDuringTurn - 1) {
+      throw new Error('turn cleanup did not close the hidden agent window');
+    }
+    if (browserManager.getState({ sessionId: threadId }).agentActive) {
+      throw new Error('turn cleanup left the agent marked active');
+    }
+    if (!browserManager.getLiveWebContents(threadId, tabId)) {
+      throw new Error('turn cleanup dropped the page the agent left');
     }
 
     // Two capability-bound clients issuing the same actions concurrently must

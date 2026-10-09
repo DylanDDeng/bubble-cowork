@@ -231,8 +231,12 @@ export function BrowserPanel({
       setSessionState(state);
       rememberPage(state);
     };
+    // The main process keeps a live page as it is; the initial address only
+    // seeds a new one, so after an app restart the panel comes back on the
+    // page it last showed instead of a blank one.
+    const remembered = useBrowserStateStore.getState().pages[browserSessionId];
     api
-      .open({ sessionId: browserSessionId, initialUrl: BLANK_PAGE })
+      .open({ sessionId: browserSessionId, initialUrl: remembered?.url || BLANK_PAGE })
       .then((state) => {
         if (!cancelled) accept(state);
       })

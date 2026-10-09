@@ -703,12 +703,13 @@ export function App() {
       }
       return;
     }
-    if (kind === 'browser' && activeSessionId) {
+    if (kind === 'browser') {
       // Removing a browser tab must also tear down its native WebContentsView.
       // The in-chrome close button does this; the tab-strip close used to only
       // drop the tab, leaving the page attached to the window where it floated
       // over whatever replaced the tab (e.g. the Side Chat). close() is
-      // idempotent, so routing both close paths through here is safe.
+      // idempotent, so routing both close paths through here is safe. With no
+      // chat open the tab belongs to the standalone browser session.
       const browserSessionId = getBrowserUtilitySessionId(activeSessionId, target);
       void window.electron.browser.close({ sessionId: browserSessionId }).catch(() => {});
       removeBrowserSessionState(browserSessionId);

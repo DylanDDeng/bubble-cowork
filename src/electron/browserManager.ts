@@ -1,8 +1,9 @@
 // In-app browser, one page per browser session (a chat's browser utility
 // tab). The panel in the renderer reports where the page should appear; this
 // manager keeps a native page view for it, shows at most one on the window,
-// suspends pages nobody has looked at for a while, and lends pages to
-// browser_use (which may drive them with the panel closed).
+// suspends pages nobody has looked at for a while (or the longest unseen ones
+// once too many are live), and lends pages to browser_use (which may drive
+// them with the panel closed).
 
 import { Menu, clipboard, shell, type BrowserWindow, type ContextMenuParams, type WebContents } from 'electron';
 import { BLANK_PAGE, resolveAddress, webSearchUrl } from '../shared/browser-address';
@@ -33,6 +34,7 @@ import {
   suspend,
 } from './browser/browser-page';
 import { pageBackground, PageView } from './browser/page-view';
+import { installBrowserSessionPolicy } from './browser/session-policy';
 import { ViewPlacement } from './browser/view-placement';
 import { isLocalFileUrl } from './libs/html-preview';
 import { normalizeExternalUrl } from './util';
@@ -40,7 +42,13 @@ import { normalizeExternalUrl } from './util';
 export { BROWSER_SESSION_PARTITION };
 
 /** A page nobody has looked at for this long gives up its renderer process. */
-const IDLE_SUSPEND_MS = 30_000;
+const IDLE_SUSPEND_MS = 10 * 60_000;
+/**
+ * Off-screen pages kept live at once, so switching away from a dev server page
+ * and back keeps its state. The page on screen, design mode's and the ones an
+ * agent is driving don't count; past this the longest unseen are suspended.
+ */
+const LIVE_PAGE_BUDGET = 6;
 const NOT_LIVE = 'This page is not active right now.';
 const READOUT_TEXT_LIMIT = 20_000;
 const READOUT_SELECTION_LIMIT = 8_000;
@@ -56,7 +64,21 @@ export interface BrowserAgentTarget {
   visible: boolean;
 }
 
+/** One of a chat's browser tabs, as browser_use names it. */
+export interface BrowserAgentTab {
+  /** 'main' for the chat's base tab, else the tab's 'browser:…' id. */
+  tab: string;
+  browserSessionId: string;
+  url: string;
+  title: string;
+}
+
 type Listener<T> = (value: T) => void;
+
+/** The chat's base tab uses the chat id; extra tabs append their 'browser:…' id. */
+function isChatBrowserSession(sessionId: string, chatSessionId: string): boolean {
+  return sessionId === chatSessionId || sessionId.startsWith(`${chatSessionId}:browser:`);
+}
 
 /** Main-process addresses: file: must point at this machine. */
 function resolveForLoad(input: string | undefined): string {
@@ -108,6 +130,9 @@ export class BrowserManager {
   private foreground: string | null = null;
   private viewport: BrowserViewport | null = null;
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When each live page last went off screen, as an ever-growing sequence. */
+  private readonly offscreenOrder = new Map<string, number>();
+  private offscreenSequence = 0;
   /** Design mode keeps its session's page alive. */
   private readonly pinned = new Set<string>();
   /** browser_use keeps its session's page alive until the turn ends. */
@@ -212,6 +237,16 @@ export class BrowserManager {
     session.open = false;
     session.page = null;
     return this.publish(input.sessionId);
+  }
+
+  /** A deleted chat takes its browser pages (the base tab and any extra ones) with it. */
+  closeChat(chatSessionId: string): void {
+    for (const sessionId of [...this.sessions.keys()]) {
+      if (!isChatBrowserSession(sessionId, chatSessionId)) continue;
+      this.pinned.delete(sessionId);
+      this.close({ sessionId });
+      this.sessions.delete(sessionId);
+    }
   }
 
   hide(input: BrowserSessionInput): void {
@@ -364,17 +399,22 @@ export class BrowserManager {
     return { tabId: page.id, webContents: view.contents, restore, visible };
   }
 
-  /** Ends browser_use's hold after a turn. Off-screen pages are suspended; a visible one stays. */
+  /**
+   * Ends browser_use's hold after a turn. An off-screen page leaves the hidden
+   * window but stays live like any other unseen page, so opening the panel
+   * afterwards shows what the agent left, not a reload of it.
+   */
   releaseAgentSession(sessionId: string): void {
     this.agentHolds.delete(sessionId);
     const session = this.sessions.get(sessionId);
     const onScreen = this.foreground === sessionId && this.placement.visible !== null;
     if (session && !onScreen) {
-      this.dropView(sessionId);
-      if (session.page) suspend(session.page);
+      const view = this.views.get(sessionId);
+      if (view) this.placement.remove(view);
       session.agentActive = false;
       this.agentDepth.delete(sessionId);
       this.publish(sessionId);
+      this.scheduleIdle(sessionId);
     }
     if (!this.agentHolds.size) this.placement.closeAgentHost();
   }
@@ -425,7 +465,16 @@ export class BrowserManager {
   }
 
   private ensurePage(session: BrowserSessionState, initialUrl?: string): BrowserPage {
-    session.page ??= newPage(resolveForLoad(initialUrl));
+    if (!session.page) {
+      let url = BLANK_PAGE;
+      try {
+        url = resolveForLoad(initialUrl);
+      } catch {
+        // A remembered address that no longer loads here (a file: URL that
+        // isn't local) starts blank rather than failing the panel.
+      }
+      session.page = newPage(url);
+    }
     return session.page;
   }
 
@@ -442,11 +491,13 @@ export class BrowserManager {
   }
 
   private bringForward(sessionId: string, viewport: BrowserViewport): void {
-    if (this.foreground && this.foreground !== sessionId) this.scheduleIdle(this.foreground);
+    const previous = this.foreground;
     this.foreground = sessionId;
     this.viewport = viewport;
     const view = this.wake(sessionId);
     if (view) this.placement.show(view, viewport);
+    // After the switch: scheduleIdle skips whatever is in the foreground.
+    if (previous && previous !== sessionId) this.scheduleIdle(previous);
   }
 
   /** Makes sure an open session's page has a view, loading it again when it had none. */
@@ -472,6 +523,8 @@ export class BrowserManager {
 
   private createView(sessionId: string): PageView {
     this.dropView(sessionId);
+    // Before the first page loads: the partition answers permission requests.
+    installBrowserSessionPolicy(() => this.window);
     const page = () => this.sessions.get(sessionId)?.page ?? null;
     const view: PageView = new PageView({
       facts: (facts) => {
@@ -515,6 +568,7 @@ export class BrowserManager {
     const view = this.views.get(sessionId);
     if (!view) return;
     this.views.delete(sessionId);
+    this.offscreenOrder.delete(sessionId);
     this.placement.remove(view);
     view.retire();
   }
@@ -535,16 +589,32 @@ export class BrowserManager {
     this.publish(sessionId);
   }
 
+  /** A live page just went off screen: start its idle timer and keep the live set within budget. */
   private scheduleIdle(sessionId: string): void {
-    if (!this.sessions.get(sessionId)?.open || this.foreground === sessionId) return;
+    if (!this.views.has(sessionId) || this.foreground === sessionId) return;
     if (this.pinned.has(sessionId) || this.agentHolds.has(sessionId)) return;
     this.cancelIdle(sessionId);
+    this.offscreenOrder.set(sessionId, ++this.offscreenSequence);
     const timer = setTimeout(() => {
       this.idleTimers.delete(sessionId);
       this.suspendSession(sessionId);
     }, IDLE_SUSPEND_MS);
     timer.unref();
     this.idleTimers.set(sessionId, timer);
+    this.trimLivePages();
+  }
+
+  /** Suspends the longest unseen off-screen pages beyond LIVE_PAGE_BUDGET. */
+  private trimLivePages(): void {
+    const unseen = [...this.views.keys()].filter(
+      (sessionId) => sessionId !== this.foreground && !this.pinned.has(sessionId) && !this.agentHolds.has(sessionId)
+    );
+    if (unseen.length <= LIVE_PAGE_BUDGET) return;
+    unseen.sort((a, b) => (this.offscreenOrder.get(a) ?? 0) - (this.offscreenOrder.get(b) ?? 0));
+    for (const sessionId of unseen.slice(0, unseen.length - LIVE_PAGE_BUDGET)) {
+      this.cancelIdle(sessionId);
+      this.suspendSession(sessionId);
+    }
   }
 
   private cancelIdle(sessionId: string): void {
