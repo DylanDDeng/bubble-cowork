@@ -64,26 +64,21 @@ try {
   await write.execute({path: bubbleFile, content: 'deny-must-not-write'});
   assert.equal(fs.readFileSync(bubbleFile, 'utf8'), 'bubble');
 
-  // All OpenCode protocol generations, and failed replies remain answerable.
+  // OpenCode approvals inside a project folder are answered once; failed replies remain answerable.
   const { OpenCodeSdkAdapter } = require(base + 'provider/opencode-sdk-adapter.js');
-  const oc = new OpenCodeSdkAdapter({}); const events = []; oc.emit = e => events.push(e);
+  let reply; let replyImpl = async (_session, _id, decision) => { reply = decision; };
+  const ocManager = { getClient: async () => ({ replyPermission: (...args) => replyImpl(...args) }), subscribe: () => () => {}, close: async () => {} };
+  const oc = new OpenCodeSdkAdapter(ocManager); const events = []; oc.emit = e => events.push(e);
   const state = { threadId: row.id, providerSessionId: 'native', cwd: primary, permissionMode: 'default',
-    pendingRequests: new Map(), emittedPermissionIds: new Set() };
-  for (const [method, responder, fields] of [
-    ['handlePermissionUpdated', 'respondToOpenCodePermission', {type:'external_directory', pattern:extra+'/*'}],
-    ['handlePermissionAsked', 'respondToOpenCodePermissionReply', {permission:'external_directory', patterns:[extra+'/*']}],
-    ['handlePermissionV2Asked', 'respondToOpenCodePermissionV2', {action:'external_directory', resources:[extra+'/*']}],
-  ]) {
-    let reply; oc[responder] = async (...args) => {reply = args[2];};
-    oc[method](state, {sessionID:'native', id:method, ...fields});
-    await new Promise(resolve => setImmediate(resolve)); assert.equal(reply, 'once');
-    assert(!state.pendingRequests.has(method));
-    oc[responder] = async () => { throw new Error('test reply failure'); };
-    oc[method](state, {sessionID:'native', id:method+'-failure', ...fields});
-    await new Promise(resolve => setImmediate(resolve));
-    assert(events.some(e => e.requestId === method+'-failure'));
-  }
-  oc.handlePermissionAsked(state, {sessionID:'native', id:'shell', permission:'bash', patterns:[extra]});
+    pendingRequests: new Map(), emittedRequestIds: new Set(), toolNames: new Map() };
+  oc.handlePermissionAsked(state, {sessionID:'native', id:'dir', action:'external_directory', resources:[extra+'/*']});
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(reply, 'once');
+  assert(!state.pendingRequests.has('dir'));
+  replyImpl = async () => { throw new Error('test reply failure'); };
+  oc.handlePermissionAsked(state, {sessionID:'native', id:'dir-failure', action:'external_directory', resources:[extra+'/*']});
+  await new Promise(resolve => setImmediate(resolve));
+  assert(events.some(e => e.requestId === 'dir-failure'));
+  oc.handlePermissionAsked(state, {sessionID:'native', id:'shell', action:'shell', resources:[extra]});
   assert(events.some(e => e.requestId === 'shell'));
 
   // Pi has no cwd sandbox: exercise the actual SDK file tools, no model request.

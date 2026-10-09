@@ -94,37 +94,25 @@ async function main() {
   piManual.adapter.handlePiEvent(piManual.session,{type:'compaction_end',aborted:true});
   assert.equal(piManual.compact().at(-1).status,'interrupted');
 
-  const oc = fixture('opencode-sdk','OpenCodeSdkAdapter');
-  oc.session.messageRoles.set('user-1','user');
-  const part={sessionID:'native',messageID:'user-1',id:'part-1',type:'compaction',auto:false};
-  oc.adapter.handlePartUpdated(oc.session,part,'',false);
-  assert.equal(oc.compact().length,0,'history hydration does not start compaction');
-  oc.adapter.handlePartUpdated(oc.session,part,'',true);
-  oc.adapter.handleSdkEvent(oc.session,{type:'session.compacted',properties:{sessionID:'other'}});
-  assert.equal(oc.compact().length,1,'other sessions are ignored');
-  oc.adapter.handleSdkEvent(oc.session,{type:'session.compacted',properties:{sessionID:'native'}});
-  oc.adapter.handleSdkEvent(oc.session,{type:'session.compacted',properties:{sessionID:'native'}});
+  // OpenCode 2.x reports compaction as session.compaction.{started,ended,failed}.
+  const ocFixture = () => {
+    const f = fixture('opencode-sdk','OpenCodeSdkAdapter');
+    f.send = (type, data = {}) => f.adapter.handleServerEvent(f.session, { type: 'session.compaction.' + type, data: { sessionID: 'native', ...data } });
+    return f;
+  };
+  const oc = ocFixture();
+  oc.send('started', { reason: 'manual' });
+  oc.send('started', { reason: 'manual' });
+  oc.send('ended', { reason: 'manual' });
   pair(oc,'manual');
-  oc.adapter.handlePartUpdated(oc.session,part,'',true);
-  assert.equal(oc.compact().length,2,'late part replay does not restart a completed activity');
-  const secondPart = {...part, id:'part-2', auto:true};
-  oc.adapter.handlePartUpdated(oc.session,secondPart,'',true);
-  oc.adapter.handlePartUpdated(oc.session,part,'',true);
-  oc.adapter.handlePartUpdated(oc.session,secondPart,'',true);
-  // Replaying A must not replace B's completion correlation, even if A is
-  // the last part update received before the unkeyed session.compacted event.
-  oc.adapter.handlePartUpdated(oc.session,part,'',true);
-  oc.adapter.handleSdkEvent(oc.session,{type:'session.compacted',properties:{sessionID:'native'}});
-  oc.adapter.handleSdkEvent(oc.session,{type:'session.compacted',properties:{sessionID:'native'}});
-  oc.adapter.emit({type:'status_change',threadId:'trace',status:'completed'});
-  assert.deepEqual(oc.compact().map(m=>[m.compactionId,m.status||'completed']),[
-    ['part-1','started'],['part-1','completed'],['part-2','started'],['part-2','completed'],
-  ],'old/duplicate part replay must leave B completed exactly once, not interrupted');
-  assert.equal(oc.compact().at(-1).compactMetadata.trigger,'auto');
-  const next = fixture('opencode-sdk','OpenCodeSdkAdapter');
-  for(const type of ['started','ended','ended']) next.adapter.handleSdkEvent(next.session,{type:'session.next.compaction.'+type,properties:{sessionID:'native',messageID:'n1',reason:'auto'}});
-  next.adapter.handleSdkEvent(next.session,{type:'session.compacted',properties:{sessionID:'native'}});
-  pair(next);
+  const ocAuto = ocFixture();
+  ocAuto.send('started', { reason: 'auto' });
+  ocAuto.send('ended', { reason: 'auto' });
+  pair(ocAuto);
+  const ocFailed = ocFixture();
+  ocFailed.send('started', { reason: 'auto' });
+  ocFailed.send('failed', { reason: 'auto', error: { type: 'x', message: 'boom' } });
+  assert.equal(ocFailed.compact().at(-1).status,'interrupted','a failed compaction ends as interrupted');
 
   const ds = fixture('deepseek-sdk','DeepseekSdkAdapter');
   const dispatch=(type,data,parent=null)=>ds.adapter.dispatchSessionEvent(ds.session,'native',{params:{event:{type,data,time:1000}}},parent);

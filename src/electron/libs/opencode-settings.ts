@@ -1,16 +1,16 @@
-import { execFile } from 'child_process';
 import { app } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { OpenCodeModelConfig } from '../../shared/types';
+import { getOpenCodeServeManager } from './provider/opencode-serve-manager';
 
 const OPENCODE_CONFIG_PATH = join(homedir(), '.config', 'opencode', 'opencode.json');
 const OPENCODE_MODEL_VISIBILITY_PATH = () =>
   join(app.getPath('userData'), 'opencode-model-visibility.json');
 
 type OpenCodeConfigFile = {
-  model?: string;
+  model?: unknown;
   provider?: Record<
     string,
     {
@@ -25,24 +25,12 @@ type OpenCodeModelVisibilityConfig = {
 
 const OPENCODE_MODELS_CACHE_TTL_MS = 30_000;
 
-let cachedCliModels:
+let cachedServerModels:
   | {
-      models: string[];
+      value: { models: string[]; defaultModel: string | null };
       fetchedAt: number;
     }
   | null = null;
-
-function execFileAsync(file: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: 15000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve({ stdout, stderr });
-    });
-  });
-}
 
 function readOpencodeConfig(): OpenCodeConfigFile {
   try {
@@ -101,35 +89,40 @@ export function getOpencodeConfigPath(): string {
   return OPENCODE_CONFIG_PATH;
 }
 
-async function getDetectedOpencodeModelsFromCli(): Promise<string[]> {
+type ServerModels = { models: string[]; defaultModel: string | null };
+
+/** Models from the OpenCode server (the 2.x CLI's `opencode models` prints nothing headless). */
+async function getDetectedOpencodeModelsFromServer(): Promise<ServerModels> {
   if (
-    cachedCliModels &&
-    Date.now() - cachedCliModels.fetchedAt < OPENCODE_MODELS_CACHE_TTL_MS
+    cachedServerModels &&
+    Date.now() - cachedServerModels.fetchedAt < OPENCODE_MODELS_CACHE_TTL_MS
   ) {
-    return cachedCliModels.models;
+    return cachedServerModels.value;
   }
 
   try {
-    const { stdout } = await execFileAsync('opencode', ['models']);
-    const models = stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    cachedCliModels = {
-      models,
-      fetchedAt: Date.now(),
+    const { models, defaultModel } = await getOpenCodeServeManager().loadModels(homedir());
+    const value: ServerModels = {
+      models: models
+        .filter((model) => model.enabled !== false)
+        .map((model) => `${model.providerID}/${model.modelID}`),
+      defaultModel: defaultModel ? `${defaultModel.providerID}/${defaultModel.modelID}` : null,
     };
-    return models;
+    cachedServerModels = { value, fetchedAt: Date.now() };
+    return value;
   } catch (error) {
-    console.warn('Failed to load OpenCode models from CLI, falling back to config:', error);
-    return [];
+    console.warn('Failed to load OpenCode models from the server, falling back to config:', error);
+    return { models: [], defaultModel: null };
   }
 }
 
 export async function getOpencodeModelConfig(): Promise<OpenCodeModelConfig> {
   const config = readOpencodeConfig();
-  const defaultModel = config.model?.trim() || null;
-  const cliModels = await getDetectedOpencodeModelsFromCli();
+  const server = await getDetectedOpencodeModelsFromServer();
+  const cliModels = server.models;
+  // 2.x writes `model` as an object; only the 1.x string form is readable here.
+  const configModel = typeof config.model === 'string' ? config.model.trim() || null : null;
+  const defaultModel = server.defaultModel ?? (cliModels.length > 0 ? null : configModel);
   const detectedModels =
     cliModels.length > 0
       ? Array.from(

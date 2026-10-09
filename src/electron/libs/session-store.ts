@@ -2918,8 +2918,11 @@ function readOpencodeAssistantUsageRows(
   try {
     opencodeDb = new Database(opencodeDbPath, { readonly: true, fileMustExist: true });
     const placeholders = sessionIds.map(() => '?').join(', ');
-    const stmt = opencodeDb.prepare(`
-      SELECT
+    // OpenCode 1.x stores assistant messages in `message`, 2.x in
+    // `session_message` (model as {id, providerID}). A database may hold
+    // either or both, so each table is read on its own.
+    const queries = [
+      `SELECT
         session_id,
         time_created AS created_at,
         json_extract(data, '$.modelID') AS model_id,
@@ -2931,11 +2934,30 @@ function readOpencodeAssistantUsageRows(
       FROM message
       WHERE session_id IN (${placeholders})
         AND time_created >= ?
-        AND json_extract(data, '$.role') = 'assistant'
-      ORDER BY time_created ASC
-    `);
-
-    return stmt.all(...sessionIds, rangeStart) as OpencodeAssistantUsageRow[];
+        AND json_extract(data, '$.role') = 'assistant'`,
+      `SELECT
+        session_id,
+        time_created AS created_at,
+        json_extract(data, '$.model.id') AS model_id,
+        COALESCE(json_extract(data, '$.tokens.input'), 0) AS input_tokens,
+        COALESCE(json_extract(data, '$.tokens.output'), 0) AS output_tokens,
+        COALESCE(json_extract(data, '$.tokens.cache.read'), 0) AS cache_read_tokens,
+        COALESCE(json_extract(data, '$.tokens.cache.write'), 0) AS cache_write_tokens,
+        json_extract(data, '$.cost') AS total_cost_usd
+      FROM session_message
+      WHERE session_id IN (${placeholders})
+        AND time_created >= ?
+        AND type = 'assistant'`,
+    ];
+    const rows: OpencodeAssistantUsageRow[] = [];
+    for (const query of queries) {
+      try {
+        rows.push(...(opencodeDb.prepare(query).all(...sessionIds, rangeStart) as OpencodeAssistantUsageRow[]));
+      } catch {
+        // This OpenCode version has no such table.
+      }
+    }
+    return rows.sort((left, right) => left.created_at - right.created_at);
   } catch {
     return [];
   } finally {

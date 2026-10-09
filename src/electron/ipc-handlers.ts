@@ -177,6 +177,7 @@ import { getClaudePlanUsage } from './libs/claude-plan-usage';
 import { getGrokPlanUsage } from './libs/grok-plan-usage';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
+import { getOpenCodeServeManager } from './libs/provider/opencode-serve-manager';
 import { getKimiModelConfig, mergeKimiServerModelMetadata } from './libs/kimi-settings';
 import { getGrokModelConfig } from './libs/grok-settings';
 import { resolveGrokSessionRelativeFile } from './libs/grok-session-files';
@@ -12468,6 +12469,10 @@ export function cleanup(): void {
   } catch {
     // provider service may not be initialized in some teardown paths
   }
+  // The OpenCode server exits with our stdin, but a turn it is still running
+  // would be resumed later by the user's background OpenCode service — so
+  // interrupt such turns synchronously before quitting.
+  getOpenCodeServeManager().interruptActiveExecutionsSync();
   sessionStates.clear();
   for (const [, entry] of localPreviewServers) {
     entry.server.close();

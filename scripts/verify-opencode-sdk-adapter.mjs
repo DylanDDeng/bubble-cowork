@@ -1,138 +1,48 @@
 #!/usr/bin/env node
+// OpenCode 2.x provider checks. Static wiring first, then runtime checks that
+// need `npm run transpile:electron` (dist-electron): the adapter driven through
+// a fake serve manager, the HTTP client against a local fake server, and the
+// server-process/binary-selection helpers with fake `opencode` binaries.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { Worker } from 'node:worker_threads';
+import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const require = createRequire(import.meta.url);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// ═══════════ Static wiring ═════════════════════════════════════════════════
 const packageJson = JSON.parse(read('package.json'));
 assert.ok(
-  packageJson.dependencies?.['@opencode-ai/sdk'],
-  'package.json must depend on @opencode-ai/sdk'
-);
-
-const loader = read('src/electron/libs/provider/opencode-sdk-loader.ts');
-assert.ok(
-  loader.includes("return import(specifier)") && loader.includes("@opencode-ai/sdk"),
-  'OpenCode SDK loader must use native dynamic import for the ESM-only SDK'
+  !packageJson.dependencies?.['@opencode-ai/sdk'],
+  'the OpenCode 1.x SDK must not be a dependency (Aegis speaks the 2.x API directly)'
 );
 assert.ok(
-  loader.includes("@opencode-ai/sdk/v2") && loader.includes('loadOpenCodeV2Sdk'),
-  'OpenCode SDK loader must expose the v2 client for permission/question APIs'
-);
-assert.ok(
-  !/import\s+.*from ['"]@opencode-ai\/sdk['"]/.test(loader),
-  'OpenCode SDK loader must not statically import the ESM-only SDK'
+  !fs.existsSync(path.join(root, 'src/electron/libs/provider/opencode-sdk-loader.ts')),
+  'the 1.x SDK loader must be gone'
 );
 
 const manager = read('src/electron/libs/provider/opencode-serve-manager.ts');
 assert.ok(
-  manager.includes('createOpencodeServer') &&
-    manager.includes('createOpencodeClient') &&
-    manager.includes('findAvailablePort'),
-  'OpenCode serve manager must start opencode serve and create SDK clients'
+  manager.includes('OPENCODE_ASK_PERMISSIONS') &&
+    manager.includes("'shell'") &&
+    manager.includes("'external_directory'") &&
+    manager.includes('permissions: OPENCODE_ASK_PERMISSIONS'),
+  'OpenCode server config must route tools through Aegis approvals'
 );
+const serverProcess = read('src/electron/libs/provider/opencode-server-process.ts');
 assert.ok(
-  manager.includes("edit: 'ask'") &&
-    manager.includes("bash: 'ask'") &&
-    manager.includes("external_directory: 'ask'"),
-  'OpenCode serve manager must default tools to ask permissions'
+  serverProcess.includes("'--stdio'") && serverProcess.includes('OPENCODE_SERVER_PASSWORD'),
+  'OpenCode must run as a password-protected stdio server'
 );
+const ipcHandlers = read('src/electron/ipc-handlers.ts');
 assert.ok(
-  manager.includes('command(options: unknown)') &&
-    manager.includes('list(options?: unknown)'),
-  'OpenCode SDK client type must expose command list and session command APIs'
-);
-assert.ok(
-  manager.includes('v2?: OpenCodeV2Client') &&
-    manager.includes('session?: {') &&
-    manager.includes('question?: OpenCodeQuestionReplyApi') &&
-    manager.includes('permission?: OpenCodePermissionReplyApi'),
-  'OpenCode serve manager must attach v2 permission and question clients'
-);
-
-const adapter = read('src/electron/libs/provider/opencode-sdk-adapter.ts');
-assert.ok(
-  adapter.includes("readonly provider: ProviderKind = 'opencode'"),
-  'OpenCode SDK adapter must register provider=opencode'
-);
-assert.ok(
-  adapter.includes('session.client.event.subscribe') &&
-    adapter.includes('eventReady') &&
-    adapter.includes('markEventReady'),
-  'OpenCode SDK adapter must start the event stream before sending prompts'
-);
-assert.ok(
-  adapter.includes("type: 'permission_request'") &&
-    adapter.includes("provider: 'opencode'") &&
-    adapter.includes("response: 'once' | 'always' | 'reject'"),
-  'OpenCode SDK adapter must map SDK permission events and replies'
-);
-assert.ok(
-  adapter.includes("case 'permission.asked'") &&
-    adapter.includes("case 'permission.v2.asked'") &&
-    adapter.includes('respondToOpenCodePermissionReply') &&
-    adapter.includes('respondToOpenCodePermissionV2'),
-  'OpenCode SDK adapter must handle legacy and v2 permission ask events'
-);
-assert.ok(
-  adapter.includes("case 'question.asked'") &&
-    adapter.includes("case 'question.v2.asked'") &&
-    adapter.includes('AskUserQuestionInput') &&
-    adapter.includes('buildOpenCodeQuestionInput') &&
-    adapter.includes('respondToOpenCodeQuestion') &&
-    adapter.includes('questionV2Reply'),
-  'OpenCode SDK adapter must show and answer OpenCode question popups'
-);
-assert.ok(
-  adapter.includes('session.client.session.prompt') &&
-    adapter.includes('buildPromptParts') &&
-    adapter.includes('data:') &&
-    adapter.includes('pathToFileURL'),
-  'OpenCode SDK adapter must send prompts and support image/file attachment fallback'
-);
-assert.ok(
-  adapter.includes('emitAvailableCommands') &&
-    adapter.includes('session.client.command.list') &&
-    adapter.includes("subtype: 'available_commands_update'") &&
-    adapter.includes('parseOpenCodeSlashCommand') &&
-    adapter.includes('session.client.session.command'),
-  'OpenCode SDK adapter must list and execute OpenCode slash commands through the SDK'
-);
-assert.ok(
-  adapter.includes('refreshModelLimits') &&
-    adapter.includes('client.config.providers') &&
-    adapter.includes('context_window') &&
-    adapter.includes('total_tokens') &&
-    adapter.includes('reasoning_output_tokens'),
-  'OpenCode SDK adapter must enrich token usage with model context limits'
-);
-assert.ok(
-  adapter.includes('planMode: true') &&
-    adapter.includes('getOpenCodeAgentForMode') &&
-    adapter.includes("mode === 'plan' ? 'plan'") &&
-    adapter.includes('...(agent ? { agent } : {})'),
-  'OpenCode SDK adapter must map Composer Plan mode to the OpenCode plan agent'
-);
-assert.ok(
-  adapter.includes('messageRoles') &&
-    adapter.includes('pendingPartUpdates') &&
-    adapter.includes("role === 'user'") &&
-    adapter.includes('queuePendingPartUpdate') &&
-    adapter.includes('flushPendingPartUpdates'),
-  'OpenCode SDK adapter must filter user message parts and buffer unknown-role parts'
-);
-assert.ok(
-  adapter.includes("type: 'stream_event'") &&
-    adapter.includes("type: 'tool_use'") &&
-    adapter.includes("type: 'tool_result'") &&
-    adapter.includes("type: 'result'"),
-  'OpenCode SDK adapter must map streaming, tool, and result messages'
-);
-assert.ok(
-  adapter.includes('session.client.mcp.status') && adapter.includes("tool: 'opencode'"),
-  'OpenCode SDK adapter must emit OpenCode MCP status when available'
+  ipcHandlers.includes('getOpenCodeServeManager().interruptActiveExecutionsSync()'),
+  'app cleanup must interrupt running OpenCode turns before quitting'
 );
 
 const service = read('src/electron/libs/provider/service.ts');
@@ -249,227 +159,453 @@ for (const file of [
 
 console.log('opencode-sdk-adapter: wiring checks passed');
 
-// ═══════════ L1 runtime: dispose semantics (fake serve-manager seam) ═══════
-// Requires `npm run transpile:electron` to have produced dist-electron.
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
+// ═══════════ Adapter runtime (fake serve manager + client) ═════════════════
 const { OpenCodeSdkAdapter } = require('../dist-electron/electron/libs/provider/opencode-sdk-adapter.js');
+const { OpenCodeApiError } = require('../dist-electron/electron/libs/provider/opencode-v2-client.js');
+const { OPENCODE_ASK_PERMISSIONS, OPENCODE_SERVER_EXITED_EVENT } = require('../dist-electron/electron/libs/provider/opencode-serve-manager.js');
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Broadcast-bus fake for the serve manager: every event.subscribe() call gets
- * its own queue fed by bus.push (mirrors the real server broadcasting SSE to
- * all connections), honoring the passed AbortSignal — which is exactly the
- * mechanism the double-emission bug rode on (an orphaned subscription with a
- * never-aborted signal kept receiving broadcasts).
- */
-function makeFakeOpenCodeEnv() {
-  const subscriptions = [];
+function makeFakeOpenCode(overrides = {}) {
+  const calls = [];
+  const listeners = new Map();
   let sessionCounter = 0;
-  let promptGate = null;
-  const bus = {
-    subscriptions,
-    push(event) {
-      for (const sub of subscriptions) {
-        sub.push(event);
-      }
-    },
+  const record = (name, value) => (...args) => {
+    calls.push([name, ...args]);
+    return Promise.resolve(typeof value === 'function' ? value(...args) : value);
   };
   const client = {
-    event: {
-      subscribe: async ({ signal }) => {
-        const queue = [];
-        let waiter = null;
-        let closed = false;
-        const deliver = (event) => {
-          if (closed || signal?.aborted) return;
-          if (waiter) {
-            const pending = waiter;
-            waiter = null;
-            pending({ value: event, done: false });
-          } else {
-            queue.push(event);
-          }
-        };
-        const close = () => {
-          closed = true;
-          if (waiter) {
-            const pending = waiter;
-            waiter = null;
-            pending({ value: undefined, done: true });
-          }
-        };
-        signal?.addEventListener('abort', close, { once: true });
-        subscriptions.push({ signal, push: deliver });
-        return {
-          stream: {
-            [Symbol.asyncIterator]() {
-              return {
-                next() {
-                  if (queue.length > 0) {
-                    return Promise.resolve({ value: queue.shift(), done: false });
-                  }
-                  if (closed || signal?.aborted) {
-                    return Promise.resolve({ value: undefined, done: true });
-                  }
-                  return new Promise((resolve) => {
-                    waiter = resolve;
-                  });
-                },
-              };
-            },
-          },
-        };
-      },
-    },
-    session: {
-      create: async () => ({ id: `sess-${(sessionCounter += 1)}` }),
-      get: async ({ path: p }) => ({ id: p.id }),
-      prompt: () =>
-        promptGate
-          ? promptGate.promise
-          : Promise.resolve({ info: {}, parts: [] }),
-      abort: async () => ({}),
-    },
+    createSession: record('createSession', (input) => ({ id: `ses_${++sessionCounter}`, permissions: input.permissions })),
+    getSession: record('getSession', (id) => ({ id, permissions: [] })),
+    updateSession: record('updateSession'),
+    switchModel: record('switchModel'),
+    switchAgent: record('switchAgent'),
+    prompt: record('prompt', {}),
+    command: record('command'),
+    compact: record('compact', {}),
+    interrupt: record('interrupt', { interrupted: true }),
+    fork: record('fork', { id: 'ses_fork' }),
+    replyPermission: record('replyPermission'),
+    replyForm: record('replyForm'),
+    cancelForm: record('cancelForm'),
+    listCommands: record('listCommands', [{ name: 'review', description: 'Review changes' }]),
+    listSkills: record('listSkills', []),
+    listMcpServers: record('listMcpServers', [{ name: 'aegis', status: { status: 'connected' } }]),
+    listModels: record('listModels', [{ providerID: 'opencode', modelID: 'm1', limit: { context: 1000, output: 100 } }]),
+    defaultModel: record('defaultModel', null),
+    ...overrides,
   };
-  const manager = {
+  const managerSeam = {
     getClient: async () => client,
-    close: async () => {},
+    loadModels: async (directory) => ({ models: await client.listModels(directory), defaultModel: await client.defaultModel(directory) }),
+    subscribe(sessionID, listener) {
+      const set = listeners.get(sessionID) ?? new Set();
+      set.add(listener);
+      listeners.set(sessionID, set);
+      return () => set.delete(listener);
+    },
+    close: async () => calls.push(['close']),
   };
-  const gatePrompt = () => {
-    let release;
-    const promise = new Promise((resolve) => {
-      release = resolve;
-    });
-    promptGate = { promise, release };
-    return promptGate;
+  const send = (sessionID, type, data = {}) => {
+    for (const listener of [...(listeners.get(sessionID) ?? [])]) listener({ type, data: { sessionID, ...data } });
   };
-  return { manager, bus, client, gatePrompt };
+  const listenerCount = (sessionID) => listeners.get(sessionID)?.size ?? 0;
+  return { client, managerSeam, calls, send, listenerCount };
 }
 
-function collectAdapterEvents(adapter) {
+function collect(adapter) {
   const events = [];
   adapter.events.on('event', (event) => events.push(event));
-  return events;
-}
-const assistantDeltas = (events) =>
-  events.filter((e) => e.type === 'message' && e.message?.type === 'stream_event');
-
-// ── Double-emission regression: errored-turn retire → resume → single feed ──
-{
-  const env = makeFakeOpenCodeEnv();
-  const adapter = new OpenCodeSdkAdapter(env.manager);
-  const events = collectAdapterEvents(adapter);
-  await adapter.startSession({ provider: 'opencode', threadId: 't1', cwd: '/tmp' });
-  const providerSessionId = 'sess-1';
-
-  // Sanity: one subscription, one delta per broadcast.
-  env.bus.push({
-    type: 'message.updated',
-    properties: { info: { id: 'm1', sessionID: providerSessionId, role: 'assistant' } },
-  });
-  env.bus.push({
-    type: 'message.part.updated',
-    properties: {
-      part: { id: 'p1', sessionID: providerSessionId, messageID: 'm1', type: 'text', text: 'Hi' },
-      delta: 'Hi',
-    },
-  });
-  await sleep(40);
-  const baseline = assistantDeltas(events).length;
-  assert.ok(baseline >= 1, 'fake bus must drive at least one assistant delta');
-
-  // Errored-turn retirement path: dispose, then respawn resuming the SAME
-  // provider session id (exactly what handleSessionContinue does).
-  assert.equal(adapter.disposeSession('t1'), true, 'dispose of live session → true');
-  assert.equal(env.bus.subscriptions[0].signal.aborted, true, 'dispose must abort the SSE subscription');
-  await adapter.startSession({
-    provider: 'opencode',
-    threadId: 't1',
-    cwd: '/tmp',
-    resumeSessionId: providerSessionId,
-  });
-
-  env.bus.push({
-    type: 'message.updated',
-    properties: { info: { id: 'm2', sessionID: providerSessionId, role: 'assistant' } },
-  });
-  env.bus.push({
-    type: 'message.part.updated',
-    properties: {
-      part: { id: 'p2', sessionID: providerSessionId, messageID: 'm2', type: 'text', text: 'again' },
-      delta: 'again',
-    },
-  });
-  await sleep(40);
-  const after = assistantDeltas(events).length - baseline;
-  assert.equal(after, 1, `post-respawn broadcast must emit exactly once, got ${after} (zombie double-feed)`);
-  console.log('  ✓ dispose → resume: one subscription, one emission per broadcast (double-feed regression)');
-
-  // Defensive overwrite: startSession over a live same-thread session
-  // disposes the predecessor (never orphan).
-  const liveSubs = env.bus.subscriptions.filter((sub) => !sub.signal.aborted).length;
-  await adapter.startSession({ provider: 'opencode', threadId: 't1', cwd: '/tmp' });
-  const liveAfter = env.bus.subscriptions.filter((sub) => !sub.signal.aborted).length;
-  assert.equal(liveAfter, liveSubs, 'same-thread restart must not grow live subscriptions');
-  console.log('  ✓ startSession disposes a same-thread predecessor (never orphan)');
+  const messages = () => events.filter((e) => e.type === 'message').map((e) => e.message);
+  return { events, messages };
 }
 
-// ── Dispose is quiet + dismisses stranded permission cards ─────────────────
+// ── Session start: durable ask rules, plan agent, commands, MCP ──────────────
 {
-  const env = makeFakeOpenCodeEnv();
-  const adapter = new OpenCodeSdkAdapter(env.manager);
-  const events = collectAdapterEvents(adapter);
-  await adapter.startSession({ provider: 'opencode', threadId: 't2', cwd: '/tmp' });
+  const fake = makeFakeOpenCode();
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  const { events, messages } = collect(adapter);
+  const started = await adapter.startSession({ provider: 'opencode', threadId: 't', cwd: '/repo', prompt: '', opencodePermissionMode: 'plan', model: 'opencode/m1' });
+  const create = fake.calls.find(([name]) => name === 'createSession')[1];
+  assert.deepEqual(create.permissions, OPENCODE_ASK_PERMISSIONS, 'new sessions carry Aegis ask rules');
+  assert.equal(create.agent, 'plan');
+  assert.deepEqual(create.model, { providerID: 'opencode', id: 'm1' });
+  assert.equal(started.providerSessionId, 'ses_1');
+  assert.ok(events.some((e) => e.type === 'system_init' && e.sessionId === 'ses_1'));
+  const commands = messages().find((m) => m.subtype === 'available_commands_update').availableCommands.map((c) => c.name);
+  assert.deepEqual(commands, ['compact', 'review']);
+  assert.equal(messages().find((m) => m.type === 'mcp_status').servers[0].status, 'connected');
+  console.log('  ✓ startSession: ask rules, plan agent, model, commands, MCP status');
+}
 
-  env.bus.push({
-    type: 'permission.asked',
-    properties: { id: 'perm-1', sessionID: 'sess-1', permission: { id: 'perm-1' } },
+// ── A full turn: deltas, text before tools, tool cards, summed cost, result ──
+{
+  const fake = makeFakeOpenCode();
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  const { events, messages } = collect(adapter);
+  await adapter.startSession({ provider: 'opencode', threadId: 't', cwd: '/repo', prompt: '' });
+  await sleep(0); // model limits load in the background
+  await adapter.sendTurn({ threadId: 't', prompt: 'hi' });
+  const prompt = fake.calls.find(([name]) => name === 'prompt');
+  assert.deepEqual(prompt.slice(1), ['ses_1', { text: 'hi', delivery: 'queue' }], 'prompts queue behind a running turn');
+  const s = 'ses_1';
+  fake.send(s, 'session.execution.started');
+  fake.send(s, 'session.step.started', { assistantMessageID: 'a1', model: { providerID: 'opencode', id: 'm1' } });
+  fake.send(s, 'session.reasoning.delta', { assistantMessageID: 'a1', ordinal: 0, delta: 'think' });
+  fake.send(s, 'session.text.delta', { assistantMessageID: 'a1', ordinal: 1, delta: 'Hel' });
+  fake.send(s, 'session.text.delta', { assistantMessageID: 'a1', ordinal: 1, delta: 'lo' });
+  fake.send(s, 'session.tool.input.started', { assistantMessageID: 'a1', id: 'call_1', name: 'shell' });
+  fake.send(s, 'session.tool.called', { assistantMessageID: 'a1', id: 'call_1', input: { command: 'ls' } });
+  fake.send(s, 'session.tool.success', { assistantMessageID: 'a1', id: 'call_1', content: [{ type: 'text', text: 'out' }] });
+  fake.send(s, 'session.step.ended', { assistantMessageID: 'a1', cost: 0.25, tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } } });
+  fake.send(s, 'session.step.started', { assistantMessageID: 'a2', model: { providerID: 'opencode', id: 'm1' } });
+  fake.send(s, 'session.text.delta', { assistantMessageID: 'a2', ordinal: 0, delta: 'partial' });
+  fake.send(s, 'session.text.ended', { assistantMessageID: 'a2', ordinal: 0, text: 'Done.' });
+  fake.send(s, 'session.step.ended', { assistantMessageID: 'a2', cost: 0.5, tokens: { input: 10, output: 20, reasoning: 5, cache: { read: 7, write: 3 } } });
+  fake.send(s, 'session.execution.succeeded');
+
+  const deltas = messages().filter((m) => m.type === 'stream_event' && m.event.type === 'content_block_delta').map((m) => m.event.delta);
+  assert.deepEqual(deltas.map((d) => d.text ?? d.thinking), ['think', 'Hel', 'lo', 'partial']);
+  const committed = messages().filter((m) => m.type === 'assistant' || m.type === 'user').map((m) => m.message.content.map((b) => b.type + ':' + (b.text ?? b.name ?? b.content ?? b.thinking)).join('+'));
+  assert.deepEqual(committed, ['thinking:think+text:Hello', 'tool_use:Bash', 'tool_result:out', 'text:Done.'],
+    'text is committed before the tool card it preceded; the ended text is authoritative');
+  const result = messages().find((m) => m.type === 'result');
+  assert.equal(result.subtype, 'success');
+  assert.equal(result.total_cost_usd, 0.75, 'turn cost sums every step');
+  assert.equal(result.model, 'opencode/m1');
+  assert.equal(result.usage.input_tokens, 10, 'usage reflects the last step (context occupancy)');
+  assert.equal(result.usage.context_window, 1000);
+  assert.equal(result.usage.total_tokens, 45);
+  assert.equal(events.at(-1).type === 'status_change' && events.at(-1).status, 'completed');
+  console.log('  ✓ turn: deltas, ordered text/tool cards, summed cost, usage + context window');
+}
+
+// ── Model/agent switches only on change; commands and /compact routes ───────
+{
+  const fake = makeFakeOpenCode({ createSession: (input) => Promise.resolve({ id: 'ses_m', agent: 'build', model: { providerID: 'opencode', id: 'm1' } }) });
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  await adapter.startSession({ provider: 'opencode', threadId: 't', cwd: '/repo', prompt: '' });
+  await adapter.sendTurn({ threadId: 't', prompt: 'a', model: 'opencode/m1' });
+  assert.equal(fake.calls.filter(([n]) => n === 'switchModel').length, 0, 'same model: no switch');
+  await adapter.sendTurn({ threadId: 't', prompt: 'b', model: 'openrouter/vendor/model-x' });
+  assert.deepEqual(fake.calls.find(([n]) => n === 'switchModel')[2], { providerID: 'openrouter', id: 'vendor/model-x' });
+  await adapter.sendTurn({ threadId: 't', prompt: 'c', model: 'openrouter/vendor/model-x', opencodePermissionMode: 'plan' });
+  await adapter.sendTurn({ threadId: 't', prompt: 'd', model: 'openrouter/vendor/model-x', opencodePermissionMode: 'defaultPermissions' });
+  assert.deepEqual(fake.calls.filter(([n]) => n === 'switchAgent').map((c) => c[2]), ['plan', 'build']);
+  assert.equal(fake.calls.filter(([n]) => n === 'switchModel').length, 1);
+  await adapter.sendTurn({ threadId: 't', prompt: '/compact' });
+  await adapter.sendTurn({ threadId: 't', prompt: '/review the diff' });
+  await adapter.sendTurn({ threadId: 't', prompt: '/unknown thing' });
+  assert.equal(fake.calls.filter(([n]) => n === 'compact').length, 1);
+  assert.deepEqual(fake.calls.find(([n]) => n === 'command').slice(2), [{ name: 'review', text: 'the diff' }]);
+  assert.equal(fake.calls.filter(([n]) => n === 'prompt').at(-1)[2].text, '/unknown thing', 'unknown slash text goes out as a prompt');
+  console.log('  ✓ model/agent switch only on change; /compact, server commands, unknown slash text');
+}
+
+// ── Permissions: card, reply, auto-approve once, settled elsewhere ──────────
+{
+  const fake = makeFakeOpenCode();
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  const { events } = collect(adapter);
+  await adapter.startSession({ provider: 'opencode', threadId: 't', cwd: '/repo', prompt: '' });
+  fake.send('ses_1', 'session.tool.input.started', { assistantMessageID: 'a', id: 'call_9', name: 'shell' });
+  fake.send('ses_1', 'permission.asked', { id: 'per_1', action: 'shell', resources: ['rm -rf x'], source: { type: 'tool', messageID: 'm', id: 'call_9' } });
+  fake.send('ses_1', 'permission.asked', { id: 'per_1', action: 'shell', resources: ['rm -rf x'] });
+  const cards = events.filter((e) => e.type === 'permission_request');
+  assert.equal(cards.length, 1, 'duplicate asks show one card');
+  assert.equal(cards[0].toolName, 'Bash');
+  assert.match(cards[0].input.title, /shell: rm -rf x/);
+  await adapter.respondToRequest('t', 'per_1', { behavior: 'allow', updatedInput: { optionId: 'always' } });
+  assert.deepEqual(fake.calls.find(([n]) => n === 'replyPermission').slice(1), ['ses_1', 'per_1', 'always']);
+  fake.send('ses_1', 'permission.asked', { id: 'per_2', action: 'edit', resources: ['a.ts'] });
+  fake.send('ses_1', 'permission.replied', { requestID: 'per_2', reply: 'once' });
+  assert.ok(events.some((e) => e.type === 'permission_dismissed' && e.requestId === 'per_2'), 'answered elsewhere → card dismissed');
+
+  const full = makeFakeOpenCode();
+  const fullAdapter = new OpenCodeSdkAdapter(full.managerSeam);
+  const fullEvents = collect(fullAdapter).events;
+  await fullAdapter.startSession({ provider: 'opencode', threadId: 'f', cwd: '/repo', prompt: '', opencodePermissionMode: 'fullAccess' });
+  full.send('ses_1', 'permission.asked', { id: 'per_f', action: 'shell', resources: ['ls'] });
+  await sleep(10);
+  assert.deepEqual(full.calls.find(([n]) => n === 'replyPermission').slice(1), ['ses_1', 'per_f', 'once'],
+    'full access approves once — never a saved "always" rule');
+  assert.ok(!fullEvents.some((e) => e.type === 'permission_request'));
+  console.log('  ✓ permissions: one card, tool name from call, replies, auto once, dismissed elsewhere');
+}
+
+// ── Question forms → AskUserQuestion and back ───────────────────────────────
+{
+  const fake = makeFakeOpenCode();
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  const { events } = collect(adapter);
+  await adapter.startSession({ provider: 'opencode', threadId: 't', cwd: '/repo', prompt: '' });
+  const form = (id) => ({
+    id,
+    sessionID: 'ses_1',
+    title: 'Questions',
+    fields: [
+      { key: 'q0', type: 'string', title: 'Color', description: 'Which color?', custom: true,
+        options: [{ value: 'red', label: 'Red' }, { value: 'blue', label: 'Blue' }] },
+      { key: 'q1', type: 'multiselect', title: 'Pets', description: 'Which pets?',
+        options: [{ value: 'cat', label: 'Cat' }, { value: 'dog', label: 'Dog' }] },
+    ],
   });
-  await sleep(40);
-  assert.ok(
-    events.some((e) => e.type === 'permission_request'),
-    'permission.asked must surface a permission_request'
-  );
+  fake.send('ses_1', 'form.created', { form: form('frm_1') });
+  const card = events.find((e) => e.type === 'permission_request' && e.toolName === 'AskUserQuestion');
+  assert.deepEqual(card.input.questions.map((q) => [q.question, q.header, q.multiSelect ?? false]),
+    [['Which color?', 'Color', false], ['Which pets?', 'Pets', true]]);
+  await adapter.respondToRequest('t', 'frm_1', { behavior: 'allow', updatedInput: { answers: { 'Which color?': 'Blue', 'Which pets?': 'Cat, Dog' } } });
+  assert.deepEqual(fake.calls.find(([n]) => n === 'replyForm').slice(1), ['ses_1', 'frm_1', { q0: 'blue', q1: ['cat', 'dog'] }]);
+  fake.send('ses_1', 'form.created', { form: form('frm_2') });
+  await adapter.respondToRequest('t', 'frm_2', { behavior: 'deny' });
+  assert.deepEqual(fake.calls.find(([n]) => n === 'cancelForm').slice(1), ['ses_1', 'frm_2']);
+  console.log('  ✓ forms: question/header mapping, option values, multiselect, cancel');
+}
 
+// ── Failures and interruptions end the turn ────────────────────────────────
+{
+  const fake = makeFakeOpenCode();
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  const { events, messages } = collect(adapter);
+  await adapter.startSession({ provider: 'opencode', threadId: 't', cwd: '/repo', prompt: '' });
+  await adapter.sendTurn({ threadId: 't', prompt: 'x' });
+  fake.send('ses_1', 'session.execution.failed', { error: { type: 'provider', message: 'rate limited' } });
+  assert.ok(events.some((e) => e.type === 'error' && e.error.message === 'rate limited'));
+  assert.equal(messages().filter((m) => m.type === 'result').at(-1).subtype, 'error');
+  await adapter.sendTurn({ threadId: 't', prompt: 'y' });
+  fake.send('ses_1', 'session.execution.interrupted', { reason: 'shutdown' });
+  assert.equal(messages().filter((m) => m.type === 'result').length, 2);
+  // Rejecting a request halts the turn (interrupted after an aborted step): a normal end.
+  await adapter.sendTurn({ threadId: 't', prompt: 'w' });
+  fake.send('ses_1', 'permission.asked', { id: 'per_r', action: 'edit', resources: ['a.ts'] });
+  await adapter.respondToRequest('t', 'per_r', { behavior: 'deny' });
+  fake.send('ses_1', 'session.step.failed', { assistantMessageID: 'a', error: { type: 'aborted', message: 'Step interrupted' } });
+  fake.send('ses_1', 'session.execution.interrupted', { reason: 'shutdown' });
+  assert.equal(messages().filter((m) => m.type === 'result').at(-1).subtype, 'success', 'a user rejection ends the turn normally');
+  assert.equal(messages().filter((m) => m.type === 'result').length, 3);
+  await adapter.sendTurn({ threadId: 't', prompt: 'z' });
+  fake.send('ses_1', OPENCODE_SERVER_EXITED_EVENT, { code: 1 });
+  assert.ok(events.some((e) => e.type === 'error' && /stopped unexpectedly/.test(e.error.message)));
+  assert.equal(messages().filter((m) => m.type === 'result').length, 4);
+  console.log('  ✓ failed / interrupted / server-exited turns end in error; a user rejection ends normally');
+}
+
+// ── Busy session: interrupt once, then retry ───────────────────────────────
+{
+  let attempts = 0;
+  const fake = makeFakeOpenCode({
+    prompt: (...args) => {
+      fake.calls.push(['prompt', ...args]);
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new OpenCodeApiError('busy', 409, 'SessionBusyError')) : Promise.resolve({});
+    },
+  });
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  await adapter.startSession({ provider: 'opencode', threadId: 't', cwd: '/repo', prompt: '' });
+  await adapter.sendTurn({ threadId: 't', prompt: 'x' });
+  assert.equal(attempts, 2);
+  assert.equal(fake.calls.filter(([n]) => n === 'interrupt').length, 1);
+  console.log('  ✓ busy session is interrupted once and the prompt retried');
+}
+
+// ── Resume adds missing ask rules; a failed resume creates a new session ────
+{
+  const fake = makeFakeOpenCode({
+    getSession: (id) => (id === 'ses_gone' ? Promise.reject(new Error('404')) : Promise.resolve({ id, permissions: [{ action: 'read', resource: '*', effect: 'allow' }] })),
+  });
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  const resumed = await adapter.startSession({ provider: 'opencode', threadId: 'a', cwd: '/repo', prompt: '', resumeSessionId: 'ses_old' });
+  assert.equal(resumed.providerSessionId, 'ses_old');
+  const update = fake.calls.find(([n]) => n === 'updateSession');
+  assert.equal(update[1], 'ses_old');
+  assert.equal(update[2].permissions.length, 1 + OPENCODE_ASK_PERMISSIONS.length, 'existing rules kept, ask rules added');
+  const fresh = await adapter.startSession({ provider: 'opencode', threadId: 'b', cwd: '/repo', prompt: '', resumeSessionId: 'ses_gone' });
+  assert.equal(fresh.providerSessionId, 'ses_1');
+  console.log('  ✓ resume: ask rules added to old sessions; unknown id → new session');
+}
+
+// ── Stop, dispose, and same-thread restart ─────────────────────────────────
+{
+  const fake = makeFakeOpenCode();
+  const adapter = new OpenCodeSdkAdapter(fake.managerSeam);
+  const { events, messages } = collect(adapter);
+  await adapter.startSession({ provider: 'opencode', threadId: 't', cwd: '/repo', prompt: '' });
+  await adapter.sendTurn({ threadId: 't', prompt: 'x' });
+  await adapter.stopSession('t');
+  assert.deepEqual(fake.calls.find(([n]) => n === 'interrupt').slice(1), ['ses_1']);
+  assert.equal(fake.listenerCount('ses_1'), 0, 'stop drops the event subscription');
+  fake.send('ses_1', 'session.execution.interrupted', { reason: 'user' });
+  assert.equal(messages().filter((m) => m.type === 'result').length, 0, 'a user stop emits no turn result');
+  assert.equal(events.at(-1).status, 'stopped');
+
+  await adapter.startSession({ provider: 'opencode', threadId: 'd', cwd: '/repo', prompt: '' });
+  fake.send('ses_2', 'permission.asked', { id: 'per_d', action: 'shell', resources: ['ls'] });
   const before = events.length;
-  assert.equal(adapter.disposeSession('t2'), true);
+  assert.equal(adapter.disposeSession('d'), true);
   const emitted = events.slice(before);
-  assert.ok(
-    emitted.some((e) => e.type === 'permission_dismissed' && e.requestId === 'perm-1'),
-    'dispose must dismiss the stranded permission card'
-  );
-  assert.equal(
-    emitted.filter((e) => e.type === 'status_change' || (e.type === 'message' && e.message?.type === 'result')).length,
-    0,
-    'dispose must emit no status_change and no result'
-  );
-  assert.equal(adapter.disposeSession('t2'), false, 'second dispose → false (idempotent)');
-  console.log('  ✓ dispose: permission_dismissed only, no status/result, idempotent');
+  assert.deepEqual(emitted.map((e) => e.type), ['permission_dismissed'], 'dispose only dismisses stranded cards');
+  assert.equal(fake.listenerCount('ses_2'), 0);
+  assert.equal(adapter.disposeSession('d'), false, 'second dispose → false (idempotent)');
+  assert.equal(fake.calls.filter(([n]) => n === 'interrupt').length, 1, 'dispose makes no network calls');
+
+  await adapter.startSession({ provider: 'opencode', threadId: 'r', cwd: '/repo', prompt: '', resumeSessionId: 'ses_x' });
+  await adapter.startSession({ provider: 'opencode', threadId: 'r', cwd: '/repo', prompt: '', resumeSessionId: 'ses_x' });
+  assert.equal(fake.listenerCount('ses_x'), 1, 'same-thread restart never leaves two subscriptions');
+  fake.send('ses_x', 'session.execution.started');
+  fake.send('ses_x', 'session.step.started', { assistantMessageID: 'a' });
+  const deltaCount = () => messages().filter((m) => m.type === 'stream_event' && m.event.type === 'content_block_delta').length;
+  const baseline = deltaCount();
+  fake.send('ses_x', 'session.text.delta', { assistantMessageID: 'a', ordinal: 0, delta: 'once' });
+  assert.equal(deltaCount() - baseline, 1, 'one emission per event after a restart (no double feed)');
+  console.log('  ✓ stop interrupts silently; dispose is quiet and idempotent; restart never double-feeds');
 }
 
-// ── Stranded sendTurn: late prompt resolution after dispose emits nothing ──
+console.log('opencode-sdk-adapter: adapter runtime checks passed');
+
+// ═══════════ HTTP client + manager shutdown against a local fake server ═══
+const { OpenCodeV2Client, parseServerSentEvents } = require('../dist-electron/electron/libs/provider/opencode-v2-client.js');
+const { OpenCodeServeManager } = require('../dist-electron/electron/libs/provider/opencode-serve-manager.js');
 {
-  const env = makeFakeOpenCodeEnv();
-  const adapter = new OpenCodeSdkAdapter(env.manager);
-  const events = collectAdapterEvents(adapter);
-  await adapter.startSession({ provider: 'opencode', threadId: 't3', cwd: '/tmp' });
+  // The fake server runs in a worker thread: the sync quit path blocks this
+  // thread's event loop (as it does Electron's), so a same-thread server could
+  // never answer.
+  const worker = new Worker(`
+    const http = require('node:http');
+    const { parentPort } = require('node:worker_threads');
+    const requests = [];
+    const server = http.createServer((req, res) => {
+      requests.push({ method: req.method, url: req.url, auth: req.headers.authorization });
+      if (req.url.startsWith('/api/session/ses_bad')) {
+        res.writeHead(409, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ _tag: 'SessionBusyError', message: 'Session is busy' }));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(req.url.startsWith('/api/model')
+        ? JSON.stringify({ location: {}, data: [{ providerID: 'p', modelID: 'm' }] })
+        : JSON.stringify({ data: { id: 'ses_ok', interrupted: true } }));
+    });
+    server.listen(0, '127.0.0.1', () => parentPort.postMessage({ port: server.address().port }));
+    parentPort.on('message', (message) => {
+      if (message === 'take') parentPort.postMessage({ requests: requests.splice(0) });
+    });
+  `, { eval: true });
+  const nextMessage = () => new Promise((resolve) => worker.once('message', resolve));
+  const { port } = await nextMessage();
+  const takeRequests = async () => { worker.postMessage('take'); return (await nextMessage()).requests; };
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const client = new OpenCodeV2Client(baseUrl, 'pw');
+  assert.equal((await client.getSession('ses_ok')).id, 'ses_ok', 'responses are unwrapped from { data }');
+  assert.deepEqual(await client.listModels('/a b'), [{ providerID: 'p', modelID: 'm' }]);
+  const modelRequest = (await takeRequests()).at(-1);
+  assert.equal(modelRequest.url, '/api/model?location%5Bdirectory%5D=%2Fa+b', 'location is sent as location[directory]');
+  assert.equal(modelRequest.auth, `Basic ${Buffer.from('opencode:pw').toString('base64')}`);
+  await assert.rejects(client.prompt('ses_bad', { text: 'x' }), (error) => error.status === 409 && error.tag === 'SessionBusyError' && error.message === 'Session is busy');
 
-  const gate = env.gatePrompt();
-  const turnPromise = adapter.sendTurn({ provider: 'opencode', threadId: 't3', prompt: 'hello' });
+  const encoder = new TextEncoder();
+  const chunks = [': heartbeat\n\n', 'data: {"type":"a","data":{"sessionID":"s"}}\r\n\r\ndata: {"ty', 'pe":"b"}\n\n', 'data: not-json\n\n', 'data: {"type":"c"}'];
+  const stream = new ReadableStream({ start(controller) { for (const c of chunks) controller.enqueue(encoder.encode(c)); controller.close(); } });
+  const parsed = [];
+  for await (const event of parseServerSentEvents(stream)) parsed.push(event.type);
+  assert.deepEqual(parsed, ['a', 'b', 'c'], 'SSE: heartbeats skipped, CRLF and split frames handled, bad frames dropped');
+
+  // Shutdown interrupts every running turn (async close and the sync quit path).
+  const makeManager = () => {
+    const m = new OpenCodeServeManager();
+    m.state = { client: new OpenCodeV2Client(baseUrl, 'pw'), password: 'pw', process: { close() {}, exited: new Promise(() => {}) }, events: new AbortController() };
+    return m;
+  };
+  const interrupts = async () => (await takeRequests()).filter((r) => r.method === 'POST' && r.url.endsWith('/interrupt')).map((r) => r.url);
+  let m = makeManager();
+  m.dispatch({ type: 'session.execution.started', data: { sessionID: 'ses_run' } });
+  m.dispatch({ type: 'session.execution.started', data: { sessionID: 'ses_done' } });
+  m.dispatch({ type: 'session.execution.succeeded', data: { sessionID: 'ses_done' } });
+  await takeRequests();
+  m.interruptActiveExecutionsSync();
+  assert.deepEqual(await interrupts(), ['/api/session/ses_run/interrupt'], 'quit interrupts only turns still running');
+  m = makeManager();
+  m.dispatch({ type: 'session.execution.started', data: { sessionID: 'ses_run2' } });
+  await m.close();
+  assert.deepEqual(await interrupts(), ['/api/session/ses_run2/interrupt'], 'close() interrupts running turns first');
+  m = makeManager();
+  m.interruptActiveExecutionsSync();
+  assert.equal((await takeRequests()).length, 0, 'nothing running → no child process, no requests');
+
+  // Model catalogs are read only after the server announces the directory's full catalog.
+  m = makeManager();
+  let settled = false;
+  const loading = m.loadModels('/proj').then((value) => { settled = true; return value; });
+  await sleep(50);
+  assert.equal(settled, false, 'waits for model.updated');
+  m.dispatch({ type: 'model.updated', location: { directory: '/other' }, data: {} });
   await sleep(20);
-  assert.equal(adapter.disposeSession('t3'), true);
-  const before = events.length;
-  gate.release({ info: { id: 'm9', sessionID: 'sess-1', role: 'assistant' }, parts: [] });
-  await turnPromise;
-  await sleep(20);
-  assert.equal(
-    events.length - before,
-    0,
-    'a prompt resolving after dispose must emit nothing (stale-result guard)'
-  );
-  console.log('  ✓ stranded sendTurn after dispose emits nothing (liveness recheck)');
+  assert.equal(settled, false, 'another directory does not count');
+  m.dispatch({ type: 'model.updated', location: { directory: '/proj' }, data: {} });
+  assert.equal((await loading).models.length, 1);
+  const again = Date.now();
+  await m.loadModels('/proj');
+  assert.ok(Date.now() - again < 1_000, 'a loaded catalog is read straight away');
+  await worker.terminate();
+  console.log('  ✓ client: data unwrap, location query, auth, typed errors; SSE framing');
+  console.log('  ✓ shutdown interrupts running turns (sync quit path and close())');
+  console.log('  ✓ model catalog waits for the directory\'s model.updated');
 }
 
-console.log('opencode-sdk-adapter: dispose runtime checks passed');
+// ═══════════ Binary selection + `opencode serve --stdio` startup ══════════
+{
+  const {
+    OPENCODE_BIN_ENV,
+    parseOpenCodeServerUrl,
+    parseOpenCodeVersion,
+    resolveOpenCodeBinary,
+    startOpenCodeServerProcess,
+  } = require('../dist-electron/electron/libs/provider/opencode-server-process.js');
+
+  assert.equal(parseOpenCodeServerUrl('{"url":"http://127.0.0.1:4096"}'), 'http://127.0.0.1:4096');
+  assert.equal(parseOpenCodeServerUrl('server listening on http://127.0.0.1:4096'), 'http://127.0.0.1:4096');
+  assert.equal(parseOpenCodeServerUrl('server password abc'), null);
+  assert.equal(parseOpenCodeVersion('opencode v2.0.18').major, 2);
+  console.log('  ✓ parses stdio and plain readiness lines and versions');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-opencode-bin-'));
+  const writeFake = (dir, version) => {
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'opencode');
+    fs.writeFileSync(
+      file,
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "${version}"; exit 0; fi
+port=$(echo "$4" | sed 's/--port=//')
+[ "$2" = "--stdio" ] && [ -n "$OPENCODE_SERVER_PASSWORD" ] || exit 3
+echo "{\\"url\\":\\"http://127.0.0.1:$port\\"}"
+cat > /dev/null
+`
+    );
+    fs.chmodSync(file, 0o755);
+    return file;
+  };
+  try {
+    const v1 = writeFake(path.join(tmp, 'v1'), '1.18.34');
+    const v2 = writeFake(path.join(tmp, 'v2'), 'opencode v2.0.18');
+    const basePath = '/usr/bin:/bin';
+    const picked = await resolveOpenCodeBinary({ PATH: `${path.dirname(v1)}:${path.dirname(v2)}:${basePath}` });
+    assert.equal(picked.path, v2, 'a 2.x opencode later on PATH wins over a 1.x one');
+    await assert.rejects(resolveOpenCodeBinary({ PATH: `${path.dirname(v1)}:${basePath}` }), /1\.18\.34 at .*too old: Aegis needs OpenCode 2\.x/);
+    await assert.rejects(resolveOpenCodeBinary({ PATH: basePath }), /not found on PATH/);
+    assert.equal((await resolveOpenCodeBinary({ PATH: basePath, [OPENCODE_BIN_ENV]: v2 })).path, v2, `${OPENCODE_BIN_ENV} bypasses the PATH search`);
+    console.log('  ✓ picks the first 2.x opencode; 1.x-only fails fast; honors the override');
+
+    const server = await startOpenCodeServerProcess({ binary: v2, hostname: '127.0.0.1', port: 45999, password: 'pw', timeout: 5_000, config: {} });
+    assert.equal(server.url, 'http://127.0.0.1:45999');
+    server.close();
+    assert.equal(await Promise.race([server.exited, sleep(4_000).then(() => 'still running')]), 0, 'closing stdin stops the server');
+    const crashing = path.join(tmp, 'crashing-opencode');
+    fs.writeFileSync(crashing, '#!/bin/sh\necho "boom" >&2\nexit 1\n');
+    fs.chmodSync(crashing, 0o755);
+    const exited = await startOpenCodeServerProcess({ binary: crashing, hostname: '127.0.0.1', port: 45998, password: 'pw', timeout: 5_000, config: {} }).then(() => null, (error) => error);
+    assert.match(String(exited?.message), /exited with code 1[\s\S]*boom/, 'a server that exits rejects with its output');
+    console.log('  ✓ starts `serve --stdio` with a password, resolves on the URL line, stops on stdin close');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+console.log('opencode-sdk-adapter: server and client checks passed');

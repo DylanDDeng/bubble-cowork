@@ -222,7 +222,6 @@
     "@libp2p/logger": "5.2.0",
     "@libp2p/peer-id": "5.1.9",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@opencode-ai/sdk": "^1.17.11",
     "@pierre/diffs": "^1.2.8",
     "@pierre/trees": "1.0.0-beta.4",
     "@qoder-ai/qoder-agent-sdk": "^1.0.15",
