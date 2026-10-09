@@ -360,30 +360,10 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
     } catch (error) {
       console.warn('Failed to write the kimi browser-use MCP entry:', error);
     }
-    try {
-      const bubble = getBubbleMcpServers();
-      // Bubble's config parser REQUIRES a type discriminator: no type + no
-      // command falls to "unsupported transport type undefined" and the
-      // entry is silently dropped (the `paper` entry has the same bug).
-      bubble[BROWSER_USE_SERVER_NAME] = {
-        type: 'http',
-        url: info.url,
-        headers: { Authorization: `Bearer ${info.token}` },
-      } as never;
-      saveBubbleMcpServers(bubble);
-    } catch (error) {
-      console.warn('Failed to write the bubble browser-use MCP entry:', error);
-    }
-    try {
-      const qoder = getQoderMcpServers();
-      qoder[BROWSER_USE_SERVER_NAME] = {
-        url: info.url,
-        headers: { Authorization: `Bearer ${info.token}` },
-      } as never;
-      saveQoderMcpServers(qoder);
-    } catch (error) {
-      console.warn('Failed to write the qoder browser-use MCP entry:', error);
-    }
+    // Bubble (a turn-scoped host tool) and Qoder (an in-process server) get
+    // Browser Use per session, so their global configs carry no entry; clear
+    // what earlier versions wrote there.
+    removeSessionScopedProviderEntries();
     try {
       const opencode = getOpencodeMcpServers();
       (opencode as Record<string, unknown>)[BROWSER_USE_SERVER_NAME] = {
@@ -410,6 +390,29 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
   return serverPromise;
 }
 
+/** Entries earlier versions wrote for providers that now get Browser Use per
+ * session (Bubble, Qoder). Idempotent. */
+function removeSessionScopedProviderEntries(): void {
+  try {
+    const bubble = getBubbleMcpServers();
+    if (BROWSER_USE_SERVER_NAME in bubble) {
+      delete bubble[BROWSER_USE_SERVER_NAME];
+      saveBubbleMcpServers(bubble);
+    }
+  } catch (error) {
+    console.warn('Failed to remove the bubble browser-use MCP entry:', error);
+  }
+  try {
+    const qoder = getQoderMcpServers();
+    if (BROWSER_USE_SERVER_NAME in qoder) {
+      delete qoder[BROWSER_USE_SERVER_NAME];
+      saveQoderMcpServers(qoder);
+    }
+  } catch (error) {
+    console.warn('Failed to remove the qoder browser-use MCP entry:', error);
+  }
+}
+
 /** Remove the browser-use entry from every provider config (toggle-off,
  * and disabled boot). Idempotent. */
 export function removeBrowserUseMcpEntries(): void {
@@ -432,24 +435,7 @@ export function removeBrowserUseMcpEntries(): void {
   } catch (error) {
     console.warn('Failed to remove the kimi browser-use MCP entry:', error);
   }
-  try {
-    const bubble = getBubbleMcpServers();
-    if (BROWSER_USE_SERVER_NAME in bubble) {
-      delete bubble[BROWSER_USE_SERVER_NAME];
-      saveBubbleMcpServers(bubble);
-    }
-  } catch (error) {
-    console.warn('Failed to remove the bubble browser-use MCP entry:', error);
-  }
-  try {
-    const qoder = getQoderMcpServers();
-    if (BROWSER_USE_SERVER_NAME in qoder) {
-      delete qoder[BROWSER_USE_SERVER_NAME];
-      saveQoderMcpServers(qoder);
-    }
-  } catch (error) {
-    console.warn('Failed to remove the qoder browser-use MCP entry:', error);
-  }
+  removeSessionScopedProviderEntries();
   try {
     const opencode = getOpencodeMcpServers();
     if (BROWSER_USE_SERVER_NAME in opencode) {

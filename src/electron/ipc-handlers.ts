@@ -99,7 +99,6 @@ import { disposeDelegateHttpServer, retireDelegateMcpEntries } from './libs/dele
 import {
   ensureBrowserUseHttpServer,
   disposeBrowserUseHttpServer,
-  getBrowserUseMcpDescriptor,
 } from './libs/browser-use-http-server';
 import {
   BROWSER_USE_SERVER_NAME,
@@ -4937,6 +4936,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       }
       if (row.provider === 'mimo' && runner?.provider === 'mimo') {
         return runner.mimoPermissionMode === 'build';
+      }
+      if (row.provider === 'qoder' && runner?.provider === 'qoder') {
+        return runner.qoderPermissionMode === 'bypassPermissions';
+      }
+      if (row.provider === 'bubble' && runner?.provider === 'bubble') {
+        return runner.bubblePermissionMode === 'bypassPermissions';
       }
       return false;
     },
@@ -12174,7 +12179,11 @@ function handleMcpSaveConfig(
   // 保存 Qoder 全局配置（写入 ~/.qoder/mcp.json）
   if (payload.qoderGlobalServers !== undefined) {
     try {
-      saveQoderMcpServers(payload.qoderGlobalServers);
+      // Browser Use reaches Qoder in-process per session; never persist the
+      // reserved name in its global config.
+      const incoming = { ...payload.qoderGlobalServers };
+      delete incoming[BROWSER_USE_SERVER_NAME];
+      saveQoderMcpServers(incoming);
     } catch (error) {
       console.warn('Failed to save Qoder MCP servers:', error);
     }
@@ -12183,22 +12192,11 @@ function handleMcpSaveConfig(
   // 保存 Bubble 全局配置（写入 ~/.bubble/settings.json 的 mcpServers 块）
   if (payload.bubbleGlobalServers !== undefined) {
     try {
-      // Guard the built-in browser-use entry: the settings page's snapshot
-      // may predate the HTTP server bootstrap, and writing it back verbatim
-      // would silently drop the entry (observed in the wild). Re-inject the
-      // live descriptor when the feature is enabled.
-      const incoming = payload.bubbleGlobalServers as Record<string, unknown>;
-      if (!(BROWSER_USE_SERVER_NAME in incoming)) {
-        const descriptor = getBrowserUseMcpDescriptor();
-        if (descriptor) {
-          incoming[BROWSER_USE_SERVER_NAME] = {
-            type: 'http',
-            url: descriptor.url,
-            headers: descriptor.headers,
-          };
-        }
-      }
-      saveBubbleMcpServers(incoming as never);
+      // Browser Use reaches Bubble as a per-session host tool; never persist
+      // the reserved name in its global settings.
+      const incoming = { ...payload.bubbleGlobalServers };
+      delete incoming[BROWSER_USE_SERVER_NAME];
+      saveBubbleMcpServers(incoming);
     } catch (error) {
       console.warn('Failed to save Bubble MCP servers:', error);
     }

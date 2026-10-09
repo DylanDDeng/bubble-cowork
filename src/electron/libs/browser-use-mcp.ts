@@ -1,8 +1,8 @@
 // Browser Use MCP wiring (Codex-parity, Phase 1).
 //
-// Exposes the browser-use service to Claude leads as an in-process SDK MCP
-// server (the delegate-mcp pattern) with ONE tool whose actions map to the
-// service primitives. Navigation consent rides the SAME permission pipeline
+// Exposes the browser-use service to Claude and Qoder sessions as an
+// in-process SDK MCP server (the delegate-mcp pattern) with ONE tool whose
+// actions map to the service primitives. Navigation consent rides the SAME permission pipeline
 // every tool uses: the runner passes its onPermissionRequest hook in here, so
 // the approval card the user already knows also guards agent navigation
 // (Codex's "Allow browsing for {origin}" equivalent), with per-origin
@@ -19,6 +19,7 @@ import {
   browserUseOriginOf,
   decideBrowserUseNavigation,
   rememberBrowserUseApproval,
+  requestBrowserUseNavigationConsent,
 } from './browser-use-consent';
 import type { BrowserManager } from '../browserManager';
 
@@ -84,7 +85,7 @@ async function askNavigationConsent(
   return false;
 }
 
-/** The two SDK calls an in-process MCP server needs. */
+/** The two SDK calls an in-process MCP server needs; Claude's and Qoder's SDKs share this API. */
 export type BrowserUseSdkMcpModule = Pick<ClaudeAgentSdkModule, 'createSdkMcpServer' | 'tool'>;
 
 function buildBrowserUseSdkServer(
@@ -126,5 +127,21 @@ export async function createBrowserUseMcpServer(
   const { z } = await loadZod();
   return buildBrowserUseSdkServer(sdk, z, parentSessionId, manager, (url) =>
     askNavigationConsent(parentSessionId, url, askPermission)
+  );
+}
+
+/**
+ * Qoder: the same in-process server, built with Qoder's SDK and bound to the
+ * Aegis session, so nothing is written to ~/.qoder/mcp.json. Consent goes
+ * through the session's permission card, as on the HTTP path.
+ */
+export async function createQoderBrowserUseMcpServer(
+  sessionId: string,
+  manager: BrowserManager,
+  sdk: BrowserUseSdkMcpModule
+) {
+  const { z } = await loadZod();
+  return buildBrowserUseSdkServer(sdk, z, sessionId, manager, (url) =>
+    requestBrowserUseNavigationConsent(sessionId, url)
   );
 }

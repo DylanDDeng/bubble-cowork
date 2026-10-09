@@ -118,7 +118,7 @@
     "verify:opencode-sdk-adapter": "npm run transpile:electron && node scripts/verify-opencode-sdk-adapter.mjs",
     "verify:pi-sdk-adapter": "node scripts/verify-pi-sdk-adapter.mjs",
     "verify:bubble-sdk-adapter": "node scripts/verify-bubble-sdk-adapter.mjs",
-    "verify:bubble-host": "npm run transpile:electron && node scripts/tests/bubble-host-contract.test.mjs && node scripts/tests/bubble-sdk-upgrade.test.mjs && node scripts/tests/bubble-host-electron.test.mjs",
+    "verify:bubble-host": "npm run transpile:electron && node scripts/tests/bubble-host-contract.test.mjs && node scripts/tests/bubble-sdk-upgrade.test.mjs && node scripts/tests/bubble-host-electron.test.mjs && node node_modules/electron/cli.js scripts/tests/bubble-browser-use-electron.test.cjs",
     "verify:bubble-subagent": "npx tsx scripts/tests/bubble-subagent-protocol.test.ts",
     "verify:qoder-sdk-adapter": "npm run transpile:electron && node scripts/verify-qoder-sdk-adapter.mjs",
     "verify:deepseek-sdk-adapter": "npm run transpile:electron && node scripts/verify-deepseek-sdk-adapter.mjs && npx tsx scripts/tests/deepseek-subagent-trace.test.ts",

@@ -1,4 +1,5 @@
 import { accessSync, constants as fsConstants } from 'fs';
+import type { BrowserUseSdkMcpModule } from '../browser-use-mcp';
 import { homedir } from 'os';
 import { delimiter as pathDelimiter, join } from 'path';
 
@@ -310,6 +311,9 @@ export type QoderSdkModule = {
     sessionId: string,
     options?: QoderForkSessionOptions
   ): Promise<{ sessionId: string }>;
+  /** In-process MCP servers, the same API as Claude's SDK. */
+  createSdkMcpServer?: BrowserUseSdkMcpModule['createSdkMcpServer'];
+  tool?: BrowserUseSdkMcpModule['tool'];
 };
 
 const importEsm = new Function('specifier', 'return import(specifier)') as (

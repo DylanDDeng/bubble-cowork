@@ -2,6 +2,10 @@ import { CompactionTracker } from './compaction-tracker';
 import { validUsd } from '../agent-cost';
 import { getSessionProjectSources } from '../session-store';
 import { getSessionReaderHttpConfig, SESSION_MCP_SERVER_NAME } from '../session-http-server';
+import { BROWSER_USE_SERVER_NAME } from '../browser-use';
+import { createQoderBrowserUseMcpServer } from '../browser-use-mcp';
+import { isBrowserUseEnabled } from '../browser-use-permissions';
+import { browserManager } from '../../browserManager';
 import { EventEmitter } from 'events';
 import { readFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
@@ -504,7 +508,22 @@ export class QoderSdkAdapter implements ProviderAdapter {
     const promptQueue = new QoderPromptQueue();
     const query = sdk.query({
       prompt: promptQueue,
-      options: { ...this.buildQueryOptions(sdk, input, cwd), mcpServers: { [SESSION_MCP_SERVER_NAME]: await getSessionReaderHttpConfig() } },
+      options: {
+        ...this.buildQueryOptions(sdk, input, cwd),
+        mcpServers: {
+          [SESSION_MCP_SERVER_NAME]: await getSessionReaderHttpConfig(),
+          // Browser Use runs in-process and bound to this session, like
+          // Claude's; nothing is written to ~/.qoder/mcp.json.
+          ...(isBrowserUseEnabled() && sdk.createSdkMcpServer && sdk.tool
+            ? {
+                [BROWSER_USE_SERVER_NAME]: await createQoderBrowserUseMcpServer(input.threadId, browserManager, {
+                  createSdkMcpServer: sdk.createSdkMcpServer,
+                  tool: sdk.tool,
+                }),
+              }
+            : {}),
+        },
+      },
     });
 
     let initResolve!: (sessionId: string) => void;

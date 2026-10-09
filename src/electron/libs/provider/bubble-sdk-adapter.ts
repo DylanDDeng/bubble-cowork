@@ -814,7 +814,7 @@ export class BubbleSdkAdapter implements ProviderAdapter {
       const sdk = await getBubbleSdk(session.cwd);
       const stream = sdk.runTurn(session.providerSessionId, {
         prompt,
-        hostTools: bubbleHostTools(),
+        hostTools: bubbleHostTools(session.threadId),
         ...(model ? { model } : {}),
         ...(session.permissionMode ? { mode: session.permissionMode } : {}),
         planExitMode: session.planExitMode ?? 'default',

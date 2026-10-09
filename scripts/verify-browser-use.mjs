@@ -168,8 +168,38 @@ assert.ok(
   'consent host is wired to session transcripts + runner list'
 );
 assert.ok(
-  httpServer.includes('saveQoderMcpServers') && httpServer.includes('saveOpencodeMcpServers'),
-  'qoder/opencode configs receive the browser-use entry (inside the HTTP server bootstrap)'
+  httpServer.includes('saveOpencodeMcpServers'),
+  'opencode config receives the browser-use entry (inside the HTTP server bootstrap)'
+);
+// Qoder and Bubble get Browser Use per session; their global configs carry none.
+const bootstrap = httpServer.slice(
+  httpServer.indexOf('export function ensureBrowserUseHttpServer'),
+  httpServer.indexOf('function removeSessionScopedProviderEntries')
+);
+assert.ok(
+  !/(bubble|qoder)\[BROWSER_USE_SERVER_NAME\] =/.test(bootstrap) &&
+    bootstrap.includes('removeSessionScopedProviderEntries()'),
+  'the bootstrap writes no Bubble/Qoder entry and clears ones earlier versions wrote'
+);
+const qoderAdapter = read('src/electron/libs/provider/qoder-sdk-adapter.ts');
+assert.ok(
+  qoderAdapter.includes('[BROWSER_USE_SERVER_NAME]: await createQoderBrowserUseMcpServer(input.threadId'),
+  'Qoder sessions get the in-process browser_use server bound to the Aegis session'
+);
+const bubbleAdapter = read('src/electron/libs/provider/bubble-sdk-adapter.ts');
+assert.ok(
+  bubbleAdapter.includes('hostTools: bubbleHostTools(session.threadId)') &&
+    read('src/electron/libs/bubble-session-reader.ts').includes('createBubbleBrowserUseTool(sessionId)'),
+  'Bubble turns carry a browser_use host tool bound to the Aegis session'
+);
+assert.ok(
+  read('src/electron/libs/bubble-browser-use-tool.ts').includes('mcp__${BROWSER_USE_SERVER_NAME}__browser_use'),
+  'the Bubble host tool keeps the MCP tool name (approval rules, labels, shadowing)'
+);
+assert.ok(
+  ipc.includes('return runner.qoderPermissionMode === \'bypassPermissions\';') &&
+    ipc.includes('return runner.bubblePermissionMode === \'bypassPermissions\';'),
+  'Qoder/Bubble full-access sessions skip the navigation card'
 );
 const deepseekAdapter = read('src/electron/libs/provider/deepseek-sdk-adapter.ts');
 assert.ok(
@@ -250,7 +280,7 @@ assert.ok(
 assert.ok(
   httpServer.includes('removeBrowserUseMcpEntries') &&
     httpServer.includes('getBubbleMcpServers'),
-  'bubble gets the entry; toggling off removes entries from every provider config'
+  'toggling off removes entries from every provider config, Bubble included'
 );
 assert.ok(
   httpServer.includes('getBrowserUseMcpDescriptor'),
@@ -283,15 +313,11 @@ assert.ok(
   'attribution matches OpenCode dot-notation tool names'
 );
 
+const mcpSave = ipc.slice(ipc.indexOf('if (payload.qoderGlobalServers !== undefined)'));
 assert.ok(
-  /bubble\[BROWSER_USE_SERVER_NAME\] = \{[\s\S]{0,120}type: 'http'/.test(
-    httpServer.replace(/\n\s*\/\/[^\n]*/g, '\n')
-  ),
-  'bubble entry carries type: http (the SDK parser drops typeless entries)'
-);
-assert.ok(
-  ipc.includes('Guard the built-in browser-use entry'),
-  'MCP settings saves re-inject the browser-use entry instead of dropping it'
+  /delete incoming\[BROWSER_USE_SERVER_NAME\];\s*saveQoderMcpServers\(incoming\)/.test(mcpSave) &&
+    /delete incoming\[BROWSER_USE_SERVER_NAME\];\s*saveBubbleMcpServers\(incoming\)/.test(mcpSave),
+  'MCP settings saves never persist the reserved name for Qoder/Bubble'
 );
 assert.ok(
   httpServer.includes('getDeepseekGlobalMcpServers') &&

@@ -36,6 +36,8 @@ export type BubbleUsageCost = {
 
 export type BubbleToolResult = {
   content: string;
+  /** Screenshots delivered to the model as an image observation. */
+  images?: Array<{ mimeType: 'image/png' | 'image/jpeg'; data: string }>;
   isError?: boolean;
   status?: string;
   metadata?: Record<string, unknown>;
