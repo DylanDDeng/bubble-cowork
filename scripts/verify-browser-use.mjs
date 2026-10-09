@@ -140,6 +140,20 @@ assert.ok(
   'Aegis-private Codex catalog + kimi mcp.json entries are written'
 );
 assert.ok(
+  /upsertKimiMcpServerRaw\(BROWSER_USE_SERVER_NAME, \{\s*url: info\.url,\s*bearerTokenEnvVar: BROWSER_USE_TOKEN_ENV_VAR/.test(httpServer) &&
+    !/upsertKimiMcpServerRaw\([^)]*Authorization/.test(httpServer),
+  'the Kimi entry names the token variable instead of holding the token'
+);
+assert.ok(
+  read('src/electron/ipc-handlers.ts').includes('primeBrowserUseToken();') &&
+    read('src/electron/ipc-handlers.ts').includes('releaseBrowserUseKimiEntrySync();'),
+  'the token is primed before providers start, and the Kimi entry is released on quit'
+);
+assert.ok(
+  read('src/electron/libs/delegate-http-server.ts').includes('removeKimiMcpServerRaw(DELEGATE_MCP_SERVER_NAME'),
+  'retiring the delegate also clears its Kimi copies'
+);
+assert.ok(
   httpServer.includes("'AEGIS_BROWSER_USE_TOKEN'"),
   'per-run bearer token guards the loopback server'
 );

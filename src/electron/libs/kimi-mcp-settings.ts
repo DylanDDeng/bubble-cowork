@@ -8,7 +8,10 @@ import type { McpServerConfig } from './claude-settings';
 //   - 用户级：~/.kimi/mcp.json
 //   - 项目级：<项目根>/.kimi-code/mcp.json（启动时与用户级合并）
 // 这里读写时保留文件中其它未知字段。
-const KIMI_GLOBAL_MCP_PATH = join(homedir(), '.kimi', 'mcp.json');
+// The legacy kimi-cli path (kept for the settings page); tests override it.
+function legacyMcpPath(): string {
+  return process.env.AEGIS_KIMI_LEGACY_MCP_PATH?.trim() || join(homedir(), '.kimi', 'mcp.json');
+}
 
 function projectMcpPath(projectPath: string): string {
   return join(projectPath, '.kimi-code', 'mcp.json');
@@ -20,6 +23,9 @@ interface KimiMcpEntry {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** Name of an environment variable holding the bearer token; kimi-code
+   * reads it from the daemon's environment, so no secret sits in the file. */
+  bearerTokenEnvVar?: string;
   /** Per-server MCP timeouts (ms) — highest precedence in kimi-code's
    * resolution (beats KIMI_MCP_TOOL_TIMEOUT_MS and config.toml [mcp]). */
   toolTimeoutMs?: number;
@@ -67,15 +73,32 @@ function kimiCodeMcpPath(): string {
   return join(home, 'mcp.json');
 }
 
-// 程序化 upsert 单个条目（Aegis 自己的 delegate server）：直接改 raw 文件里的
-// 这一个键，其它条目与未知字段完全不经过转换、原样保留。同时写老 CLI 路径与
-// kimi-code 路径，两个运行时都能看到。
+/**
+ * Writes one of Aegis's own entries into kimi-code's mcp.json, editing only
+ * that key (other entries and unknown fields stay as they are). The daemon
+ * reads only this file, so the same entry is removed from the legacy
+ * kimi-cli file, where earlier versions also wrote it.
+ */
 export function upsertKimiMcpServerRaw(name: string, entry: KimiMcpEntry): void {
-  for (const configPath of [KIMI_GLOBAL_MCP_PATH, kimiCodeMcpPath()]) {
-    const config = readConfig(configPath);
-    config.mcpServers = { ...(config.mcpServers || {}), [name]: entry };
-    writeConfig(configPath, config);
-  }
+  const config = readConfig(kimiCodeMcpPath());
+  config.mcpServers = { ...(config.mcpServers || {}), [name]: entry };
+  writeConfig(kimiCodeMcpPath(), config);
+  removeFrom(legacyMcpPath(), name, () => true);
+}
+
+/** Removes one of Aegis's entries from both Kimi files when `shouldRemove`
+ * accepts it (e.g. only the entry pointing at this instance's server). */
+export function removeKimiMcpServerRaw(name: string, shouldRemove: (entry: KimiMcpEntry) => boolean = () => true): void {
+  for (const configPath of [kimiCodeMcpPath(), legacyMcpPath()]) removeFrom(configPath, name, shouldRemove);
+}
+
+function removeFrom(configPath: string, name: string, shouldRemove: (entry: KimiMcpEntry) => boolean): void {
+  if (!existsSync(configPath)) return;
+  const config = readConfig(configPath);
+  const entry = config.mcpServers?.[name];
+  if (!entry || !shouldRemove(entry)) return;
+  delete config.mcpServers![name];
+  writeConfig(configPath, config);
 }
 
 // 读取指定 mcp.json 的 MCP 服务器，映射到应用内统一的 McpServerConfig。
@@ -132,11 +155,11 @@ function writeMcpServers(configPath: string, servers: Record<string, McpServerCo
 
 // 用户级 MCP 服务器（~/.kimi/mcp.json）
 export function getKimiMcpServers(): Record<string, McpServerConfig> {
-  return readMcpServers(KIMI_GLOBAL_MCP_PATH);
+  return readMcpServers(legacyMcpPath());
 }
 
 export function saveKimiMcpServers(servers: Record<string, McpServerConfig>): void {
-  writeMcpServers(KIMI_GLOBAL_MCP_PATH, servers);
+  writeMcpServers(legacyMcpPath(), servers);
 }
 
 // 项目级 MCP 服务器（<项目根>/.kimi-code/mcp.json）

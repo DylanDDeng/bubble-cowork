@@ -99,6 +99,8 @@ import { disposeDelegateHttpServer, retireDelegateMcpEntries } from './libs/dele
 import {
   ensureBrowserUseHttpServer,
   disposeBrowserUseHttpServer,
+  primeBrowserUseToken,
+  releaseBrowserUseKimiEntrySync,
 } from './libs/browser-use-http-server';
 import {
   BROWSER_USE_SERVER_NAME,
@@ -5005,6 +5007,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // All six HTTP-config providers (codex/kimi/bubble/qoder/opencode/deepseek) get
   // their entry written inside ensureBrowserUseHttpServer; disabled boots
   // clean their entries instead.
+  // Before any provider process starts: a Kimi daemon inherits the token
+  // variable its mcp.json entry names.
+  primeBrowserUseToken();
   void ensureBrowserUseHttpServer()
     .then(() => {
       // Close the startup race where a DeepSeek runtime could capture the
@@ -12444,6 +12449,8 @@ function broadcastFolderChanged(mainWindow: BrowserWindow): void {
 
 // 清理资源
 export function cleanup(): void {
+  // Our Kimi browser-use entry would point at a dead port after quit.
+  releaseBrowserUseKimiEntrySync();
   closeRemoteGateway();
   void closeFeishu();
   ipcMain.removeAllListeners('client-event');

@@ -21,7 +21,7 @@ import {
   runDelegateTask,
 } from './delegate-service';
 import { getCodexMcpServers, saveCodexMcpServers, upsertCodexMcpServer } from './codex-mcp-settings';
-import { upsertKimiMcpServerRaw } from './kimi-mcp-settings';
+import { removeKimiMcpServerRaw, upsertKimiMcpServerRaw } from './kimi-mcp-settings';
 
 export const DELEGATE_TOKEN_ENV_VAR = 'AEGIS_DELEGATE_TOKEN';
 const MCP_PATH = '/mcp';
@@ -264,18 +264,16 @@ export function writeCodexDelegateEntry(info: DelegateHttpServerInfo): void {
 }
 
 /**
- * Refresh ~/.kimi/mcp.json so kimi sessions can be delegation leads too.
- * Kimi's MCP config has no env-var indirection for auth — the header carries
- * the literal per-run token; the entry is rewritten on every launch anyway
- * (the port is ephemeral), and a stale entry outside a live Aegis fails fast.
- * toolTimeoutMs lifts kimi's MCP client above its 60s SDK default (the
+ * Refresh kimi-code's mcp.json so kimi sessions can be delegation leads too.
+ * The token stays in the environment the Kimi daemon inherits
+ * (bearerTokenEnvVar); the file never holds it. toolTimeoutMs lifts kimi's MCP client above its 60s SDK default (the
  * per-server field has the highest precedence in kimi-code's resolution), so
  * kimi leads get the same blocking delegate contract as Claude/codex.
  */
 export function writeKimiDelegateEntry(info: DelegateHttpServerInfo): void {
   upsertKimiMcpServerRaw(DELEGATE_MCP_SERVER_NAME, {
     url: info.url,
-    headers: { Authorization: `Bearer ${info.token}` },
+    bearerTokenEnvVar: DELEGATE_TOKEN_ENV_VAR,
     toolTimeoutMs: CODEX_TOOL_TIMEOUT_SEC * 1000,
   });
 }
@@ -293,11 +291,17 @@ export function disposeDelegateHttpServer(): void {
 }
 
 /**
- * Remove the delegate entry from Aegis' private Codex MCP catalog (an
- * app-owned file), only when it is exactly the entry Aegis wrote: same name
- * and a loopback URL.
+ * Remove the retired delegate entry from Aegis' private Codex MCP catalog (an
+ * app-owned file) and from both Kimi files, only when it is exactly the entry
+ * Aegis wrote: same name and a loopback URL. The Kimi copies carried the
+ * bearer token in plain text.
  */
 export function retireDelegateMcpEntries(): void {
+  try {
+    removeKimiMcpServerRaw(DELEGATE_MCP_SERVER_NAME, (entry) => /^http:\/\/127\.0\.0\.1:\d+\//.test(entry.url ?? ''));
+  } catch (error) {
+    console.warn('Failed to remove the retired kimi delegate MCP entry:', error);
+  }
   try {
     const servers = getCodexMcpServers();
     const entry = servers[DELEGATE_MCP_SERVER_NAME] as { url?: unknown } | undefined;

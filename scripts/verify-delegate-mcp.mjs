@@ -154,20 +154,20 @@ assert.equal(fs.readFileSync(userCodexConfigPath, 'utf8'), userCodexSentinel, 'u
 assert.equal(userCodexStatAfter.mtimeMs, userCodexStatBefore.mtimeMs, 'user Codex config mtime is unchanged');
 assert.equal(userCodexStatAfter.ino, userCodexStatBefore.ino, 'user Codex config inode is unchanged');
 
-// kimi lead entry: BOTH the legacy CLI path (~/.kimi/mcp.json) and the
-// kimi-code server runtime path (~/.kimi-code/mcp.json) get the endpoint —
-// the daemon only reads the latter.
-for (const rel of [['.kimi', 'mcp.json'], ['.kimi-code', 'mcp.json']]) {
-  const kimiConfig = JSON.parse(fs.readFileSync(path.join(fakeHome, ...rel), 'utf8'));
+// kimi lead entry: kimi-code's mcp.json only (the daemon reads nothing
+// else), naming the token variable the daemon inherits instead of holding the
+// token. The legacy kimi-cli file gets no copy.
+{
+  const kimiConfig = JSON.parse(fs.readFileSync(path.join(fakeHome, '.kimi-code', 'mcp.json'), 'utf8'));
   const kimiEntry = kimiConfig.mcpServers?.['aegis-delegate'];
-  assert.ok(kimiEntry, `${rel.join('/')} gets the delegate entry`);
-  assert.equal(kimiEntry.url, info.url, `${rel.join('/')} carries the live URL`);
-  assert.equal(kimiEntry.headers?.Authorization, `Bearer ${info.token}`, `${rel.join('/')} carries the bearer header`);
-  assert.equal(
-    kimiEntry.toolTimeoutMs,
-    2100 * 1000,
-    `${rel.join('/')} lifts kimi's MCP tool timeout above the 60s SDK default`
-  );
+  assert.ok(kimiEntry, '.kimi-code/mcp.json gets the delegate entry');
+  assert.equal(kimiEntry.url, info.url, 'the entry carries the live URL');
+  assert.equal(kimiEntry.bearerTokenEnvVar, 'AEGIS_DELEGATE_TOKEN', 'the entry names the token variable');
+  assert.equal(kimiEntry.headers, undefined, 'no token in the file');
+  assert.equal(kimiEntry.toolTimeoutMs, 2100 * 1000, "the entry lifts kimi's MCP tool timeout above the 60s SDK default");
+  const legacyPath = path.join(fakeHome, '.kimi', 'mcp.json');
+  const legacy = fs.existsSync(legacyPath) ? JSON.parse(fs.readFileSync(legacyPath, 'utf8')) : {};
+  assert.equal(legacy.mcpServers?.['aegis-delegate'], undefined, 'the legacy kimi-cli file gets no copy');
 }
 
 const MCP_HEADERS = {

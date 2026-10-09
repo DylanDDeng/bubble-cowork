@@ -27,9 +27,8 @@ import { isBrowserUseEnabled } from './browser-use-permissions';
 import { browserManager } from '../browserManager';
 import { upsertCodexMcpServer, getCodexMcpServers, saveCodexMcpServers } from './codex-mcp-settings';
 import {
+  removeKimiMcpServerRaw,
   upsertKimiMcpServerRaw,
-  getKimiMcpServers,
-  saveKimiMcpServers,
 } from './kimi-mcp-settings';
 import { getBubbleMcpServers, saveBubbleMcpServers } from './bubble-mcp-settings';
 import { getQoderMcpServers, saveQoderMcpServers } from './qoder-mcp-settings';
@@ -346,6 +345,27 @@ export async function createBrowserUseProviderMcpDescriptor(
   };
 }
 
+/**
+ * Fixes this run's token in the environment before any provider process
+ * starts, so a Kimi daemon spawned before the server is up still inherits the
+ * variable its mcp.json entry names.
+ */
+export function primeBrowserUseToken(): void {
+  if (!process.env[BROWSER_USE_TOKEN_ENV_VAR]) process.env[BROWSER_USE_TOKEN_ENV_VAR] = randomUUID();
+}
+
+/** On quit: drop the Kimi entry if it still points at this instance's server
+ * (another running Aegis may have rewritten it since). Synchronous. */
+export function releaseBrowserUseKimiEntrySync(): void {
+  const url = serverInfoCache?.url;
+  if (!url) return;
+  try {
+    removeKimiMcpServerRaw(BROWSER_USE_SERVER_NAME, (entry) => entry.url === url);
+  } catch (error) {
+    console.warn('Failed to remove the kimi browser-use MCP entry on quit:', error);
+  }
+}
+
 export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> {
   if (!isBrowserUseEnabled()) {
     // Disabled: make sure nothing lingers in provider configs.
@@ -401,9 +421,11 @@ export function ensureBrowserUseHttpServer(): Promise<BrowserUseHttpServerInfo> 
       console.warn('Failed to write the codex browser-use MCP entry:', error);
     }
     try {
+      // The token stays in Aegis's environment (inherited by the Kimi daemon
+      // it starts); the file names the variable, never the secret.
       upsertKimiMcpServerRaw(BROWSER_USE_SERVER_NAME, {
         url: info.url,
-        headers: { Authorization: `Bearer ${info.token}` },
+        bearerTokenEnvVar: BROWSER_USE_TOKEN_ENV_VAR,
         toolTimeoutMs: CODEX_TOOL_TIMEOUT_SEC * 1000,
       });
     } catch (error) {
@@ -473,11 +495,7 @@ export function removeBrowserUseMcpEntries(): void {
     console.warn('Failed to remove the codex browser-use MCP entry:', error);
   }
   try {
-    const kimi = getKimiMcpServers();
-    if (BROWSER_USE_SERVER_NAME in kimi) {
-      delete kimi[BROWSER_USE_SERVER_NAME];
-      saveKimiMcpServers(kimi);
-    }
+    removeKimiMcpServerRaw(BROWSER_USE_SERVER_NAME);
   } catch (error) {
     console.warn('Failed to remove the kimi browser-use MCP entry:', error);
   }
