@@ -2434,13 +2434,11 @@ export const useAppStore = create<Store>()(
         ...state.activeChannelByProject,
         [getProjectChannelKey(draftProjectCwd)]: normalizeWorkspaceChannelId(draftChannelId),
       },
+      // A new chat starts with its own empty panel; the previous chat keeps
+      // its tabs (and browser pages) for when the user switches back.
       rightPanelBySessionId: {
         ...state.rightPanelBySessionId,
-        [draft.id]: captureLiveRightPanel(
-          pickLiveRightPanel(state),
-          state.rightPanelBySessionId,
-          state.activeSessionId
-        ),
+        [draft.id]: emptyRightPanelSnapshot(),
       },
       ...layoutPatch(
         tree.placeSession(state.workspaceLayout, tree.getActiveLeaf(state.workspaceLayout).id, draft.id)
