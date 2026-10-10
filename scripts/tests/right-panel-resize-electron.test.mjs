@@ -20,8 +20,8 @@ import {useAppPreferences} from '/src/ui/store/useAppPreferences';
 import '/src/ui/index.css';
 window.qa={commits:[],renders:0,observedWidths:[],prefs:useAppPreferences};
 window.electron={designMode:{onEvent:()=>()=>{}},browser:{
- open:async()=>({sessionId:'resize-qa',open:true,page:{id:'tab',url:'about:blank',title:'Resize QA',phase:'live',loading:false,canBack:false,canForward:false,favicon:null,committedUrl:null,error:null},lastError:null,agentActive:false}),
- onState:()=>()=>{},onSendSelection:()=>()=>{},hide:window.qaNative.hide,setPanelBounds:window.qaNative.setPanelBounds,
+ open:async()=>({sessionId:'resize-qa',open:true,page:{id:'tab',url:'https://example.com/',title:'Resize QA',phase:'live',loading:false,canBack:false,canForward:false,favicon:null,committedUrl:null,error:null},lastError:null,agentActive:false}),
+ onState:()=>()=>{},onSendSelection:()=>()=>{},onCommand:()=>()=>{},onFindResult:()=>()=>{},setChromeFocus:async()=>{},hide:window.qaNative.hide,setPanelBounds:window.qaNative.setPanelBounds,
 }};
 qa.pointerEvents=[];for(const type of ['pointerdown','pointermove','pointerup','gotpointercapture','lostpointercapture'])window.addEventListener(type,e=>qa.pointerEvents.push({type,id:e.pointerId,buttons:e.buttons,x:e.clientX}),true);
 function Harness(){

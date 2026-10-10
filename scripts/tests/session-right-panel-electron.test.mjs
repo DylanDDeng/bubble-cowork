@@ -24,8 +24,8 @@ import {BrowserPanel} from '/src/ui/components/browser/BrowserPanel';
 import '/src/ui/index.css';
 window.qa={events:[]};
 window.electron={designMode:{onEvent:()=>()=>{}},browser:{
- open:async({sessionId})=>({sessionId,open:true,page:{id:sessionId,url:'about:blank',title:sessionId,phase:'live',loading:false,canBack:false,canForward:false,favicon:null,committedUrl:null,error:null},lastError:null,agentActive:false}),
- onState:()=>()=>{},onSendSelection:()=>()=>{},
+ open:async({sessionId})=>({sessionId,open:true,page:{id:sessionId,url:'https://example.com/'+sessionId,title:sessionId,phase:'live',loading:false,canBack:false,canForward:false,favicon:null,committedUrl:null,error:null},lastError:null,agentActive:false}),
+ onState:()=>()=>{},onSendSelection:()=>()=>{},onCommand:()=>()=>{},onFindResult:()=>()=>{},setChromeFocus:async()=>{},
  hide:p=>{qa.events.push({kind:'hide',id:p.sessionId});return window.qaNative.hide(p);},
  setPanelBounds:p=>{qa.events.push({kind:'bounds',id:p.sessionId});return window.qaNative.bounds(p);},
 }};
