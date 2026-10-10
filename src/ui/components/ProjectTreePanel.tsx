@@ -2615,14 +2615,16 @@ export function ProjectTreePanel({
   }, [isFullscreen]);
 
   // Fullscreen is only meaningful while a preview is open. If the preview goes
-  // away for any reason (e.g. active session change resets selection), exit
-  // fullscreen so the panel collapses back to its rail width instead of sitting
-  // expanded with just the file tree.
+  // away for any reason (closed, or a restored file is gone), exit fullscreen
+  // so the panel collapses back to its rail width instead of sitting expanded
+  // with just the file tree. Not before the saved tabs are restored: coming
+  // back to a session remounts this panel with no file open yet, and its
+  // fullscreen must survive that.
   useEffect(() => {
-    if (isFullscreen && !selectedFilePath) {
+    if (isFullscreen && fileTabsHydrated && !selectedFilePath) {
       onToggleFullscreenRef.current?.();
     }
-  }, [isFullscreen, selectedFilePath]);
+  }, [isFullscreen, fileTabsHydrated, selectedFilePath]);
 
   const handlePanelResizeStart = (event: React.MouseEvent) => {
     event.preventDefault();
