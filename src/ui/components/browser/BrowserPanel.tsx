@@ -65,6 +65,8 @@ const READOUT_TEXT_CHAR_LIMIT = 6000;
 const READOUT_LINK_LIMIT = 15;
 /** Below this toolbar width, screenshot and annotate move into the menu. */
 const COMPACT_TOOLBAR_WIDTH = 460;
+/** How long a covering dialog waits for the page's still frame. */
+const OVERLAY_FRAME_WAIT_MS = 150;
 
 interface BrowserPanelProps {
   // The chat session to inject "send to chat" output into. Null when the
@@ -187,7 +189,37 @@ export function BrowserPanel({
   const [readoutBusy, setReadoutBusy] = useState(false);
 
   const pageOverlay = pageOverlayFor(page, sessionState.agentActive);
-  const nativeViewHidden = collapsed || overlayOpen || pageOverlay !== null;
+  // An app dialog or menu over the panel: the native view (which always paints
+  // above the DOM) steps aside, and a still frame of the page stands in so the
+  // dialog's backdrop dims it like the rest of the window. The view stays up
+  // until the frame is taken, briefly.
+  const [overlayFrame, setOverlayFrame] = useState<{ ready: boolean; src: string | null } | null>(null);
+  const overlayNeedsFrame = overlayOpen && !collapsed && pageOverlay === null;
+  useEffect(() => {
+    if (!overlayOpen) {
+      setOverlayFrame(null);
+      return;
+    }
+    if (!overlayNeedsFrame) {
+      setOverlayFrame((current) => current ?? { ready: true, src: null });
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setOverlayFrame((current) => (current?.ready ? current : { ready: true, src: null }));
+    }, OVERLAY_FRAME_WAIT_MS);
+    window.electron.browser
+      .snapshot({ sessionId: browserSessionId })
+      .catch(() => null)
+      .then((src) => {
+        if (!cancelled) setOverlayFrame({ ready: true, src });
+      });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [overlayOpen, overlayNeedsFrame, browserSessionId]);
+  const nativeViewHidden = collapsed || pageOverlay !== null || (overlayOpen && overlayFrame?.ready === true);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
@@ -852,6 +884,9 @@ export function BrowserPanel({
       {/* Page area: the native page is laid over viewportRef. */}
       <div className="relative min-h-0 flex-1 bg-[var(--bg-primary)]">
         <div ref={viewportRef} className="absolute inset-0" />
+        {overlayOpen && overlayFrame?.src && pageOverlay === null ? (
+          <img data-browser-frame src={overlayFrame.src} alt="" draggable={false} className="pointer-events-none absolute inset-0 h-full w-full select-none" />
+        ) : null}
         {pageOverlay === 'empty' ? (
           <StartView
             recent={recent}

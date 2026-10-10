@@ -30,6 +30,7 @@ export const BROWSER_CHANNELS = {
   goForward: 'desktop:browser-go-forward',
   openDevTools: 'desktop:browser-open-devtools',
   capture: 'desktop:browser-capture',
+  snapshot: 'desktop:browser-snapshot',
   readPage: 'desktop:browser-read-page',
   state: 'desktop:browser-state',
   sendSelection: 'desktop:browser-send-selection',
@@ -223,6 +224,9 @@ export function registerBrowserIpc(mainWindow: BrowserWindow): void {
   });
   ipcMainHandle(BROWSER_CHANNELS.capture, (_event, input: BrowserSessionInput) =>
     browserManager.capturePage(input)
+  );
+  ipcMainHandle(BROWSER_CHANNELS.snapshot, (_event, input: BrowserSessionInput) =>
+    browserManager.snapshotPage(input)
   );
   ipcMainHandle(BROWSER_CHANNELS.readPage, (_event, input: BrowserSessionInput) =>
     browserManager.readPageContent(input)

@@ -63,6 +63,7 @@ const BROWSER_CHANNELS = {
   goForward: 'desktop:browser-go-forward',
   openDevTools: 'desktop:browser-open-devtools',
   capture: 'desktop:browser-capture',
+  snapshot: 'desktop:browser-snapshot',
   readPage: 'desktop:browser-read-page',
   state: 'desktop:browser-state',
   sendSelection: 'desktop:browser-send-selection',
@@ -1274,6 +1275,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(BROWSER_CHANNELS.openDevTools, input),
     capture: (input: BrowserSessionInput): Promise<BrowserCapturePageResult> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.capture, input),
+    snapshot: (input: BrowserSessionInput): Promise<string | null> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.snapshot, input),
     readPage: (input: BrowserSessionInput): Promise<BrowserReadoutResult> =>
       ipcRenderer.invoke(BROWSER_CHANNELS.readPage, input),
     stop: (input: BrowserSessionInput): Promise<BrowserSessionState> =>

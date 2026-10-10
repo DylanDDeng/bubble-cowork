@@ -190,7 +190,8 @@ try {
   await writeFile(path.join(tmp, 'main.cjs'), main);
   await writeFile(path.join(tmp, 'preload.cjs'), `const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('qaNative',{setPanelBounds:p=>ipcRenderer.invoke('resize:bounds',p),hide:()=>ipcRenderer.invoke('resize:hide')});`);
   server = await createServer({
-    root, configFile: path.join(root, 'vite.config.ts'),
+    // Own dep cache: sharing node_modules/.vite breaks a running dev server.
+    root, configFile: path.join(root, 'vite.config.ts'), cacheDir: path.join(tmp, 'vite-cache'),
     plugins: [{ name: 'resize-qa', enforce: 'pre', transform(source, id) {
       if (id.endsWith('/src/ui/App.tsx')) return source + '\nexport { RightUtilityWorkspace };';
     } }],

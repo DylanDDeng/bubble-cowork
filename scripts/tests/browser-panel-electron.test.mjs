@@ -16,11 +16,16 @@ const harness = `
 import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {BrowserPanel} from '/src/ui/components/browser/BrowserPanel.tsx';
+import {BrowserNativeOverlayContext} from '/src/ui/components/browser/browser-native-overlay.ts';
+import {ConfirmDialogHost,confirmDialog} from '/src/ui/components/ui/confirm-dialog.tsx';
 import '/src/ui/index.css';
 function Harness(){
  const [collapsed,setCollapsed]=React.useState(false);
- window.qa={setCollapsed};
- return <div style={{position:'relative',width:'100vw',height:'100vh'}}><BrowserPanel sessionId={null} browserSessionId="panel-qa" collapsed={collapsed} width={800} onWidthChange={()=>{}} isFullscreen={false} onToggleFullscreen={()=>{}} embedded/></div>;
+ const [overlays,setOverlays]=React.useState(()=>new Set());
+ const setOverlayOpen=React.useCallback((id,open)=>setOverlays(s=>{if(s.has(id)===open)return s;const n=new Set(s);open?n.add(id):n.delete(id);return n;}),[]);
+ const overlay=React.useMemo(()=>({hidden:overlays.size>0,setOverlayOpen}),[overlays,setOverlayOpen]);
+ window.qa={setCollapsed,confirm:()=>{window.qa.answer=confirmDialog({title:'Delete chat?',description:'QA'});}};
+ return <BrowserNativeOverlayContext.Provider value={overlay}><div style={{position:'relative',width:'100vw',height:'100vh'}}><BrowserPanel sessionId={null} browserSessionId="panel-qa" collapsed={collapsed} width={800} onWidthChange={()=>{}} isFullscreen={false} onToggleFullscreen={()=>{}} embedded/></div><ConfirmDialogHost/></BrowserNativeOverlayContext.Provider>;
 }
 createRoot(document.getElementById('root')).render(<Harness/>);
 `;
@@ -91,6 +96,20 @@ app.whenReady().then(async()=>{
   await js('document.querySelector("input[data-browser-find]").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
   await until('!document.querySelector("input[data-browser-find]")','Escape closes find');
 
+  // An app dialog over the panel: the native page steps aside and a still
+  // frame of it stands in (so the dialog shows, dimmed page behind it).
+  await js('qa.confirm()');
+  await until('!!document.querySelector("[role=dialog]")','the dialog opens');
+  await until('!!document.querySelector("img[data-browser-frame]")','a still frame of the page stands in');
+  await delay(100);
+  assert.equal(win.contentView.children.length,0,'the dialog takes the native page off screen');
+  await screenshot('4-dialog');
+  await js('[...document.querySelectorAll("[role=dialog] button")].find(b=>b.textContent==="Cancel").click()');
+  await until('!document.querySelector("[role=dialog]")','the dialog closes');
+  await delay(400);
+  assert.equal(win.contentView.children.length,1,'the page is back after the dialog');
+  assert.ok(!(await js('!!document.querySelector("img[data-browser-frame]")')),'the still frame goes with the dialog');
+
   await js('qa.setCollapsed(true)');await delay(300);
   assert.equal(win.contentView.children.length,0,'collapsing takes the page off the window');
   await js('qa.setCollapsed(false)');
@@ -111,7 +130,7 @@ app.whenReady().then(async()=>{
   await until(address+'.value==='+JSON.stringify(base+'/restored'),'address shows the restored page');
 
   assert.deepEqual(errors.filter(e=>!/No handler registered/.test(e)),[]);
-  console.log(JSON.stringify({ok:true,checks:['start view','typed host resolves and loads','back','error view + retry','find','collapse hides native view','restores the remembered page']}));
+  console.log(JSON.stringify({ok:true,checks:['start view','typed host resolves and loads','back','error view + retry','find','dialog swaps in a still frame','collapse hides native view','restores the remembered page']}));
   app.exit(0);
  }catch(e){console.error(e);console.error(errors);console.error('state at failure: page',JSON.stringify(page()),'input',await js(address+'.value'),'body',await js('document.body.innerText.slice(0,300)'));await screenshot('failure');app.exit(1)}
 });
@@ -121,7 +140,9 @@ try {
   await writeFile(path.join(tmp, 'index.html'), '<!doctype html><html><body style="margin:0"><div id="root"></div><script type="module" src="./harness.tsx"></script></body></html>');
   await writeFile(path.join(tmp, 'harness.tsx'), harness);
   await writeFile(path.join(tmp, 'main.cjs'), main);
-  server = await createServer({ root, configFile: path.join(root, 'vite.config.ts'), server: { host: '127.0.0.1', port: 0, strictPort: false } });
+  // Its own dep cache: sharing node_modules/.vite with a running dev server
+  // re-optimizes deps under it (duplicate React).
+  server = await createServer({ root, configFile: path.join(root, 'vite.config.ts'), cacheDir: path.join(tmp, 'vite-cache'), server: { host: '127.0.0.1', port: 0, strictPort: false } });
   await server.listen();
   const url = new URL(path.relative(root, tmp) + '/index.html', server.resolvedUrls.local[0]).href;
   await new Promise((resolve, reject) => {

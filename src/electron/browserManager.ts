@@ -482,6 +482,26 @@ export class BrowserManager {
     }
   }
 
+  /**
+   * A still frame of the page on screen, for the panel to show in its place
+   * while an app dialog covers it (the native view can't sit under the DOM).
+   * Small and quick: point-sized JPEG, null when there's nothing to show.
+   */
+  async snapshotPage(input: BrowserSessionInput): Promise<string | null> {
+    if (this.foreground !== input.sessionId) return null;
+    const live = this.livePage(input.sessionId);
+    if (!live) return null;
+    try {
+      const image = await live.view.contents.capturePage();
+      if (image.isEmpty()) return null;
+      const bounds = live.view.view.getBounds();
+      const frame = bounds.width > 0 ? image.resize({ width: bounds.width, quality: 'good' }) : image;
+      return `data:image/jpeg;base64,${frame.toJPEG(82).toString('base64')}`;
+    } catch {
+      return null;
+    }
+  }
+
   async readPageContent(input: BrowserSessionInput): Promise<BrowserReadoutResult> {
     const live = this.livePage(input.sessionId);
     if (!live) return { ok: false, message: NOT_LIVE };

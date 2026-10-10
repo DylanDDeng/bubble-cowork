@@ -534,6 +534,8 @@ declare global {
       goForward: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
       openDevTools: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
       capture: (input: BrowserSessionInput) => Promise<BrowserCapturePageResult>;
+      /** A still frame of the page on screen (JPEG data URL), or null. */
+      snapshot: (input: BrowserSessionInput) => Promise<string | null>;
       readPage: (input: BrowserSessionInput) => Promise<BrowserReadoutResult>;
       stop: (input: BrowserSessionInput) => Promise<BrowserSessionState>;
       find: (input: import('./shared/browser-types').BrowserFindInput) => Promise<void>;

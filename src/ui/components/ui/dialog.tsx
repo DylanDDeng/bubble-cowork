@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Dialog } from '@base-ui-components/react/dialog';
 import { cn } from '@/ui/lib/utils';
+import { useBrowserNativeOverlayRegistration } from '@/ui/components/browser/browser-native-overlay';
 
 /**
  * Base UI-backed Dialog wrapper.
@@ -50,7 +51,11 @@ Overlay.displayName = 'DialogOverlay';
 /* ---------- Content → Popup (no Portal/Overlay — consumers compose them) ---------- */
 type ContentProps = React.ComponentProps<typeof Dialog.Popup>;
 const Content = React.forwardRef<HTMLDivElement, ContentProps>(
-  ({ className, ...props }, ref) => (
+  ({ className, ...props }, ref) => {
+    // Mounted only while the dialog is up: the in-app browser's native view
+    // would otherwise paint over it.
+    useBrowserNativeOverlayRegistration(true);
+    return (
     <Dialog.Popup
       ref={ref}
       // no-drag: popups portal above the window's -webkit-app-region: drag
@@ -59,7 +64,8 @@ const Content = React.forwardRef<HTMLDivElement, ContentProps>(
       className={cn('no-drag', className)}
       {...props}
     />
-  )
+    );
+  }
 );
 Content.displayName = 'DialogContent';
 

@@ -102,7 +102,8 @@ try {
  await writeFile(path.join(tmp,'harness.tsx'),harness);
  await writeFile(path.join(tmp,'main.cjs'),main);
  await writeFile(path.join(tmp,'preload.cjs'),`const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('qaNative',{bounds:p=>ipcRenderer.invoke('qa:bounds',p),hide:p=>ipcRenderer.invoke('qa:hide',p),snapshot:()=>ipcRenderer.invoke('qa:snapshot')});`);
- server=await createServer({root,configFile:path.join(root,'vite.config.ts'),plugins:[{name:'session-panel-qa',enforce:'pre',transform(source,id){
+ // Own dep cache: sharing node_modules/.vite breaks a running dev server.
+ server=await createServer({root,configFile:path.join(root,'vite.config.ts'),cacheDir:path.join(tmp,'vite-cache'),plugins:[{name:'session-panel-qa',enforce:'pre',transform(source,id){
   if(id.endsWith('/src/ui/App.tsx'))return source+'\nexport {RightUtilityWorkspace};';
   // Negative control: reproduce the original global presence boundary.
   if(process.env.QA_OLD_PRESENCE==='1'&&id.endsWith('/SessionRightPanelPresence.tsx'))return source.replace("key={sessionId ?? '__new-session__'}",'').replace('{children(sessionChanged)}','{children(false)}');
