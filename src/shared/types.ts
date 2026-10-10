@@ -1090,6 +1090,8 @@ export type ServerEvent =
 export type WorkflowPromptKind = 'event' | 'task';
 
 export interface SessionStartPayload {
+  /** The draft chat this start promotes; its browser pages move to the new id. */
+  draftSessionId?: string;
   codexGoal?: import('./session-goal').GoalAction;
   title: string;
   prompt: string;

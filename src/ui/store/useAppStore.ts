@@ -81,6 +81,7 @@ import { StreamDeltaCoalescer } from '../utils/stream-delta-coalescer';
 import { archiveRetryStream, restoreRetryHistory } from '../utils/stream-retry';
 import { resolvesStreamRetry } from '../../shared/stream-retry';
 import { applySessionAgentSelection } from '../utils/session-model';
+import { useBrowserStateStore } from './useBrowserStateStore';
 import {
   SIDE_CHAT_PENDING_TAB,
   addRightUtilityTab,
@@ -3424,6 +3425,8 @@ function handleSessionStatus(
         pendingDraftSessionId,
         sessionId
       );
+      // The main process moved the draft's browser pages already; follow it.
+      useBrowserStateStore.getState().rekeyChat(pendingDraftSessionId, sessionId);
     }
 
     set({

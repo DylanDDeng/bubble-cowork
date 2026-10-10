@@ -242,6 +242,26 @@ app.whenReady().then(async () => {
     assert.equal(state('P3:browser:extra').page, null);
     assert.ok(live('P4'), 'other chats keep their pages');
 
+    // A draft chat promoted to a real session keeps its pages, live views and
+    // all, under the new id; their events report there; a stale page under
+    // the new id gives way.
+    browserManager.open({ sessionId: 'P5:browser:extra', initialUrl: `${base}/extra` });
+    browserManager.setPanelBounds({ sessionId: 'P5:browser:extra', viewport });
+    await until(() => state('P5:browser:extra').page.title === 'Page /extra', 'extra loads');
+    browserManager.open({ sessionId: 'S5', initialUrl: `${base}/stale` });
+    const baseView = live('P5');
+    const extraView = live('P5:browser:extra');
+    browserManager.rekeyChat('P5', 'S5');
+    assert.equal(state('P5').page, null, 'nothing is left under the draft id');
+    assert.equal(state('P5:browser:extra').page, null);
+    assert.equal(live('S5'), baseView, 'the base tab keeps its live page');
+    assert.equal(live('S5:browser:extra'), extraView, 'extra tabs keep theirs');
+    assert.equal(state('S5').page.url, `${base}/p5`, 'the stale page under the new id is replaced');
+    assert.ok(pushes.some((push) => push.sessionId === 'S5:browser:extra' && push.page), 'the new id is published');
+    browserManager.navigate({ sessionId: 'S5:browser:extra', url: `${base}/moved` });
+    await until(() => state('S5:browser:extra').page.title === 'Page /moved', 'events follow the new id');
+    assert.equal(shownChildren(), 1, 'the page on screen stays on screen');
+
     assert.throws(() => browserManager.navigate({ sessionId: 'A', url: 'file://remote/share/x.html' }), /local file/);
     // A remembered address that can't load here seeds a blank page instead of
     // failing the panel's open.
@@ -249,7 +269,7 @@ app.whenReady().then(async () => {
     assert.equal(remembered.page.url, 'about:blank');
     browserManager.close({ sessionId: 'R' });
 
-    console.log('PASS browser manager: lifecycle, find, zoom, page shortcuts, hidden navigation, kept load errors, crash recovery, agent pages, panel handoff, live page budget, close');
+    console.log('PASS browser manager: lifecycle, find, zoom, page shortcuts, hidden navigation, kept load errors, crash recovery, agent pages, panel handoff, live page budget, close, draft re-key');
   } catch (error) {
     console.error(error);
     code = 1;

@@ -883,6 +883,7 @@ export function PromptInput({
       sendEvent({
         type: 'session.start',
         payload: {
+          draftSessionId: activeSession.id,
           title: activeSession.title || 'New Chat',
           skipTitleGeneration: activeSession.draftTitleEdited || undefined,
           codexGoal: isGoal && agentSelection.provider === 'codex' ? { type: 'set', status: 'active', objective: buildGoalObjective(parseGoalInput(normalizedPrompt, true).objective, outgoingAttachments) } : undefined,

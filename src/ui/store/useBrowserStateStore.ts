@@ -20,6 +20,8 @@ interface BrowserPageMemory {
   pages: Record<string, RememberedPage>;
   remember: (state: BrowserSessionState) => void;
   forget: (browserSessionId: string) => void;
+  /** A draft chat got its real id: its pages (base tab and `:browser:` extras) move with it. */
+  rekeyChat: (fromChatId: string, toChatId: string) => void;
 }
 
 export const useBrowserStateStore = create<BrowserPageMemory>()(
@@ -47,6 +49,17 @@ export const useBrowserStateStore = create<BrowserPageMemory>()(
           const pages = { ...current.pages };
           delete pages[browserSessionId];
           return { pages };
+        }),
+      rekeyChat: (fromChatId, toChatId) =>
+        set((current) => {
+          let pages: Record<string, RememberedPage> | null = null;
+          for (const [id, page] of Object.entries(current.pages)) {
+            if (id !== fromChatId && !id.startsWith(`${fromChatId}:`)) continue;
+            pages ??= { ...current.pages };
+            delete pages[id];
+            pages[toChatId + id.slice(fromChatId.length)] = page;
+          }
+          return pages ? { pages } : current;
         }),
     }),
     { name: 'aegis:browser-pages:v2', storage: createJSONStorage(() => rendererStateStorage) }

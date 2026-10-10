@@ -130,6 +130,8 @@ export class BrowserManager {
   private readonly placement = new ViewPlacement();
   private readonly sessions = new Map<string, BrowserSessionState>();
   private readonly views = new Map<string, PageView>();
+  /** Which session each view's events report to; rekeyChat retargets it. */
+  private readonly viewOwners = new WeakMap<PageView, { sessionId: string }>();
   /** The session whose page the panel shows, and where. */
   private foreground: string | null = null;
   private viewport: BrowserViewport | null = null;
@@ -279,6 +281,53 @@ export class BrowserManager {
       this.pinned.delete(sessionId);
       this.close({ sessionId });
       this.sessions.delete(sessionId);
+    }
+  }
+
+  /**
+   * A draft chat became a real session with a new id: its browser pages (the
+   * base tab and extra ones) move to that id, live views included, so the
+   * panel finds them where it now looks and nothing reloads. A page already
+   * opened under the new id gives way.
+   */
+  rekeyChat(fromChatId: string, toChatId: string): void {
+    if (!fromChatId || !toChatId || fromChatId === toChatId) return;
+    for (const oldId of [...this.sessions.keys()]) {
+      if (!isChatBrowserSession(oldId, fromChatId)) continue;
+      const newId = toChatId + oldId.slice(fromChatId.length);
+      if (this.sessions.has(newId)) {
+        this.close({ sessionId: newId });
+        this.sessions.delete(newId);
+      }
+      const session = this.sessions.get(oldId)!;
+      this.sessions.delete(oldId);
+      session.sessionId = newId;
+      this.sessions.set(newId, session);
+      const view = this.views.get(oldId);
+      if (view) {
+        this.views.delete(oldId);
+        this.views.set(newId, view);
+        const owner = this.viewOwners.get(view);
+        if (owner) owner.sessionId = newId;
+      }
+      const order = this.offscreenOrder.get(oldId);
+      this.offscreenOrder.delete(oldId);
+      if (order !== undefined) this.offscreenOrder.set(newId, order);
+      const timer = this.idleTimers.get(oldId);
+      if (timer) {
+        clearTimeout(timer);
+        this.idleTimers.delete(oldId);
+      }
+      if (this.agentHolds.delete(oldId)) this.agentHolds.add(newId);
+      const depth = this.agentDepth.get(oldId);
+      this.agentDepth.delete(oldId);
+      if (depth !== undefined) this.agentDepth.set(newId, depth);
+      // Design mode ends with the panel that started it.
+      this.pinned.delete(oldId);
+      if (this.foreground === oldId) this.foreground = newId;
+      if (this.chromeFocus === oldId) this.chromeFocus = newId;
+      if (timer) this.scheduleIdle(newId);
+      this.publish(newId);
     }
   }
 
@@ -628,44 +677,47 @@ export class BrowserManager {
     this.dropView(sessionId);
     // Before the first page loads: the partition answers permission requests.
     installBrowserSessionPolicy(() => this.window);
-    const page = () => this.sessions.get(sessionId)?.page ?? null;
+    // The page's events follow it if its chat gets a new id (rekeyChat).
+    const owner = { sessionId };
+    const page = () => this.sessions.get(owner.sessionId)?.page ?? null;
     const view: PageView = new PageView({
       facts: (facts) => {
         const current = page();
         if (!current) return;
         absorb(current, facts);
-        this.publish(sessionId);
+        this.publish(owner.sessionId);
       },
       started: () => {
         const current = page();
         if (!current) return;
         navigationStarted(current);
-        this.publish(sessionId);
+        this.publish(owner.sessionId);
       },
       failed: (code, url) => {
         const current = page();
         if (!current) return;
         loadFailed(current, describeLoadFailure(code), url || undefined);
-        this.publish(sessionId);
+        this.publish(owner.sessionId);
       },
-      openWindow: (url) => this.openFromPage(sessionId, url),
-      contextMenu: (params) => this.showContextMenu(sessionId, view, params),
+      openWindow: (url) => this.openFromPage(owner.sessionId, url),
+      contextMenu: (params) => this.showContextMenu(owner.sessionId, view, params),
       crashed: () => {
-        this.dropView(sessionId);
+        this.dropView(owner.sessionId);
         const current = page();
         if (current) {
           suspend(current);
           current.error = 'This page stopped unexpectedly.';
-          this.publish(sessionId);
+          this.publish(owner.sessionId);
         }
-        if (this.foreground === sessionId && this.viewport) this.bringForward(sessionId, this.viewport);
+        if (this.foreground === owner.sessionId && this.viewport) this.bringForward(owner.sessionId, this.viewport);
       },
       shortcut: (action) => {
-        for (const listener of this.shortcutListeners) listener(sessionId, action);
+        for (const listener of this.shortcutListeners) listener(owner.sessionId, action);
       },
-      found: (result) => this.emitFind({ sessionId, active: result.activeMatchOrdinal, matches: result.matches }),
+      found: (result) => this.emitFind({ sessionId: owner.sessionId, active: result.activeMatchOrdinal, matches: result.matches }),
     });
     this.views.set(sessionId, view);
+    this.viewOwners.set(view, owner);
     const current = page();
     if (current) current.phase = 'live';
     return view;

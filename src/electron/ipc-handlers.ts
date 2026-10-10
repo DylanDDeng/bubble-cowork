@@ -9255,6 +9255,8 @@ async function handleSessionStart(
     teamId: normalizedTeamId,
   });
   onCreated?.(session.id);
+  // Pages opened while it was a draft now belong to the real chat.
+  if (payload.draftSessionId) browserManager.rekeyChat(payload.draftSessionId, session.id);
 
   // 更新状态为 running
   sessions.updateSessionStatus(session.id, 'running');
